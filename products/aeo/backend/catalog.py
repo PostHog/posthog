@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections import Counter, defaultdict
 from urllib.parse import urlparse
 
 from django.db import connection
@@ -50,6 +51,8 @@ PUBLISHER_DOMAINS = frozenset(
     }
 )
 RECOMPUTE_BATCH_SIZE = 1000
+# How many cited brands a competitor candidates request matches names against, whatever the catalog holds.
+MAX_COMPETITOR_CANDIDATE_BRANDS = 200
 # Each pass scans the team's stale checks; edits that keep landing are left to the next reconcile.
 RECOMPUTE_MAX_PASSES = 3
 # Offline: the bundled public suffix list, so a sync never fetches anything.
@@ -222,31 +225,45 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
     return BrandSyncResult(domains=len(domains), created=len(new_brands))
 
 
-# Answers to non-branded prompts that cite each brand's domain or a subdomain, and answers whose text has one of
-# the brand's names as a word. The name regex runs only for brands that some answer cites, so a large catalog of
-# uncited suggestions costs no regex work. Placeholder names are often common words, so a match needs both signals.
+# Hosts the window's answers cite, counted in one pass over them. Brand matching reads this list rather than the
+# answers, so a catalog that keeps growing never makes a request scan them again for every brand it holds.
+_CITED_HOSTS_SQL = f"""
+    SELECT lower(host), count(*)
+    FROM posthog_aeo_citation_check AS check_row,
+        jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(check_row.top_cited_domains) = 'array' THEN check_row.top_cited_domains ELSE '[]'::jsonb END
+        ) AS host
+    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+        AND {SEGMENT_SQL}
+    GROUP BY 1
+"""
+
+# Answers to non-branded prompts that cite each candidate's hosts, and answers whose text has one of the brand's
+# names as a word. The cited hosts arrive already mapped to their brand, so both stages join by equality and only
+# the capped set of cited brands reaches the regex. Placeholder names are often common words, so a match needs
+# both signals.
 _COMPETITOR_CANDIDATES_SQL = f"""
     WITH answered AS MATERIALIZED (
-        SELECT check_row.answer_text, check_row.top_cited_domains
+        SELECT check_row.id, check_row.answer_text, check_row.top_cited_domains
         FROM posthog_aeo_citation_check AS check_row
         WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
             AND {SEGMENT_SQL}
     ),
     citing AS (
-        SELECT brand.domain, brand.pattern, count(*) AS answers
+        SELECT mapping.domain, count(DISTINCT answered.id) AS answers
         FROM answered
-        CROSS JOIN unnest(%s::text[], %s::text[]) AS brand(domain, pattern)
-        WHERE jsonb_typeof(answered.top_cited_domains) = 'array'
-            AND EXISTS (
-                SELECT 1 FROM jsonb_array_elements_text(answered.top_cited_domains) AS host
-                WHERE lower(host) = brand.domain OR right(lower(host), length(brand.domain) + 1) = '.' || brand.domain
-            )
-        GROUP BY brand.domain, brand.pattern
+        CROSS JOIN LATERAL jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(answered.top_cited_domains) = 'array' THEN answered.top_cited_domains ELSE '[]'::jsonb END
+        ) AS cited_host
+        JOIN unnest(%s::text[], %s::text[]) AS mapping(host, domain) ON lower(cited_host) = mapping.host
+        GROUP BY mapping.domain
     ),
     counted AS (
         SELECT citing.domain, citing.answers AS citing,
-            count(*) FILTER (WHERE answered.answer_text ~* citing.pattern) AS naming
-        FROM citing CROSS JOIN answered
+            count(*) FILTER (WHERE answered.answer_text ~* brand.pattern) AS naming
+        FROM citing
+        JOIN unnest(%s::text[], %s::text[]) AS brand(domain, pattern) ON brand.domain = citing.domain
+        CROSS JOIN answered
         GROUP BY citing.domain, citing.answers
     )
     SELECT domain, naming, citing
@@ -255,6 +272,27 @@ _COMPETITOR_CANDIDATES_SQL = f"""
     ORDER BY least(naming, citing) DESC, greatest(naming, citing) DESC, domain
     LIMIT %s
 """
+
+
+def _brand_domains(host: str, domains: set[str]) -> list[str]:
+    """The candidate domains a cited host belongs to: the host itself, and every domain it sits under."""
+    labels = host.split(".")
+    return [suffix for index in range(len(labels)) if (suffix := ".".join(labels[index:])) in domains]
+
+
+def _cited_brand_hosts(rows: list[tuple[str, int]], domains: set[str]) -> tuple[list[str], list[str]]:
+    """Parallel host and brand-domain arrays for the cited hosts of the `MAX_COMPETITOR_CANDIDATE_BRANDS` most
+    cited candidates. Candidates rank by the smaller of their two counts, which never exceeds the citations, so
+    the cap only ever drops brands that were too rarely cited to reach the top of the list anyway."""
+    hosts: dict[str, list[str]] = defaultdict(list)
+    citations: Counter[str] = Counter()
+    for host, answers in rows:
+        for domain in _brand_domains(host, domains):
+            hosts[domain].append(host)
+            citations[domain] += answers
+    top = sorted(hosts, key=lambda domain: (-citations[domain], domain))[:MAX_COMPETITOR_CANDIDATE_BRANDS]
+    pairs = [(host, domain) for domain in top for host in hosts[domain]]
+    return [host for host, _ in pairs], [domain for _, domain in pairs]
 
 
 def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandidate]:
@@ -272,26 +310,25 @@ def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandida
         .only("id", "name", "domain", "aliases")
     )
     brands: dict[str, AEOBrand] = {}
-    patterns: list[str] = []
+    patterns: dict[str, str] = {}
     for brand in suggested:
         names = tuple(name for name in [brand.name, *(brand.aliases or [])] if isinstance(name, str) and name.strip())
         if names and brand.name.strip().lower() not in own_names:
             brands[brand.domain] = brand
-            patterns.append(word_pattern(names))
+            patterns[brand.domain] = word_pattern(names)
     if not brands:
         return []
     since = timezone.now() - dt.timedelta(days=COMPETITOR_CANDIDATE_DAYS)
+    segment = segment_sql_params(BrandedSegment.NON_BRANDED, own)
     with connection.cursor() as cursor:
+        cursor.execute(_CITED_HOSTS_SQL, [team_id, since, *segment])
+        hosts, mapped = _cited_brand_hosts(cursor.fetchall(), set(brands))
+        if not mapped:
+            return []
+        cited = sorted(set(mapped))
         cursor.execute(
             _COMPETITOR_CANDIDATES_SQL,
-            [
-                team_id,
-                since,
-                *segment_sql_params(BrandedSegment.NON_BRANDED, own),
-                list(brands),
-                patterns,
-                limit,
-            ],
+            [team_id, since, *segment, hosts, mapped, cited, [patterns[domain] for domain in cited], limit],
         )
         rows = cursor.fetchall()
     return [

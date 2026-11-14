@@ -290,7 +290,11 @@ class TestCompetitorCandidates(BaseTest):
                 "example.de",
             ],
         )
-        self._answer("Lantern is popular in harbors.", ["docs.lantern.example.org", "beacon.example.org"])
+        # Two hosts of the same brand in one answer stay one citing answer.
+        self._answer(
+            "Lantern is popular in harbors.",
+            ["lantern.example.org", "docs.lantern.example.org", "beacon.example.org"],
+        )
         self._answer("Try lantern.", ["beacon.example.org"])
         self._answer(
             "Lantern and Beacon.",
