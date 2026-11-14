@@ -49,6 +49,7 @@ export const INBOX_EVENTS = {
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
+    REPORT_NOT_FOUND: 'Inbox report not found',
     REPORT_ACTION: 'Inbox report action',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
@@ -667,6 +668,17 @@ export function captureInboxRankingDetailsViewed(params: {
         ranking_strength: params.strength,
         personal_tier: params.personalTier ?? null,
     })
+}
+
+/**
+ * A report link 404ed in the current project. `redirected` means another project the person can read
+ * owns the report, and the inbox sent them there. `not_accessible` means no such project exists.
+ */
+export function captureInboxReportNotFound(params: {
+    reportId: string
+    outcome: 'redirected' | 'not_accessible'
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_NOT_FOUND, { report_id: params.reportId, outcome: params.outcome })
 }
 
 export function captureInboxReportAction(params: {
