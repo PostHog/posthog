@@ -16,7 +16,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import QueryErrorCategory
+from posthog.errors import CHQueryErrorUnknownFunction, QueryErrorCategory
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.slo.types import SloOperation, SloOutcome
 
@@ -429,6 +429,7 @@ class TestRunCohortQueryFallback(unittest.TestCase):
                 QueryError("Nested filter groups in logs queries support only log_attribute filters"),
                 False,
             ),
+            ("clickhouse_invalid_query", CHQueryErrorUnknownFunction("Unknown function foo", code=46), True),
             ("query_performance", ClickHouseQueryTimeOut(), True),
         ]
     )
@@ -1395,6 +1396,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
                 QueryError("Nested filter groups in logs queries support only log_attribute filters"),
                 False,
             ),
+            ("clickhouse_invalid_query", CHQueryErrorUnknownFunction("Unknown function foo", code=46), True),
             ("query_performance", ClickHouseQueryTimeOut(), True),
         ]
     )
