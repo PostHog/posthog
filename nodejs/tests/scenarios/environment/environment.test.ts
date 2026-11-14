@@ -534,6 +534,17 @@ describe('scenario environment', () => {
             })
         })
 
+        it('drops an inherited consumer group id, so the events role joins the group a reset moves', () => {
+            const specs = roleSpecs(
+                { KAFKA_CONSUMER_GROUP_ID: 'dev-group' },
+                { url: 'http://edge' },
+                secretsOf({}),
+                STATE_DIR
+            )
+
+            expect(specs.filter(({ env }) => 'KAFKA_CONSUMER_GROUP_ID' in env)).toEqual([])
+        })
+
         it("shares the runner's secrets with the roles", () => {
             const [spec] = roleSpecs(
                 {},
