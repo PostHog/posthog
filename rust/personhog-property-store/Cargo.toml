@@ -1,0 +1,29 @@
+[package]
+name = "personhog-property-store"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+personhog-common = { path = "../personhog-common" }
+
+async-trait = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+envconfig = { workspace = true }
+futures = { workspace = true }
+metrics = { workspace = true }
+slatedb = { version = "0.18.1", default-features = false, features = ["aws", "foyer", "lz4", "zstd"] }
+slatedb-common = "0.18.1"
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rstest = "0.28"
+slatedb-common = { version = "0.18.1", features = ["test-util"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
