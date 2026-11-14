@@ -1,4 +1,3 @@
-import json
 import asyncio
 from dataclasses import dataclass, field
 from typing import Any
@@ -648,51 +647,48 @@ async def deliver_slack_gallery(
     slack_integration = SlackIntegration(integration, source="subscriptions")
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
         async_client = slack_integration.async_client(session=slack_session)
-        if not gallery.file_uploads:
-            await _send_slack_message_with_retry(
-                async_client,
-                channel=gallery.channel,
-                text=gallery.initial_comment,
-                blocks=gallery.blocks,
-                unfurl_links=False,
-                unfurl_media=False,
-            )
-            return SlackDeliveryResult(
-                main_message_sent=True,
-                total_thread_messages=0,
-                failed_thread_message_indices=[],
-                undelivered_asset_count=gallery.undelivered_asset_count,
-            )
+        await _send_slack_message_with_retry(
+            async_client,
+            channel=gallery.channel,
+            text=gallery.initial_comment,
+            blocks=gallery.blocks,
+            unfurl_links=False,
+            unfurl_media=False,
+        )
 
-        for attempt in range(3):
+        # The blocks go in their own message, because the SDK sends files.completeUploadExternal
+        # arguments in the URL and a report's blocks make it longer than Slack accepts (HTTP 414).
+        # The message is already posted, so a transient upload failure is reported, not raised:
+        # a Temporal retry would post the message again.
+        undelivered_asset_count = gallery.undelivered_asset_count
+        for attempt in range(3 if gallery.file_uploads else 0):
             try:
-                message_fields: dict[str, Any] = {"channel": gallery.channel}
-                if gallery.blocks:
-                    message_fields["blocks"] = json.dumps(gallery.blocks)
-                else:
-                    message_fields["initial_comment"] = gallery.initial_comment
-                await async_client.files_upload_v2(
-                    file_uploads=gallery.file_uploads,
-                    **message_fields,
+                await async_client.files_upload_v2(channel=gallery.channel, file_uploads=gallery.file_uploads)
+                logger.info(
+                    "deliver_slack_gallery.uploaded",
+                    subscription_id=subscription.id,
+                    file_count=len(gallery.file_uploads),
                 )
                 break
             except (TimeoutError, SlackApiError) as error:
                 if isinstance(error, SlackApiError) and error.response.get("error", "") not in _RETRYABLE_SLACK_ERRORS:
                     raise
                 if attempt >= 2:
-                    raise
+                    logger.warning(
+                        "deliver_slack_gallery.upload_failed_after_retries",
+                        subscription_id=subscription.id,
+                        file_count=len(gallery.file_uploads),
+                        exc_info=True,
+                    )
+                    undelivered_asset_count += len(gallery.file_uploads)
+                    break
                 await asyncio.sleep(2**attempt)
 
-    logger.info(
-        "deliver_slack_gallery.uploaded",
-        subscription_id=subscription.id,
-        file_count=len(gallery.file_uploads),
-    )
     return SlackDeliveryResult(
         main_message_sent=True,
         total_thread_messages=0,
         failed_thread_message_indices=[],
-        undelivered_asset_count=gallery.undelivered_asset_count,
+        undelivered_asset_count=undelivered_asset_count,
     )
 
 
