@@ -1,6 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { SESv2Client } from '@aws-sdk/client-sesv2'
+import { once } from 'events'
 import fs, {
     appendFileSync,
     existsSync,
@@ -12,7 +13,7 @@ import fs, {
     writeFileSync,
 } from 'fs'
 import http from 'http'
-import { AddressInfo } from 'net'
+import { AddressInfo, Server, Socket, createServer } from 'net'
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
@@ -40,7 +41,7 @@ import { CyclotronJobInvocation } from '~/cdp/types'
 import { convertToHogFunctionInvocationGlobals } from '~/cdp/utils'
 import { defaultConfig } from '~/common/config/config'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { KafkaProducer } from '~/common/kafka/producer'
+import { KafkaProducer, KafkaProducerWrapper } from '~/common/kafka/producer'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { InternalCaptureService } from '~/common/services/internal-capture'
@@ -90,6 +91,16 @@ afterAll(async () => {
     processMetrics.server.closeAllConnections()
     await new Promise<void>((resolve) => processMetrics.server.close(() => resolve()))
 })
+
+const failNextDisconnect = (): void => {
+    const disconnect = KafkaProducerWrapper.prototype.disconnect
+    jest.spyOn(KafkaProducerWrapper.prototype, 'disconnect').mockImplementationOnce(async function (
+        this: KafkaProducerWrapper
+    ) {
+        await disconnect.call(this)
+        throw new Error('Local: Timed out')
+    })
+}
 
 describe('runner', () => {
     let cacheHome: string
@@ -258,6 +269,60 @@ describe('runner', () => {
         20_000
     )
 
+    const stalling = async (onStalled: () => void): Promise<{ server: Server; clients: Socket[] }> => {
+        const clients: Socket[] = []
+        const server = createServer((client) => {
+            clients.push(client)
+            client.once('data', onStalled).resume()
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        return { server, clients }
+    }
+
+    it.each<[string, unknown[]]>([
+        ['the run is interrupted while the database never answers its startup', []],
+        ['the run is interrupted without a reason while the database never answers its startup', [null]],
+    ])(
+        'ends the seeding stage and requires a restart when %s',
+        async (_story, abortWith) => {
+            const interrupt = new AbortController()
+            let stalled = false
+            const { server, clients } = await stalling(() => {
+                stalled = true
+                interrupt.abort(...abortWith)
+            })
+            try {
+                const proxied = new URL(defaultConfig.DATABASE_URL)
+                proxied.hostname = '127.0.0.1'
+                proxied.port = String((server.address() as AddressInfo).port)
+                const bounded = createRunner(environment, {
+                    ...process.env,
+                    XDG_CACHE_HOME: cacheHome,
+                    DATABASE_URL: PROCESS_DATABASE_URL,
+                })
+
+                const result = await bounded.run(withSettings({ DATABASE_URL: proxied.toString() }), interrupt.signal)
+
+                expect(stalled).toBe(true)
+                expect(result).toMatchObject({
+                    status: 'invalid',
+                    statusReason:
+                        'the run stopped: seeding was interrupted; its connections were destroyed, restart required',
+                })
+                await Promise.all(clients.map((client) => (client.closed ? Promise.resolve() : once(client, 'close'))))
+                await expect(
+                    bounded.run(withSettings({ DATABASE_URL: proxied.toString() }), NEVER_ABORTED)
+                ).rejects.toThrow(
+                    /^The seeding stage of run \S+ was cut short .* Restart the runner, then run the card again\.$/
+                )
+            } finally {
+                clients.forEach((socket) => socket.destroy())
+                await new Promise((resolve) => server.close(resolve))
+            }
+        },
+        20_000
+    )
+
     it('produces with the Kafka settings the card profile names', async () => {
         const profile = path.join(cacheHome, 'profile.yaml')
         writeFileSync(
@@ -274,6 +339,30 @@ describe('runner', () => {
             status: 'invalid',
             statusReason: expect.stringMatching(/^the run stopped: .*scenario\.unknown/),
         })
+    })
+
+    it('keeps the result and its evidence when the load producer cannot flush on disconnect', async () => {
+        failNextDisconnect()
+
+        const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        const statusReason = expect.stringMatching(
+            /^the run stopped: .*127\.0\.0\.1:1\b.*; the load producer did not disconnect: Local: Timed out$/
+        )
+        expect(result).toMatchObject({ status: 'invalid', statusReason })
+        expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toMatchObject({
+            status: 'invalid',
+            statusReason,
+        })
+    })
+
+    it('refuses the next card on a runner whose load producer did not disconnect', async () => {
+        failNextDisconnect()
+        const stuck = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        await expect(runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)).rejects.toThrow(
+            `The load producer of run ${stuck.runId} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
+        )
     })
 
     it("keeps only this run's part of each role log", async () => {
@@ -725,6 +814,19 @@ describe('runner through seed, drive and judge', () => {
                     { name: 'duplicate_sends', passed: true },
                     { name: 'refused_at_intake', passed: true },
                 ],
+            },
+            undefined,
+        ],
+        [
+            'joins the failed verdict and the producer that did not disconnect',
+            'none',
+            'event_email',
+            failNextDisconnect,
+            {
+                status: 'invalid',
+                statusReason: expect.stringMatching(
+                    /^not converged: .*; at_least_once failed: .*; the load producer did not disconnect: Local: Timed out$/
+                ),
             },
             undefined,
         ],

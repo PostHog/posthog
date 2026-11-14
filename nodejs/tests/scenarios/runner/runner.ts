@@ -208,11 +208,29 @@ function withEvidenceError(verdict: RunVerdict, error: string | undefined): RunV
           }
 }
 
+type OpenPool = {
+    ending: boolean
+    end(): Promise<void>
+    _clients: { connection: { stream: { destroy(): void } } }[]
+}
+
+function destroyConnections(postgres: PostgresRouter): void {
+    const { pools } = postgres as unknown as { pools: Map<unknown, OpenPool> }
+    for (const pool of new Set(pools.values())) {
+        if (!pool.ending) {
+            void pool.end().catch(() => undefined)
+        }
+        pool._clients.forEach((client) => client.connection.stream.destroy())
+    }
+}
+
+class SeedingCutShort extends Error {}
+
 function messageOf(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
 }
 
-async function seedRun(loaded: LoadedCard, seedingUrl: string, signal: AbortSignal): Promise<SeedState> {
+async function seedWithin(loaded: LoadedCard, seedingUrl: string, signal: AbortSignal): Promise<SeedState> {
     if (signal.aborted) {
         throw new Error('seeding was interrupted')
     }
@@ -220,10 +238,29 @@ async function seedRun(loaded: LoadedCard, seedingUrl: string, signal: AbortSign
         { DATABASE_URL: seedingUrl, POSTGRES_CONNECTION_POOL_SIZE: 2 },
         'posthog-scenarios'
     )
+    const stage = (async () => {
+        try {
+            return await seed(loaded, postgres, signal)
+        } finally {
+            await postgres.end()
+        }
+    })()
+    let onStop = (): void => undefined
+    const stopped = new Promise<never>((_, reject) => {
+        onStop = () => reject(signal.reason)
+        signal.addEventListener('abort', onStop, { once: true })
+    })
     try {
-        return await seed(loaded, postgres, signal)
+        return await Promise.race([stage, stopped])
+    } catch (error) {
+        if (!signal.aborted) {
+            throw error
+        }
+        stage.catch(() => undefined)
+        destroyConnections(postgres)
+        throw new SeedingCutShort('seeding was interrupted; its connections were destroyed, restart required')
     } finally {
-        await postgres.end()
+        signal.removeEventListener('abort', onStop)
     }
 }
 
@@ -298,7 +335,14 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                     )
                     throw error
                 })
-                const seeded = await seedRun(loaded, seedingUrlOf(specs[0]), signal)
+                const seeded = await seedWithin(loaded, seedingUrlOf(specs[0]), signal).catch((error: unknown) => {
+                    if (error instanceof SeedingCutShort) {
+                        restartRequired = new Error(
+                            `The seeding stage of run ${runId} was cut short and its connections were destroyed, so a write it sent may still land in the next card. Restart the runner, then run the card again.`
+                        )
+                    }
+                    throw error
+                })
                 await judge.open(seeded)
                 const exitsBefore = environment.exits().length
                 stopHealth = watchHealth(environment)
@@ -366,7 +410,19 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 await stopHealth?.()
                 probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled
-                await producer?.disconnect()
+                try {
+                    await producer?.disconnect()
+                } catch (error) {
+                    restartRequired = new Error(
+                        `The load producer of run ${runId} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
+                    )
+                    const failed = `the load producer did not disconnect: ${messageOf(error)}`
+                    outcome = {
+                        ...outcome,
+                        status: 'invalid',
+                        statusReason: outcome.status === 'passed' ? failed : `${outcome.statusReason}; ${failed}`,
+                    }
+                }
             }
             const verdict: RunVerdict = {
                 runId,
