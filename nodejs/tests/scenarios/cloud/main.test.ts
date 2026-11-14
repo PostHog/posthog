@@ -52,8 +52,9 @@ type Setup = {
     profile?: (profile: typeof PROFILE) => unknown
     cloud?: Partial<FakeCloudOptions>
     published?: boolean
-    ssoToken?: { expiresAt: Date | string; refreshToken?: string }
+    ssoToken?: Record<string, Date | string>
     env?: NodeJS.ProcessEnv
+    arrange?: (cloud: FakeCloud) => void
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
@@ -67,23 +68,34 @@ describe('cloud controller', () => {
 
     const profilePath = (): string => path.join(dir, 'profile.yaml')
 
-    function prepare({ profile = (p) => p, cloud: options = {}, published = true, ssoToken, env = {} }: Setup = {}): {
+    function prepare({
+        profile = (p) => p,
+        cloud: options = {},
+        published = true,
+        ssoToken,
+        env = {},
+        arrange = () => undefined,
+    }: Setup = {}): {
         controller: Controller
     } {
         writeFileSync(profilePath(), stringify(profile(structuredClone(PROFILE))))
         writeFileSync(path.join(dir, 'runner.yaml'), stringify({ name: 'test-current', traffic: {}, settings: {} }))
         cloud = new FakeCloud({ now: () => now, expiration: new Date(T.getTime() + 12 * HOUR_MS), ...options })
+        arrange(cloud)
         if (ssoToken) {
             const cache = path.join(dir, '.aws', 'sso', 'cache')
             mkdirSync(cache, { recursive: true })
             const name = createHash('sha1').update(cloud.ssoSession!).digest('hex')
             writeFileSync(
                 path.join(cache, `${name}.json`),
-                JSON.stringify({
-                    ...ssoToken,
-                    expiresAt:
-                        ssoToken.expiresAt instanceof Date ? ssoToken.expiresAt.toISOString() : ssoToken.expiresAt,
-                })
+                JSON.stringify(
+                    Object.fromEntries(
+                        Object.entries(ssoToken).map(([key, value]) => [
+                            key,
+                            value instanceof Date ? value.toISOString() : value,
+                        ])
+                    )
+                )
             )
         }
         const controller: Controller = {
@@ -186,7 +198,12 @@ describe('cloud controller', () => {
     it('admits a refreshable SSO session and warns that the schedules bound it', async () => {
         const { controller } = prepare({
             cloud: { ssoSession: 'test-sso' },
-            ssoToken: { expiresAt: new Date(T.getTime() + HOUR_MS), refreshToken: 'example-refresh' },
+            ssoToken: {
+                expiresAt: new Date(T.getTime() + HOUR_MS),
+                refreshToken: 'example-refresh',
+                clientSecret: 'example-secret',
+                registrationExpiresAt: new Date(T.getTime() + 90 * 24 * HOUR_MS),
+            },
         })
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
@@ -243,6 +260,45 @@ describe('cloud controller', () => {
         ],
         ['an SSO session with no cached token', { cloud: { ssoSession: 'test-sso' } }, 'aws sso login'],
         [
+            'an SSO refresh token whose client registration ends before the run',
+            {
+                cloud: { ssoSession: 'test-sso' },
+                ssoToken: {
+                    expiresAt: new Date(T.getTime() + HOUR_MS),
+                    refreshToken: 'example-refresh',
+                    clientSecret: 'example-secret',
+                    registrationExpiresAt: new Date(T.getTime() + 2 * HOUR_MS),
+                },
+            },
+            'expire',
+        ],
+        [
+            'an SSO refresh token without its client credentials',
+            {
+                cloud: { ssoSession: 'test-sso' },
+                ssoToken: {
+                    expiresAt: new Date(T.getTime() + HOUR_MS),
+                    refreshToken: 'example-refresh',
+                    registrationExpiresAt: new Date(T.getTime() + 90 * 24 * HOUR_MS),
+                },
+            },
+            'expire',
+        ],
+        [
+            'web identity credentials with no expiry, over an SSO profile',
+            {
+                cloud: { ssoSession: 'test-sso', expiration: null },
+                ssoToken: { expiresAt: new Date(T.getTime() + 24 * HOUR_MS) },
+                env: { AWS_WEB_IDENTITY_TOKEN_FILE: '/var/run/example-token' },
+            },
+            'expiry',
+        ],
+        [
+            'a permission probe that fails for a reason other than access',
+            { arrange: (fake) => fake.failOnCall('get-schedule') },
+            'Could not check permission scheduler:GetSchedule',
+        ],
+        [
             'environment credentials with no expiry, over an SSO profile',
             {
                 cloud: { ssoSession: 'test-sso', expiration: null },
@@ -288,17 +344,50 @@ describe('cloud controller', () => {
 
     const PERSON_ROLE = 'AWSReservedSSO_administrators_0123456789abcdef'
 
-    it.each<[string, string, string, (runId: string) => string[]]>([
-        ['run', PERSON_ROLE, 'person', () => ['run', profilePath()]],
-        ['cleanup --expired', PERSON_ROLE, 'person', () => ['cleanup', profilePath(), '--expired']],
-        ['cleanup <run id>', PERSON_ROLE, 'person', (runId) => ['cleanup', profilePath(), runId]],
-        ['run', 'scenario-run-controller-copy', 'person', () => ['run', profilePath()]],
-        ['run', PERSON_ROLE, 'scenario-run-controller', () => ['run', profilePath()]],
+    const CONTROLLER = 'the scenario-run-controller role'
+    const MISMATCH = `account ${OTHER_ACCOUNT}, and the profile names 222222222222`
+
+    it.each<[string, string, string, string, string, (runId: string) => string[]]>([
+        ['run', PERSON_ROLE, 'person', OTHER_ACCOUNT, CONTROLLER, () => ['run', profilePath()]],
+        [
+            'cleanup --expired',
+            PERSON_ROLE,
+            'person',
+            OTHER_ACCOUNT,
+            CONTROLLER,
+            () => ['cleanup', profilePath(), '--expired'],
+        ],
+        [
+            'cleanup <run id>',
+            PERSON_ROLE,
+            'person',
+            OTHER_ACCOUNT,
+            CONTROLLER,
+            (runId) => ['cleanup', profilePath(), runId],
+        ],
+        ['run', 'scenario-run-controller-copy', 'person', OTHER_ACCOUNT, CONTROLLER, () => ['run', profilePath()]],
+        ['run', PERSON_ROLE, 'scenario-run-controller', OTHER_ACCOUNT, CONTROLLER, () => ['run', profilePath()]],
+        [
+            'cleanup --expired',
+            'scenario-run-controller',
+            'person',
+            '222222222222',
+            MISMATCH,
+            () => ['cleanup', profilePath(), '--expired'],
+        ],
+        [
+            'cleanup <run id>',
+            'scenario-run-controller',
+            'person',
+            '222222222222',
+            MISMATCH,
+            (runId) => ['cleanup', profilePath(), runId],
+        ],
     ])(
-        'refuses to %s as role %s with session %s, even when the profile names the account',
-        async (_, role, session, argv) => {
+        'refuses to %s as role %s with session %s for a profile naming account %s',
+        async (_, role, session, profileAccount, reason, argv) => {
             const { controller } = prepare({
-                profile: (p) => ({ ...p, account: OTHER_ACCOUNT }),
+                profile: (p) => ({ ...p, account: profileAccount }),
                 cloud: { account: OTHER_ACCOUNT },
             })
             const runId = await leaseAt(T, controller)
@@ -311,7 +400,7 @@ describe('cloud controller', () => {
 
             await expect(main(argv(runId), controller)).resolves.toBe(2)
 
-            expect(err.join('\n')).toContain('scenario-run-controller role')
+            expect(err.join('\n')).toContain(reason)
             expect(cloud.objects).toEqual(objects)
             expect(cloud.schedules).toEqual(schedules)
             expect(released(runId)).toBe(0)
@@ -412,6 +501,41 @@ describe('cloud controller', () => {
         await expect(main(['cleanup', profilePath(), 'not-a-run'], controller)).resolves.toBe(2)
 
         expect(err.join('\n')).toContain('not-a-run')
+    })
+
+    it.each<[string, string[], number]>([
+        ['run', [], 0],
+        ['cleanup', ['--expired'], 2],
+    ])('%s still releases the other expired leases when one manifest cannot be read', async (command, rest, code) => {
+        const { controller } = prepare({ cloud: { expiration: new Date(T.getTime() + 24 * HOUR_MS) } })
+        const broken = await leaseAt(T, controller)
+        const expired = await leaseAt(T, controller)
+        cloud.objects.set(`runs/${broken}/manifest.json`, 'not a manifest')
+        now = new Date(T.getTime() + 6.5 * HOUR_MS)
+
+        await expect(main([command, profilePath(), ...rest], controller)).resolves.toBe(code)
+
+        expect(released(expired)).toBe(1)
+        expect(schedulesFor(expired)).toEqual([])
+        expect(err.join('\n')).toContain(broken)
+    })
+
+    it.each<[string, (other: string) => Record<string, unknown>]>([
+        ['schedules', (other) => ({ schedules: [`scn-${other}-expiry`, `scn-${other}-expiry-retry`] })],
+        ['stack', (other) => ({ stackName: `scn-${other}` })],
+        ['run id', (other) => ({ runId: other })],
+    ])("refuses to clean up a run whose manifest names another run's %s", async (_, swap) => {
+        const { controller } = prepare()
+        const runId = await leaseAt(T, controller)
+        const other = await leaseAt(T, controller)
+        const key = `runs/${runId}/manifest.json`
+        cloud.objects.set(key, JSON.stringify({ ...parseJSON(cloud.objects.get(key)!), ...swap(other) }))
+
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain(runId)
+        expect(released(runId)).toBe(0)
+        expect(schedulesFor(other)).toHaveLength(2)
     })
 
     it('sweeps expired leases before it admits a run', async () => {

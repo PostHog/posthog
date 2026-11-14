@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { mkdtempDisposableSync, readFileSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
+import { z } from 'zod'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -26,6 +27,14 @@ const HOUR_MS = 60 * 60 * 1000
 const DELETE_STACK = 'arn:aws:scheduler:::aws-sdk:cloudformation:deleteStack'
 
 export class LeaseError extends Error {}
+
+const StoredManifest = z
+    .object({ runId: z.uuid(), stackName: z.string(), schedules: z.array(z.string()), expiresAt: z.iso.datetime() })
+    .loose()
+
+const stackNameOf = (runId: string): string => `scn-${runId}`
+
+const schedulesOf = (runId: string): string[] => [`${stackNameOf(runId)}-expiry`, `${stackNameOf(runId)}-expiry-retry`]
 
 const keyOf = (runId: string, name: string): string => `runs/${runId}/${name}`
 
@@ -121,7 +130,7 @@ export async function lease(
 ): Promise<Manifest> {
     const runId = randomUUID()
     const createdAt = controller.now()
-    const stackName = `scn-${runId}`
+    const stackName = stackNameOf(runId)
     const manifest: Manifest = {
         runId,
         owner,
@@ -131,7 +140,7 @@ export async function lease(
         createdAt: createdAt.toISOString(),
         expiresAt: new Date(createdAt.getTime() + TTL_HOURS * HOUR_MS).toISOString(),
         stackName,
-        schedules: [`${stackName}-expiry`, `${stackName}-expiry-retry`],
+        schedules: schedulesOf(runId),
         inputs: Object.fromEntries(inputs.map(({ file, sha256 }) => [file, sha256])),
     }
     const bucket = bucketOf(controller.aws, profile.baseline.evidenceBucket)
@@ -191,26 +200,45 @@ export async function release(controller: Controller, evidenceBucket: string, ma
 }
 
 export async function manifestOf(controller: Controller, evidenceBucket: string, runId: string): Promise<Manifest> {
+    let stored: unknown
     try {
-        return parseJSON(await bucketOf(controller.aws, evidenceBucket).get(keyOf(runId, 'manifest.json'))) as Manifest
+        stored = parseJSON(await bucketOf(controller.aws, evidenceBucket).get(keyOf(runId, 'manifest.json')))
     } catch (error) {
         if (error instanceof AwsError && error.code === 'NoSuchKey') {
             throw new LeaseError(`Run ${runId} has no manifest in ${evidenceBucket}.`)
         }
-        throw error
+        throw new LeaseError(`The manifest of run ${runId} cannot be read: ${(error as Error).message}`)
     }
+    const parsed = StoredManifest.safeParse(stored)
+    if (
+        !parsed.success ||
+        parsed.data.runId !== runId ||
+        parsed.data.stackName !== stackNameOf(runId) ||
+        parsed.data.schedules.join('\n') !== schedulesOf(runId).join('\n')
+    ) {
+        throw new LeaseError(
+            `The manifest of run ${runId} does not name that run's stack and schedules, so it is not used.`
+        )
+    }
+    return parsed.data as unknown as Manifest
 }
 
-export async function sweepExpired(controller: Controller, evidenceBucket: string): Promise<void> {
+export async function sweepExpired(controller: Controller, evidenceBucket: string): Promise<string[]> {
     const keys = new Set(await bucketOf(controller.aws, evidenceBucket).keys('runs/'))
     const unreleased = [...keys]
         .filter((key) => key.endsWith('/manifest.json') && key.split('/').length === 3)
         .map((key) => key.split('/')[1])
         .filter((runId) => !keys.has(keyOf(runId, 'teardown.json')))
+    const problems: string[] = []
     for (const runId of unreleased) {
-        const manifest = await manifestOf(controller, evidenceBucket, runId)
-        if (Date.parse(manifest.expiresAt) <= controller.now().getTime()) {
-            await release(controller, evidenceBucket, manifest)
+        try {
+            const manifest = await manifestOf(controller, evidenceBucket, runId)
+            if (Date.parse(manifest.expiresAt) <= controller.now().getTime()) {
+                await release(controller, evidenceBucket, manifest)
+            }
+        } catch (error) {
+            problems.push(`Could not release expired run ${runId}: ${(error as Error).message}`)
         }
     }
+    return problems
 }

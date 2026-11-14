@@ -32,6 +32,7 @@ const SERVERLESS_CLASS = 'db.serverless'
 const CONTROLLER_ROLE = 'scenario-run-controller'
 const DENIED = ['AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation', 'UnauthorizedException']
 const PROBE_ID = 'scn-permission-probe'
+const EXPECTED_MISS = /NotFound|DoesNotExist|^ValidationError$/
 
 export function estimateOf({ writerClass, readerAcu, host, admission }: CloudProfile): EstimateLine[] {
     const { rates, allowances } = admission
@@ -81,7 +82,14 @@ function printEstimate({ print }: Controller, profile: CloudProfile): number {
 
 type Session = { endsAt: Date } | { refreshable: true } | { unknown: true } | { problem: string }
 
-function cachedSsoToken(home: string, ssoSession: string): { expiresAt?: string; refreshToken?: string } | undefined {
+type SsoToken = {
+    expiresAt?: string
+    refreshToken?: string
+    clientSecret?: string
+    registrationExpiresAt?: string
+}
+
+function cachedSsoToken(home: string, ssoSession: string): SsoToken | undefined {
     const name = `${createHash('sha1').update(ssoSession).digest('hex')}.json`
     try {
         return parseJSON(readFileSync(path.join(home, '.aws', 'sso', 'cache', name), 'utf8'))
@@ -106,8 +114,8 @@ async function ssoSessionOf(aws: Aws): Promise<string> {
     return aws.text(['configure', 'get', 'sso_session', ...profile]).catch(() => '')
 }
 
-async function sessionOf({ aws, env }: Controller): Promise<Session> {
-    const ssoSession = env.AWS_ACCESS_KEY_ID ? '' : await ssoSessionOf(aws)
+async function sessionOf({ aws, env }: Controller, needed: Date): Promise<Session> {
+    const ssoSession = env.AWS_ACCESS_KEY_ID || env.AWS_WEB_IDENTITY_TOKEN_FILE ? '' : await ssoSessionOf(aws)
     if (ssoSession === '') {
         const { Expiration } = parseJSON(
             await aws.text(['configure', 'export-credentials', '--format', 'process'])
@@ -118,7 +126,8 @@ async function sessionOf({ aws, env }: Controller): Promise<Session> {
     if (token === undefined) {
         return { problem: `No SSO token is cached for ${ssoSession}. Run aws sso login --sso-session ${ssoSession}.` }
     }
-    if (token.refreshToken) {
+    const registrationEnds = Date.parse(token.registrationExpiresAt ?? '')
+    if (token.refreshToken && token.clientSecret && registrationEnds >= needed.getTime()) {
         return { refreshable: true }
     }
     return endOf(token.expiresAt)
@@ -201,6 +210,9 @@ async function missingPermissions(controller: Controller, profile: CloudProfile)
         } catch (error) {
             if (error instanceof AwsError && DENIED.includes(error.code ?? '')) {
                 missing.push(`Missing permission ${action}: ${error.stderr.trim()}`)
+            } else if (!(error instanceof AwsError && EXPECTED_MISS.test(error.code ?? ''))) {
+                const detail = error instanceof AwsError ? error.stderr.trim() : (error as Error).message
+                missing.push(`Could not check permission ${action}: ${detail}`)
             }
         }
     }
@@ -229,12 +241,15 @@ async function unorderable({ aws }: Controller, { engineVersion, writerClass }: 
     return problems
 }
 
-export async function refuseOutsideDev({ aws }: Controller): Promise<void> {
-    const { Arn } = (await aws.call(['sts', 'get-caller-identity'])) as { Arn: string }
+export async function refuseOutsideDev({ aws }: Controller, account: string): Promise<void> {
+    const { Account, Arn } = (await aws.call(['sts', 'get-caller-identity'])) as { Account: string; Arn: string }
     if (/^arn:aws:sts::\d{12}:assumed-role\/([^/]+)\//.exec(Arn)?.[1] !== CONTROLLER_ROLE) {
         throw new Error(
             `Refused: the credentials are for ${Arn}. A cloud run acts only as the ${CONTROLLER_ROLE} role, which the failover baseline creates in the dev account alone. Use a profile that assumes that role.`
         )
+    }
+    if (Account !== account) {
+        throw new Error(`Refused: the credentials are for account ${Account}, and the profile names ${account}.`)
     }
 }
 
@@ -244,16 +259,13 @@ export async function admit(
 ): Promise<{ admitted: Admitted } | { problems: string[] }> {
     const { aws, origin, now } = controller
     const problems: string[] = []
-    const identity = (await aws.call(['sts', 'get-caller-identity'])) as { Account: string; Arn: string }
-    if (identity.Account !== profile.account) {
-        problems.push(`The credentials are for account ${identity.Account}, and the profile names ${profile.account}.`)
-    }
+    const identity = (await aws.call(['sts', 'get-caller-identity'])) as { Arn: string }
     problems.push(...(await missingPermissions(controller, profile)))
 
     const needed = new Date(
         now().getTime() + TTL_HOURS * HOUR_S * 1000 + durationMs(profile.admission.teardownAllowance)
     )
-    const session = await sessionOf(controller)
+    const session = await sessionOf(controller, needed)
     if ('problem' in session) {
         problems.push(session.problem)
     } else if ('unknown' in session) {
