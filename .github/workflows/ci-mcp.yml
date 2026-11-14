@@ -500,9 +500,7 @@ jobs:
                   # debug_assert! checks that intentionally panic on data invariant
                   # violations, which would crash the service mid-test-run.
                   RUSTFLAGS: '-C debug-assertions=no'
-                  # Debuginfo is most of a dev-profile compile and of the binary it
-                  # produces. The integration tests need the service to run, not to be
-                  # debuggable, so this drops both.
+                  # Integration tests do not need debugger support.
                   CARGO_PROFILE_DEV_DEBUG: '0'
               run: cargo build -p feature-flags
 
