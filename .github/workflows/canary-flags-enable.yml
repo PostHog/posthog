@@ -338,12 +338,16 @@ jobs:
                   gh api \
                       -H 'Accept: application/vnd.github.raw' \
                       repos/PostHog/charts/contents/state/feature-flags.yaml > "$tmp"
-                  enabled=$(yq '.state["feature-flags"].canary.enabled // false' "$tmp")
-                  active_pr=$(yq '.state["feature-flags"].canary.pr_number // 0' "$tmp")
-                  target_env=$(yq '.state["feature-flags"].canary.target_environment // ""' "$tmp")
+                  # charts keys the canary row by app under the image row:
+                  # state.feature-flags.canary.feature-flags. The fallback reads the
+                  # older flat row at state.feature-flags.canary.
+                  row='(.state["feature-flags"].canary["feature-flags"] // .state["feature-flags"].canary)'
+                  enabled=$(yq "${row}.enabled // false" "$tmp")
+                  active_pr=$(yq "${row}.pr_number // 0" "$tmp")
+                  target_env=$(yq "${row}.target_environment // \"\"" "$tmp")
                   # weight may be a number or the string "auto"; if missing,
                   # fall back to "auto" (matches stable fleet per-pod traffic).
-                  weight=$(yq '.state["feature-flags"].canary.weight // "auto"' "$tmp")
+                  weight=$(yq "${row}.weight // \"auto\"" "$tmp")
                   echo "enabled=${enabled}"       >> "$GITHUB_OUTPUT"
                   echo "active_pr=${active_pr}"   >> "$GITHUB_OUTPUT"
                   echo "target_env=${target_env}" >> "$GITHUB_OUTPUT"
