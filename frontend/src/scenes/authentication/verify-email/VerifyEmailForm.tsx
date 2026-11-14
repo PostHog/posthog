@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import * as jackDawsonPng from '@posthog/brand/hoggies/png/jack-dawson'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -23,7 +23,7 @@ import { type VerifyEmailReason, verifyEmailLogic } from './verifyEmailLogic'
 
 const HedgehogExplorer = pngHoggie(explorerPng)
 const HedgehogJackDawson = pngHoggie(jackDawsonPng)
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogMailbox = pngHoggie(mailboxPng)
 
 const CHECKLIST = [
     'Wait 5 minutes, some email providers take a beat',
@@ -187,7 +187,7 @@ function CheckYourInbox(): JSX.Element {
                     We couldn't send your code just now. Open "Not seeing it?" below to send a new one.
                 </AuthBanner>
             )}
-            <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
+            <HedgehogMailbox className="block w-auto mx-auto h-28" />
             <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                 {verificationEmailSent ? 'Check your inbox' : 'Enter your code'}
             </h1>
@@ -215,7 +215,7 @@ function CheckYourInbox(): JSX.Element {
                 provider={parseInboxProvider(pendingVerification?.inboxProvider)}
                 email={verificationEmail ?? null}
                 step="verify_email"
-                className="mb-2.5"
+                className="mb-4"
             />
             <VerificationCodeEntry />
             <div className="mt-3">
