@@ -1,13 +1,13 @@
 # Live
 
-The Live screen mirrors the web's Web analytics → Live tab: users online, a world map of where visitors are, active users per minute, top pages and referrers for the last 30 minutes, a devices, browsers and countries card, and the newest events.
+Live defaults to All (globe icon), with Web and Mobile options beside More. Mobile adds screen views, DAU/WAU (24 hours/7 days), sessions, installs (24 hours/7 days), top screens and iOS/Android. All combines project activity with separate mobile metrics. Users online remains project-wide; daily and weekly metrics refresh hourly. Empty location results hide the map; pending or failed reads retain its loading or retry state.
 It reads the web's HogQL polling transport, not the event stream, so it needs no backend change.
 
 Live is the Home tab (`app/(tabs)/live/`, `/live`): the first slot of the bottom bar and the start page until the person picks another in Settings.
 Views has no Browse row for Live, because Live is Home.
 Live also opens as a pushed screen at `/views/live?from={entry}` (`app/views/live.tsx`) with the usual Back and More chrome, from the Live chip on Web analytics (`from=web_analytics`) and from deep links.
 More has "Open on web", which opens `/web/live`. Live is not a navigation pin, because it is Home.
-`LiveScreen({ from, chrome })` draws both: on Home (`chrome="tab"`) the tabs header draws the title "Live" and a Pause or Resume button (`live-pause`) left of More, the content starts with the cards, and the tabs menu has Open on web.
+`LiveScreen({ from, chrome })` draws both: on Home (`chrome="tab"`) the tabs header draws the title "Live" and the All/Web/Mobile selector left of More, the content starts with the cards, and the tabs menu has Open on web.
 Home has no dot or status line while updates succeed.
 When polling keeps failing, the header shows "Reconnecting…" until updates recover.
 The warning waits for the check in **Failures** below.
@@ -24,8 +24,8 @@ Live needs `query:read`, so it reuses the Views access check (`useFeatureAccess(
 | `src/model/adapters/live.ts`                | Pure adapters: minute buckets, ranked rows with rank changes, breakdowns, events, users online                                                   |
 | `src/features/live/liveController.ts`       | The polling controller: focus, app state, Pause, timers, failure streaks                                                                         |
 | `src/features/live/liveRead.ts`             | One read: runs the jobs two at a time and merges them into the last snapshot                                                                     |
-| `src/features/live/hooks.ts`                | `useLiveFeed`: the data source (demo or project), both pollers, users online fallback, error events. `useLiveUsersOnline`: the Live chip's count |
-| `src/features/live/LiveScreen.tsx`          | `LiveScreen({ from, chrome })` and its body, title, status line and paused banner                                                                |
+| `src/features/live/hooks.ts`                | `useLiveFeed`: the data source (demo or project), Live pollers, users online fallback, error events. `useLiveUsersOnline`: the Live chip's count |
+| `src/features/live/LiveScreen.tsx`          | `LiveScreen({ from, chrome })` and its body, title and status line                                                                               |
 | `src/features/live/LiveMapCard.tsx`         | The "Where visitors are" card                                                                                                                    |
 | `src/features/live/LiveNoTraffic.tsx`       | The Quiet and Not set up cards, then Meanwhile                                                                                                   |
 | `src/features/live/LiveMeanwhile.tsx`       | Meanwhile: two pinned views and the Inbox row, with `LiveMeanwhileRow`; `useLiveMeanwhile` reads them from the cache                             |
@@ -60,7 +60,7 @@ These jobs return counts to the app.
 The events query selects `toUnixTimestamp64Milli(timestamp)` instead of the web's `toString(timestamp)`, which is wall-clock time in the project's time zone with no offset.
 The `usersPageviews` query leaves out the web's bot column, because Live has no bot cards.
 `paths` sets `breakdown_path_cleaning` when the project has path cleaning rules, as the web does.
-A read sends `paths` or `screens`, never both. That job runs after the others and takes its form from this read's activity (see [No web traffic](#no-web-traffic)).
+Web reads paths, Mobile reads screens, and All reads both. Mobile and All also read platforms and sessions; daily and weekly metrics load separately and are cached for an hour.
 The map adds no read: the `geo` answer gives both the Countries breakdown (top six and "Other") and `LiveSnapshot.world`, every country with visitors, which the map and Visitors by country draw.
 
 Two more reads, outside the query budget:
@@ -96,16 +96,14 @@ Back on Live, the focus rule above applies: Live reads at once only when its dat
 Live spends the `live` budget family (`src/api/budget.ts`): 60 requests a minute and 900 an hour, so its polling never empties the Views or replay buckets and theirs never stop Live.
 The other families hold 25% of the published budget. Live polls by design, and at 25% a normal session would stop after about half an hour, so Live holds 75% of the published query budget.
 The buckets refill all the time, so the hourly bucket gets 15 requests back each minute.
-One read is 7 queries, or 8 with the users online count.
-In the first 10 minutes a focused screen sends up to 16 queries a minute, 1 more than the refill. After that it sends up to 8 a minute, less than the refill.
-So steady polling never empties the hourly bucket, and a focused screen keeps updating for as long as it stays open.
+Request counts depend on the selected audience; all reads use the existing budget and inactivity slowdown.
 Visitors by country sends 1 query a read, at most 3 in its first minute, while Live sends none.
 Many pulls to refresh in a row can still empty the minute bucket. Reads then fail with "Reconnecting…" until the bucket refills.
 
 ## Screen
 
-1. Title. On Home the tabs header draws "Live", with the Pause or Resume button (`live-pause`) left of More, and the content has no title row. The pushed screen draws its own title "Live" with a dot: green and pulsing while live, gray when paused or reconnecting, still with reduced motion. Its status line (`live-status`) says "Live · updated 12 s ago", "Paused", "Reconnecting…" or "Loading…", and its Pause or Resume pill (`live-pause`) sits at the right of the title.
-2. Paused banner (`live-paused-banner`): "Paused. Tap Resume to catch up." with Resume (`live-banner-resume`).
+1. Title. Home and pushed Live show the All/Web/Mobile selector beside More. The pushed screen retains its live dot and status line. There is no Pause control.
+2. Mobile activity shows DAU, WAU, sessions and installs; information buttons explain each metric.
 3. Stats (`live-stats`): Users online, Unique visitors and Pageviews, with the web's tooltips in a toast when a label is tapped. A changed number counts to its new value in 300 ms and flashes blue.
 4. Where visitors are (`live-map`): "18 countries · last 30 minutes", a world map, and "🇺🇸 United States leads with 15 visitors". Land is `segmentEmpty`; a country with visitors is blue by its share of the leading country's visitors, with the web's 30% floor toward the land color. The whole card opens Visitors by country.
 5. Active users per minute (`live-activity`): 30 stacked bars, new visitors (green) under returning visitors (blue), as the web draws them. A visitor is new in the first minute of the window that shows them. The line under the chart names the scrubbed minute, or the current one: "21:14 · 18 visitors · 9 pageviews". The last bar is in progress.
@@ -119,23 +117,23 @@ Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the
 
 The state comes from the project read and the last snapshot (`liveProjectState` in `src/model/adapters/live.ts`):
 
-| State        | When                                                                                                                      | Screen                                                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `not_set_up` | The project read says `ingested_event: false`                                                                             | No Pause. The setup card (`live-not-set-up`), then Meanwhile. The pushed screen's status says "Not receiving events yet", with a gray dot  |
-| `quiet`      | Every job answered and the window is empty: no visitor in any minute, no events, empty top lists, every breakdown total 0 | Pause stays. The Quiet card (`live-quiet`), then Meanwhile. The pushed screen's status says "Live · waiting for activity", with a gray dot |
-| `app_only`   | No pageviews, and screens: a Top screens list with rows, or a `$screen` event among the newest events                     | The usual cards: Pageviews 0, Top screens, no Top referrers, no Browsers segment                                                           |
-| `web`        | Anything else, such as server-side events without pageviews or screens, and while parts of the snapshot are missing       | The usual cards. Server-side events alone show an empty Top pages                                                                          |
+| State        | When                                                                                                                      | Screen                                                                                                                          |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `not_set_up` | The project read says `ingested_event: false`                                                                             | The setup card (`live-not-set-up`), then Meanwhile. The pushed screen's status says "Not receiving events yet", with a gray dot |
+| `quiet`      | Every job answered and the window is empty: no visitor in any minute, no events, empty top lists, every breakdown total 0 | The Quiet card (`live-quiet`), then Meanwhile. The pushed screen's status says "Live · waiting for activity", with a gray dot   |
+| `app_only`   | Mobile mode, including mobile webviews                                                                                    | Mobile metrics and screen views, Top screens, Platforms and Countries                                                           |
+| `web`        | Anything else, such as server-side events without pageviews or screens, and while parts of the snapshot are missing       | The usual cards. Server-side events alone show an empty Top pages                                                               |
 
 A project read that fails counts as unknown, so Live shows what the snapshot says and retries the project read every minute while the screen is visible, as well as on focus and return to the foreground.
 `ingested_event` turns true for anything the project ingests, also logs, traces and metrics. Such a project shows Quiet or its cards, not the setup card.
 
-**Top screens.** The top list job runs last in a read. It asks `screens` instead of `paths` when this read's activity has visitors and no pageviews (`livePathsMode`), or the last read's activity when this read's activity job failed. So an app project lists screens from its first read, and no read sends both forms.
+**Top screens.** Mobile reads screens; All keeps pages and screens separately.
 `LiveSnapshot.topPagesMode` says which form `topPages` holds, and rank badges compare rows of one form only.
 The table labels follow that retained form even when activity changes, until a query for the new form succeeds.
 
-**Quiet.** The Quiet card says "Quiet right now" and "No events in the last 30 minutes. Live keeps checking." The stats, map, chart and list cards are hidden. Polling goes on as usual, so the cards come back with the first event. The 10-second stats read waits while Quiet, because users online are not on screen, and the next 30-second read ends Quiet.
+**Quiet.** In Web mode, the Quiet card says "Quiet right now" and "No events in the last 30 minutes. Live keeps checking." The stats, map, chart and list cards are hidden. Polling goes on as usual, so the cards come back with the first event. The 10-second stats read waits while Quiet, because users online are not on screen, and the next 30-second read ends Quiet. Mobile and All retain metric cards.
 
-**Not set up.** The setup card says "Install PostHog to see live activity" and "This project has not sent an event yet. Add the web snippet or an SDK and Live fills in within a minute."
+**Not set up.** The setup card says "Install PostHog to see live activity" and "This project has not sent an event yet. Add PostHog to your website or mobile app to see activity here."
 "Open setup guide" opens `{host}/project/{id}/onboarding` on the web, where the person picks the web snippet or an SDK. It is disabled with "Not in the demo" in demo mode, and with "Not available over http" when the host is not https. "Open Views" switches to the Views tab.
 Live runs no jobs and no stats reads in this state. While the screen is seen, it reads the project again every minute, and on each focus and each return to the foreground, at most once a minute (`PROJECT_RECHECK_MS` in `hooks.ts`). These reads are outside the query budget. A pull reads it at once. When `ingested_event` turns true, the normal poller starts. When a later project read fails, Live keeps the last answer.
 
@@ -169,7 +167,8 @@ The map draws the viewBox from x 90 to 2670 and y 16 to 1172, without the empty 
 | `mobile_live_refreshed`          | `trigger`: `pull` or `resume`                                                                                                                                                    |
 | `mobile_live_paused`             | `trigger`: `button` or `background`                                                                                                                                              |
 | `mobile_live_resumed`            | `trigger`: `button` or `foreground`                                                                                                                                              |
-| `mobile_live_breakdown_changed`  | `breakdown`: `devices`, `browsers` or `countries`                                                                                                                                |
+| `mobile_live_breakdown_changed`  | `breakdown`: `devices`, `browsers`, `platforms` or `countries`                                                                                                                   |
+| `mobile_live_audience_changed`   | `preference`: `all`, `web` or `mobile`                                                                                                                                           |
 | `mobile_live_event_sheet_opened` | `kind`: `pageview`, `screen` or `other`                                                                                                                                          |
 | `mobile_live_event_action_taken` | `action`: `view_person`, `watch_recording`, `copy_distinct_id`                                                                                                                   |
 | `mobile_live_map_opened`         | `from`: `card`                                                                                                                                                                   |
@@ -186,7 +185,7 @@ Visitors come and go, page weights drift so ranks swap now and then, and an even
 Events are written up to the moment of each read, so nothing moves while paused, and the next read catches up.
 One simulator lives for the app session, so reopening Live continues the same traffic.
 Users online comes from the HogQL count in demo mode. Watch recording and View person on web are not available in the demo.
-The store demo always shows web traffic. In a development build, `EXPO_PUBLIC_DEMO_LIVE_STATE=app_only`, `quiet` or `not_set_up` shows that state instead (`liveDemoState`): app events with screen names and no browser, no events, or a project read that says `ingested_event: false`. See [TESTING.md](TESTING.md).
+The demo defaults to combined traffic. All, Web and Mobile select deterministic fixtures without network access. Development builds accept `EXPO_PUBLIC_DEMO_LIVE_STATE=quiet|not_set_up` for empty-state checks.
 
 ## Not in v1
 

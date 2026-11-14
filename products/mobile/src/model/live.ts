@@ -11,8 +11,7 @@ export interface LiveMobileMetrics {
     updatedAt: number
 }
 
-export type LiveBreakdownKind = 'devices' | 'browsers' | 'countries'
-export type LiveBreakdownDataKind = LiveBreakdownKind | 'platforms'
+export type LiveBreakdownKind = 'devices' | 'browsers' | 'countries' | 'platforms'
 
 /** The device and browser jobs' value for events without the property, such as app events without `$browser`. */
 export const UNKNOWN_BREAKDOWN = 'Unknown'

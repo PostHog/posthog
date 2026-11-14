@@ -11,7 +11,7 @@ import { Eyebrow } from '@/ui/Eyebrow'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { createStyles, useColors } from '@/ui/theme'
-import { radii } from '@/ui/tokens'
+import { radii, type } from '@/ui/tokens'
 
 import { trackLiveMeanwhileOpened } from './analytics'
 import { LiveMeanwhileRow } from './LiveMeanwhileRow'
@@ -139,9 +139,7 @@ const useStyles = createStyles(({ colors }) => ({
         gap: 4,
     },
     number: {
-        fontSize: 18,
-        lineHeight: 22,
-        fontWeight: '700',
+        ...type.sheetTitle,
         color: colors.ink,
         fontVariant: ['tabular-nums'],
     },

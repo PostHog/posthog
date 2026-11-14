@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router'
-import { type ReactElement, useCallback, useState } from 'react'
-import { Linking, RefreshControl, ScrollView, Text, View } from 'react-native'
+import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
+import { Linking, RefreshControl, ScrollView, type ScrollViewInstance, Text, View } from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
 import type { NavChrome } from '@/features/tabs/navPinStore'
@@ -21,15 +21,12 @@ import type { LiveBreakdownKind, LiveEventRow, LiveProjectState } from '@/model/
 import type { ViewEntry } from '@/model/views'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
-import { PauseIcon } from '@/ui/icons/PauseIcon'
-import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LiveDot } from '@/ui/LiveDot'
-import { Pressable44 } from '@/ui/Pressable44'
 import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
-import { iconSizes, layout, radii, type } from '@/ui/tokens'
+import { iconSizes, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
@@ -41,15 +38,19 @@ import {
 } from './analytics'
 import { useLiveFeed } from './hooks'
 import { LiveActivityCard } from './LiveActivityCard'
+import { LiveAudienceControl } from './LiveAudienceControl'
 import { LiveBreakdownCard } from './LiveBreakdownCard'
 import { LiveEventSheet } from './LiveEventSheet'
 import { LiveEventsCard } from './LiveEventsCard'
 import { LiveMapCard } from './LiveMapCard'
+import { LiveMobileMetrics } from './LiveMobileMetrics'
 import { LiveNoTraffic } from './LiveNoTraffic'
 import { LiveRankedTable } from './LiveRankedTable'
 import { LiveStats } from './LiveStats'
 import type { LiveStatus } from './liveController'
 import { statusText } from './liveFormat'
+import { useLivePreference } from './livePreference'
+import { useLiveAudienceNativeMenu } from './useLiveAudienceNativeMenu'
 
 /** A pushed screen has no bottom bar, so the toast sits low. */
 const TOAST_BOTTOM = 48
@@ -65,6 +66,7 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
     const toasts = useToasts()
     const [menuOpen, setMenuOpen] = useState(false)
     const allowed = access.state === 'ok'
+    const nativeAudienceMenu = useLiveAudienceNativeMenu(allowed && chrome === 'stack')
     const tab = chrome === 'tab'
     // The tabs layout counts Home opens once per tab switch, because this focus effect also fires when a pushed screen,
     // Settings or the chat sheet closes over Home.
@@ -98,6 +100,8 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
                 tab ? null : (
                     <ViewChrome
                         title={scrollTitle.title}
+                        accessory={allowed ? <LiveAudienceControl /> : null}
+                        nativeAccessory={nativeAudienceMenu}
                         onBack={back}
                         onMore={allowed ? () => setMenuOpen(true) : undefined}
                     />
@@ -146,6 +150,15 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
     const insets = useScreenInsets()
     const tabBottom = useTabBottomOffset()
     const tab = chrome === 'tab'
+    const scroll = useRef<ScrollViewInstance>(null)
+    const { preference } = useLivePreference()
+    const previousPreference = useRef(preference)
+    useEffect(() => {
+        if (preference !== previousPreference.current) {
+            previousPreference.current = preference
+            scroll.current?.scrollTo({ y: 0, animated: false })
+        }
+    }, [preference])
     const feed = useLiveFeed((kind) => {
         if (kind === 'refresh_failed') {
             toasts.show("Couldn't update live data. Retrying…")
@@ -155,6 +168,16 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
     const [sheetOpen, setSheetOpen] = useState(false)
     const [sheetEvent, setSheetEvent] = useState<LiveEventRow | null>(null)
     const { snapshot, state } = feed
+    const detectedAudience = snapshot.profile?.kind ?? (state === 'app_only' ? 'mobile' : 'unknown')
+    const audience =
+        snapshot.profile && snapshot.profile.kind !== 'unknown'
+            ? snapshot.profile.kind
+            : state === 'app_only'
+              ? 'mobile'
+              : 'web'
+    const mobile = audience === 'mobile'
+    const mixed = audience === 'mixed'
+    const hasMobile = mobile || mixed
     const contentTop = topOffset(insets, tab ? LIVE_TAB_CONTENT_TOP : SCREEN_CONTENT_TOP)
     const contentBottom = tab ? tabBottom : bottomOffset(insets, 48)
 
@@ -168,10 +191,20 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
         setBreakdown(kind)
     }
 
-    // A project with no events runs no reads, so there is nothing to pause.
-    const pausable = state !== 'not_set_up'
-    const togglePause = feed.paused ? feed.resume : feed.pause
-    const nothingYet = Object.values(snapshot).every((part) => part === null)
+    const nothingYet = [
+        snapshot.activity,
+        snapshot.topPages,
+        snapshot.topScreens,
+        snapshot.topReferrers,
+        snapshot.devices,
+        snapshot.browsers,
+        snapshot.platforms,
+        snapshot.countries,
+        snapshot.world,
+        snapshot.events,
+        snapshot.usersOnline,
+        snapshot.mobileMetrics,
+    ].every((part) => part == null)
     let content: ReactElement
     if (feed.loadFailed && !feed.reading) {
         content = (
@@ -185,7 +218,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
             />
         )
     } else if (state === 'quiet' || state === 'not_set_up') {
-        content = <LiveNoTraffic state={state} scope={scope} />
+        content = <LiveNoTraffic state={state} scope={scope} mobile={mobile} />
     } else if (nothingYet) {
         content = (
             <View testID="live-loading">
@@ -195,9 +228,13 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
     } else {
         const activity = snapshot.activity
         // A failed top-list query retains rows that may differ from the current project's activity.
-        const appOnly = state === 'app_only'
-        const screens = snapshot.topPagesMode === 'screens'
-        const kinds = liveBreakdownKinds(snapshot)
+        const appOnly = mobile || state === 'app_only'
+        const screens = mobile || snapshot.topPagesMode === 'screens'
+        const kinds: LiveBreakdownKind[] = mobile
+            ? ['platforms', 'countries']
+            : mixed
+              ? ['platforms', ...liveBreakdownKinds(snapshot)]
+              : liveBreakdownKinds(snapshot)
         const shownBreakdown = kinds.includes(breakdown) ? breakdown : kinds[0]
         content = (
             <View style={styles.cards}>
@@ -206,16 +243,50 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                     uniqueVisitors={activity?.uniqueVisitors ?? null}
                     pageviews={activity?.pageviews ?? null}
                     onAbout={(text) => toasts.show(text)}
+                    audience={hasMobile ? (mixed ? 'mixed' : 'mobile') : 'web'}
+                    metrics={
+                        mobile
+                            ? [
+                                  {
+                                      key: 'users-online',
+                                      label: 'Users online',
+                                      value: feed.usersOnline,
+                                      about: 'People active across this project right now.',
+                                  },
+                                  {
+                                      key: 'active-users',
+                                      label: 'Active users',
+                                      value: activity?.uniqueVisitors ?? null,
+                                      about: 'Distinct users in the last 30 minutes.',
+                                  },
+                                  {
+                                      key: 'screenviews',
+                                      label: 'Screen views',
+                                      value: activity?.screenviews ?? null,
+                                      about: 'Total mobile screens viewed in the last 30 minutes.',
+                                  },
+                              ]
+                            : undefined
+                    }
                 />
-                <LiveMapCard world={snapshot.world} paused={feed.paused} />
-                <LiveActivityCard activity={activity} />
+                {hasMobile ? <LiveMobileMetrics metrics={snapshot.mobileMetrics} onAbout={toasts.show} /> : null}
+                {snapshot.world?.countries.length === 0 ? null : (
+                    <LiveMapCard
+                        world={snapshot.world}
+                        paused={feed.paused}
+                        users={hasMobile}
+                        mobileOnly={mobile}
+                        webOnly={detectedAudience === 'web'}
+                    />
+                )}
+                <LiveActivityCard activity={activity} audience={hasMobile ? (mixed ? 'mixed' : 'mobile') : 'web'} />
                 {/* Keyed by form, so a switch between pages and screens redraws the rows instead of sliding them. */}
                 {screens ? (
                     <LiveRankedTable
                         key="screens"
                         title="Top screens (last 30 minutes)"
                         columnLabel="Screen"
-                        rows={snapshot.topPages}
+                        rows={snapshot.topScreens ?? snapshot.topPages}
                         emptyText="No screen views recorded in the last 30 minutes"
                         version={feed.updatedAt}
                         testID="live-top-screens"
@@ -232,6 +303,16 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                         testID="live-top-pages"
                     />
                 )}
+                {mixed && !screens ? (
+                    <LiveRankedTable
+                        title="Top screens (last 30 minutes)"
+                        columnLabel="Screen"
+                        rows={snapshot.topScreens ?? null}
+                        emptyText="No screen views recorded in the last 30 minutes"
+                        version={feed.updatedAt}
+                        testID="live-top-screens"
+                    />
+                ) : null}
                 {appOnly ? null : (
                     <LiveRankedTable
                         title="Top referrers (last 30 minutes)"
@@ -247,11 +328,16 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                     <LiveBreakdownCard
                         kinds={kinds}
                         kind={shownBreakdown}
-                        breakdown={snapshot[shownBreakdown]}
+                        breakdown={snapshot[shownBreakdown] ?? null}
                         onChange={changeBreakdown}
                     />
                 ) : null}
-                <LiveEventsCard events={snapshot.events} onOpen={openEvent} screenActive={feed.screenActive} />
+                <LiveEventsCard
+                    events={snapshot.events}
+                    onOpen={openEvent}
+                    screenActive={feed.screenActive}
+                    audience={hasMobile ? (mixed ? 'mixed' : 'mobile') : 'web'}
+                />
             </View>
         )
     }
@@ -262,10 +348,11 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 <TabHeaderPublisher
                     tab="live"
                     status={feed.status === 'reconnecting' ? 'Reconnecting…' : null}
-                    pause={pausable ? { paused: feed.paused, onPress: togglePause } : null}
+                    liveAudience
                 />
             ) : null}
             <ScrollView
+                ref={scroll}
                 contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
                 onScroll={scrollTitle.onScroll}
                 scrollEventThrottle={16}
@@ -281,20 +368,17 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 }
                 testID="live-scroll"
             >
-                {/* On a tab the shared tabs header draws the title and Pause. */}
+                {/* On a tab the shared tabs header draws the title. */}
                 {tab ? null : (
                     <LiveTitle
                         status={feed.status}
                         state={state}
                         screenActive={feed.screenActive}
                         updatedAt={feed.updatedAt}
-                        paused={feed.paused}
-                        pausable={pausable}
-                        onTogglePause={togglePause}
                         onTitleLayout={scrollTitle.onTitleLayout}
+                        audience={detectedAudience}
                     />
                 )}
-                {feed.paused ? <PausedBanner onResume={feed.resume} /> : null}
                 {content}
             </ScrollView>
             <LiveEventSheet
@@ -310,34 +394,30 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
 }
 
 interface LiveTitleProps {
+    audience: 'web' | 'mobile' | 'mixed' | 'unknown'
     status: LiveStatus
     state: LiveProjectState | null
     screenActive: boolean
     updatedAt: number | null
-    paused: boolean
-    pausable: boolean
-    onTogglePause: () => void
     onTitleLayout: ScrollTitleState['onTitleLayout']
 }
 
 /** The pushed screen's title block. */
-function LiveTitle({
-    status,
-    state,
-    screenActive,
-    updatedAt,
-    paused,
-    pausable,
-    onTogglePause,
-    onTitleLayout,
-}: LiveTitleProps): ReactElement {
-    const colors = useColors()
+function LiveTitle({ audience, status, state, screenActive, updatedAt, onTitleLayout }: LiveTitleProps): ReactElement {
     const styles = useStyles()
     const on = status === 'live' && state !== 'quiet' && state !== 'not_set_up'
     return (
         <View style={styles.titleBlock}>
             <View onLayout={onTitleLayout}>
-                <Eyebrow>Web analytics</Eyebrow>
+                <Eyebrow>
+                    {audience === 'mobile'
+                        ? 'Mobile analytics'
+                        : audience === 'mixed'
+                          ? 'Web + mobile analytics'
+                          : audience === 'unknown'
+                            ? 'Activity analytics'
+                            : 'Web analytics'}
+                </Eyebrow>
                 <View style={styles.titleRow}>
                     <View style={styles.titleText}>
                         <Text style={styles.title} accessibilityRole="header">
@@ -345,22 +425,6 @@ function LiveTitle({
                         </Text>
                         <LiveDot on={on} animate={screenActive} />
                     </View>
-                    {pausable ? (
-                        <Pressable44
-                            onPress={onTogglePause}
-                            accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
-                            pressedBackground={colors.pressed}
-                            style={styles.pauseButton}
-                            testID="live-pause"
-                        >
-                            {paused ? (
-                                <PlayIcon size={12} color={colors.ink} />
-                            ) : (
-                                <PauseIcon size={16} color={colors.ink} />
-                            )}
-                            <Text style={styles.pauseText}>{paused ? 'Resume' : 'Pause'}</Text>
-                        </Pressable44>
-                    ) : null}
                 </View>
             </View>
             <LiveStatusLine status={status} state={state} screenActive={screenActive} updatedAt={updatedAt} />
@@ -384,26 +448,6 @@ function LiveStatusLine({ status, state, screenActive, updatedAt }: LiveStatusLi
         <Text style={styles.status} accessibilityLiveRegion="polite" testID="live-status">
             {statusText(status, updatedAt, now, state)}
         </Text>
-    )
-}
-
-function PausedBanner({ onResume }: { onResume: () => void }): ReactElement {
-    const colors = useColors()
-    const styles = useStyles()
-    return (
-        <View style={styles.banner} testID="live-paused-banner">
-            <Text style={styles.bannerText}>Paused. Tap Resume to catch up.</Text>
-            <Pressable44
-                onPress={onResume}
-                accessibilityLabel="Resume live updates"
-                pressedBackground={colors.pressed}
-                style={styles.pauseButton}
-                testID="live-banner-resume"
-            >
-                <PlayIcon size={12} color={colors.ink} />
-                <Text style={styles.pauseText}>Resume</Text>
-            </Pressable44>
-        </View>
     )
 }
 
@@ -445,38 +489,5 @@ const useStyles = createStyles(({ colors }) => ({
         minHeight: 18,
         color: colors.tertiary,
         fontVariant: ['tabular-nums'],
-    },
-    pauseButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        height: 40,
-        paddingHorizontal: 16,
-        borderRadius: radii.pill,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.surface,
-    },
-    pauseText: {
-        ...type.buttonSmall,
-        color: colors.ink,
-    },
-    banner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        marginBottom: 12,
-        paddingVertical: 10,
-        paddingLeft: 14,
-        paddingRight: 10,
-        borderRadius: radii.card,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        backgroundColor: colors.surface,
-    },
-    bannerText: {
-        ...type.bodySmall,
-        flex: 1,
-        color: colors.ink,
     },
 }))

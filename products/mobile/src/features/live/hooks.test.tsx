@@ -8,6 +8,7 @@ import { track } from '@/lib/analytics'
 import { RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
 
 import { useLiveFeed, useLiveUsersOnline, useLiveWorld } from './hooks'
+import { useLivePreference } from './livePreference'
 import { clearLiveWorldShare, useLiveWorldShare } from './liveWorldStore'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -89,6 +90,20 @@ function fakeLiveAnswer(query: Record<string, unknown>): unknown {
     })
     const event = traffic === 'app' ? ['e1', '$screen', 'person-1', Date.now(), null, 'Home', null, null] : null
     switch ((query.tags as { name: string }).name) {
+        case 'live_mobile_metrics':
+            return { results: [[3, 8, 2, 5, 100]] }
+        case 'live_mobile_sessions':
+            return { results: [[2, 3]] }
+        case 'live_screens':
+            return {
+                results:
+                    traffic === 'app'
+                        ? [
+                              ['Home', 3],
+                              ['Settings', 1],
+                          ]
+                        : [],
+            }
         case 'live_users_pageviews':
             return { results: traffic === 'none' ? [] : [[minute, 3, 3, traffic === 'web' ? 4 : 0]] }
         case 'live_device_breakdown':
@@ -114,6 +129,9 @@ const CLOUD = 'https://us.posthog.com'
 function liveProject(project: LiveProjectApi, start: Traffic, host: string = SELF_HOSTED): void {
     mockMode = 'live'
     mockScope = { host, projectId: nextProjectId++ }
+    const chosen = renderHook(() => useLivePreference())
+    act(() => chosen.result.current.setPreference('web'))
+    chosen.unmount()
     traffic = start
     mockFetchProject.mockResolvedValue(project)
     mockFetchQuery.mockImplementation(async (query) => fakeLiveAnswer(query))
@@ -136,14 +154,118 @@ async function refocus(rerender: (props: unknown) => void): Promise<void> {
     await advance(0)
 }
 
-function pathsEventsAsked(): string[] {
-    return mockFetchQuery.mock.calls
-        .map(([query]) => query)
-        .filter((query) => query.kind === 'TrendsQuery')
-        .map((query) => (query.series as { event: string }[])[0]?.event ?? '')
-}
-
 describe('useLiveFeed', () => {
+    test('a failed audience switch shows a load error and retries the selected audience', async () => {
+        liveProject({ ingested_event: true }, 'web')
+        const { result } = renderHook(() => ({ feed: useLiveFeed(() => undefined), selection: useLivePreference() }))
+        await advance(0)
+        expect(result.current.feed.snapshot.activity).not.toBeNull()
+        mockFetchQuery.mockRejectedValue(new Error('offline'))
+        act(() => result.current.selection.setPreference('mobile'))
+        await advance(0)
+        expect(result.current.feed.snapshot.activity).toBeNull()
+        expect(result.current.feed.loadFailed).toBe(true)
+        traffic = 'app'
+        mockFetchQuery.mockImplementation(async (query) => fakeLiveAnswer(query))
+        act(() => result.current.feed.retry())
+        await advance(0)
+        expect(result.current.feed.snapshot.profile?.kind).toBe('mobile')
+        expect(result.current.feed.snapshot.activity).not.toBeNull()
+        expect(result.current.feed.loadFailed).toBe(false)
+    })
+
+    test('live activity and sessions load before the slow mobile metrics finish', async () => {
+        liveProject({ ingested_event: true }, 'app')
+        const chosen = renderHook(() => useLivePreference())
+        act(() => chosen.result.current.setPreference('all'))
+        let finish: ((answer: unknown) => void) | undefined
+        mockFetchQuery.mockImplementation((query) =>
+            (query.tags as { name: string }).name === 'live_mobile_metrics'
+                ? new Promise((resolve) => {
+                      finish = resolve
+                  })
+                : Promise.resolve(fakeLiveAnswer(query))
+        )
+        const { result } = await renderFeed()
+        await advance(0)
+        expect(result.current.snapshot.activity).not.toBeNull()
+        expect(result.current.snapshot.mobileMetrics?.sessions).toBe(2)
+        expect(result.current.snapshot.mobileMetrics?.dailyActiveUsers).toBeNull()
+        act(() => finish?.({ results: [[3, 8, 2, 5, 100]] }))
+        await advance(0)
+        expect(result.current.snapshot.mobileMetrics?.dailyActiveUsers).toBe(3)
+        expect(result.current.snapshot.mobileMetrics?.sessions).toBe(2)
+    })
+
+    test('failed slow refreshes retain metrics, warn, and recover through retry', async () => {
+        liveProject({ ingested_event: true }, 'app')
+        const chosen = renderHook(() => useLivePreference())
+        act(() => chosen.result.current.setPreference('all'))
+        const { result } = await renderFeed()
+        await advance(0)
+        const before = result.current.snapshot.mobileMetrics
+        expect(before?.dailyActiveUsers).toBe(3)
+        mockFetchQuery.mockImplementation(async (query) => {
+            if ((query.tags as { name: string }).name === 'live_mobile_metrics') throw new Error('offline')
+            return fakeLiveAnswer(query)
+        })
+        await advance(60 * 60_000)
+        await advance(RECONNECT_NOTICE_DELAY_MS)
+        expect(result.current.snapshot.mobileMetrics?.dailyActiveUsers).toBe(3)
+        expect(result.current.snapshot.mobileMetrics?.updatedAt).toBe(before?.updatedAt)
+        expect(result.current.status).toBe('reconnecting')
+        mockFetchQuery.mockImplementation(async (query) => fakeLiveAnswer(query))
+        await advance(60_000)
+        act(() => result.current.retry())
+        await advance(0)
+        expect(result.current.status).toBe('live')
+        expect(result.current.snapshot.mobileMetrics?.updatedAt).toBeGreaterThan(before?.updatedAt ?? 0)
+    })
+
+    test('an audience selected during a read starts immediately after the old read finishes', async () => {
+        const { result } = renderHook(() => ({ feed: useLiveFeed(() => undefined), preference: useLivePreference() }))
+        await advance(0)
+        await advance(LIVE_DEMO_READ_MS)
+        expect(result.current.feed.reading).toBe(true)
+        act(() => result.current.preference.setPreference('mobile'))
+        await advance(5000)
+        expect(result.current.feed.snapshot.profile?.kind).toBe('mobile')
+        expect(result.current.feed.snapshot.activity).not.toBeNull()
+        act(() => result.current.preference.setPreference('all'))
+        await advance(5000)
+    })
+
+    test('switching audience while paused waits for resume and All hides the previous mode', async () => {
+        jest.useFakeTimers()
+        const respond = jest.spyOn(LiveDemo.prototype, 'respond')
+        const { result } = renderHook(() => ({ feed: useLiveFeed(() => undefined), preference: useLivePreference() }))
+        await advance(0)
+        await advance(5000)
+        act(() => result.current.feed.pause())
+        respond.mockClear()
+        act(() => result.current.preference.setPreference('mobile'))
+        await advance(60000)
+        expect(result.current.feed.paused).toBe(true)
+        expect(result.current.feed.snapshot.profile?.kind).toBe('mobile')
+        expect(result.current.feed.snapshot.activity).toBeNull()
+        expect(respond).not.toHaveBeenCalled()
+        act(() => result.current.feed.resume())
+        await advance(5000)
+        expect(result.current.feed.snapshot.profile?.kind).toBe('mobile')
+        expect(result.current.feed.snapshot.activity).not.toBeNull()
+        act(() => result.current.feed.pause())
+        respond.mockClear()
+        act(() => result.current.preference.setPreference('all'))
+        await advance(60000)
+        expect(result.current.feed.paused).toBe(true)
+        expect(result.current.feed.snapshot.profile?.kind).toBe('mixed')
+        expect(result.current.feed.snapshot.activity).toBeNull()
+        expect(respond).not.toHaveBeenCalled()
+        act(() => result.current.feed.resume())
+        await advance(5000)
+        expect(result.current.feed.snapshot.profile?.kind).toBe('mixed')
+    })
+
     beforeEach(() => {
         mockFocused = true
         liveFocused = true
@@ -151,6 +273,9 @@ describe('useLiveFeed', () => {
         mockMode = 'demo'
         mockScope = null
         jest.useFakeTimers()
+        const chosen = renderHook(() => useLivePreference())
+        act(() => chosen.result.current.setPreference('web'))
+        chosen.unmount()
     })
 
     afterEach(async () => {
@@ -357,38 +482,20 @@ describe('useLiveFeed', () => {
         unmount()
     })
 
-    test('app events without pageviews list top screens from the first read, with no pages query', async () => {
+    test('All keeps separate page and screen lists without changing audience when traffic changes', async () => {
         liveProject({ ingested_event: true }, 'app')
+        const chosen = renderHook(() => useLivePreference())
+        act(() => chosen.result.current.setPreference('all'))
         const { result, unmount } = await renderFeed()
         await advance(1000)
-        expect(result.current.state).toBe('app_only')
-        expect(result.current.snapshot).toMatchObject({
-            topPagesMode: 'screens',
-            topPages: [
-                { label: 'Home', views: 3 },
-                { label: 'Settings', views: 1 },
-            ],
-        })
-        expect(pathsEventsAsked()).toEqual(['$screen'])
-
-        await advance(30_000)
-        expect(pathsEventsAsked()).toEqual(['$screen', '$screen'])
-        unmount()
-    })
-
-    test('when pageviews arrive, the next read lists pages without rank badges from the screens', async () => {
-        liveProject({ ingested_event: true }, 'app')
-        const { result, unmount } = await renderFeed()
-        await advance(1000)
+        expect(result.current.snapshot.profile?.kind).toBe('mixed')
+        expect(result.current.snapshot.topPagesMode).toBe('pages')
+        expect(result.current.snapshot.topScreens?.map((row) => row.label)).toEqual(['Home', 'Settings'])
         traffic = 'web'
         await advance(30_000)
-        expect(pathsEventsAsked()).toEqual(['$screen', '$pageview'])
-        expect(result.current.state).toBe('web')
-        expect(result.current.snapshot.topPagesMode).toBe('pages')
-        expect(result.current.snapshot.topPages?.map((row) => [row.label, row.rankDelta])).toEqual([
-            ['Settings', null],
-            ['Home', null],
-        ])
+        expect(result.current.snapshot.profile?.kind).toBe('mixed')
+        expect(result.current.snapshot.topPages?.map((row) => row.label)).toEqual(['Settings', 'Home'])
+        expect(chosen.result.current.preference).toBe('all')
         unmount()
     })
 

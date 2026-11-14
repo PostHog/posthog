@@ -194,6 +194,7 @@ export type AnalyticsEvent =
     | 'mobile_live_paused'
     | 'mobile_live_resumed'
     | 'mobile_live_breakdown_changed'
+    | 'mobile_live_audience_changed'
     | 'mobile_live_event_sheet_opened'
     | 'mobile_live_event_action_taken'
     | 'mobile_live_map_opened'

@@ -21,7 +21,13 @@ import { reportScopeError } from '@/features/views/useViewsAccess'
 import { sleep } from '@/lib/sleep'
 import { useDelayedReconnecting } from '@/lib/useDelayedReconnecting'
 import { liveProjectState, liveUsersOnlineFromQuery, liveUsersOnlineFromStats } from '@/model/adapters/live'
-import { EMPTY_LIVE_SNAPSHOT, type LiveProjectState, type LiveSnapshot, type LiveWorld } from '@/model/live'
+import {
+    EMPTY_LIVE_SNAPSHOT,
+    type LiveMobileMetrics,
+    type LiveProjectState,
+    type LiveSnapshot,
+    type LiveWorld,
+} from '@/model/live'
 
 import {
     type LiveErrorKind,
@@ -40,7 +46,9 @@ import {
     type LiveStatus,
     liveStatus,
 } from './liveController'
-import { type LiveQueryRunner, readLiveSnapshot, readLiveWorld } from './liveRead'
+import { useLivePreference } from './livePreference'
+import { type LiveQueryRunner, liveMobileMetrics, readLiveSnapshot, readLiveWorld } from './liveRead'
+import { readSlowLiveQuery } from './liveSlowQuery'
 import { useLiveWorldShare } from './liveWorldStore'
 
 /** The web's HogQL reload interval. */
@@ -97,7 +105,7 @@ function projectInfo(scope: ProjectScope, maxAgeMs = Number.POSITIVE_INFINITY): 
     const kept = cached?.pending
     const read: ProjectRead = {
         at: Date.now(),
-        pending: fetchLiveProject().then(projectInfoFrom, () => {
+        pending: fetchLiveProject(undefined, scope).then(projectInfoFrom, () => {
             // A failed first read is not kept, so the next visit asks again. A failed read after a good one keeps
             // the good answer with this read's start time, so a project that keeps failing is read at most once a
             // `maxAgeMs`.
@@ -115,9 +123,21 @@ function projectInfo(scope: ProjectScope, maxAgeMs = Number.POSITIVE_INFINITY): 
     return read.pending
 }
 
-function sourceFor(mode: DataMode, scope: ProjectScope | null): LiveSource | null {
+function sourceFor(
+    mode: DataMode,
+    scope: ProjectScope | null,
+    preference: 'all' | 'web' | 'mobile' = 'all'
+): LiveSource | null {
     if (mode === 'demo') {
-        const state = liveDemoState()
+        const fixture = liveDemoState()
+        const state =
+            preference === 'mobile'
+                ? 'app_only'
+                : preference === 'web'
+                  ? 'web'
+                  : fixture === 'quiet' || fixture === 'not_set_up'
+                    ? fixture
+                    : 'mixed'
         const project: LiveProjectInfo = { token: null, pathCleaning: false, ingestedEvent: state !== 'not_set_up' }
         return {
             run: async (key, _query, signal, now) => {
@@ -134,7 +154,11 @@ function sourceFor(mode: DataMode, scope: ProjectScope | null): LiveSource | nul
     return {
         run: async (_key, query, signal) => {
             try {
-                return await fetchLiveQuery(query, signal)
+                if (_key === 'mobileMetrics') {
+                    const key = `${sessionGeneration()}|${scope.host}|${scope.projectId}`
+                    return await readSlowLiveQuery(key, Date.now(), () => fetchLiveQuery(query, signal, scope))
+                }
+                return await fetchLiveQuery(query, signal, scope)
             } catch (error) {
                 reportScopeError(error, 'views')
                 throw error
@@ -367,6 +391,23 @@ export interface LiveFeed {
     retry: () => void
 }
 
+function useMobileMetrics(
+    source: LiveSource | null,
+    enabled: boolean
+): ReturnType<typeof usePoller<LiveMobileMetrics>> {
+    const read = useCallback(
+        async (signal: AbortSignal): Promise<LiveReadResult<LiveMobileMetrics>> => {
+            if (!source) throw new Error('Live has no data source yet.')
+            const now = Date.now()
+            const query = liveQuery('mobileMetrics', { window: liveWindow(now), pathCleaning: false })
+            const answer = await source.run('mobileMetrics', query, signal, now)
+            return { data: liveMobileMetrics(answer, now), complete: true }
+        },
+        [source]
+    )
+    return usePoller({ enabled, read, intervalMs: PROJECT_RECHECK_MS })
+}
+
 /**
  * Polls the live queries while the screen is focused and the app is in the foreground. Mount it only when the session
  * has access, keyed by the session and project identity.
@@ -375,12 +416,14 @@ export interface LiveFeed {
  * every minute and on focus and foreground, at most once a minute, and starts polling once the project has an event.
  */
 export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
+    const { preference } = useLivePreference()
     const mode = useDataMode()
     const scope = useProjectScope()
     const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
     const project = useLiveProject(source)
     const notSetUp = project.info?.ingestedEvent === false
     const statsActive = useRef(false)
+    const completedPreference = useRef<string | null>(null)
 
     const read = useCallback(
         async (signal: AbortSignal, previous: LiveSnapshot | null): Promise<LiveReadResult<LiveSnapshot>> => {
@@ -388,16 +431,27 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
                 throw new Error('Live has no data source yet.')
             }
             const info = await source.project()
-            return readLiveSnapshot({
-                run: source.run,
-                previous: previous ?? EMPTY_LIVE_SNAPSHOT,
+            const profile = {
+                kind:
+                    preference === 'all'
+                        ? mode === 'demo' && liveDemoState() === 'quiet'
+                            ? ('web' as const)
+                            : ('mixed' as const)
+                        : preference,
+            }
+            const result = await readLiveSnapshot({
+                profile,
+                run: mode === 'demo' ? (sourceFor(mode, scope, preference)?.run ?? source.run) : source.run,
+                previous: previous?.profile?.kind === profile.kind ? previous : EMPTY_LIVE_SNAPSHOT,
                 countUsersOnline: !(source.statsHost !== null && info?.token && statsActive.current),
                 pathCleaning: info?.pathCleaning ?? false,
                 now: Date.now(),
                 signal,
             })
+            completedPreference.current = preference
+            return { ...result, data: { ...result.data, preference } }
         },
-        [source]
+        [source, mode, scope, preference]
     )
     const onEvent = useCallback((event: LiveControllerEvent) => {
         if (event === 'background_stopped') {
@@ -413,7 +467,45 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         slowdown: READ_SLOWDOWN,
         onEvent,
     })
-    const snapshot = main.state.data ?? EMPTY_LIVE_SNAPSHOT
+    const slowEnabled = source !== null && project.info !== undefined && !notSetUp && preference !== 'web'
+    const slow = useMobileMetrics(source, slowEnabled)
+    const preferredKind = preference === 'all' ? 'mixed' : preference
+    const mismatch = main.state.data !== null && main.state.data.preference !== preference
+    const fastSnapshot = mismatch
+        ? {
+              ...EMPTY_LIVE_SNAPSHOT,
+              profile: {
+                  kind: preferredKind as 'web' | 'mobile' | 'mixed' | 'unknown',
+              },
+          }
+        : (main.state.data ?? EMPTY_LIVE_SNAPSHOT)
+    const snapshot =
+        slowEnabled && slow.state.data
+            ? {
+                  ...fastSnapshot,
+                  mobileMetrics: { ...slow.state.data, sessions: fastSnapshot.mobileMetrics?.sessions ?? null },
+              }
+            : fastSnapshot
+    const lastPreference = useRef(preference)
+    const audienceRead = useRef({ preference, paused: main.state.paused, active: main.screenActive })
+    audienceRead.current = { preference, paused: main.state.paused, active: main.screenActive }
+    useEffect(() => {
+        if (lastPreference.current !== preference && !main.state.paused && main.screenActive && main.controller) {
+            lastPreference.current = preference
+            const controller = main.controller
+            void controller.refresh().then(() => {
+                const latest = audienceRead.current
+                if (
+                    latest.preference === preference &&
+                    !latest.paused &&
+                    latest.active &&
+                    completedPreference.current !== preference
+                ) {
+                    void controller.refresh()
+                }
+            })
+        }
+    }, [preference, main.controller, main.state.paused, main.screenActive])
     const state = source && project.info !== undefined ? liveProjectState(snapshot, project.info) : null
     useLiveStateShown(state)
     // Quiet shows no users online, and the 30-second read ends Quiet, so the stats read waits until then.
@@ -424,22 +516,30 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     useEffect(() => {
         if (paused) {
             stats.controller?.pause()
+            slow.controller?.pause()
         } else {
             void stats.controller?.resume()
+            void slow.controller?.resume()
         }
-    }, [paused, stats.controller])
+    }, [paused, stats.controller, slow.controller])
 
     // Keep one message per failure streak, including when polling pauses and resumes.
-    const failing = main.state.failures > 0
-    const hasData = main.state.data !== null
+    const mainFailing = main.state.failures > 0
+    const slowFailing = slowEnabled && slow.state.failures > 0
+    const failing = mainFailing || slowFailing
+    const hasData = main.state.data !== null && !mismatch
     const reconnecting = useDelayedReconnecting(
         failing && !paused && main.screenActive,
         source,
         async (): Promise<void> => {
-            await main.controller?.checkRecovery()
+            await Promise.all([
+                mainFailing ? main.controller?.checkRecovery() : undefined,
+                slowFailing ? slow.controller?.checkRecovery() : undefined,
+            ])
         }
     )
-    const errorKind: LiveErrorKind | null = !hasData && failing ? 'load_failed' : reconnecting ? 'refresh_failed' : null
+    const errorKind: LiveErrorKind | null =
+        !hasData && mainFailing ? 'load_failed' : reconnecting ? 'refresh_failed' : null
     const onErrorRef = useRef(onError)
     onErrorRef.current = onError
     const shownError = useRef<{ source: LiveSource | null; kind: LiveErrorKind } | null>(null)
@@ -471,8 +571,9 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         setPulling(true)
         // A pull is a person asking, so it reads the project now instead of waiting out the minute.
         const reads = notSetUp ? [recheck(0)] : [main.controller?.refresh(), stats.controller?.refresh()]
+        if (!notSetUp) void slow.controller?.refresh()
         void Promise.all(reads).finally(() => setPulling(false))
-    }, [notSetUp, recheck, main.controller, stats.controller])
+    }, [notSetUp, recheck, main.controller, stats.controller, slow.controller])
     const pause = useCallback(() => {
         trackLivePaused({ trigger: 'button' })
         main.controller?.pause()
@@ -484,10 +585,12 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     }, [main.controller])
     const retry = useCallback(() => {
         void main.controller?.refresh()
-    }, [main.controller])
+        void slow.controller?.refresh()
+    }, [main.controller, slow.controller])
 
     let status: LiveStatus = source ? liveStatus(main.state) : 'loading'
     if (status === 'reconnecting' && !reconnecting) status = hasData ? 'live' : 'loading'
+    if (reconnecting && !paused) status = 'reconnecting'
     return {
         screenActive,
         snapshot,
@@ -497,7 +600,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         usersOnline: stats.count ?? snapshot.usersOnline,
         paused,
         reading: main.state.reading,
-        loadFailed: failing && !hasData,
+        loadFailed: mainFailing && !hasData,
         pulling,
         pull,
         pause,
@@ -521,18 +624,25 @@ export interface LiveWorldFeed {
  * Mount it keyed by the session and project identity, like `useLiveFeed`.
  */
 export function useLiveWorld(): LiveWorldFeed {
+    const { preference } = useLivePreference()
     const mode = useDataMode()
     const scope = useProjectScope()
-    const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
+    const source = useMemo(() => sourceFor(mode, scope, preference), [mode, scope, preference])
     const shared = useLiveWorldShare()
     const read = useCallback(
         async (signal: AbortSignal): Promise<LiveReadResult<LiveWorld>> => {
             if (!source) {
                 throw new Error('Live has no data source yet.')
             }
-            return readLiveWorld({ run: source.run, now: Date.now(), signal })
+            return readLiveWorld({
+                run: source.run,
+                now: Date.now(),
+                signal,
+                mobileOnly: shared.mobileOnly,
+                webOnly: shared.webOnly,
+            })
         },
-        [source]
+        [source, shared.mobileOnly, shared.webOnly]
     )
     const poller = usePoller<LiveWorld>({
         enabled: source !== null && !shared.paused,

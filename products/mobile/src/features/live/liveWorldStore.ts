@@ -4,11 +4,14 @@ import { addSessionEndTask } from '@/auth/authStore'
 import type { LiveWorld } from '@/model/live'
 
 export interface LiveWorldShare {
+    users?: boolean
+    webOnly?: boolean
+    mobileOnly?: boolean
     world: LiveWorld | null
     paused: boolean
 }
 
-const EMPTY: LiveWorldShare = { world: null, paused: false }
+const EMPTY: LiveWorldShare = { world: null, paused: false, users: false, mobileOnly: false, webOnly: false }
 
 /**
  * Live's countries and Pause state when its map card opened Visitors by country. That screen paints them at once and
