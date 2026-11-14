@@ -72,7 +72,7 @@ export type FakeCloudOptions = {
     account?: string
     role?: string
     session?: string
-    host?: 'ready' | 'failed' | 'silent'
+    host?: 'ready' | 'failed' | 'silent' | 'halted'
     deleteFailures?: number
     rollsBack?: 'create' | 'update'
     outlives?: string[]
@@ -296,7 +296,7 @@ export class FakeCloud implements Aws {
                         type: Type,
                         id: instanceId,
                         arn: `arn:aws:ec2:us-east-1:${this.account}:instance/${instanceId}`,
-                        state: 'running',
+                        state: this.options.host === 'halted' ? 'terminated' : 'running',
                         runTag,
                         image: stack.parameters.HostImage,
                     },
@@ -305,11 +305,11 @@ export class FakeCloud implements Aws {
                         type: 'AWS::EC2::Volume',
                         id: volumeId,
                         arn: `arn:aws:ec2:us-east-1:${this.account}:volume/${volumeId}`,
-                        state: 'in-use',
+                        state: this.options.host === 'halted' ? 'gone' : 'in-use',
                         runTag: Properties.PropagateTagsToVolumeOnCreation === true ? runTag : undefined,
                     }
                 )
-                const marker = { ready: 'host/ready', failed: 'host/failed', silent: undefined }[
+                const marker = { ready: 'host/ready', failed: 'host/failed', silent: undefined, halted: undefined }[
                     this.options.host ?? 'ready'
                 ]
                 if (marker && this.options.rollsBack !== 'create') {
