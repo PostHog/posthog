@@ -18,6 +18,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
+import { PrototypeSwitcher } from './sendFromCodePrototype/PrototypeSwitcher'
+import { useSendFromCodePrototype } from './sendFromCodePrototype/useSendFromCodePrototype'
 import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
 import { TransactionalTabs } from './TransactionalTabs'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
@@ -31,13 +33,14 @@ export function TransactionalScene(): JSX.Element {
     const { location } = useValues(router)
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const showWebhooks = useFeatureFlag('WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS')
+    const { variant } = useSendFromCodePrototype()
     // Leaving for another scene changes the URL before that scene has loaded, so this one keeps showing its last view.
     const route = transactionalRouteFor(location.pathname)
     const lastRoute = useRef<TransactionalRoute>(route ?? 'transactional')
     lastRoute.current = route ?? lastRoute.current
     const currentTab = lastRoute.current === 'webhooks' && !showWebhooks ? 'transactional' : lastRoute.current
 
-    if (!showTransactional) {
+    if (!showTransactional && !variant) {
         return <NotFound object="page" />
     }
 
@@ -55,6 +58,7 @@ export function TransactionalScene(): JSX.Element {
             />
             <EmailSuspensionBanner />
             <TransactionalTabs currentTab={currentTab} showWebhooks={showWebhooks} />
+            <PrototypeSwitcher />
         </SceneContent>
     )
 }

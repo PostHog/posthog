@@ -314,6 +314,8 @@ export const commonConfig = {
     define: {
         global: 'globalThis',
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
+        // PROTOTYPE (ticket #320): only the prototype's preview build sets PROTOTYPE=1, which shows the variant switcher.
+        'process.env.PROTOTYPE': JSON.stringify(process.env.PROTOTYPE ?? ''),
     },
     loader: {
         '.bin': 'file',
