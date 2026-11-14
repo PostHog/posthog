@@ -3366,10 +3366,59 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
             ("instructions_not_text", {"type": "llm", "instructions": 5}, "must be text"),
             ("removed_threshold", {"type": "llm", "threshold": 0.7}, "Invalid detector configuration"),
             ("removed_window", {"type": "llm", "window": 90}, "Invalid detector configuration"),
+            ("forecast_empty_side", {"type": "forecast", "above": {}}, "above needs at least one condition"),
+            (
+                "forecast_unsupported_quantile",
+                {"type": "forecast", "above": {"quantile": 0.975}},
+                "above.quantile must be one of 0.55, 0.6,",
+            ),
+            (
+                "forecast_upper_quantile_below_median",
+                {"type": "forecast", "above": {"quantile": 0.3}},
+                "above.quantile is an upper level, so it must be above 0.5",
+            ),
+            (
+                "forecast_lower_quantile_above_median",
+                {"type": "forecast", "below": {"quantile": 0.9}},
+                "below.quantile is a lower level, so it must be below 0.5",
+            ),
+            (
+                "forecast_drop_beyond_everything",
+                {"type": "forecast", "below": {"min_relative_change": 1.5}},
+                "below.min_relative_change must be 1 or less",
+            ),
+            (
+                "forecast_zero_threshold",
+                {"type": "forecast", "above": {"min_absolute_change": 0}},
+                "above.min_absolute_change must be above 0",
+            ),
+            (
+                "forecast_negative_threshold",
+                {"type": "forecast", "below": {"min_relative_change": -0.2}},
+                "below.min_relative_change must be above 0",
+            ),
+            (
+                "forecast_threshold_too_large_for_a_float",
+                {"type": "forecast", "above": {"min_absolute_change": 10**400}},
+                "above.min_absolute_change must be a number",
+            ),
+            ("forecast_removed_mode", {"type": "forecast", "mode": "band"}, "Unknown field in the forecast detector"),
+            ("forecast_removed_direction", {"type": "forecast", "direction": "above"}, "Unknown field"),
+            ("forecast_side_unknown_field", {"type": "forecast", "above": {"band": 0.9}}, "Unknown field in above"),
+            (
+                "forecast_ensemble_member",
+                {
+                    "type": "ensemble",
+                    "operator": "and",
+                    "detectors": [{"type": "zscore", "threshold": 0.95, "window": 30}, {"type": "forecast"}],
+                },
+                "combined with other detectors",
+            ),
+            ("forecast_preprocessing", {"type": "forecast", "preprocessing": {"diffs_n": 1}}, "preprocessing"),
         ]
     )
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_rejected_llm_configs(self, _name: str, detector_config: dict[str, Any], expected: str, _flag) -> None:
+    def test_rejected_detector_configs(self, _name: str, detector_config: dict[str, Any], expected: str, _flag) -> None:
         response = self._create(detector_config)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
@@ -3377,13 +3426,17 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
     @parameterized.expand(
         [
-            ("off", False, 400, "not enabled for your account"),
-            ("unavailable", None, 503, "could not check rollout access"),
+            ("off", "llm", False, 400, "not enabled for your account"),
+            ("unavailable", "llm", None, 503, "could not check rollout access"),
+            ("forecast_off", "forecast", False, 400, "forecast detector is not enabled for your account"),
+            ("forecast_unavailable", "forecast", None, 503, "could not check rollout access"),
         ]
     )
-    def test_rejected_when_flag_is_off(self, _name, flag_value, expected_status, expected_message) -> None:
+    def test_rejected_when_flag_is_off(
+        self, _name, detector_type, flag_value, expected_status, expected_message
+    ) -> None:
         with mock.patch("posthoganalytics.feature_enabled", return_value=flag_value):
-            response = self._create({"type": "llm"})
+            response = self._create({"type": detector_type})
 
         assert response.status_code == expected_status, response.content
         assert expected_message in response.json()["detail"]
@@ -3403,20 +3456,21 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "Invalid detector configuration" in response.json()["detail"]
 
-    def test_flag_off_allows_edits_and_disabling_but_blocks_reenabling(self) -> None:
+    @parameterized.expand([("llm",), ("forecast",)])
+    def test_flag_off_allows_edits_and_disabling_but_blocks_reenabling(self, detector_type: str) -> None:
         with mock.patch("posthoganalytics.feature_enabled", return_value=True):
-            created = self._create({"type": "llm"})
+            created = self._create({"type": detector_type})
         assert created.status_code == status.HTTP_201_CREATED, created.content
         endpoint = f"/api/projects/{self.team.id}/alerts/{created.json()['id']}"
 
         with mock.patch("posthoganalytics.feature_enabled", return_value=False):
             edited = self.client.patch(
                 endpoint,
-                {"name": "Renamed", "detector_config": {"type": "llm"}},
+                {"name": "Renamed", "detector_config": {"type": detector_type}},
             )
             disabled = self.client.patch(
                 endpoint,
-                {"enabled": False, "detector_config": {"type": "llm"}},
+                {"enabled": False, "detector_config": {"type": detector_type}},
             )
             reenabled = self.client.patch(endpoint, {"enabled": True})
 
@@ -3425,12 +3479,13 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert reenabled.status_code == status.HTTP_400_BAD_REQUEST, reenabled.content
         assert "not enabled for your account" in reenabled.json()["detail"]
 
+    @parameterized.expand([("llm",), ("forecast",)])
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_rejected_without_ai_processing_consent(self, _flag) -> None:
+    def test_rejected_without_ai_processing_consent(self, detector_type: str, _flag) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
 
-        response = self._create({"type": "llm"})
+        response = self._create({"type": detector_type})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "AI data processing is turned off" in response.json()["detail"]

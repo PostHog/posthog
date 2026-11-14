@@ -156,6 +156,16 @@ class PromptCheck:
 
 
 @frozen
+class PromptCitation(PromptCheck):
+    """An answered web-search check that cited a page or site, or ran a search, with the prompt as it ran."""
+
+    prompt_id: str
+    prompt_text: str
+    prompt_topic: str
+    mentioned: bool
+
+
+@frozen
 class PromptEngineStats:
     engine: str
     checks: int

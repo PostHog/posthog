@@ -585,6 +585,30 @@ export interface LLMDetectorConfigApi {
     type: LLMDetectorConfigApiType
 }
 
+export interface ForecastSideRuleApi {
+    /** The value is at least this far from the expected value, in the series' units */
+    min_absolute_change?: number | null
+    /** The value is at least this fraction away from the expected value. 1 = 100% */
+    min_relative_change?: number | null
+    /** The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05. */
+    quantile?: number | null
+}
+
+export type ForecastDetectorConfigApiType =
+    (typeof ForecastDetectorConfigApiType)[keyof typeof ForecastDetectorConfigApiType]
+
+export const ForecastDetectorConfigApiType = {
+    Forecast: 'forecast',
+} as const
+
+export interface ForecastDetectorConfigApi {
+    /** Rule for a value higher than expected. Omit to ignore that side. */
+    above?: ForecastSideRuleApi | null
+    /** Rule for a value lower than expected. Omit to ignore that side. */
+    below?: ForecastSideRuleApi | null
+    type: ForecastDetectorConfigApiType
+}
+
 /**
  * Detector configuration types
  */
@@ -603,6 +627,7 @@ export type DetectorConfigApi =
     | OCSVMDetectorConfigApi
     | PCADetectorConfigApi
     | LLMDetectorConfigApi
+    | ForecastDetectorConfigApi
 
 /**
  * * `real_time` - real_time

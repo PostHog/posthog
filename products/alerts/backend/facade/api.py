@@ -32,13 +32,23 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.alerts.backend import platform_subscribers
 from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.facade import contracts
+from products.alerts.backend.forecast.rules import forecast_rule
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.judge.contract import (
+    DETECTOR_PAUSED_ERROR_CODES,
+    DETECTOR_UNAVAILABLE_ERROR_CODES,
+    FORECAST_DETECTOR_PAUSED_ERROR_CODE,
+    FORECAST_DETECTOR_REJECTED_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     MAX_CONCURRENT_MODEL_CALLS,
     MAX_PROMPT_POINTS,
+    UNAVAILABLE_ERRORS_BY_NAME,
+    ForecastDetectorPausedError,
+    ForecastDetectorUnavailableError,
     LLMDetectorError,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
@@ -49,6 +59,7 @@ from products.alerts.backend.llm_detector_limits import (
     LLMAlertRefusal,
     LLMAlertWrite,
     admit_llm_alert_write,
+    calls_ai_gateway,
     is_llm_detector_config,
     llm_detector_access_error,
 )
@@ -682,20 +693,31 @@ def _assign_native_creator(*, team_id: int, alert_id: uuid.UUID, user: User) -> 
 
 
 __all__ = [
+    "DETECTOR_PAUSED_ERROR_CODES",
+    "DETECTOR_UNAVAILABLE_ERROR_CODES",
+    "FORECAST_DETECTOR_PAUSED_ERROR_CODE",
+    "FORECAST_DETECTOR_REJECTED_ERROR_CODE",
+    "FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE",
+    "FORECAST_DETECTOR_UNAVAILABLE_MESSAGE",
     "LLM_DETECTOR_PAUSED_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
     "LLM_EVALUATE_EXECUTOR",
     "MAX_CONCURRENT_MODEL_CALLS",
     "MAX_PROMPT_POINTS",
+    "ForecastDetectorPausedError",
+    "ForecastDetectorUnavailableError",
     "LLMAlertRefusal",
     "LLMAlertWrite",
     "LLMDetectorError",
     "LLMDetectorMisconfiguredError",
     "LLMDetectorPausedError",
     "LLMDetectorUnavailableError",
+    "UNAVAILABLE_ERRORS_BY_NAME",
     "admit_llm_alert_write",
     "assign_alert_owner",
+    "calls_ai_gateway",
+    "forecast_rule",
     "is_llm_detector_config",
     "llm_detector_access_error",
 ]
