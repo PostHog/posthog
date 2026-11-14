@@ -218,6 +218,11 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         help_text="Hash of the own domains that `cited`, `target_urls`, `target_best_position` and the sentiment were computed against. Null on checks recorded before it existed.",
     )
     top_cited_domains = models.JSONField(default=list, blank=True, help_text="Distinct hosts across the cited URLs.")
+    names_brand = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="The answer text names one of the own brands, matched on whole words against the own domains of `own_domains_key`. Null when the check failed, and on checks recorded before it existed until the own-citation reconcile fills it.",
+    )
 
     brand_sentiment = models.CharField(
         max_length=16,
