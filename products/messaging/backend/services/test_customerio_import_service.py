@@ -465,7 +465,7 @@ class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
         delay_patch = patch(f"{module}.SUPPRESSION_PAGE_DELAY_SECONDS", 0)
         client_patch = patch(f"{module}.CustomerIOClient")
         delay_patch.start()
-        client = client_patch.start().return_value
+        client = self.customerio = client_patch.start().return_value
         self.addCleanup(delay_patch.stop)
         self.addCleanup(client_patch.stop)
         client.validate_credentials.return_value = True
@@ -562,9 +562,12 @@ class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
             for row in self.rows.order_by("identifier")
         ] == [("known@example.com", 1, True, True), ("new@example.com", 1, True, True)]
 
-    def test_import_fails_and_keeps_none_of_the_page_while_a_bounce_write_holds_a_row_through_every_retry(self):
+    def test_import_skips_a_page_a_bounce_write_holds_through_every_retry_and_finishes_the_rest(self):
         self.rows.create(
             team=self.team, identifier="known@example.com", source=SuppressionSource.MANUAL, suppressed=True
+        )
+        self.customerio.get_globally_unsubscribed_customers.side_effect = lambda limit, start: (
+            {"identifiers": [{"email": "unsubscribed@example.com"}]} if start is None else {"identifiers": []}
         )
 
         with (
@@ -577,8 +580,9 @@ class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
                 )
                 progress = self._start_import(executor).result(timeout=10)
 
-        assert (progress["status"], progress["suppressions_imported"]) == ("failed", 0)
+        assert (progress["status"], progress["suppressions_imported"], len(progress["errors"])) == ("completed", 0, 1)
         assert [
             (row.identifier, row.transient_bounce_count, row.hard_bounced_at is None)
             for row in self.rows.order_by("identifier")
         ] == [("known@example.com", 1, True)]
+        assert MessageRecipientPreference.objects.filter(team=self.team, identifier="unsubscribed@example.com").exists()

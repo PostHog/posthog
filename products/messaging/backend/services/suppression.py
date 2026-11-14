@@ -51,15 +51,17 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
     return suppression, created
 
 
-def block_transactional_for_hard_bounces(team_id: int, identifiers: list[str], reason: str) -> None:
+def block_transactional_for_hard_bounces(
+    team_id: int, identifiers: list[str], reason: str, *, rows_locked: bool = False
+) -> None:
     """Make the team's existing rows for these hard-bounced addresses suppress them and block transactional email.
 
     `team_id` must be the canonical project id. A row keeps its source, so a spam complaint still needs confirmation
     to remove. A manual entry or a complaint keeps its reason, like a live hard bounce. A row copied from the global
     list becomes the team's own bounce, so it stays when the global hold lapses. A row someone removed stays removed.
-    Each statement updates one row, so outside a transaction, as in the bulk API, the import never holds two row locks
-    that a Node bounce write can wait on. A caller inside a transaction locks the rows first, as the Customer.io import
-    does.
+    Outside a transaction, as in the bulk API, each statement updates one row, so the import never holds two row locks
+    that a Node bounce write can wait on. A caller that already holds the rows' locks, as the Customer.io import does,
+    passes `rows_locked` and updates them in one statement, which keeps those locks short.
     """
     pending = MessageSuppression.objects.for_team(team_id, canonical=True).filter(
         Q(hard_bounced_at__isnull=True)
@@ -67,23 +69,27 @@ def block_transactional_for_hard_bounces(team_id: int, identifiers: list[str], r
         deleted=False,
     )
     now = timezone.now()
+    marks = {
+        "suppressed": True,
+        "suppressed_at": Case(When(suppressed=False, then=Value(now)), default=F("suppressed_at")),
+        "hard_bounced_at": now,
+        "reason": Case(
+            When(source__in=[SuppressionSource.MANUAL, SuppressionSource.COMPLAINT], then=F("reason")),
+            default=Value(reason),
+            output_field=TextField(),
+        ),
+        "last_bounce_diagnostic": Case(
+            When(last_bounce_diagnostic=GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC, then=Value(None)),
+            default=F("last_bounce_diagnostic"),
+            output_field=TextField(),
+        ),
+        "updated_at": now,
+    }
+    if rows_locked:
+        pending.filter(identifier__in=identifiers).update(**marks)
+        return
     for row_id in pending.filter(identifier__in=identifiers).values_list("id", flat=True):
-        pending.filter(id=row_id).update(
-            suppressed=True,
-            suppressed_at=Case(When(suppressed=False, then=Value(now)), default=F("suppressed_at")),
-            hard_bounced_at=now,
-            reason=Case(
-                When(source__in=[SuppressionSource.MANUAL, SuppressionSource.COMPLAINT], then=F("reason")),
-                default=Value(reason),
-                output_field=TextField(),
-            ),
-            last_bounce_diagnostic=Case(
-                When(last_bounce_diagnostic=GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC, then=Value(None)),
-                default=F("last_bounce_diagnostic"),
-                output_field=TextField(),
-            ),
-            updated_at=now,
-        )
+        pending.filter(id=row_id).update(**marks)
 
 
 IMPORTED_SUPPRESSION_REASONS: dict[SuppressionSource, str] = {

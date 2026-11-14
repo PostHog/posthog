@@ -503,7 +503,15 @@ class CustomerIOImportService:
                     break
                 if page is None:
                     break
-                self.progress["suppressions_imported"] += self.save_suppression_page(page)
+                try:
+                    self.progress["suppressions_imported"] += self.save_suppression_page(page)
+                except OperationalError as e:
+                    if not isinstance(e.__cause__, LockNotAvailable):
+                        raise
+                    self.progress["errors"].append(
+                        f"Couldn't import part of the Customer.io {suppression_type} list because bounce feedback was "
+                        "updating some of the same addresses. Run the import again to add them."
+                    )
 
     def fetch_suppression_pages(self, suppression_type: str, offset: int) -> Iterator[SuppressionPage]:
         """Page through one Customer.io suppression list, starting at `offset`.
@@ -594,7 +602,7 @@ class CustomerIOImportService:
             for row in suppressions.filter(identifier__in=list(imported)).select_for_update(nowait=True)
         }
         if is_bounce:
-            block_transactional_for_hard_bounces(team_id, list(imported), reason)
+            block_transactional_for_hard_bounces(team_id, list(imported), reason, rows_locked=True)
 
         backfilled = []
         for email in existing:
