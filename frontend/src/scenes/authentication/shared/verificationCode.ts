@@ -29,11 +29,15 @@ export function verificationCodeErrorMessage(e: { code?: string; detail?: string
 // try/catch because sessionStorage can throw, for example in private windows with site data blocked.
 const PENDING_VERIFICATION_EMAIL_KEY = 'ph_pending_verification_email'
 
-type StoredPendingVerification = { uuid?: string; email?: string; inboxProvider?: string | null }
+type StoredPendingVerification = { uuid?: string; email?: string | null; inboxProvider?: string | null }
 
 // The value is keyed by user uuid, so a verify page for one account never shows an address
 // that an earlier attempt for another account stored in the same tab.
-export function setPendingVerificationEmail(uuid: string, email: string, inboxProvider: InboxProvider | null): void {
+export function setPendingVerificationEmail(
+    uuid: string,
+    email: string | null,
+    inboxProvider: InboxProvider | null
+): void {
     try {
         const stored: StoredPendingVerification = { uuid, email, inboxProvider }
         sessionStorage.setItem(PENDING_VERIFICATION_EMAIL_KEY, JSON.stringify(stored))

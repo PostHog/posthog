@@ -310,10 +310,13 @@ def require_verified_email_for_login(user: User) -> None:
     if is_email_verification_disabled(user):
         return
 
+    if user.is_email_verified is None:
+        email_verification_code_verifier.send_code(user)
+        return
+
     inbox_lookup = InboxProviderLookup.start(user.email)
     email_verification_code_verifier.send_code(user)
-    if user.is_email_verified is False:
-        raise EmailVerificationPending(str(user.uuid), inbox_provider=inbox_lookup.result())
+    raise EmailVerificationPending(str(user.uuid), inbox_provider=inbox_lookup.result())
 
 
 class LoginSerializer(serializers.Serializer):

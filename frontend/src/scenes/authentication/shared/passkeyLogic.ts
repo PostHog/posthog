@@ -10,12 +10,15 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { loginLogic } from 'scenes/authentication/auth/loginLogic'
+import { parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
 import { ssoEnforcedMessage } from 'scenes/authentication/shared/loginErrorMessages'
+import { setPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -42,6 +45,8 @@ function routeToEmailVerification(e: unknown): boolean {
         return false
     }
     lemonToast.info('Verify your email to continue. We just sent you a new code.')
+    // A discoverable passkey is picked before any email is typed, so only the provider is known
+    setPendingVerificationEmail(detail, null, parseInboxProvider((e as ApiError).data?.extra?.inbox_provider))
     const next: string | undefined = router.values.searchParams.next
     router.actions.push(urls.verifyEmail(detail), next ? { next } : {})
     return true

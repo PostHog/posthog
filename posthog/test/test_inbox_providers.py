@@ -4,7 +4,6 @@ from contextlib import contextmanager
 
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
 from django.test import SimpleTestCase
 
 import dns.rdata
@@ -13,7 +12,6 @@ import dns.exception
 from parameterized import parameterized
 
 from posthog.inbox_providers import InboxProvider, InboxProviderLookup, detect_inbox_provider
-from posthog.test.waiting import wait_until
 
 
 def _mx_answer(*records: str) -> list[dns.rdata.Rdata]:
@@ -54,9 +52,6 @@ class TestDetectInboxProvider(SimpleTestCase):
 
 
 class TestInboxProviderLookup(SimpleTestCase):
-    def setUp(self) -> None:
-        cache.clear()
-
     @parameterized.expand(
         [
             ("consumer_domain_on_cloud", "Someone@GMail.com", True, InboxProvider.GMAIL),
@@ -72,22 +67,23 @@ class TestInboxProviderLookup(SimpleTestCase):
         assert provider == expected
         resolve.assert_not_called()
 
-    def test_company_domain_uses_primary_mx_and_caches_answer(self) -> None:
-        with _resolver(_answers("20 aspmx.l.google.com.", "1 acme-example.mail.protection.outlook.com.")):
-            assert InboxProviderLookup.start("someone@acme-cached.example").result() == InboxProvider.MICROSOFT_365
+    @parameterized.expand(
+        [
+            (
+                "primary_mx",
+                _answers("20 aspmx.l.google.com.", "1 acme.mail.protection.outlook.com."),
+                InboxProvider.MICROSOFT_365,
+            ),
+            ("failed_lookup", dns.resolver.NoNameservers(), None),
+        ]
+    )
+    def test_company_domain_reads_primary_mx(
+        self, _name: str, side_effect: object, expected: InboxProvider | None
+    ) -> None:
+        with _resolver(side_effect):
+            assert InboxProviderLookup.start("someone@acme.example").result() == expected
 
-        with _resolver(dns.exception.Timeout()) as resolve:
-            assert InboxProviderLookup.start("other@acme-cached.example").result() == InboxProvider.MICROSOFT_365
-        resolve.assert_not_called()
-
-    def test_failed_lookup_is_not_cached(self) -> None:
-        with _resolver(dns.resolver.NoNameservers()):
-            assert InboxProviderLookup.start("someone@flaky-dns.example").result() is None
-
-        with _resolver(_answers("1 aspmx.l.google.com.")):
-            assert InboxProviderLookup.start("someone@flaky-dns.example").result() == InboxProvider.GMAIL
-
-    def test_slow_lookup_reads_as_unknown_and_caches_late_answer(self) -> None:
+    def test_slow_lookup_reads_as_unknown_within_budget(self) -> None:
         release = threading.Event()
 
         def slow_resolve(*_args: object, **_kwargs: object) -> list[dns.rdata.Rdata]:
@@ -100,8 +96,12 @@ class TestInboxProviderLookup(SimpleTestCase):
         finally:
             release.set()
 
-        with _resolver(dns.exception.Timeout()):
-            wait_until(
-                lambda: InboxProviderLookup.start("other@slow-dns.example").result() == InboxProvider.GMAIL,
-                message="the late answer was never cached",
-            )
+    def test_busy_workers_skip_the_lookup(self) -> None:
+        with (
+            _resolver(_answers("1 aspmx.l.google.com.")) as resolve,
+            patch("posthog.inbox_providers._lookup_slots", threading.BoundedSemaphore(1)) as slots,
+        ):
+            slots.acquire()
+            assert InboxProviderLookup.start("someone@busy.example").result() is None
+
+        resolve.assert_not_called()

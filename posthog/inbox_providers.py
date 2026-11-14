@@ -1,14 +1,13 @@
 import enum
 import time
 import logging
+import threading
 from concurrent.futures import (
     Future,
     ThreadPoolExecutor,
     TimeoutError as FutureTimeoutError,
 )
 from typing import Self
-
-from django.core.cache import cache
 
 import dns.resolver
 import dns.exception
@@ -21,10 +20,12 @@ from posthog.security.oob_domains import matched_oob_domain
 logger = logging.getLogger(__name__)
 
 LOOKUP_TIMEOUT_SECONDS = 0.3
-CACHE_SECONDS = 60 * 60 * 24
+MAX_LOOKUPS_IN_FLIGHT = 8
 
-# Bounded, so a burst of signups queues lookups, which run out of budget, instead of starting threads.
-_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="inbox-provider")
+# A lookup starts only when a worker is free, so a burst skips the hint instead of queueing work
+# that outlives its caller.
+_executor = ThreadPoolExecutor(max_workers=MAX_LOOKUPS_IN_FLIGHT, thread_name_prefix="inbox-provider")
+_lookup_slots = threading.BoundedSemaphore(MAX_LOOKUPS_IN_FLIGHT)
 
 
 class InboxProvider(enum.StrEnum):
@@ -82,7 +83,7 @@ def detect_inbox_provider(mx_host: str | None) -> InboxProvider | None:
 
 
 def _primary_mx_host(domain: str) -> str | None:
-    """None when the domain has no MX record. A failed lookup raises, so it is never cached."""
+    """None when the domain has no MX record. A failed lookup raises."""
     try:
         answers = dns.resolver.resolve(domain, "MX", lifetime=LOOKUP_TIMEOUT_SECONDS)
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
@@ -91,18 +92,11 @@ def _primary_mx_host(domain: str) -> str | None:
     return min(records, key=lambda rdata: rdata.preference).exchange.to_text() if records else None
 
 
-def _cache_key(domain: str) -> str:
-    return f"inbox_provider:{domain}"
-
-
-def _resolve_and_cache(domain: str) -> InboxProvider | None:
-    # Caching here keeps an answer that arrives after the caller stopped waiting.
-    provider = detect_inbox_provider(_primary_mx_host(domain))
+def _resolve(domain: str) -> InboxProvider | None:
     try:
-        cache.set(_cache_key(domain), provider or "", CACHE_SECONDS)
-    except Exception:
-        logger.warning("Could not cache the inbox provider", exc_info=True)
-    return provider
+        return detect_inbox_provider(_primary_mx_host(domain))
+    finally:
+        _lookup_slots.release()
 
 
 class InboxProviderLookup:
@@ -128,14 +122,17 @@ class InboxProviderLookup:
             # Only Cloud runs the experiment that shows the button.
             if not domain or not is_cloud():
                 return cls()
-            cached = cache.get(_cache_key(domain))
-            if cached is not None:
-                return cls(resolved=InboxProvider(cached) if cached else None)
             if (oob_domain := matched_oob_domain(domain)) is not None:
                 # Resolving the name would itself confirm the path to whoever runs the collaborator.
                 logger.info("security.oob_domain_seen domain=%s guard=inbox_providers", oob_domain)
                 return cls()
-            return cls(future=_executor.submit(_resolve_and_cache, domain))
+            if not _lookup_slots.acquire(blocking=False):
+                return cls()
+            try:
+                return cls(future=_executor.submit(_resolve, domain))
+            except Exception:
+                _lookup_slots.release()
+                raise
         except Exception:
             logger.warning("Could not start the inbox provider lookup", exc_info=True)
             return cls()
