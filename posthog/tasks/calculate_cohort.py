@@ -48,6 +48,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, Cohort
 from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     CohortErrorCode,
+    PopulationMarkerClockSkew,
     StaticCohortReadBackIncomplete,
     close_open_population_attempts,
     count_cohort_members,
@@ -104,6 +105,7 @@ STATIC_POPULATION_TRANSIENT_ERRORS = (
     *COHORT_RECALCULATION_TRANSIENT_ERRORS,
     SoftTimeLimitExceeded,
     StaticCohortReadBackIncomplete,
+    PopulationMarkerClockSkew,
 )
 
 # Quorum errors, which only a replace can raise because only its insert and reads set quorum settings:
@@ -717,10 +719,8 @@ def calculate_cohort_ch(
 def _is_transient_population_error(err: BaseException) -> bool:
     # Static population runs the same ORM statements as recalculation, so it shares the Postgres
     # legs: a pooler blip between two personhog batches must not be recorded as a permanent failure.
-    from products.cohorts.backend.models.util import PopulationMarkerClockSkew
-
     return (
-        isinstance(err, (*STATIC_POPULATION_TRANSIENT_ERRORS, PopulationMarkerClockSkew))
+        isinstance(err, STATIC_POPULATION_TRANSIENT_ERRORS)
         or is_transient_rpc_error(err, codes=STATIC_POPULATION_RETRYABLE_RPC_CODES)
         or getattr(err, "code", None) in REPLACE_QUORUM_RETRYABLE_CLICKHOUSE_CODES
     )
@@ -1040,8 +1040,8 @@ def _populate_static_cohort(
         if replace_marker is not None:
             # A retry that carries a marker belongs to that replace, whatever the cohort runs now. If the cohort no
             # longer runs it (a newer attempt minted another marker, the sweep ended the run, or a claim started a new
-            # one), it stops before touching is_calculating. Otherwise it would continue as an append and finalize
-            # under that run's token.
+            # one), it stops before touching is_calculating. Otherwise it would continue as an append, and its
+            # finalize could clear a run whose stored mode and marker it happens to match.
             marker = datetime.fromisoformat(replace_marker)
             if not (replacing and population_marker_is_current(cohort_id, marker)):
                 logger.info(f"{log_prefix}_superseded", cohort_id=cohort_id, team_id=team_id)
@@ -1059,11 +1059,11 @@ def _populate_static_cohort(
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
         claimed = cohort
-        # The mode as first read, in case the refresh below raises and the finalize needs a token anyway.
+        # The mode as first read, in case the refresh below raises and the finalize still needs one to compare.
         claimed_mode = cohort.pending_population_mode
         cohort.refresh_from_db()
-        # The mode this attempt runs under is half of the token it finalizes with: a newer claim
-        # writes its own mode, so the compare-and-clear at the end can't take that claim's fields.
+        # The finalize clears the run fields only while the stored mode and marker still match this attempt's.
+        # A newer claim writes its own mode, so the compare-and-clear at the end can't take that claim's fields.
         claimed_mode = cohort.pending_population_mode
         replacing = supports_replace and claimed_mode == CohortPopulationMode.REPLACE
         if marker is not None and not replacing:
@@ -1092,9 +1092,9 @@ def _populate_static_cohort(
             mode=claimed_mode,
         )
 
-        # The CH insert is idempotent: it excludes person_ids already in the cohort.
-        # This handles both the retry-after-OOM case (no duplicates) and the
-        # add-more-people-via-query case (only new people inserted). A retry whose earlier attempt
+        # An append's CH insert is idempotent: it excludes person_ids already in the cohort. This handles
+        # both the retry-after-OOM case (no duplicates) and the add-more-people-via-query case (only new
+        # people inserted). A replace inserts every match at its marker instead. A retry whose earlier attempt
         # finished this phase skips it, because re-evaluating the source query costs the same hours
         # again and inserts nothing.
         if not ch_insert_done:

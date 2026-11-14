@@ -1422,11 +1422,9 @@ def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[st
     return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context
 
 
-def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team, replace_marker: datetime | None = None) -> int:
+def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team) -> int:
     query, params, context = build_static_cohort_filters_query(cohort, team=team)
-    return insert_actors_into_cohort_by_query(
-        cohort, query, params, context, team_id=team.id, replace_marker=replace_marker
-    )
+    return insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
 
 
 def insert_cohort_people_into_pg(
@@ -1448,20 +1446,17 @@ def insert_cohort_people_into_pg(
     consistency, and each of them counts. The stored marker is checked before each page. A newer
     replace attempt makes this raise ``PopulationSuperseded`` before it writes another page.
     """
-    try:
-        for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
-            new_rows_read = _copy_static_cohort_rows_to_pg(
-                cohort, team_id=team_id, written_since=written_since, replace_marker=replace_marker
+    for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
+        new_rows_read = _copy_static_cohort_rows_to_pg(
+            cohort, team_id=team_id, written_since=written_since, replace_marker=replace_marker
+        )
+        if new_rows_read >= min_rows:
+            return
+        if wait_seconds is None:
+            raise StaticCohortReadBackIncomplete(
+                f"Read {new_rows_read} of {min_rows} rows written to static cohort {cohort.pk}"
             )
-            if new_rows_read >= min_rows:
-                return
-            if wait_seconds is None:
-                raise StaticCohortReadBackIncomplete(
-                    f"Read {new_rows_read} of {min_rows} rows written to static cohort {cohort.pk}"
-                )
-            time.sleep(wait_seconds)
-    finally:
-        cohort._refresh_count(team_id=team_id)
+        time.sleep(wait_seconds)
 
 
 def _copy_static_cohort_rows_to_pg(
@@ -1532,7 +1527,7 @@ def _copy_static_cohort_rows_to_pg(
     return new_rows_read
 
 
-# ?????? Static population replace: marker and fence ??????????????????????????????????????????????????????????????????
+# ── Static population replace: marker and fence ──────────────────────
 
 # Quorum is 1 on the single-node ClickHouse used in tests and local dev, where 'auto' waits for a
 # replica that never answers. Production waits for a majority. The timeout is explicit because the
@@ -1552,7 +1547,7 @@ MAX_MARKER_CLOCK_SKEW_SECONDS = 5
 
 
 class PopulationSuperseded(Exception):
-    """A newer replace attempt owns the cohort, so this attempt must stop without writing anything."""
+    """A newer replace attempt stored its own marker on the cohort, so this attempt must stop without writing anything."""
 
     def __init__(self, cohort_id: int):
         super().__init__(f"A newer population attempt owns cohort {cohort_id}")
@@ -1592,7 +1587,7 @@ def require_current_population_marker(cohort_id: int, marker: datetime) -> None:
 
 
 def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
-    """Store a new replace marker on the cohort and return it, or None when a newer attempt owns it.
+    """Store a new replace marker on the cohort and return it, or None when another attempt changed the stored marker first.
 
     The marker is later than every row the cohort already holds and than the marker it replaces, and
     never ahead of the wall clock. The compare-and-set against the value this attempt read means only
@@ -1625,9 +1620,9 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
         if marker <= floor:
             raise PopulationMarkerClockSkew(f"Cohort {cohort.pk} could not mint a marker after {floor.isoformat()}")
 
-    owned = Cohort.objects.filter(pk=cohort.pk, pending_population_mode=CohortPopulationMode.REPLACE)
-    owned = (
-        owned.filter(population_marker=stored) if stored is not None else owned.filter(population_marker__isnull=True)
+    # filter(field=None) matches NULL, so an unset marker compares the same way as a set one.
+    owned = Cohort.objects.filter(
+        pk=cohort.pk, pending_population_mode=CohortPopulationMode.REPLACE, population_marker=stored
     )
     if not owned.update(population_marker=marker):
         return None
@@ -1638,20 +1633,12 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
 def clear_population_run_fields(cohort: Cohort, *, marker: datetime | None, mode: str | None) -> bool:
     """Clear the pending mode and marker if ``mode`` and ``marker`` are still the stored ones.
 
-    Returns whether the attempt holding that pair still owns the cohort. A newer claim writes its own
+    Returns whether that mode and marker were still stored, so no newer claim or attempt replaced them. A newer claim writes its own
     mode, and a newer attempt its own marker, so their fields are never cleared here, and the caller
     must not finalize over them. With both NULL there is nothing to clear, and ownership only needs
     checking.
     """
-    owned = Cohort.objects.filter(pk=cohort.pk)
-    owned = (
-        owned.filter(population_marker=marker) if marker is not None else owned.filter(population_marker__isnull=True)
-    )
-    owned = (
-        owned.filter(pending_population_mode=mode)
-        if mode is not None
-        else owned.filter(pending_population_mode__isnull=True)
-    )
+    owned = Cohort.objects.filter(pk=cohort.pk, population_marker=marker, pending_population_mode=mode)
     if marker is None and mode is None:
         return owned.exists()
     if not owned.update(pending_population_mode=None, population_marker=None):

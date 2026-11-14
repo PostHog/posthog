@@ -605,7 +605,6 @@ class TestCohortUtils(BaseTest):
         ):
             insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
 
-        self.assertEqual(cohort.count, 1)
         self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 1)
 
     def test_copy_to_postgres_fails_when_the_written_rows_never_appear(self):
