@@ -7,6 +7,7 @@ import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { Text } from '@posthog/quill'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { QuillDateFilterMenu, type QuillDateFilterMenuProps } from 'lib/components/DateFilter/QuillDateFilterMenu'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -130,6 +131,31 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
+    const dateFilterProps: QuillDateFilterMenuProps = {
+        showCustom: true,
+        showExplicitDateToggle: true,
+        allowTimePrecision: true,
+        allowFixedRangeWithTime: true,
+        dateFrom: effectiveEditBarFilters.date_from,
+        dateTo: effectiveEditBarFilters.date_to,
+        explicitDate: effectiveEditBarFilters.explicitDate,
+        onChange: (from_date, to_date, explicitDate) => {
+            if (!dashboardEditing) {
+                setDashboardEditing(true, DashboardEventSource.DashboardFilters)
+            }
+            setDates(from_date, to_date, explicitDate)
+        },
+        makeLabel: (key) =>
+            quillSurface ? (
+                <span className="hide-when-small">{key}</span>
+            ) : (
+                <>
+                    <IconCalendar />
+                    <span className="hide-when-small"> {key}</span>
+                </>
+            ),
+    }
+
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',
         dashboardId: dashboard?.id,
@@ -167,31 +193,11 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         interaction="click"
                         scope={Scene.Dashboard}
                     >
-                        <DateFilter
-                            showCustom
-                            showExplicitDateToggle
-                            allowTimePrecision
-                            allowFixedRangeWithTime
-                            dateFrom={effectiveEditBarFilters.date_from}
-                            dateTo={effectiveEditBarFilters.date_to}
-                            explicitDate={effectiveEditBarFilters.explicitDate}
-                            onChange={(from_date, to_date, explicitDate) => {
-                                if (!dashboardEditing) {
-                                    setDashboardEditing(true, DashboardEventSource.DashboardFilters)
-                                }
-                                setDates(from_date, to_date, explicitDate)
-                            }}
-                            makeLabel={(key) =>
-                                quillSurface ? (
-                                    <span className="hide-when-small">{key}</span>
-                                ) : (
-                                    <>
-                                        <IconCalendar />
-                                        <span className="hide-when-small"> {key}</span>
-                                    </>
-                                )
-                            }
-                        />
+                        {quillSurface ? (
+                            <QuillDateFilterMenu {...dateFilterProps} />
+                        ) : (
+                            <DateFilter {...dateFilterProps} />
+                        )}
                     </Shortcut>
                 </DashboardControlSlot>
             )}
