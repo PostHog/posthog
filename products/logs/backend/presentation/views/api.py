@@ -10,6 +10,7 @@ from django.http import HttpRequest, HttpResponseBase
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from opentelemetry import trace
@@ -34,7 +35,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
@@ -1565,9 +1566,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def _session_team_has_logs(self) -> bool:
         try:
             return team_has_logs(self.team, cache_negative=True)
-        except CH_TRANSIENT_ERRORS:
+        except (NetworkError, SocketTimeoutError):
             # The logs cluster drops connections for short periods. Replay shows an empty logs panel for
             # the recording instead of an error. The answer is not cached, so the next recording open checks again.
+            # Capacity, memory and S3 errors keep their error response so clients can tell the query did not run.
             logger.warning("logs_session_has_logs_check_unavailable", team_id=self.team_id, exc_info=True)
             return False
 

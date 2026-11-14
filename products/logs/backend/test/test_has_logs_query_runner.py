@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import ClickHouseAtCapacity
 
 from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 
@@ -189,3 +190,15 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             mock_logs_runner.assert_not_called()
             # The failed check is not cached, so the next recording open checks again.
             self.assertEqual(mock_execute.call_count, 2)
+
+    def test_session_query_keeps_the_error_when_has_logs_check_hits_capacity(self):
+        cache.clear()
+        payload = {"query": {"dateRange": {"date_from": "-1h"}, "sessionId": "some-session"}}
+
+        with patch(
+            "products.logs.backend.has_logs_query_runner.execute_hogql_query",
+            side_effect=ClickHouseAtCapacity(),
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/logs/query", payload, format="json")
+
+        self.assertNotEqual(response.status_code, status.HTTP_200_OK)
