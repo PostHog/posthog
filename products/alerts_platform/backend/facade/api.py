@@ -858,6 +858,11 @@ def destination_types_by_configuration(
     return alert_destinations.destination_types_by_configuration(team_id=team_id, configuration_ids=configuration_ids)
 
 
+def lock_source_configuration(*, team_id: int, public_id: UUID) -> None:
+    """Locks the alert's platform copy in the caller's transaction, before its destinations change."""
+    alert_destinations.lock_source_configuration(team_id=team_id, public_id=public_id)
+
+
 def take_source_destination_row(
     *, team_id: int, public_id: UUID, destination_id: UUID
 ) -> StoredAlertDestination | None:

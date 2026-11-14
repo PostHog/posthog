@@ -430,11 +430,12 @@ def customize_source_destination(
     allowed_destination_types: Collection[DestinationType],
     destination_id: UUID | None,
     hog_function_ids: Collection[UUID],
-    build_configs: Callable[[AlertDestinationData], Sequence[AlertDestinationConfig]],
+    build_configs: Callable[[AlertDestinationData, Collection[AlertEventKind]], Sequence[AlertDestinationConfig]],
     created_by_id: int,
 ) -> CustomizableDestination:
     """Moves a stock destination from its `AlertDestination` row to HogFunctions a person can edit.
-    `build_configs` is the source's own builder for a new destination of that type. Raises
+    `build_configs` is the source's own builder for a new destination of that type, given the event
+    kinds the row heard. A PagerDuty destination does not move while its alert fires. Raises
     `AlertDestinationValidationError` when the destination is not the alert's or has changed."""
     return customize_destinations.customize_source_destination(
         team_id=team_id,
@@ -458,7 +459,8 @@ def reset_source_destination(
     row_event_kinds: Callable[[DestinationType], Collection[AlertEventKind]],
 ) -> ResetDestination:
     """Retires a destination's HogFunctions and gives it an `AlertDestination` row with the standard message.
-    Raises `AlertDestinationValidationError` when the platform does not evaluate the alert."""
+    Raises `AlertDestinationValidationError` when the platform does not evaluate the alert, when some of
+    the destination's events are paused, and for a PagerDuty destination while its alert fires."""
     return customize_destinations.reset_source_destination(
         team_id=team_id,
         alert_id=alert_id,
