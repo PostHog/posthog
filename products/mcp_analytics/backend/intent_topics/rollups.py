@@ -2,6 +2,7 @@
 
 Both tables are ReplacingMergeTree, which keeps every version of a row until parts merge, so every
 reader goes through ``hourly_calls_source`` or ``topic_daily_source`` to see one version only.
+Rollup writes stay on the main cluster even when the project's events use a separate cluster.
 """
 
 from collections.abc import Iterator, Sequence
@@ -10,12 +11,15 @@ from datetime import UTC, datetime, time, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import EmbeddedClickHouseQuery, HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
+from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.facade.clickhouse_schema import (
@@ -37,12 +41,13 @@ _HOURLY_INSERT_SQL = (
 def insert_hourly_calls(team_id: int, rows: Sequence[HourlyCalls], *, now: datetime) -> int:
     for start in range(0, len(rows), INSERT_BATCH_SIZE):
         batch = rows[start : start + INSERT_BATCH_SIZE]
-        sync_execute(
-            _HOURLY_INSERT_SQL,
-            [(team_id, row.hour, row.hash, row.tool, row.calls, list(row.conversations), now) for row in batch],
-            team_id=team_id,
-            workload=Workload.OFFLINE,
-        )
+        with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False)):
+            sync_execute(
+                _HOURLY_INSERT_SQL,
+                [(team_id, row.hour, row.hash, row.tool, row.calls, list(row.conversations), now) for row in batch],
+                team_id=team_id,
+                workload=Workload.OFFLINE,
+            )
     return len(rows)
 
 
@@ -164,9 +169,10 @@ def rebuild_topic_daily(
         query = build_topic_daily_insert(
             team=team, window_start=day.start, window_end=day.end, now=now, timezone=timezone
         )
-        sync_execute(
-            query.sql, query.context.values, settings=query.settings, team_id=team_id, workload=Workload.OFFLINE
-        )
+        with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False)):
+            sync_execute(
+                query.sql, query.context.values, settings=query.settings, team_id=team_id, workload=Workload.OFFLINE
+            )
 
 
 _HOURLY_SOURCE_SQL = """
