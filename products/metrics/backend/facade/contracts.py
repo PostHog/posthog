@@ -172,6 +172,9 @@ class MetricQueryRequest:
     # False leaves a bucket without data as a None point (a gap), so a mean over the points skips it.
     # A formula needs aligned values, so it requires the zero fill.
     zero_fill: bool = True
+    # True keeps the series that are largest in the last bucket when a clause has more than the series cap,
+    # for a caller that reads only that bucket. Unaggregated clauses are capped in the query and ignore it.
+    rank_by_last_bucket: bool = False
 
     def __post_init__(self) -> None:
         if not self.clauses:

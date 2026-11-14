@@ -224,6 +224,7 @@ def _assemble_series(
     units_by_fingerprint: dict[int, str],
     zero_fill: bool = True,
     ingested_unit: str | None = None,
+    rank_by_last_bucket: bool = False,
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
@@ -250,8 +251,19 @@ def _assemble_series(
     # high-cardinality group-by never materializes label_sets x grid points
     # only to throw most of them away. Zero-filled points contribute nothing
     # to the magnitude, so the ranking is identical either way.
+    def magnitude(values: dict[str, float | None]) -> float:
+        return sum(abs(v) for v in values.values() if v is not None)
+
+    def last_bucket_magnitude(values: dict[str, float | None]) -> float:
+        return abs(values.get(grid[-1]) or 0.0)
+
     ranked = sorted(
-        by_labels.items(), key=lambda item: (-sum(abs(v) for v in item[1].values() if v is not None), item[0])
+        by_labels.items(),
+        key=lambda item: (
+            -last_bucket_magnitude(item[1]) if rank_by_last_bucket else 0.0,
+            -magnitude(item[1]),
+            item[0],
+        ),
     )
     return [
         MetricSeries(
@@ -508,6 +520,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             units_by_fingerprint=units_by_fingerprint,
             zero_fill=request.zero_fill,
             ingested_unit=derived_units.get(clause.name),
+            rank_by_last_bucket=request.rank_by_last_bucket,
         )
         for clause in request.clauses
     }
@@ -581,7 +594,12 @@ def run_metric_instant_query(
     window = metric_instant_window(team=team, time=time, interval=resolved)
     end = window.date_to
     request = MetricQueryRequest(
-        clauses=clauses, date_from=window.date_from, date_to=end, interval=resolved, formula=formula
+        clauses=clauses,
+        date_from=window.date_from,
+        date_to=end,
+        interval=resolved,
+        formula=formula,
+        rank_by_last_bucket=True,
     )
     # A bucket with no samples is missing from the series, so pick the last bucket by its start. Day and week
     # buckets follow the project timezone and can be an hour off a whole step across a DST change.
