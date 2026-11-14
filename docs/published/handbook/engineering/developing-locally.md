@@ -284,6 +284,9 @@ You might see `get_mempolicy: Operation not permitted` in the ClickHouse logs. T
 The dev stack mounts `docker/clickhouse/config.d/dev-system-logs.xml`, which turns off `query_views_log`, `metric_log` and `asynchronous_metric_log` to keep an idle ClickHouse quiet. `query_log`, `query_thread_log`, `text_log` and `trace_log` stay on.
 To profile with the other tables, remove the `dev-system-logs.xml` line from the `clickhouse` volumes in `docker-compose.dev.yml` and run `hogli up` again.
 
+**ClickHouse container stopped by itself**
+`hogli watch` stops the local ClickHouse after 30 minutes without use when no `hogli start` stack runs. Tests start it again on their own. To start it by hand, run `hogli watch --ensure clickhouse`. See [background housekeeping](./flox-multi-instance-workflow#background-housekeeping-hogli-watch) for the settings.
+
 **Database migration errors**
 If you see `fe_sendauth: no password supplied`, set `DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog` and ensure containers are running. On ARM machines, you may also hit `psycopg2` errors – see [this comment](https://github.com/psycopg/psycopg2/issues/1216#issuecomment-820556849) for fixes.
 

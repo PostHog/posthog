@@ -413,11 +413,23 @@ For a Cargo target that several projects share, run `hogli doctor:disk --area ca
 Every mode also removes folders of removed worktrees that hold only flox caches.
 `--mode deps` and `--mode build` also act on worktrees that `git worktree list` registers outside these folders, such as ones made by hand. `--mode full` and the daily background run act on those only with `--source other`.
 
-Flox activation also runs this once a day in the background: `--mode deps,build` on worktrees idle for 7 days and `--mode full` on worktrees idle for 14 days.
+Flox activation also runs this once a day in the background, through `hogli watch`: `--mode deps,build` on worktrees idle for 7 days and `--mode full` on worktrees idle for 14 days.
 It skips worktrees with uncommitted or unpushed work and keeps every branch.
 Commits that landed through a squash merge do not count as unpushed: hogli matches the branch's diff against the squash commit, and asks the GitHub CLI for the merged pull request when that fails.
 Set `POSTHOG_WORKTREES_AUTOCLEAN=0` to turn it off.
-The output goes to `.flox/cache/worktrees-clean.log` in the checkout that ran it.
+The output goes to `~/.cache/posthog/watch.log`.
+
+### Background housekeeping (`hogli watch`)
+
+Flox activation starts `hogli watch`, and one copy runs per machine.
+It runs the daily worktree cleanup above, and it stops the local ClickHouse container after 30 minutes with no queries, no connected clients, and no `hogli start` stack.
+A test that needs ClickHouse starts the container again, which takes a few seconds, so ClickHouse runs only while something uses it.
+The watcher exits when it has nothing left to watch.
+
+- `hogli watch --status` shows the watcher, its jobs, and the ClickHouse state.
+- `hogli watch --ensure clickhouse` starts ClickHouse by hand.
+- `POSTHOG_CLICKHOUSE_IDLE_STOP_MINUTES` sets the idle window, and `0` turns the stop off.
+- `POSTHOG_WATCH=0` turns off the whole watcher.
 
 ## Quick Setup Script
 
