@@ -23,6 +23,7 @@ from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
     persisted_repo_selection,
     resolve_team_github_integration,
+    saved_repository_connected,
     select_repository_for_report,
 )
 from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
@@ -221,6 +222,21 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             ):
                 logger.info(
                     "signals repo selection reuse skipped: no GitHub integration",
+                    report_id=input.report_id,
+                    team_id=input.team_id,
+                    repository=previous.repository,
+                )
+                previous = None
+            if (
+                previous is not None
+                and previous.repository is not None
+                and not input.github_optional
+                and not await database_sync_to_async(saved_repository_connected, thread_sensitive=False)(
+                    input.team_id, previous.repository
+                )
+            ):
+                logger.info(
+                    "signals repo selection reuse skipped: repository no longer connected",
                     report_id=input.report_id,
                     team_id=input.team_id,
                     repository=previous.repository,

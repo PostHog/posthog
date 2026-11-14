@@ -75,7 +75,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, saved_repository_connected
 from products.signals.backend.report_monitoring_provenance import monitoring_repository_allowed
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
@@ -1526,9 +1526,15 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Autostart is disabled")
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
-    if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id) and not await database_sync_to_async(
-        ResearchAccessPolicy.repository_available, thread_sensitive=False
-    )(team_id, repository, priority=EgressPriority.BATCH):
+    if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id):
+        repository_reachable = await database_sync_to_async(
+            ResearchAccessPolicy.repository_available, thread_sensitive=False
+        )(team_id, repository, priority=EgressPriority.BATCH)
+    else:
+        repository_reachable = await database_sync_to_async(saved_repository_connected, thread_sensitive=False)(
+            team_id, repository
+        )
+    if not repository_reachable:
         return AutostartOutcome(status="blocked", reason="Connect or repair GitHub access to the selected repository")
 
     if not await database_sync_to_async(monitoring_repository_allowed, thread_sensitive=False)(
