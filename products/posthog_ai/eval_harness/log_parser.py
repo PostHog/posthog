@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from products.posthog_ai.backend.exec_commands import normalize_tool_name, parse_exec_command
 
-from .acp_log import parse_log
+from .acp_log import ParsedLog, parse_log
 
 SKILL_TOOL_NAME = "Skill"
 EXEC_TOOL_NAME = "exec"
@@ -164,8 +164,18 @@ class LogParser:
     """
 
     def __init__(self, raw_log: str, *, initial_prompt: str = "") -> None:
-        self._parsed = parse_log(raw_log, initial_prompt=initial_prompt)
-        self._messages = self._parsed.messages
+        self._load(parse_log(raw_log, initial_prompt=initial_prompt), initial_prompt)
+
+    @classmethod
+    def from_parsed_log(cls, parsed: ParsedLog, *, initial_prompt: str = "") -> LogParser:
+        """Wrap a log that is already parsed, so a caller that holds a ``ParsedLog`` does not parse it again."""
+        parser = cls.__new__(cls)
+        parser._load(parsed, initial_prompt)
+        return parser
+
+    def _load(self, parsed: ParsedLog, initial_prompt: str) -> None:
+        self._parsed = parsed
+        self._messages = parsed.messages
         self._initial_prompt = initial_prompt
         self._tool_results = _index_tool_results(self._messages)
         self._tool_use_positions = _index_tool_use_positions(self._messages)
