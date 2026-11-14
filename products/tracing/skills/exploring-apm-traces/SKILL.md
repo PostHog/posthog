@@ -188,7 +188,7 @@ Use `posthog:query-apm-spans` to search and filter spans. Note this returns span
 Before constructing filters, discover what's actually in the project:
 
 1. **Confirm services exist** — call `apm-services-list` to see which services have emitted spans.
-2. **Find filterable attributes** — call `apm-attributes-list` with `attribute_type: "span"` or `"resource"`.
+2. **Find filterable attributes** — call `apm-attributes-list` with `attribute_type: "span_attribute"` or `"span_resource_attribute"`.
 3. **Get actual values** — call `apm-attribute-values-list` with a key to see the real values in use.
 
 Only then construct `query-apm-spans` filters. Custom attributes vary per project and cannot be guessed.
@@ -265,6 +265,6 @@ results (array of span dicts)
 
 - Always set `dateRange` on `query-apm-spans` — queries without a time range are slow. Default is `-1h`; widen only when needed.
 - Always include the `_posthogUrl` from `apm-trace-get` in your response so the user can click through to the trace.
-- Span-level attributes **are** in the `apm-trace-get` / `query-apm-spans` payload (each span's `attributes` map). Resource attributes are not — use `apm-attributes-list` (type `resource`) and `apm-attribute-values-list` for those.
+- Span-level attributes **are** in the `apm-trace-get` / `query-apm-spans` payload (each span's `attributes` map). Resource attributes are not — use `apm-attributes-list` with `attribute_type: "span_resource_attribute"` and `apm-attribute-values-list` for those.
 - `is_root_span` is the cheap way to find the trace entry — don't string-match `00000000…`.
 - For aggregates (p95 by operation, slowest children of a span), use `apm-spans-aggregate` for a flat view or `apm-spans-tree` for parent→child edges — don't reach for SQL.
