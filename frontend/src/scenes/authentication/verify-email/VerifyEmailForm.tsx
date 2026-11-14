@@ -12,8 +12,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { OpenInboxButton } from 'scenes/authentication/shared/OpenInboxButton'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
-import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { getPendingVerification, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
 
@@ -170,7 +171,9 @@ function CheckYourInbox(): JSX.Element {
     // The address that received the code. This is the new address if an email change is pending,
     // else the account address. Without a session, for example on a fresh signup, the page uses the
     // address the signup or login form stored in this browser. It stays unset in a different browser.
-    const verificationEmail = user?.pending_email ?? user?.email ?? getPendingVerificationEmail(uuid) ?? undefined
+    const pendingVerification = getPendingVerification(uuid)
+    const verificationEmail = user?.pending_email ?? user?.email ?? pendingVerification?.email ?? undefined
+    const inboxProvider = verificationEmailSent ? (pendingVerification?.inboxProvider ?? null) : null
 
     return (
         <div className="flex flex-col items-center text-center">
@@ -208,6 +211,12 @@ function CheckYourInbox(): JSX.Element {
                     }.`}
                 </p>
             )}
+            <OpenInboxButton
+                provider={inboxProvider}
+                email={verificationEmail ?? null}
+                step="verify_email"
+                className="mb-2.5"
+            />
             <VerificationCodeEntry />
             <div className="mt-3">
                 <NotSeeingIt />

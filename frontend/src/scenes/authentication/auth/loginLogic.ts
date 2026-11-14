@@ -18,6 +18,7 @@ import { isWebKitBrowser } from 'lib/utils/dom'
 import { redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
+import { type InboxProvider, parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
 import {
     clearPendingVerificationEmail,
     normalizeVerificationCode,
@@ -118,6 +119,7 @@ export interface loginLogicValues {
     codeVerificationEmail: string | null
     codeVerificationErrors: DeepPartialMap<CodeVerificationForm, ValidationErrorType>
     codeVerificationHasErrors: boolean
+    codeVerificationInboxProvider: InboxProvider | null
     codeVerificationManualErrors: Record<string, any>
     codeVerificationRequired: boolean
     codeVerificationTouched: boolean
@@ -242,8 +244,12 @@ export interface loginLogicActions {
     setCodeVerificationManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
-    setCodeVerificationRequired: (email: string) => {
+    setCodeVerificationRequired: (
+        email: string,
+        inboxProvider: InboxProvider | null
+    ) => {
         email: string
+        inboxProvider: InboxProvider | null
     }
     setCodeVerificationValue: (
         key: FieldName,
@@ -361,7 +367,7 @@ export const loginLogic = kea<loginLogicType>([
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
-        setCodeVerificationRequired: (email: string) => ({ email }),
+        setCodeVerificationRequired: (email: string, inboxProvider: InboxProvider | null) => ({ email, inboxProvider }),
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
         markPasskeyPrompted: (email: string) => ({ email }),
@@ -390,6 +396,13 @@ export const loginLogic = kea<loginLogicType>([
             null as string | null,
             {
                 setCodeVerificationRequired: (_, { email }) => email,
+                exitCodeVerification: () => null,
+            },
+        ],
+        codeVerificationInboxProvider: [
+            null as InboxProvider | null,
+            {
+                setCodeVerificationRequired: (_, { inboxProvider }) => inboxProvider,
                 exitCodeVerification: () => null,
             },
         ],
@@ -557,19 +570,20 @@ export const loginLogic = kea<loginLogicType>([
                         }
                         throw e
                     }
+                    const inboxProvider = parseInboxProvider((e as ApiError).data?.extra?.inbox_provider)
                     if (code === 'verify_email_pending' && typeof detail === 'string') {
                         // detail carries the user uuid; the verification page has the code entry form
                         lemonToast.info('Verify your email to continue. We just sent you a new code.')
                         // The verify page has no session in this state, so store the address for its copy.
                         // detail carries the user uuid, which keys the stored value.
-                        setPendingVerificationEmail(detail, email)
+                        setPendingVerificationEmail(detail, email, inboxProvider)
                         const next: string | undefined = router.values.searchParams.next
                         router.actions.push(urls.verifyEmail(detail), next ? { next } : {})
                         throw e
                     }
                     if (code === 'code_based_verification_required') {
                         const emailAddress = detail?.email || email
-                        actions.setCodeVerificationRequired(emailAddress)
+                        actions.setCodeVerificationRequired(emailAddress, inboxProvider)
                         throw e
                     }
                     // A response with no parseable JSON body (a 5xx HTML page, a 502 from the edge, a

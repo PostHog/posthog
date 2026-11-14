@@ -19,6 +19,10 @@ rules:
       owners: team-web-analytics
     - match: '/hogql/'
       owners: team-data-tools
+    - match:
+          - '/inbox_providers.py'
+          - '/test/test_inbox_providers.py'
+      owners: team-growth
     - match: '/integrations/'
       owners: team-warehouse-sources
     - match: '/management/migration_analysis/'

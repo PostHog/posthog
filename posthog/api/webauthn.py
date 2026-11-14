@@ -18,7 +18,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_
 from webauthn.helpers.decode_credential_public_key import decode_credential_public_key
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
-from posthog.api.authentication import EmailVerificationPending, axes_locked_out, is_email_verified_for_login
+from posthog.api.authentication import EmailVerificationPending, axes_locked_out, require_verified_email_for_login
 from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend, refuse_blocked_account
 from posthog.event_usage import report_user_logged_in
 from posthog.helpers.email_utils import EmailLookupHandler
@@ -414,11 +414,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         if not resolve_login_organization(verified_user):
             return _login_error(VERIFIED_DOMAIN_REQUIRED_ERROR)
 
-        if not is_email_verified_for_login(verified_user):
-            # The passkey assertion is verified at this point, so the uuid is safe to return:
-            # the password path returns the same uuid after a correct password. The frontend
-            # uses the uuid to route to /verify_email/<uuid>.
-            raise EmailVerificationPending(str(verified_user.uuid))
+        # The passkey assertion is verified at this point, so the uuid in the error is safe to return.
+        require_verified_email_for_login(verified_user)
 
         return None
 

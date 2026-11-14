@@ -12,6 +12,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { OpenInboxButton } from 'scenes/authentication/shared/OpenInboxButton'
 import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 
@@ -24,6 +25,7 @@ export function LoginCodeStep(): JSX.Element {
     const { exitCodeVerification, resendCodeBasedVerification, submitCodeVerification } = useActions(loginLogic)
     const {
         codeVerificationEmail,
+        codeVerificationInboxProvider,
         resendResponseLoading,
         resendResponse,
         codeResendAttempted,
@@ -46,6 +48,12 @@ export function LoginCodeStep(): JSX.Element {
                         <strong>{codeVerificationEmail}</strong>.
                     </>
                 }
+            />
+            <OpenInboxButton
+                provider={codeVerificationInboxProvider}
+                email={codeVerificationEmail}
+                step="login_code"
+                className="mb-3"
             />
             <div className="mb-5 flex flex-col items-center gap-1 text-sm">
                 <Link

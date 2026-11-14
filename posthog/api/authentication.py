@@ -82,6 +82,7 @@ from posthog.helpers.two_factor_session import (
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import IdentityProviderConfig, OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -259,9 +260,10 @@ class CodeBasedVerificationRequired(APIException):
     default_detail = "Code-based verification is required."
     default_code = "code_based_verification_required"
 
-    def __init__(self, email: str | None = None):
+    def __init__(self, email: str | None = None, inbox_provider: InboxProvider | None = None):
         detail = email if email else self.default_detail
         super().__init__(detail=detail, code=self.default_code)
+        self.extra = {"inbox_provider": inbox_provider}
 
 
 class LoginCodeEmailUndeliverable(APIException):
@@ -286,32 +288,32 @@ class EmailVerificationPending(APIException):
     default_detail = "Email verification is required."
     default_code = "verify_email_pending"
 
-    def __init__(self, user_uuid: str):
+    def __init__(self, user_uuid: str, inbox_provider: InboxProvider | None = None):
         super().__init__(detail=user_uuid, code=self.default_code)
+        self.extra = {"inbox_provider": inbox_provider}
 
 
-def is_email_verified_for_login(user: User) -> bool:
+def require_verified_email_for_login(user: User) -> None:
     """
     Send a verification code when the login policy requires it.
 
-    Returns whether login may continue for this user. Legacy users with a null
-    verification state are still allowed to sign in.
+    Raises EmailVerificationPending when login may not continue for this user. Legacy users with
+    a null verification state get a code but are still allowed to sign in. The error carries the
+    user uuid, so call this only after the caller checked a credential.
     """
     if not is_email_available():
-        return True
+        return
 
     if user.is_email_verified is True:
-        return True
+        return
 
     if is_email_verification_disabled(user):
-        return True
+        return
 
+    inbox_lookup = InboxProviderLookup.start(user.email)
     email_verification_code_verifier.send_code(user)
     if user.is_email_verified is False:
-        return False
-
-    # legacy None users are still allowed to log in
-    return True
+        raise EmailVerificationPending(str(user.uuid), inbox_provider=inbox_lookup.result())
 
 
 class LoginSerializer(serializers.Serializer):
@@ -430,10 +432,7 @@ class LoginSerializer(serializers.Serializer):
         if refused:
             raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
-        if not is_email_verified_for_login(user):
-            # A fresh code was just emailed; hand the frontend the uuid so it can route to
-            # the code entry page.
-            raise EmailVerificationPending(str(user.uuid))
+        require_verified_email_for_login(user)
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(user):
@@ -464,12 +463,13 @@ class LoginSerializer(serializers.Serializer):
             else:
                 # Code-based verification - skip if this is a reauth (user already authenticated)
                 if not was_authenticated_before_login_attempt:
+                    inbox_lookup = InboxProviderLookup.start(user.email)
                     code_based_verification_sent = _send_login_code(request, user)
                     if code_based_verification_sent:
                         # Increment the resend throttle counter so the initial send counts towards the limit
                         resend_throttle = CodeBasedVerificationResendThrottle()
                         resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
-                        raise CodeBasedVerificationRequired(user.email)
+                        raise CodeBasedVerificationRequired(user.email, inbox_provider=inbox_lookup.result())
                     else:
                         # if we failed to send the email, we should fall through to allow login without code-based verification
                         pass
