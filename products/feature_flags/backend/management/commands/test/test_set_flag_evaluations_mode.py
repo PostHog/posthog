@@ -25,6 +25,12 @@ from products.feature_flags.backend.flag_evaluations_mode import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
+FLAG_CALL_METRIC = {
+    "kind": "ExperimentMetric",
+    "metric_type": "mean",
+    "source": {"kind": "EventsNode", "event": "$feature_flag_called"},
+}
+
 
 class TestSetFlagEvaluationsMode(BaseTest):
     def _run(self, *args: str) -> str:
@@ -62,20 +68,21 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertIsNone(self._stored_mode(self.organization))
 
     @parameterized.expand([("flag_evaluations_only", "2", True), ("read_flag_evaluations", "1", False)])
-    def test_warns_only_when_the_mode_stops_experiments_on_feature_flag_called(
+    def test_warns_only_when_the_mode_stops_events_writes_of_flag_calls_an_experiment_reads(
         self, _name: str, mode: str, expects_warning: bool
     ) -> None:
         create_experiment(
             team_id=self.team.id,
             feature_flag_id=FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user).id,
-            name="Started before the cutoff",
+            name="Metric on flag calls",
             start_date=datetime(2026, 8, 1, tzinfo=UTC),
+            metrics=[FLAG_CALL_METRIC],
         )
 
         output = self._run("--mode", mode, "--organization-id", str(self.organization.id), "--dry-run")
 
-        self.assertIn("1 experiment(s) on $feature_flag_called", output)
-        self.assertEqual("1 running experiment(s) count exposures on $feature_flag_called" in output, expects_warning)
+        self.assertIn("1 experiment(s) reading $feature_flag_called from events", output)
+        self.assertEqual("1 running experiment(s) read $feature_flag_called from events" in output, expects_warning)
 
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_created_after_selects_only_newer_organizations(self) -> None:

@@ -26,16 +26,16 @@ from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
 from products.experiments.backend.health.inputs_payload import health_inputs_payload
 from products.experiments.backend.health.loader import evaluate_experiment_health, load_experiment_health_inputs
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
-    get_exposure_event_and_property,
+    exposure_nodes_without_copies,
     is_default_exposure_config,
     normalize_to_exposure_criteria,
-    resolve_default_exposure_event,
 )
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_calculation.config import (
@@ -43,7 +43,9 @@ from products.experiments.backend.metric_calculation.config import (
     calculation_metric_name,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids
 from products.experiments.backend.models.experiment import (
+    LEGACY_METRIC_KINDS,
     Experiment as ExperimentModel,
     experiment_variants,
     flag_has_live_experiment as _flag_has_live_experiment,
@@ -159,31 +161,54 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
     return _experiment_model_to_dto(experiment_model)
 
 
-def count_running_experiments_on_feature_flag_called(organization_id: UUID) -> int:
-    """Count the organization's running experiments that count exposures on $feature_flag_called.
+def count_running_experiments_needing_flag_calls_in_events(organization_id: UUID) -> int:
+    """Count the organization's running experiments that read $feature_flag_called from events without its
+    $experiment_exposure copy: through an exposure action, an activation, or a primary, secondary or shared metric.
 
-    Those exposures come from the events table, so they stop when ingestion stops writing
-    $feature_flag_called to events.
+    Ingestion stops writing $feature_flag_called to events on FLAG_EVALUATIONS_ONLY, so those reads find no new
+    calls. A default exposure on $feature_flag_called does not count, because it also reads the copy. That relies on
+    ingestion copying every team's multivariate flag calls, as EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS="*" does on
+    PostHog Cloud. Legacy metrics do not count, because nothing computes them.
     """
     experiments = (
         ExperimentModel.objects.filter(
             team__organization_id=organization_id, start_date__isnull=False, end_date__isnull=True, archived=False
         )
         .exclude(deleted=True)
-        .select_related("team", "feature_flag")
+        .select_related("team")
+        .prefetch_related("experimenttosavedmetric_set__saved_metric")
     )
-    count = 0
+    reads_by_project: dict[int, list[tuple[set[str], set[int]]]] = defaultdict(list)
     for experiment in experiments:
-        # A rule-linked experiment counts the $experiment_exposure events of its rule only.
-        if experiment.is_rule_linked:
-            continue
-        exposure_event, _ = get_exposure_event_and_property(
-            experiment.feature_flag.key,
-            experiment.exposure_criteria,
-            default_exposure_event=resolve_default_exposure_event(experiment.team, experiment.start_date),
+        reads_by_project[experiment.team.project_id].append(
+            collect_metric_events_and_action_ids(_nodes_read_without_exposure_copy(experiment))
         )
-        count += exposure_event == DEFAULT_EXPOSURE_EVENT
+    count = 0
+    for project_id, reads in reads_by_project.items():
+        # The queries resolve actions by project and keep reading deleted ones, so this lookup does the same.
+        action_ids = set().union(*(ids for _, ids in reads))
+        flag_call_action_ids = {
+            action.id
+            for action in get_actions(action_ids=action_ids, project_id=project_id, include_deleted=True)
+            if DEFAULT_EXPOSURE_EVENT in action.get_step_events()
+        }
+        count += sum(DEFAULT_EXPOSURE_EVENT in events or bool(ids & flag_call_action_ids) for events, ids in reads)
     return count
+
+
+def _nodes_read_without_exposure_copy(experiment: ExperimentModel) -> list[dict[str, Any]]:
+    metrics = [
+        *(experiment.metrics or []),
+        *(experiment.metrics_secondary or []),
+        *(link.saved_metric.query for link in experiment.experimenttosavedmetric_set.all() if link.saved_metric.query),
+    ]
+    nodes = [metric for metric in metrics if metric.get("kind") not in LEGACY_METRIC_KINDS]
+    try:
+        criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    except pydantic.ValidationError:
+        logger.warning("experiment_exposure_criteria_invalid", experiment_id=experiment.id, exc_info=True)
+        return nodes
+    return [*nodes, *exposure_nodes_without_copies(criteria)]
 
 
 def get_experiment_health(

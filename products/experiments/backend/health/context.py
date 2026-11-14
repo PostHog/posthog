@@ -884,8 +884,8 @@ def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag
 def _flag_calls_unrecorded(experiment: Experiment) -> bool:
     # The task that sets `last_called_at` reads `$feature_flag_called` from the events table, unless it is set to
     # read flag_evaluations. On FLAG_EVALUATIONS_ONLY, ingestion writes no `$feature_flag_called` to the events table
-    # for the teams in its allowlist, which this side can't read. Their flags keep no `last_called_at` however often
-    # they are called.
+    # for the teams it copies to flag_evaluations, which this side can't read. Their flags keep no `last_called_at`
+    # however often they are called.
     return settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE != "flag_evaluations" and (
         get_organization_flag_evaluations_mode(experiment.team.organization_id)
         == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY

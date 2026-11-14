@@ -70,7 +70,7 @@ export interface FlagEvaluationsModePreviewSummary {
     organizationsChanged: number
     organizationsLeftAboveMode: number
     organizationsLoweredFromFlagEvaluationsOnly: number
-    experimentsLosingExposures: number
+    experimentsNeedingFlagCallsInEvents: number
 }
 
 const DEFAULT_FLAG_EVALUATIONS_MODE_REQUEST: FlagEvaluationsModeRequest = {
@@ -670,13 +670,13 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                         (organization) =>
                             organization.changed && organization.current_mode === FlagEvaluationsModeEnumApi.Number2
                     ).length,
-                    experimentsLosingExposures:
+                    experimentsNeedingFlagCallsInEvents:
                         preview.response.flag_evaluations_mode === FlagEvaluationsModeEnumApi.Number2
                             ? preview.response.organizations
                                   .filter((organization) => organization.changed)
                                   .reduce(
                                       (total, organization) =>
-                                          total + organization.running_experiments_on_feature_flag_called,
+                                          total + organization.running_experiments_needing_flag_calls_in_events,
                                       0
                                   )
                             : 0,
