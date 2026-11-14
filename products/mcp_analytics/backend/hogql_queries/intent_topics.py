@@ -40,7 +40,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -133,51 +133,77 @@ class IntentUsage:
     total_points: int
 
 
+# Sessions are a distinct count of conversation hashes per topic. uniqCombined64 keeps a fixed-size sketch per
+# topic (exact for small counts, within about 1% above), so memory does not grow with the number of
+# conversations the way a union of every conversation array does.
 _TOPIC_SUMS_SQL = """
-SELECT topic_id,
-       sum(calls_now) AS calls,
-       length(groupUniqArrayArray(conversations_now)) AS sessions,
-       sum(outlier_calls_now) AS outlier_calls,
-       sum(calls_before) AS previous_calls,
-       arrayMap(t -> t.2, arraySlice(arraySort(t -> -t.1, groupArrayIf((calls_now, tool), calls_now > 0 AND isNotNull(tool))), 1, {top_tools})) AS top_tools
+SELECT t.topic_id AS topic_id, t.calls AS calls, ifNull(s.sessions, 0) AS sessions, t.outlier_calls AS outlier_calls,
+       t.previous_calls AS previous_calls, t.top_tools AS top_tools
 FROM (
-    SELECT topic_id, tool,
-           sumIf(calls, day >= {date_from}) AS calls_now,
-           groupUniqArrayArrayIf(conversation_hashes, day >= {date_from}) AS conversations_now,
-           sumIf(outlier_calls, day >= {date_from}) AS outlier_calls_now,
-           sumIf(calls, day < {date_from}) AS calls_before
-    FROM {source}
-    GROUP BY topic_id, tool
-)
-GROUP BY topic_id
+    SELECT topic_id,
+           sum(calls_now) AS calls,
+           sum(outlier_calls_now) AS outlier_calls,
+           sum(calls_before) AS previous_calls,
+           arrayMap(t -> t.2, arraySlice(arraySort(t -> -t.1, groupArrayIf((calls_now, tool), calls_now > 0 AND isNotNull(tool))), 1, {top_tools})) AS top_tools
+    FROM (
+        SELECT topic_id, tool,
+               sumIf(calls, day >= {date_from}) AS calls_now,
+               sumIf(outlier_calls, day >= {date_from}) AS outlier_calls_now,
+               sumIf(calls, day < {date_from}) AS calls_before
+        FROM {source}
+        GROUP BY topic_id, tool
+    )
+    GROUP BY topic_id
+) AS t
+LEFT JOIN (
+    SELECT topic_id, uniqCombined64(conversation) AS sessions
+    FROM {sessions_source}
+    ARRAY JOIN conversation_hashes AS conversation
+    WHERE day >= {date_from}
+    GROUP BY topic_id
+) AS s ON ifNull(t.topic_id, '') = ifNull(s.topic_id, '')
 LIMIT {limit}
 """
 
 # Intents called in the window (from the hourly rollup) joined to their latest assignment. Filters on the
 # assignment apply after the latest row is chosen, so an older assignment never resurfaces.
+#
+# A month of the largest team is tens of millions of intents, so the ranking holds as little per intent as it can:
+# the 64-bit hash of the intent hash instead of the 64-character string, the topic as a UUID, and no intent text.
+# The callers keep the top rows and then read the hash and text of those rows only (_INTENT_TEXT_SQL). An intent's
+# tool is the tool of its busiest hourly row, which saves grouping by (intent, tool) first.
 _INTENT_USAGE_SQL = """
-SELECT u.intent_hash AS intent_hash, a.intent_text AS intent_text, a.x AS x, a.y AS y, a.topic_id AS topic_id,
-       a.is_outlier AS is_outlier, a.distance AS distance, u.calls AS calls, u.tool AS tool,
-       count() OVER () AS total_points
+SELECT u.key AS key, a.x AS x, a.y AS y, a.topic_uuid AS topic_uuid, a.is_outlier AS is_outlier,
+       a.distance AS distance, u.intent_calls AS calls, u.main_tool AS tool, count() OVER () AS total_points
 FROM (
-    SELECT intent_hash, sum(tool_calls) AS calls, argMax(tool, tool_calls) AS tool
-    FROM (SELECT intent_hash, tool, sum(calls) AS tool_calls FROM {usage} GROUP BY intent_hash, tool)
-    GROUP BY intent_hash
+    SELECT cityHash64(intent_hash) AS key, sum(calls) AS intent_calls, argMax(tool, calls) AS main_tool
+    FROM {usage}
+    GROUP BY key
 ) AS u
 INNER JOIN (
-    SELECT intent_hash,
-           argMax(intent_text, timestamp) AS intent_text,
+    SELECT cityHash64(intent_hash) AS key,
            argMax(x, timestamp) AS x,
            argMax(y, timestamp) AS y,
-           argMax(ifNull(topic_id, ''), timestamp) AS topic_id,
+           argMax(assumeNotNull(toUUID(ifNull(topic_id, {no_topic}))), timestamp) AS topic_uuid,
            argMax(is_outlier, timestamp) AS is_outlier,
            argMax(distance, timestamp) AS distance,
            max(timestamp) AS assigned_at
     FROM posthog.raw_mcp_intent_assignments
-    WHERE intent_hash IN (SELECT intent_hash FROM {called})
-    GROUP BY intent_hash
-) AS a ON u.intent_hash = a.intent_hash
+    WHERE {assigned_since}
+    GROUP BY key
+) AS a ON u.key = a.key
 WHERE {filters}
+"""
+
+NO_TOPIC_UUID = "00000000-0000-0000-0000-000000000000"
+
+# The intent hash and latest text of each kept row.
+_INTENT_TEXT_SQL = """
+SELECT cityHash64(intent_hash) AS key, intent_hash, argMax(intent_text, timestamp)
+FROM posthog.raw_mcp_intent_assignments
+WHERE cityHash64(intent_hash) IN {keys}
+GROUP BY intent_hash
+LIMIT {limit}
 """
 
 
@@ -227,6 +253,9 @@ class _IntentTopicsBase:
                     "date_from": ast.Constant(value=self.window.date_from.date()),
                     "source": topic_daily_source(
                         day_from=self.window.previous_from, day_to=self.window.date_to, tool=tool
+                    ),
+                    "sessions_source": topic_daily_source(
+                        day_from=self.window.date_from, day_to=self.window.date_to, tool=tool
                     ),
                     "top_tools": ast.Constant(value=TOP_TOOLS_PER_TOPIC),
                     "limit": ast.Constant(value=MAX_TOPICS_READ),
@@ -304,41 +333,79 @@ class _IntentTopicsBase:
         return items[:limit]
 
     def _intent_usage(
-        self, *, tool: str | None, filters: list[ast.Expr], order_by: list[ast.OrderExpr], limit: int
+        self,
+        *,
+        tool: str | None,
+        filters: list[ast.Expr],
+        order_by: list[ast.OrderExpr],
+        limit: int,
+        assigned_since: datetime | None = None,
     ) -> list[IntentUsage]:
-        query = self._intent_usage_query(tool=tool, filters=filters)
+        query = self._intent_usage_query(tool=tool, filters=filters, assigned_since=assigned_since)
         query.order_by = order_by
         query.limit = ast.Constant(value=limit)
         rows = self._execute(query, "mcp_intent_usage")
-        return [
-            IntentUsage(
-                intent_hash=row[0],
-                intent_text=row[1] or "",
-                x=float(row[2]),
-                y=float(row[3]),
-                topic_id=row[4] or UNASSIGNED,
-                is_outlier=bool(row[5]),
-                distance=float(row[6] or 0),
-                calls=int(row[7] or 0),
-                tool=row[8] or "",
-                total_points=int(row[9] or 0),
+        texts = self._intent_texts([row[0] for row in rows])
+        usage = []
+        for key, x, y, topic_uuid, is_outlier, distance, calls, row_tool, total_points in rows:
+            if key not in texts:
+                continue
+            intent_hash, intent_text = texts[key]
+            topic_id = str(topic_uuid) if topic_uuid is not None else NO_TOPIC_UUID
+            usage.append(
+                IntentUsage(
+                    intent_hash=intent_hash,
+                    intent_text=intent_text,
+                    x=float(x),
+                    y=float(y),
+                    topic_id=UNASSIGNED if topic_id == NO_TOPIC_UUID else topic_id,
+                    is_outlier=bool(is_outlier),
+                    distance=float(distance or 0),
+                    calls=int(calls or 0),
+                    tool=row_tool or "",
+                    total_points=int(total_points or 0),
+                )
             )
-            for row in rows
-        ]
+        return usage
 
-    def _intent_usage_query(self, *, tool: str | None, filters: list[ast.Expr]) -> ast.SelectQuery:
+    def _intent_texts(self, keys: list[int]) -> dict[int, tuple[str, str]]:
+        if not keys:
+            return {}
+        rows = self._execute(
+            cast(
+                ast.SelectQuery,
+                parse_select(
+                    _INTENT_TEXT_SQL,
+                    placeholders={"keys": ast.Constant(value=keys), "limit": ast.Constant(value=2 * len(keys))},
+                ),
+            ),
+            "mcp_intent_usage_texts",
+        )
+        return {key: (intent_hash, text or "") for key, intent_hash, text in rows if intent_hash is not None}
+
+    def _intent_usage_query(
+        self, *, tool: str | None, filters: list[ast.Expr], assigned_since: datetime | None = None
+    ) -> ast.SelectQuery:
         since, until = self.window.date_from, self.window.date_to
-        return cast(
+        query = cast(
             ast.SelectQuery,
             parse_select(
                 _INTENT_USAGE_SQL,
                 placeholders={
                     "usage": hourly_calls_source(since=since, until=until, tool=tool),
-                    "called": hourly_calls_source(since=since, until=until, tool=tool),
+                    "no_topic": ast.Constant(value=NO_TOPIC_UUID),
+                    # The latest row of an intent is never older than a filter on its assignment time, so the
+                    # older rows can be skipped before the aggregation.
+                    "assigned_since": parse_expr("timestamp >= {since}", {"since": ast.Constant(value=assigned_since)})
+                    if assigned_since is not None
+                    else ast.Constant(value=True),
                     "filters": ast.And(exprs=filters) if filters else ast.Constant(value=True),
                 },
             ),
         )
+        # The hourly source groups by its sort key, so ClickHouse can aggregate it in order, without holding it.
+        query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        return query
 
 
 class MCPIntentTopicsQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPIntentTopicsQueryResponse]):
@@ -401,7 +468,7 @@ class MCPToolIntentProfileQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MC
         usage = self._intent_usage(
             tool=self.query.toolName,
             filters=[parse_expr("a.is_outlier = 1")],
-            order_by=[_order("calls", "DESC"), _order("distance", "DESC"), _order("intent_hash")],
+            order_by=[_order("calls", "DESC"), _order("distance", "DESC"), _order("key")],
             limit=OUTLIERS_LIMIT,
         )
         return [
@@ -551,7 +618,9 @@ class MCPIntentMapQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPIntentM
                 parse_expr("a.assigned_at >= {basis_since}", {"basis_since": ast.Constant(value=basis_since)})
             )
         if self.query.topicId:
-            filters.append(parse_expr("a.topic_id = {topic_id}", {"topic_id": ast.Constant(value=self.query.topicId)}))
+            filters.append(
+                parse_expr("a.topic_uuid = toUUID({topic_id})", {"topic_id": ast.Constant(value=self.query.topicId)})
+            )
         if self.query.bounds:
             bounds = self.query.bounds
             filters.append(
@@ -571,11 +640,13 @@ class MCPIntentMapQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPIntentM
         return self._intent_usage_query(tool=self.query.toolName, filters=self._point_filters())
 
     def _calculate(self) -> MCPIntentMapQueryResponse:
+        filters = self._point_filters()
         usage = self._intent_usage(
             tool=self.query.toolName,
-            filters=self._point_filters(),
-            order_by=[_order("calls", "DESC"), _order("intent_hash")],
+            filters=filters,
+            order_by=[_order("calls", "DESC"), _order("key")],
             limit=self.query.limit or DEFAULT_MAP_LIMIT,
+            assigned_since=latest_refit_started_at(self.team),
         )
         points = [
             MCPIntentMapPoint(
