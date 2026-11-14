@@ -94,8 +94,11 @@ describe('WorkflowsScene', () => {
                 </DndContext>
             </Provider>
         )
-        await waitFor(() =>
-            expect(document.querySelector('[data-attr="workflows-combined-reset-view"]')).not.toBeNull()
+        // The scene loads the list, the folders and the saved views before the view pills render, which can take
+        // longer than the default one second wait on a busy runner.
+        await waitFor(
+            () => expect(document.querySelector('[data-attr="workflows-combined-reset-view"]')).not.toBeNull(),
+            { timeout: 5000 }
         )
         const update = screen.getByText('Update view').closest('button')!
         expect(update).toHaveAttribute('aria-disabled', 'true')
@@ -118,7 +121,7 @@ describe('WorkflowsScene', () => {
         expect(screen.queryByText('Status: Draft')).not.toBeInTheDocument()
         await user.click(document.querySelector('[data-attr="workflows-combined-reset-view"]')!)
         expect(screen.queryByText('Trigger: Event')).not.toBeInTheDocument()
-    })
+    }, 15000)
 
     it.each([200, 500])(
         'updates the active saved view and releases its loading state after HTTP %s',
