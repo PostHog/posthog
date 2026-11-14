@@ -675,7 +675,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
 
-    UNSUPPORTED_NESTED_GROUP_CASES = [
+    UNSUPPORTED_NESTED_GROUP_CASES: list[tuple[str, dict[str, Any]]] = [
         (
             "log_resource_attribute",
             {"key": "k8s.namespace.name", "value": ["prod"], "operator": "exact", "type": "log_resource_attribute"},
@@ -684,7 +684,7 @@ class TestLogsAlertAPI(APIBaseTest):
     ]
 
     @staticmethod
-    def _nested_group_filters(leaf: dict) -> dict:
+    def _nested_group_filters(leaf: dict[str, Any]) -> dict[str, Any]:
         return {
             "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": [{"type": "OR", "values": [leaf]}]}]}
         }
