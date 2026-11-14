@@ -1900,6 +1900,30 @@ class TestCohortCalculationTasks(APIBaseTest):
             "Check the query for a typo, such as a misspelled property name.",
         )
 
+    def test_a_resync_that_starts_after_a_replace_was_requested_writes_nothing(self) -> None:
+        # The staff re-sync dispatches without a claim and only adds members. A replace requested after it was
+        # queued belongs to its own task, so the re-sync must neither run it nor touch the run's fields.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons"},
+        )
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
+        )
+
+        with patch("products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch") as mock_insert_ch:
+            insert_cohort_from_query(cohort.id, self.team.pk, append_only=True)
+
+        mock_insert_ch.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertEqual(
+            (cohort.is_calculating, cohort.pending_population_mode, cohort.errors_calculating),
+            (True, CohortPopulationMode.REPLACE, 0),
+        )
+        self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort).exists())
+
     def test_replace_retry_after_partial_postgres_prune_converges(self) -> None:
         # Gate 1 item 28: a retry after a partial Postgres prune converges both stores exact.
         kept, new, stale1, stale2 = (

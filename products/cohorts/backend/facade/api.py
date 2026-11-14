@@ -19,7 +19,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.tasks.calculate_cohort import insert_cohort_from_query, schedule_static_cohort_count_refresh
 
-from products.cohorts.backend.models.cohort import Cohort, CohortType, ImportResolution
+from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode, CohortType, ImportResolution
 
 
 def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
@@ -133,7 +133,7 @@ def count_cohorts_referencing_actions(*, project_id: int, action_ids: Sequence[i
         return dict(cursor.fetchall())
 
 
-StaticCohortResyncSkipReason = Literal["not_found", "not_static", "no_source_query"]
+StaticCohortResyncSkipReason = Literal["not_found", "not_static", "no_source_query", "replace_pending"]
 
 # One re-sync request covers at most this many cohorts, from the console form or the Django admin action.
 MAX_STATIC_COHORT_RESYNCS = 100
@@ -162,6 +162,9 @@ def _resync_skip_reason(cohort: Cohort) -> StaticCohortResyncSkipReason | None:
         return "not_static"
     if not cohort.query:
         return "no_source_query"
+    # A re-sync only adds members. Running it while a replace is pending would run that replace instead.
+    if cohort.pending_population_mode == CohortPopulationMode.REPLACE:
+        return "replace_pending"
     return None
 
 
@@ -197,11 +200,13 @@ def queue_static_cohort_resyncs(*, cohort_ids: list[int]) -> StaticCohortResync:
     """Queues a re-sync of each static cohort from its source query, which adds the people who match it now and keeps existing members.
 
     It reads the cohorts again rather than trusting an earlier preview, because a cohort can change in between.
+    A cohort with a pending replace is skipped, and a re-sync whose task starts after a replace was requested
+    stops without writing anything.
     """
     candidates = get_static_cohort_resync_candidates(cohort_ids=cohort_ids)
     queued = tuple(candidate for candidate in candidates if candidate.skip_reason is None)
     for candidate in queued:
-        insert_cohort_from_query.delay(candidate.cohort_id, candidate.team_id)
+        insert_cohort_from_query.delay(candidate.cohort_id, candidate.team_id, append_only=True)
     return StaticCohortResync(
         queued=queued,
         skipped=tuple(candidate for candidate in candidates if candidate.skip_reason is not None),

@@ -997,6 +997,7 @@ def _populate_static_cohort(
     log_prefix: str,
     supports_replace: bool = False,
     replace_marker: str | None = None,
+    append_only: bool = False,
 ) -> None:
     """Run one static population attempt: claim the cohort, fill ClickHouse, then sync Postgres.
 
@@ -1006,6 +1007,9 @@ def _populate_static_cohort(
     A replace (only the query task supports one) stamps every match with a marker stored on the
     cohort, and checks that marker before each write. ``replace_marker`` and ``rows_written`` carry
     a finished insert's marker and row count into a retry.
+
+    ``append_only`` is for runs dispatched without a claim, such as the staff re-sync. Such a run only
+    ever adds members: it stops without writing anything while a replace is pending.
     """
     from products.cohorts.backend.models.util import (
         PopulationEmptyResult,
@@ -1036,6 +1040,11 @@ def _populate_static_cohort(
         if _static_population_obsolete(task, cohort):
             return
         # NULL means append: the create path and workflows never claim, so they never write a mode.
+        if append_only and cohort.pending_population_mode == CohortPopulationMode.REPLACE:
+            # The replace was requested after this run was queued, and its own task runs it. Stopping
+            # before is_calculating keeps this run from claiming the cohort or pruning anyone.
+            logger.info(f"{log_prefix}_skipped_pending_replace", cohort_id=cohort_id, team_id=team_id)
+            return
         replacing = supports_replace and cohort.pending_population_mode == CohortPopulationMode.REPLACE
         if replace_marker is not None:
             # A retry that carries a marker belongs to that replace, whatever the cohort runs now. If the cohort no
@@ -1065,6 +1074,9 @@ def _populate_static_cohort(
         # The finalize clears the run fields only while the stored mode and marker still match this attempt's.
         # A newer claim writes its own mode, so the compare-and-clear at the end can't take that claim's fields.
         claimed_mode = cohort.pending_population_mode
+        if append_only and claimed_mode == CohortPopulationMode.REPLACE:
+            # A replace claimed the cohort between the check above and this attempt's claim.
+            raise PopulationSuperseded(cohort_id)
         replacing = supports_replace and claimed_mode == CohortPopulationMode.REPLACE
         if marker is not None and not replacing:
             raise PopulationSuperseded(cohort_id)
@@ -1215,6 +1227,7 @@ def insert_cohort_from_query(
     rows_written: int = 0,
     written_since: Optional[str] = None,
     replace_marker: Optional[str] = None,
+    append_only: bool = False,
 ) -> None:
     """
     One-time population task for static cohorts created from a HogQL query
@@ -1225,7 +1238,7 @@ def insert_cohort_from_query(
 
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done, rows_written,
-    written_since and replace_marker.
+    written_since and replace_marker. The staff re-sync sets append_only, so it never runs a pending replace.
     """
     from products.cohorts.backend.models.util import insert_cohort_query_actors_into_ch
 
@@ -1240,6 +1253,7 @@ def insert_cohort_from_query(
         log_prefix="insert_cohort_from_query",
         supports_replace=True,
         replace_marker=replace_marker,
+        append_only=append_only,
     )
 
 

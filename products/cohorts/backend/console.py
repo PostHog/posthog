@@ -139,6 +139,7 @@ SKIP_REASONS: dict[StaticCohortResyncSkipReason, str] = {
     "not_found": "no cohort has this ID",
     "not_static": "not static",
     "no_source_query": "no source query",
+    "replace_pending": "a replace is pending, so re-sync after it finishes",
 }
 
 
@@ -180,7 +181,9 @@ def preview_resync_static_cohorts(request: HttpRequest, form: forms.Form) -> Pag
     resync_count = sum(1 for candidate in candidates if candidate.skip_reason is None)
     if resync_count == 0:
         form.add_error(
-            "cohorts", "None of these cohorts can be re-synced. A cohort needs to be static and have a source query."
+            "cohorts",
+            "None of these cohorts can be re-synced. A cohort needs to be static, have a source query and have no "
+            "pending replace.",
         )
         return Page(blocks=())
     return Page(
