@@ -6,7 +6,6 @@ import { z } from 'zod'
 
 import { getDefaultConfig } from '~/common/config/config'
 
-import { durationMs } from '../duration'
 import { TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile } from './schema'
