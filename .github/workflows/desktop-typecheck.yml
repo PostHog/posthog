@@ -92,7 +92,7 @@ jobs:
     typecheck:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
+        if: ${{ !cancelled() && (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) &&github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
