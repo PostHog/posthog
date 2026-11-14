@@ -244,10 +244,7 @@ class TestGitHubSandboxCredential:
         sandbox.execute.return_value = _ok("")
         sandbox.write_file.return_value = _ok()
         repositories = [repository, "acme/second"] if repository else []
-        ctx = _context(
-            repository=repository,
-            state={"github_read_access": True, "github_read_integration_id": 7, "repositories": repositories},
-        )
+        ctx = _context(repository=repository, state={"github_read_access": True, "repositories": repositories})
 
         with (
             patch(
@@ -260,7 +257,7 @@ class TestGitHubSandboxCredential:
         ):
             outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock(repository_integration_id=None))
 
-        resolve_readonly.assert_called_once_with(ctx.team_id, repositories=ctx.repositories, integration_id=7)
+        resolve_readonly.assert_called_once_with(ctx.team_id, repositories=ctx.repositories)
         resolve_full.assert_not_called()
         assert outcome.refreshed is True
         assert b"ghs_readonly" in sandbox.write_file.call_args.args[1]

@@ -1177,29 +1177,19 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
         return False
 
 
-def resolve_readonly_github_integration(
-    team_id: int, *, include_unavailable: bool = False, integration_id: int | None = None
-) -> GitHubIntegration | None:
+def resolve_readonly_github_integration(team_id: int, *, include_unavailable: bool = False) -> GitHubIntegration | None:
     """The team-level integration a read-only mint may use, or None.
 
     Refuses the resolver's org-owner personal-integration fallback (its installation can span
     repos never connected to this team) and installations already marked permanently gone by a
     prior failed mint — re-minting those storms GitHub with doomed calls until the customer
     reconnects.
-
-    ``integration_id`` is the installation the run's caller selected, because repository selection
-    can prefer one other than the default. When that integration is gone, the default resolution
-    applies.
     """
     # Deferred to break a circular import — repo_selection.agent transitively imports the
     # process-task workflow, which imports this module.
     from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
 
-    integration: GitHubIntegrationBase | None = None
-    if integration_id is not None:
-        integration = resolve_installation_github_integration(team_id, integration_id)
-    if integration is None:
-        integration = resolve_team_github_integration(team_id, team_only=True)
+    integration = resolve_team_github_integration(team_id, team_only=True)
     if integration is None and include_unavailable:
         integration = resolve_team_github_integration(team_id, team_only=True, include_unavailable=True)
     if not isinstance(integration, GitHubIntegration) or (
@@ -1209,9 +1199,7 @@ def resolve_readonly_github_integration(
     return integration
 
 
-def get_readonly_github_token(
-    team_id: int, repositories: Sequence[str] = (), integration_id: int | None = None
-) -> Optional[str]:
+def get_readonly_github_token(team_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
     """Mint an ephemeral read-only GitHub token scoped to the sandbox repositories, or None.
 
     Resolves the same integration the repo-selection agent would use for this team, then mints an
@@ -1225,7 +1213,7 @@ def get_readonly_github_token(
     nicety, and its absence must not fail the run.
     """
     try:
-        integration = resolve_readonly_github_integration(team_id, integration_id=integration_id)
+        integration = resolve_readonly_github_integration(team_id)
         if integration is None:
             logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
             return None

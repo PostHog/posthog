@@ -604,6 +604,49 @@ def test_create_implementation_task_rejects_a_changed_reviewer_list(organization
         create_task.assert_not_called()
 
 
+@pytest.mark.django_db
+def test_autostart_blocks_a_repository_the_installation_no_longer_reaches(team: Team) -> None:
+    # A saved repository from a removed installation, or one a scout named, fails at clone. The
+    # dispatch paths that read the saved artefact without new research must not start on it.
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="current",
+        config={"installation_id": "current"},
+        repository_cache=[{"id": 1, "name": "new-app", "full_name": "example/new-app", "private": True}],
+        repository_cache_updated_at=timezone.now(),
+    )
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+
+    with (
+        patch(
+            "products.signals.backend.auto_start.database_sync_to_async",
+            side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
+        ),
+        patch("products.signals.backend.auto_start.assignment_side_effects_allowed", return_value=True),
+        patch.object(tasks_facade, "create_and_run_task") as create_task,
+    ):
+        outcome = async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="example/old-app",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="A clear fix",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            priority=PriorityAssessment(explanation="Affects sessions", priority=Priority.P2),
+            reviewers_content=[_reviewer("example-reviewer")],
+        )
+
+    assert outcome == AutostartOutcome(
+        status="blocked", reason="Connect or repair GitHub access to the selected repository"
+    )
+    create_task.assert_not_called()
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("has_automatic_reviewer,enrolled", [(False, True), (True, True), (False, False)])
 def test_human_pin_does_not_authorize_automatic_execution(

@@ -112,13 +112,6 @@ class TestRepoCorrections(BaseTest):
 
 
 class TestSelectRepositoryPassesCorrections(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        # Runs on its own DB connection, which cannot see this test's uncommitted team.
-        resolve_github = patch.object(select_repo, "resolve_signals_github_integration", return_value=None)
-        resolve_github.start()
-        self.addCleanup(resolve_github.stop)
-
     @parameterized.expand(
         [
             ("invalid_output", ValueError("Invalid selection output")),

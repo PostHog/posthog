@@ -3324,7 +3324,6 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
         "github_read_access",
-        "github_read_integration_id",
         "github_token_scope",
         # Historical loop runs use this server stamp to keep owner credential revocation fail-closed.
         "loop_id",
@@ -10206,7 +10205,6 @@ def warm_task_resume_sandbox(
         "self_driving_head_branch",
         "stack_base_branch",
         "github_read_access",
-        "github_read_integration_id",
         "github_token_scope",
         "github_access_repositories",
     ):
@@ -10691,8 +10689,6 @@ def run_task(
         # so this server-side copy is the only way it reaches a successor run.)
         if (previous_run.state or {}).get("github_read_access") is True:
             extra_state["github_read_access"] = True
-        if (read_integration_id := (previous_run.state or {}).get("github_read_integration_id")) is not None:
-            extra_state["github_read_integration_id"] = read_integration_id
         if github_token_scope := (previous_run.state or {}).get("github_token_scope"):
             extra_state["github_token_scope"] = github_token_scope
 

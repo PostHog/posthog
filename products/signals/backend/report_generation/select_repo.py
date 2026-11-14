@@ -20,7 +20,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_agent_runtime
-from products.signals.backend.models import SignalReportArtefact, SignalTeamConfig
+from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.repo_corrections import wrong_repo_corrections_block
 from products.signals.backend.report_generation.source_repository import source_repository_from_signals
 from products.signals.backend.report_monitoring_provenance import (
@@ -35,13 +35,12 @@ from products.tasks.backend.facade.repo_selection import (
     RepoSelectionRejectedError,
     RepoSelectionResult,
     RepoSelectionUnavailableError,
+    list_team_connected_repositories,
     resolve_team_github_integration,
     select_repository,
 )
 
 if TYPE_CHECKING:
-    from posthog.models.github_integration_base import GitHubIntegrationBase
-
     # Deferred (see _select below): importing temporal.types runs the signals temporal package
     # __init__ (agentic -> back into report_generation), a circular import. SignalData is
     # annotation-only here (module uses `from __future__ import annotations`).
@@ -55,8 +54,8 @@ __all__ = [
     "RepoSelectionRejectedError",
     "RepoSelectionResult",
     "persisted_repo_selection",
-    "resolve_signals_github_integration",
     "resolve_team_github_integration",
+    "saved_repository_connected",
     "select_repository_for_report",
     "select_repository_for_team",
 ]
@@ -78,14 +77,16 @@ def persisted_repo_selection(report_id: str) -> RepoSelectionResult | None:
     return RepoSelectionResult.model_validate_json(artefact.content)
 
 
-def resolve_signals_github_integration(team_id: int) -> GitHubIntegrationBase | None:
-    """The team's GitHub source for Signals, preferring an installation that reaches a repository
-    with a configured self-driving base branch."""
-    configured = (
-        SignalTeamConfig.objects.filter(team_id=team_id).values_list("autostart_base_branches", flat=True).first()
-    )
-    preferred = list(configured) if isinstance(configured, dict) else []
-    return resolve_team_github_integration(team_id, preferred_repositories=preferred)
+def saved_repository_connected(team_id: int, repository: str) -> bool:
+    """Whether the team's GitHub installation still reaches a repository a report saved earlier.
+
+    A team that removes an installation and connects another keeps the old repository on every
+    saved report, and a scout can save one the installation never reached. Both fail at clone.
+    The cached list is read as is, so an installation whose cache was never synced reads as
+    unknown, not as unreachable.
+    """
+    connected = list_team_connected_repositories(team_id)
+    return not connected or repository.lower() in connected
 
 
 async def select_repository_for_team(
@@ -123,13 +124,11 @@ async def select_repository_for_team(
     # custom agents, scout emit) sees the project's past wrong-repo corrections, rather than per
     # caller. Best-effort inside (None on failure or no corrections).
     past_corrections = await database_sync_to_async(wrong_repo_corrections_block, thread_sensitive=False)(team_id)
-    github = await database_sync_to_async(resolve_signals_github_integration, thread_sensitive=False)(team_id)
     try:
         return await select_repository(
             team_id=team_id,
             user_id=user_id,
             context=request_section,
-            github=github,
             profile=REPO_SELECTION if signal_report_id else REPO_SELECTION_WITHOUT_REPORT,
             source=TaskSource(kind=SourceKind.SIGNAL_REPORT, id=signal_report_id) if signal_report_id else None,
             # Report generation runs in the background, so its repository cache refresh yields first.

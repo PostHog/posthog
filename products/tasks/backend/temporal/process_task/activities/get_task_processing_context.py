@@ -246,11 +246,6 @@ class TaskProcessingContext:
         return (self.state or {}).get("github_read_access") is True
 
     @property
-    def github_read_integration_id(self) -> int | None:
-        integration_id = (self.state or {}).get("github_read_integration_id")
-        return integration_id if isinstance(integration_id, int) else None
-
-    @property
     def github_token_scope(self) -> Literal["read", "push"] | None:
         scope = (self.state or {}).get("github_token_scope")
         return scope if scope in ("read", "push") else None

@@ -22,8 +22,8 @@ from products.signals.backend.recurrence import recurrence_rejects_repository
 from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
     persisted_repo_selection,
-    resolve_signals_github_integration,
     resolve_team_github_integration,
+    saved_repository_connected,
     select_repository_for_report,
 )
 from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
@@ -84,7 +84,7 @@ def _pilot_code_availability(team_id: int) -> ReportResearchContext:
 
 def _resolve_sandbox_user_id(team_id: int) -> int | None:
     """Select a user to assign sandbox to."""
-    github = resolve_signals_github_integration(team_id)
+    github = resolve_team_github_integration(team_id)
     if github is None:
         return None
     return resolve_user_id_for_team(team_id, github=github)
@@ -222,6 +222,21 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             ):
                 logger.info(
                     "signals repo selection reuse skipped: no GitHub integration",
+                    report_id=input.report_id,
+                    team_id=input.team_id,
+                    repository=previous.repository,
+                )
+                previous = None
+            if (
+                previous is not None
+                and previous.repository is not None
+                and not input.github_optional
+                and not await database_sync_to_async(saved_repository_connected, thread_sensitive=False)(
+                    input.team_id, previous.repository
+                )
+            ):
+                logger.info(
+                    "signals repo selection reuse skipped: repository no longer connected",
                     report_id=input.report_id,
                     team_id=input.team_id,
                     repository=previous.repository,
