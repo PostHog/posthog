@@ -258,3 +258,96 @@ class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
             {"name": "service.name", "value_count": 1},
             {"name": "service_name", "value_count": 1},
         ]
+
+
+class TestMetricAttributeValueSearchAPI(ClickhouseTestMixin, APIBaseTest):
+    """`search_values` lets a remembered value, such as a service or an environment,
+    find the attribute key that carries it, the way logs and traces already do."""
+
+    CLASS_DATA_LEVEL_SETUP = True
+    now: dt.datetime
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        truncate_metrics_tables()
+
+        cls.now = timezone.now().replace(second=0, microsecond=0)
+        recent = [(cls.now - dt.timedelta(minutes=m), 1.0) for m in (2, 3)]
+        seed_metric(
+            team_id=cls.team.id,
+            metric_name="http_requests",
+            service_name="checkout",
+            points=recent,
+            labels={"env": "prod", "region": "us-east", "zone": "region-west"},
+            resource_labels={"k8s.pod.name": "pod-1"},
+        )
+        seed_metric(
+            team_id=cls.team.id,
+            metric_name="http_requests",
+            service_name="billing",
+            points=[(cls.now - dt.timedelta(minutes=4), 1.0)],
+            labels={"env": "dev"},
+        )
+        seed_metric(
+            team_id=cls.team.id,
+            metric_name="queue_depth",
+            service_name="checkout",
+            points=[(cls.now - dt.timedelta(minutes=5), 1.0)],
+            labels={"stale_key": "old"},
+        )
+
+    def _results(self, params: dict) -> list[dict]:
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics/attributes/", params)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["results"]
+
+    def test_value_search_is_off_by_default(self):
+        # No attribute key contains "checkout", so only a value search can find the service key.
+        assert self._results({"search": "checkout"}) == []
+
+    def test_value_search_finds_the_key_that_carries_the_value(self):
+        assert self._results({"search": "checkout", "search_values": "true"}) == [
+            {"name": "service_name", "value_count": 1, "matchedOn": "value", "matchedValue": "checkout"}
+        ]
+
+    def test_value_search_reports_one_sample_value_per_key(self):
+        assert self._results({"metricName": "http_requests", "search": "prod", "search_values": "true"}) == [
+            {"name": "env", "value_count": 1, "matchedOn": "value", "matchedValue": "prod"}
+        ]
+
+    def test_key_matches_come_before_value_matches(self):
+        results = self._results({"metricName": "http_requests", "search": "region", "search_values": "true"})
+
+        # "region" names a key and also appears inside the value of another key.
+        assert results == [
+            {"name": "region", "value_count": 1},
+            {"name": "zone", "value_count": 1, "matchedOn": "value", "matchedValue": "region-west"},
+        ]
+
+    def test_short_search_does_not_probe_values(self):
+        # Under the minimum length only the key-name path runs, so "zone" is not suggested.
+        assert self._results({"metricName": "http_requests", "search": "reg", "search_values": "true"}) == [
+            {"name": "region", "value_count": 1}
+        ]
+
+    def test_the_service_key_name_still_matches_in_value_mode(self):
+        assert self._results({"metricName": "http_requests", "search": "service", "search_values": "true"}) == [
+            {"name": "service_name", "value_count": 2}
+        ]
+
+    @parameterized.expand(
+        [
+            ("value_on_the_metric", "http_requests", "prod", ["env"]),
+            ("value_on_another_metric", "queue_depth", "prod", []),
+            ("service_of_the_metric", "queue_depth", "checkout", ["service_name"]),
+        ]
+    )
+    def test_value_search_stays_inside_the_metric(
+        self, _name: str, metric_name: str, search: str, expected: list[str]
+    ) -> None:
+        results = self._results({"metricName": metric_name, "search": search, "search_values": "true"})
+        assert [r["name"] for r in results] == expected
+
+    def test_value_search_with_no_match_returns_nothing(self):
+        assert self._results({"search": "nothing_here", "search_values": "true"}) == []
