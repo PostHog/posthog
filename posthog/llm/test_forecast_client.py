@@ -45,8 +45,8 @@ def _answer(request: httpx.Request, **_kwargs) -> httpx.Response:
     )
 
 
-def _run(series: list[ForecastSeries], **kwargs) -> dict[str, SeriesForecast]:
-    return forecast(series, quantile_levels=LEVELS, ai_product="test_product", team_id=42, **kwargs)
+def _run(series: list[ForecastSeries], **overrides) -> dict[str, SeriesForecast]:
+    return forecast(series, **{"quantile_levels": LEVELS, "ai_product": "test_product", "team_id": 42, **overrides})
 
 
 @override_settings(**GATEWAY)
@@ -140,9 +140,8 @@ class TestForecast(SimpleTestCase):
         ]
     )
     def test_refuses_input_the_gateway_cannot_accept(self, _name: str, series: list[ForecastSeries], overrides) -> None:
-        arguments = {"quantile_levels": LEVELS, "ai_product": "test_product", "team_id": 42, **overrides}
         with patch.object(httpx.Client, "send") as send, self.assertRaises(ValueError):
-            forecast(series, **arguments)
+            _run(series, **overrides)
         send.assert_not_called()
 
 

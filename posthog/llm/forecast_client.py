@@ -86,7 +86,11 @@ def forecast(
     Raises ``ValueError`` for an input the gateway cannot accept, and a ``ForecastError`` subclass when the call fails.
     """
     _validate(
-        series, quantile_levels=quantile_levels, ai_product=ai_product, team_id=team_id, horizon=prediction_length
+        series,
+        quantile_levels=quantile_levels,
+        ai_product=ai_product,
+        team_id=team_id,
+        prediction_length=prediction_length,
     )
     if not series:
         return {}
@@ -124,7 +128,7 @@ def forecast(
                     response,
                     item_ids=[item.item_id for item in batch],
                     quantile_levels=quantile_levels,
-                    horizon=prediction_length,
+                    prediction_length=prediction_length,
                 )
             )
     return forecasts
@@ -159,14 +163,14 @@ def _validate(
     quantile_levels: Sequence[float],
     ai_product: str,
     team_id: int,
-    horizon: int,
+    prediction_length: int,
 ) -> None:
     if not ai_product:
         raise ValueError("ai_product is required")
     if team_id <= 0:
         raise ValueError(f"team_id must be positive, got {team_id}")
-    if horizon < 1:
-        raise ValueError(f"prediction_length must be at least 1, got {horizon}")
+    if prediction_length < 1:
+        raise ValueError(f"prediction_length must be at least 1, got {prediction_length}")
     if not quantile_levels:
         raise ValueError("At least one quantile level is required")
     unknown_levels = sorted(set(quantile_levels) - QUANTILE_LEVELS)
@@ -177,7 +181,7 @@ def _validate(
     for item in series:
         if not item.target:
             raise ValueError(f"Series {item.item_id!r} has no history")
-        if _tokens_per_series(len(item.target), horizon) > MAX_TOKENS_PER_REQUEST:
+        if _tokens_per_series(len(item.target), prediction_length) > MAX_TOKENS_PER_REQUEST:
             raise ValueError(f"Series {item.item_id!r} is longer than one forecast request can hold")
 
 
@@ -191,7 +195,7 @@ def _parse_response(
     *,
     item_ids: Sequence[str],
     quantile_levels: Sequence[float],
-    horizon: int,
+    prediction_length: int,
 ) -> dict[str, SeriesForecast]:
     status = response.status_code
     if status in (408, 429) or status >= 500:
@@ -219,26 +223,23 @@ def _parse_response(
         prediction = by_item_id.get(item_id)
         if prediction is None:
             raise ForecastResponseError(f"The forecast response has no prediction for series {item_id!r}")
+        # The gateway names each quantile by its level as a string, for example "0.5" or "0.05".
+        values_by_level = {_as_level(key): values for key, values in prediction.items()}
         forecasts[item_id] = SeriesForecast(
             quantiles={
-                level: _quantile_values(prediction, item_id=item_id, level=level, horizon=horizon)
+                level: _quantile_values(
+                    values_by_level.get(level), item_id=item_id, level=level, prediction_length=prediction_length
+                )
                 for level in quantile_levels
             }
         )
     return forecasts
 
 
-def _quantile_values(
-    prediction: Mapping[str, object], *, item_id: str, level: float, horizon: int
-) -> tuple[float, ...]:
-    # The gateway names each quantile by its level as a string, for example "0.5" or "0.05".
-    values = next(
-        (value for key, value in prediction.items() if key != "item_id" and _as_level(key) == level),
-        None,
-    )
+def _quantile_values(values: object, *, item_id: str, level: float, prediction_length: int) -> tuple[float, ...]:
     if (
         not isinstance(values, list)
-        or len(values) != horizon
+        or len(values) != prediction_length
         or not all(
             isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value) for value in values
         )
