@@ -243,24 +243,23 @@ def render_body(report: Report) -> str:
     return "\n".join(lines)
 
 
-def write_outputs(report: Report) -> None:
-    summary = render_summary(report)
-    body = render_body(report)
+def write_github_outputs(status: str, summary: str, body: str) -> None:
     output_path = os.environ.get("GITHUB_OUTPUT")
     if not output_path:
-        print(f"status={report.status} {summary}")
+        print(f"status={status} {summary}")
         print(body)
         return
     delimiter = f"EOF-{uuid.uuid4()}"
     with open(output_path, "a") as fh:
-        fh.write(f"status={report.status}\n")
+        fh.write(f"status={status}\n")
         fh.write(f"summary={summary}\n")
         fh.write(f"body<<{delimiter}\n{body}\n{delimiter}\n")
-    print(f"status={report.status} {summary}")
+    print(f"status={status} {summary}")
 
 
 def main() -> int:
-    write_outputs(analyze(sys.stdin.read()))
+    report = analyze(sys.stdin.read())
+    write_github_outputs(report.status, render_summary(report), render_body(report))
     return 0
 
 
