@@ -1850,7 +1850,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             )
         except Exception as e:
             cohort.is_calculating = False
-            cohort.save(update_fields=["is_calculating"])
+            cohort.population_claimed_at = None
+            cohort.save(update_fields=["is_calculating", "population_claimed_at"])
             capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.GENERIC_ERROR]}) from e
 
