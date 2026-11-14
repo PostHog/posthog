@@ -124,13 +124,17 @@ class TestRetryInterceptorBehavior:
         assert len(calls) == 2
         assert mock_sleep.call_count == 1
 
+    @parameterized.expand(
+        [
+            ("deserialization_failure", "Exception deserializing response!"),
+            ("stream_removed_rst_stream", "Stream removed (RST_STREAM (Received RST_STREAM with error code 2))"),
+        ]
+    )
     @patch("posthog.personhog_client.interceptor.time.sleep")
-    def test_retries_internal_deserialization_failure_then_succeeds(self, mock_sleep):
+    def test_retries_internal_transient_detail_then_succeeds(self, _name: str, error_details: str, mock_sleep):
         interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
-        continuation, calls = _make_transient_then_ok(
-            1, grpc.StatusCode.INTERNAL, details="Exception deserializing response!"
-        )
+        continuation, calls = _make_transient_then_ok(1, grpc.StatusCode.INTERNAL, details=error_details)
 
         result = interceptor.intercept_unary_unary(continuation, details, request=b"")
 
@@ -360,6 +364,15 @@ class TestIsTransientRpcError:
             (
                 "internal_deserialization_failure",
                 _make_rpc_error(grpc.StatusCode.INTERNAL, details="Exception deserializing response!"),
+                _RETRYABLE_CODES,
+                True,
+            ),
+            (
+                "internal_stream_removed_rst_stream",
+                _make_rpc_error(
+                    grpc.StatusCode.INTERNAL,
+                    details="Stream removed (RST_STREAM (Received RST_STREAM with error code 2))",
+                ),
                 _RETRYABLE_CODES,
                 True,
             ),
