@@ -3817,7 +3817,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("order_above_column_max", lambda id: {id: MAX_EXECUTION_ORDER + 1}, "less than or equal to"),
-            ("key_not_a_uuid", lambda id: {"not-a-uuid": 2}, "'not-a-uuid' is not a valid hog function UUID"),
+            ("key_not_a_uuid", lambda id: {id: 5, "not-a-uuid": 2}, "'not-a-uuid' is not a valid hog function UUID"),
             ("same_id_in_two_cases", lambda id: {id.upper(): 2, id: 3}, "'{id}' is listed more than once"),
         ]
     )
