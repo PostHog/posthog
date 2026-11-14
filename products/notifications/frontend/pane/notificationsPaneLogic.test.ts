@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -41,14 +42,16 @@ describe('notificationsPaneLogic', () => {
     let requestBodies: unknown[]
     let archiveStatus: number
     let releaseSlowList: () => void
+    let retrieved: NotificationEventApi | null
 
     beforeEach(() => {
         requests = []
         requestBodies = []
         archiveStatus = 200
+        retrieved = null
         const record = async ({ request }: { request: Request }): Promise<void> => {
             requests.push(new URL(request.url))
-            if (request.method === 'POST') {
+            if (request.method === 'POST' || request.method === 'PATCH') {
                 requestBodies.push(await request.json().catch(() => null))
             }
         }
@@ -73,6 +76,13 @@ describe('notificationsPaneLogic', () => {
                 '/api/projects/:team/notifications/unread_count/': async (req) => {
                     await record(req)
                     return [200, SUMMARY]
+                },
+                '/api/projects/:team/notifications/:id/': () => (retrieved ? [200, retrieved] : [404, {}]),
+            },
+            patch: {
+                '/api/users/@me/': async (req) => {
+                    await record(req)
+                    return [200, {}]
                 },
             },
             post: {
@@ -189,5 +199,53 @@ describe('notificationsPaneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.items.map((item) => item.id)).toEqual(['from-default-view'])
+    })
+
+    it('revealing a critical notification clears the filters and shows that exact notification', async () => {
+        retrieved = makeNotification({ id: 'critical', priority: 'critical', target_type: 'team' })
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ read: 'unread', category: 'alerts', project: 'all' })
+        }).toDispatchActions(['setItems'])
+
+        await expectLogic(logic, () => logic.actions.revealNotification('critical'))
+            .toDispatchActions(['resetView'])
+            .toFinishAllListeners()
+
+        expect(logic.values.filtersActive).toBe(false)
+        expect(logic.values.entries[0].notification.id).toBe('critical')
+    })
+
+    it('mutes a kind in one project without touching other projects', async () => {
+        userLogic.actions.loadUserSuccess({
+            ...userLogic.values.user!,
+            notification_settings: {
+                ...userLogic.values.user!.notification_settings,
+                realtime_notifications_disabled: { comment_mention: { '1': true } },
+            },
+        })
+        logic.actions.setItems([makeNotification({ team_id: 2 })], null)
+
+        await expectLogic(logic, () => logic.actions.muteKind(logic.values.entries[0])).toFinishAllListeners()
+
+        expect(requestBodies).toContainEqual({
+            notification_settings: { realtime_notifications_disabled: { comment_mention: { '1': true, '2': true } } },
+        })
+    })
+
+    it('a second mute in a row keeps the first one', async () => {
+        logic.actions.setItems(
+            [makeNotification({ id: 'a', team_id: 2 }), makeNotification({ id: 'b', team_id: 3 })],
+            null
+        )
+        const [first, second] = logic.values.entries
+
+        logic.actions.muteKind(first)
+        await expectLogic(logic, () => logic.actions.muteKind(second)).toFinishAllListeners()
+
+        expect(requestBodies.at(-1)).toEqual({
+            notification_settings: {
+                realtime_notifications_disabled: { comment_mention: expect.objectContaining({ '2': true, '3': true }) },
+            },
+        })
     })
 })
