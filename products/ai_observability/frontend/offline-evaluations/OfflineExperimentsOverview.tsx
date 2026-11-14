@@ -267,6 +267,7 @@ export function OfflineExperimentsOverview({
                                 aria-label={scoreTrendsExpanded ? 'Collapse score trends' : 'Expand score trends'}
                                 aria-expanded={scoreTrendsExpanded}
                                 aria-controls="offline-score-trends"
+                                data-attr="offline-score-trends-toggle"
                             />
                         </div>
                         {scoreTrendsExpanded && (
@@ -320,7 +321,14 @@ export function OfflineExperimentsOverview({
                                 Could not load suggested scores. Try again or choose scores yourself.
                             </LemonBanner>
                         ) : (
-                            <LemonBanner type="info" action={{ children: 'Choose scores', onClick: openChooser }}>
+                            <LemonBanner
+                                type="info"
+                                action={{
+                                    children: 'Choose scores',
+                                    onClick: openChooser,
+                                    'data-attr': 'offline-choose-scores',
+                                }}
+                            >
                                 Choose recurring scores to follow their results over time.
                             </LemonBanner>
                         )}

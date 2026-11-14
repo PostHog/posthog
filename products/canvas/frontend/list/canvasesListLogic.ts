@@ -19,6 +19,7 @@ export interface canvasesListLogicValues {
     currentTeamId: number | null // teamLogic
     breadcrumbs: Breadcrumb[]
     canvases: CanvasApi[]
+    canvasesLoadFailed: boolean
     canvasesResponse: PaginatedCanvasListApi | null
     canvasesResponseLoading: boolean
     hiddenIds: string[]
@@ -98,6 +99,14 @@ export const canvasesListLogic = kea<canvasesListLogicType>([
                 setPage: (_, { page }) => page,
                 setSearch: () => 1,
                 setOrdering: () => 1,
+            },
+        ],
+        // Keeps a failed load from reading as an empty list.
+        canvasesLoadFailed: [
+            false,
+            {
+                loadCanvases: () => false,
+                loadCanvasesFailure: () => true,
             },
         ],
         // Rows deleted in this session stay hidden through the undo window, before the server knows.

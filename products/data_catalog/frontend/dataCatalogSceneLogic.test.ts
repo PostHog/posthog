@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -70,4 +71,25 @@ describe('dataCatalogSceneLogic', () => {
         expect(tablesLogic.values.search).toEqual(expectedSearch)
         expect(router.values.searchParams).toEqual({ tab: 'tables' })
     })
+
+    it.each([
+        [true, 'usage'],
+        [false, 'metrics'],
+    ])(
+        'opens a usage link that arrives before the flags only when the flag is on (flag on: %s)',
+        async (flagOn, expectedTab) => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            logic = dataCatalogSceneLogic()
+            logic.mount()
+            router.actions.push(urls.dataCatalog('usage'))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.activeTab).toBe('metrics')
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_CATALOG_USAGE], {
+                [FEATURE_FLAGS.DATA_CATALOG_USAGE]: flagOn,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.activeTab).toBe(expectedTab)
+        }
+    )
 })

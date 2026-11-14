@@ -47,8 +47,8 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.facade.contracts import SchedulingUnavailableError, ViewEngine
 from products.data_modeling.backend.logic.incremental_filter import bind_window_start_sql
-from products.data_modeling.backend.models.view_engine import ViewEngine
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -115,11 +115,6 @@ def validate_saved_query_name(value: str) -> None:
 class NoSchedulableDagError(Exception):
     """Raised when no DAG can schedule a saved query: none is on v2, and there is no node to
     bootstrap one from."""
-
-
-class SchedulingUnavailableError(Exception):
-    """Raised when Temporal is unreachable, so the schedule state of a saved query is unknown.
-    The caller decides what to keep, because the saved query itself is not at fault."""
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
@@ -334,11 +329,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         disables materialization, because the alternative is a query that reports itself
         materialized while nothing is scheduled to materialize it.
         """
-        from products.data_modeling.backend.logic.freshness import (
+        from products.data_modeling.backend.facade.contracts import (
+            MissingDagNodeError,
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
         )
-        from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
             bootstrap_dag_to_tiers,
@@ -620,14 +615,26 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return NamingConvention.normalize_identifier(self.name)
 
     @property
+    def storage_name(self) -> str:
+        """The last segment of this model's storage path.
+
+        A materialized model keeps the segment its backing table was first written under, so that a
+        rename does not point the next run at an empty location and rebuild the table.
+        """
+        table = self.table if self.table_id is not None else None
+        if table is not None and not table.deleted and self.folder_path in table.url_pattern:
+            return table.url_pattern.rstrip("/").rsplit("/", 1)[-1]
+        return self.normalized_name
+
+    @property
     def url_pattern(self):
         if settings.USE_LOCAL_SETUP:
             parsed = urlparse(settings.BUCKET_URL)
             bucket_name = parsed.netloc
 
-            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.storage_name}"
 
-        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.storage_name}"
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
@@ -702,7 +709,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 @database_sync_to_async
 def aget_saved_query_by_id(saved_query_id: str, team_id: int) -> DataWarehouseSavedQuery | None:
     return (
-        DataWarehouseSavedQuery.objects.prefetch_related("team")
+        DataWarehouseSavedQuery.objects.select_related("team", "table")
         .exclude(deleted=True)
         .get(id=saved_query_id, team_id=team_id)
     )

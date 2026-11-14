@@ -45,6 +45,7 @@ RESERVED_PROXY_DOMAINS = frozenset(
         "warmhog.com",
         "postwh.com",
         "posthogusercontent.com",
+        "posthogsurveys.com",
         "europehog.com",
         "proxyhog.com",
     }

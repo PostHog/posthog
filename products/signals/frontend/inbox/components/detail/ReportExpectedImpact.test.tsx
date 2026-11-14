@@ -101,6 +101,7 @@ describe('ReportExpectedImpact', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
             [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
         })
         inboxTaskKickoffLogic.mount()
         logic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -204,6 +205,16 @@ describe('ReportExpectedImpact', () => {
         expect(screen.getByText('Ask AI to update checks').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 
+    it('hides AI metric suggestions without hiding measurement approval when AI is unavailable', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true })
+        renderMeasurements([check])
+        render(<ReportChecksSection report={report} />)
+        expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggest a better metric')).not.toBeInTheDocument()
+        expect(screen.getByText('Looks good')).toBeInTheDocument()
+        expect(screen.getByText('Cancel this check')).toBeInTheDocument()
+    })
+
     it.each([false, undefined])('hides Expected impact and sidebar suggestions when Monitoring is %s', (enabled) => {
         featureFlagLogic.actions.setFeatureFlags(
             [],
@@ -217,6 +228,24 @@ describe('ReportExpectedImpact', () => {
         expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
         expect(screen.queryByText('Chart')).not.toBeInTheDocument()
         expect(document.querySelector('[data-attr="report-expected-impact"]')).not.toBeInTheDocument()
+    })
+
+    it('starts Monitoring from the follow-up checks section', async () => {
+        const stateRequests: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/state/': async ({ request }) => {
+                    stateRequests.push(await request.json())
+                    return [200, {}]
+                },
+            },
+        })
+        logic.actions.loadReportChecksSuccess([check])
+        render(<ReportChecksSection report={{ ...report, monitoring_started_at: null }} />)
+
+        await userEvent.setup().click(screen.getByText('Start monitoring now'))
+
+        await waitFor(() => expect(stateRequests).toEqual([{ state: 'monitoring' }]))
     })
 
     it('caps visible measurements after skipping malformed check configs', () => {
@@ -241,6 +270,10 @@ describe('ReportExpectedImpact', () => {
         await waitFor(() => expect(screen.getAllByText(/Approved measurement/)).toHaveLength(2))
         expect(approvalRequests).toEqual(['check-1', 'check-2', 'check-2'])
         expect(logic.values.reportChecks?.every((check) => check.next_run_at === '2026-10-13T00:00:00Z')).toBe(true)
+        expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
+        await user.click(screen.getByText('Suggest another metric'))
+        expect(screen.getByText('Describe what success would look like')).toBeInTheDocument()
     })
 
     it('shows range goals and verdicts, and does not offer approval or replacement for finished checks', () => {

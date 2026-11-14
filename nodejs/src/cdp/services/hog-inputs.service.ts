@@ -14,7 +14,12 @@ import {
 } from '../types'
 import { throwIfDeadlinePassed } from '../utils/deadline'
 import { EncryptedFields } from '../utils/encryption-utils'
-import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
+import {
+    HogConfigurationError,
+    isHogLimitError,
+    isHogVMErrorKind,
+    withBytecodeContract,
+} from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
 import {
     INTEGRATION_REF_KEY,
@@ -52,6 +57,8 @@ const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_
 
 const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
 
+export type BuildInputsOptions = { recipientIdentifier?: (email: string) => string | Promise<string> }
+
 export class HogInputsService {
     constructor(
         private integrationManager: IntegrationManagerService,
@@ -64,7 +71,8 @@ export class HogInputsService {
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
         preferencesTokenSource?: PreferencesTokenSource,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        { recipientIdentifier = (email: string) => email }: BuildInputsOptions = {}
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -145,7 +153,11 @@ export class HogInputsService {
             // If we have an email value then we template it out to get the email address
             const emailValue = await _formatInput(emailInput, emailInputSchema.key)
             if (emailValue?.to?.email) {
-                const recipient = { team_id: hogFunction.team_id, identifier: emailValue.to.email }
+                const identifier = recipientIdentifier(emailValue.to.email)
+                const recipient = {
+                    team_id: hogFunction.team_id,
+                    identifier: typeof identifier === 'string' ? identifier : await identifier,
+                }
                 newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl(
                     recipient,
                     preferencesTokenSource
@@ -186,11 +198,19 @@ export class HogInputsService {
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
         preferencesTokenSource?: PreferencesTokenSource,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        options?: BuildInputsOptions
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return {
             ...globals,
-            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, preferencesTokenSource, signal),
+            inputs: await this.buildInputs(
+                hogFunction,
+                globals,
+                additionalInputs,
+                preferencesTokenSource,
+                signal,
+                options
+            ),
         }
     }
 
@@ -566,6 +586,10 @@ for (const reason of [...LIQUID_LIMIT_REASONS.map(([, reason]) => reason), 'data
 
 const liquidFailureReason = (message: string, kind: HogVMErrorKind): string =>
     LIQUID_LIMIT_REASONS.find(([text]) => message.includes(text))?.[1] ?? kind
+
+// Only the time limit can pass on another attempt. The other limits fail the same way every time.
+export const isLiquidRenderTimeout = (error: unknown): boolean =>
+    error instanceof Error && isHogLimitError(error) && liquidFailureReason(error.message, 'limit') === 'time'
 
 /**
  * A parse error or a refused filter fails the template on every event. Any other render error is

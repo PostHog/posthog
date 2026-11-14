@@ -1,10 +1,9 @@
 import { useFocusEffect } from 'expo-router'
 import { type ReactElement, useCallback, useState } from 'react'
-import { Linking, RefreshControl, ScrollView, type StyleProp, Text, type TextStyle, View } from 'react-native'
+import { Linking, RefreshControl, ScrollView, Text, View } from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
-import { changeNavPin } from '@/features/tabs/navPinActions'
-import { type NavChrome, useIsNavPinned } from '@/features/tabs/navPinStore'
+import type { NavChrome } from '@/features/tabs/navPinStore'
 import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
@@ -17,12 +16,12 @@ import { type Toasts, useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { viewWebUrl } from '@/features/views/webLinks'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
-import type { LiveBreakdownKind, LiveEventRow } from '@/model/live'
+import { liveBreakdownKinds } from '@/model/adapters/live'
+import type { LiveBreakdownKind, LiveEventRow, LiveProjectState } from '@/model/live'
 import type { ViewEntry } from '@/model/views'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { PauseIcon } from '@/ui/icons/PauseIcon'
-import { PinIcon } from '@/ui/icons/PinIcon'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LiveDot } from '@/ui/LiveDot'
@@ -45,6 +44,8 @@ import { LiveActivityCard } from './LiveActivityCard'
 import { LiveBreakdownCard } from './LiveBreakdownCard'
 import { LiveEventSheet } from './LiveEventSheet'
 import { LiveEventsCard } from './LiveEventsCard'
+import { LiveMapCard } from './LiveMapCard'
+import { LiveNoTraffic } from './LiveNoTraffic'
 import { LiveRankedTable } from './LiveRankedTable'
 import { LiveStats } from './LiveStats'
 import type { LiveStatus } from './liveController'
@@ -52,6 +53,7 @@ import { statusText } from './liveFormat'
 
 /** A pushed screen has no bottom bar, so the toast sits low. */
 const TOAST_BOTTOM = 48
+const LIVE_TAB_CONTENT_TOP = TABS_HEADER_BOTTOM + 4
 
 export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrome }): ReactElement {
     const styles = useStyles()
@@ -60,15 +62,17 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
     const back = useViewBack()
     const insets = useScreenInsets()
     const tabBottom = useTabBottomOffset()
-    // The screen owns the toasts, so the More menu's pin change shows one whatever the body shows.
     const toasts = useToasts()
-    const pinned = useIsNavPinned('live')
     const [menuOpen, setMenuOpen] = useState(false)
     const allowed = access.state === 'ok'
     const tab = chrome === 'tab'
+    // The tabs layout counts Home opens once per tab switch, because this focus effect also fires when a pushed screen,
+    // Settings or the chat sheet closes over Home.
     useFocusEffect(
         useCallback(() => {
-            trackLiveOpened({ from, chrome })
+            if (chrome === 'stack') {
+                trackLiveOpened({ from, chrome })
+            }
         }, [from, chrome])
     )
     const webUrl = viewWebUrl(scope, '/web/live')
@@ -78,7 +82,7 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
     } else if (tab) {
         body = (
             <View
-                style={[styles.fill, { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: tabBottom }]}
+                style={[styles.fill, { paddingTop: topOffset(insets, LIVE_TAB_CONTENT_TOP), paddingBottom: tabBottom }]}
             >
                 <TabHeaderPublisher tab="live" status={null} />
                 <ViewsReauthState access={access} />
@@ -107,12 +111,6 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
                     onClose={() => setMenuOpen(false)}
                     testID="live-menu"
                     items={[
-                        {
-                            key: pinned ? 'unpin' : 'pin',
-                            label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
-                            Icon: PinIcon,
-                            onPress: () => changeNavPin('live', !pinned, 'list_menu', toasts.show),
-                        },
                         {
                             key: 'web',
                             label: 'Open on web',
@@ -156,8 +154,8 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
     const [breakdown, setBreakdown] = useState<LiveBreakdownKind>('devices')
     const [sheetOpen, setSheetOpen] = useState(false)
     const [sheetEvent, setSheetEvent] = useState<LiveEventRow | null>(null)
-    const { snapshot } = feed
-    const contentTop = topOffset(insets, tab ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
+    const { snapshot, state } = feed
+    const contentTop = topOffset(insets, tab ? LIVE_TAB_CONTENT_TOP : SCREEN_CONTENT_TOP)
     const contentBottom = tab ? tabBottom : bottomOffset(insets, 48)
 
     const openEvent = useCallback((event: LiveEventRow) => {
@@ -170,18 +168,9 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
         setBreakdown(kind)
     }
 
-    const title = (
-        <LiveTitle
-            tab={tab}
-            status={feed.status}
-            screenActive={feed.screenActive}
-            updatedAt={feed.updatedAt}
-            paused={feed.paused}
-            onPause={feed.pause}
-            onResume={feed.resume}
-            onTitleLayout={scrollTitle.onTitleLayout}
-        />
-    )
+    // A project with no events runs no reads, so there is nothing to pause.
+    const pausable = state !== 'not_set_up'
+    const togglePause = feed.paused ? feed.resume : feed.pause
     const nothingYet = Object.values(snapshot).every((part) => part === null)
     let content: ReactElement
     if (feed.loadFailed && !feed.reading) {
@@ -195,6 +184,8 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 testID="live-error"
             />
         )
+    } else if (state === 'quiet' || state === 'not_set_up') {
+        content = <LiveNoTraffic state={state} scope={scope} />
     } else if (nothingYet) {
         content = (
             <View testID="live-loading">
@@ -203,6 +194,11 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
         )
     } else {
         const activity = snapshot.activity
+        // A failed top-list query retains rows that may differ from the current project's activity.
+        const appOnly = state === 'app_only'
+        const screens = snapshot.topPagesMode === 'screens'
+        const kinds = liveBreakdownKinds(snapshot)
+        const shownBreakdown = kinds.includes(breakdown) ? breakdown : kinds[0]
         content = (
             <View style={styles.cards}>
                 <LiveStats
@@ -211,26 +207,50 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                     pageviews={activity?.pageviews ?? null}
                     onAbout={(text) => toasts.show(text)}
                 />
+                <LiveMapCard world={snapshot.world} paused={feed.paused} />
                 <LiveActivityCard activity={activity} />
-                <LiveRankedTable
-                    title="Top pages (last 30 minutes)"
-                    columnLabel="Path"
-                    rows={snapshot.topPages}
-                    emptyText="No pageviews recorded in the last 30 minutes"
-                    mono
-                    version={feed.updatedAt}
-                    testID="live-top-pages"
-                />
-                <LiveRankedTable
-                    title="Top referrers (last 30 minutes)"
-                    columnLabel="Referrer"
-                    rows={snapshot.topReferrers}
-                    emptyText="No referrer data in the last 30 minutes"
-                    mono
-                    version={feed.updatedAt}
-                    testID="live-top-referrers"
-                />
-                <LiveBreakdownCard kind={breakdown} breakdown={snapshot[breakdown]} onChange={changeBreakdown} />
+                {/* Keyed by form, so a switch between pages and screens redraws the rows instead of sliding them. */}
+                {screens ? (
+                    <LiveRankedTable
+                        key="screens"
+                        title="Top screens (last 30 minutes)"
+                        columnLabel="Screen"
+                        rows={snapshot.topPages}
+                        emptyText="No screen views recorded in the last 30 minutes"
+                        version={feed.updatedAt}
+                        testID="live-top-screens"
+                    />
+                ) : (
+                    <LiveRankedTable
+                        key="pages"
+                        title="Top pages (last 30 minutes)"
+                        columnLabel="Path"
+                        rows={snapshot.topPages}
+                        emptyText="No pageviews recorded in the last 30 minutes"
+                        mono
+                        version={feed.updatedAt}
+                        testID="live-top-pages"
+                    />
+                )}
+                {appOnly ? null : (
+                    <LiveRankedTable
+                        title="Top referrers (last 30 minutes)"
+                        columnLabel="Referrer"
+                        rows={snapshot.topReferrers}
+                        emptyText="No referrer data in the last 30 minutes"
+                        mono
+                        version={feed.updatedAt}
+                        testID="live-top-referrers"
+                    />
+                )}
+                {shownBreakdown ? (
+                    <LiveBreakdownCard
+                        kinds={kinds}
+                        kind={shownBreakdown}
+                        breakdown={snapshot[shownBreakdown]}
+                        onChange={changeBreakdown}
+                    />
+                ) : null}
                 <LiveEventsCard events={snapshot.events} onOpen={openEvent} screenActive={feed.screenActive} />
             </View>
         )
@@ -238,8 +258,13 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
 
     return (
         <View style={styles.fill}>
-            {/* The status line sits in the content's first row, so the shared header shows the title alone. */}
-            {tab ? <TabHeaderPublisher tab="live" status={null} /> : null}
+            {tab ? (
+                <TabHeaderPublisher
+                    tab="live"
+                    status={feed.status === 'reconnecting' ? 'Reconnecting…' : null}
+                    pause={pausable ? { paused: feed.paused, onPress: togglePause } : null}
+                />
+            ) : null}
             <ScrollView
                 contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
                 onScroll={scrollTitle.onScroll}
@@ -256,7 +281,19 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 }
                 testID="live-scroll"
             >
-                {title}
+                {/* On a tab the shared tabs header draws the title and Pause. */}
+                {tab ? null : (
+                    <LiveTitle
+                        status={feed.status}
+                        state={state}
+                        screenActive={feed.screenActive}
+                        updatedAt={feed.updatedAt}
+                        paused={feed.paused}
+                        pausable={pausable}
+                        onTogglePause={togglePause}
+                        onTitleLayout={scrollTitle.onTitleLayout}
+                    />
+                )}
                 {feed.paused ? <PausedBanner onResume={feed.resume} /> : null}
                 {content}
             </ScrollView>
@@ -273,58 +310,30 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
 }
 
 interface LiveTitleProps {
-    /** On a tab the shared tabs header draws the title, so one row holds the dot, the status line and Pause. */
-    tab: boolean
     status: LiveStatus
+    state: LiveProjectState | null
     screenActive: boolean
     updatedAt: number | null
     paused: boolean
-    onPause: () => void
-    onResume: () => void
+    pausable: boolean
+    onTogglePause: () => void
     onTitleLayout: ScrollTitleState['onTitleLayout']
 }
 
+/** The pushed screen's title block. */
 function LiveTitle({
-    tab,
     status,
+    state,
     screenActive,
     updatedAt,
     paused,
-    onPause,
-    onResume,
+    pausable,
+    onTogglePause,
     onTitleLayout,
 }: LiveTitleProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const pauseButton = (
-        <Pressable44
-            onPress={paused ? onResume : onPause}
-            accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
-            pressedBackground={colors.pressed}
-            style={styles.pauseButton}
-            testID="live-pause"
-        >
-            {paused ? <PlayIcon size={12} color={colors.ink} /> : <PauseIcon size={16} color={colors.ink} />}
-            <Text style={styles.pauseText}>{paused ? 'Resume' : 'Pause'}</Text>
-        </Pressable44>
-    )
-    if (tab) {
-        return (
-            <View style={[styles.titleBlock, styles.titleRow, styles.tabTitleRow]}>
-                <View style={styles.tabStatus}>
-                    <LiveDot on={status === 'live'} animate={screenActive} />
-                    <LiveStatusLine
-                        status={status}
-                        screenActive={screenActive}
-                        updatedAt={updatedAt}
-                        numberOfLines={1}
-                        style={styles.tabStatusText}
-                    />
-                </View>
-                {pauseButton}
-            </View>
-        )
-    }
+    const on = status === 'live' && state !== 'quiet' && state !== 'not_set_up'
     return (
         <View style={styles.titleBlock}>
             <View onLayout={onTitleLayout}>
@@ -334,37 +343,46 @@ function LiveTitle({
                         <Text style={styles.title} accessibilityRole="header">
                             Live
                         </Text>
-                        <LiveDot on={status === 'live'} animate={screenActive} />
+                        <LiveDot on={on} animate={screenActive} />
                     </View>
-                    {pauseButton}
+                    {pausable ? (
+                        <Pressable44
+                            onPress={onTogglePause}
+                            accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
+                            pressedBackground={colors.pressed}
+                            style={styles.pauseButton}
+                            testID="live-pause"
+                        >
+                            {paused ? (
+                                <PlayIcon size={12} color={colors.ink} />
+                            ) : (
+                                <PauseIcon size={16} color={colors.ink} />
+                            )}
+                            <Text style={styles.pauseText}>{paused ? 'Resume' : 'Pause'}</Text>
+                        </Pressable44>
+                    ) : null}
                 </View>
             </View>
-            <LiveStatusLine status={status} screenActive={screenActive} updatedAt={updatedAt} />
+            <LiveStatusLine status={status} state={state} screenActive={screenActive} updatedAt={updatedAt} />
         </View>
     )
 }
 
 interface LiveStatusLineProps {
     status: LiveStatus
+    state: LiveProjectState | null
     screenActive: boolean
     updatedAt: number | null
-    /** The tab's row truncates the line beside the Pause pill. */
-    numberOfLines?: number
-    style?: StyleProp<TextStyle>
 }
 
 /** Its own component, so the one-second clock re-renders only this line. */
-function LiveStatusLine({ status, screenActive, updatedAt, numberOfLines, style }: LiveStatusLineProps): ReactElement {
+function LiveStatusLine({ status, state, screenActive, updatedAt }: LiveStatusLineProps): ReactElement {
     const styles = useStyles()
-    const now = useNow(screenActive && status === 'live' ? 1000 : null).getTime()
+    const ticking = screenActive && status === 'live' && state !== 'quiet' && state !== 'not_set_up'
+    const now = useNow(ticking ? 1000 : null).getTime()
     return (
-        <Text
-            style={[styles.status, style]}
-            numberOfLines={numberOfLines}
-            accessibilityLiveRegion="polite"
-            testID="live-status"
-        >
-            {statusText(status, updatedAt, now)}
+        <Text style={styles.status} accessibilityLiveRegion="polite" testID="live-status">
+            {statusText(status, updatedAt, now, state)}
         </Text>
     )
 }
@@ -409,18 +427,6 @@ const useStyles = createStyles(({ colors }) => ({
         justifyContent: 'space-between',
         gap: 12,
         marginTop: 4,
-    },
-    tabTitleRow: {
-        marginTop: 0,
-    },
-    tabStatus: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        flexShrink: 1,
-    },
-    tabStatusText: {
-        flexShrink: 1,
     },
     titleText: {
         flexDirection: 'row',

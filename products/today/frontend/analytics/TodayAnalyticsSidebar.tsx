@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
+import { IconPlus } from '@posthog/icons'
+
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
-import { AnalyticsPinButton } from 'scenes/analytics/AnalyticsPinButton'
 import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from 'scenes/analytics/AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from 'scenes/analytics/AnalyticsTypeIcon'
@@ -12,6 +13,9 @@ import { ANALYTICS_TYPE_INFO, AnalyticsType } from 'scenes/analytics/analyticsUt
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
+import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
+import { SidebarRowEnter } from '~/layout/today/sidebar/SidebarRowEnter'
 import { productPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -41,7 +45,10 @@ function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
-    const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
+    const { pinnedAnalytics, hasAnalyticsItems } = useValues(analyticsPinnedLogic)
+    const { showPinHint } = useActions(analyticsPinnedLogic)
+    const { shortcutDataLoading } = useValues(sidebarPinsLogic)
+    const { movePinned } = useActions(sidebarPinsLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const listFilters =
@@ -67,12 +74,13 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                       to: urls.analyticsList({ folder: pinned.path }),
                       active: openFolder === pinned.path,
                       action: (
-                          <AnalyticsPinButton
+                          <SidebarPinButton
                               target={{ type: 'folder', ref: pinned.path, name: pinned.name }}
                               dataAttr="analytics-sidebar-unpin-space"
                           />
                       ),
                       dataAttr: 'analytics-sidebar-starred-space',
+                      wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
                   }
                 : {
                       value: `pinned:${pinned.key}`,
@@ -81,7 +89,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                       to: pinned.item.href,
                       active: path === removeProjectIdIfPresent(pinned.item.href),
                       action: (
-                          <AnalyticsPinButton
+                          <SidebarPinButton
                               target={{
                                   type: pinned.item.type,
                                   ref: pinned.item.id,
@@ -92,6 +100,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                           />
                       ),
                       dataAttr: 'analytics-sidebar-pinned',
+                      wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
                   }
         ),
         recents: recentAnalytics.map((item) => ({
@@ -101,7 +110,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             to: item.href,
             active: path === removeProjectIdIfPresent(item.href),
             action: (
-                <AnalyticsPinButton
+                <SidebarPinButton
                     target={{ type: item.type, ref: item.id, name: item.name, href: item.href }}
                     dataAttr="analytics-sidebar-recent-pin"
                 />
@@ -128,6 +137,21 @@ export function TodayAnalyticsSidebar(): JSX.Element {
         }),
     }
 
+    // With nothing pinned, the section stays to show that pinning exists. A search hides it, as it matches nothing.
+    if (lists.pinned.length === 0 && !shortcutDataLoading && hasAnalyticsItems && !searchQuery.trim()) {
+        lists.pinned = [
+            {
+                value: 'pinned:add',
+                label: 'Add a pinned item',
+                icon: <IconPlus />,
+                to: urls.analyticsList(),
+                active: false,
+                onClick: showPinHint,
+                dataAttr: 'analytics-sidebar-pinned-add',
+            },
+        ]
+    }
+
     return (
         <CustomizedSidebar
             configuration={ANALYTICS_SIDEBAR_CONFIGURATION}
@@ -140,6 +164,10 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             sections={{ isOpen: isSectionOpen, toggle: toggleSection, dataAttrPrefix: 'analytics-section' }}
             navigation={{
                 lists,
+                reorder: {
+                    pinned: (fromIndex, toIndex) =>
+                        movePinned(pinnedAnalytics[fromIndex].shortcutId, pinnedAnalytics[toIndex].shortcutId),
+                },
                 resolve: (item) => {
                     const target = resolveSidebarTarget(item.to, item.label, item.icon)
                     return target

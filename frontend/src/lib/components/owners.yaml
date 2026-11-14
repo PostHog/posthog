@@ -101,6 +101,7 @@ rules:
           - '/ChartLegendSeriesMenu/*.test.*'
           - '/ChartOptions/*.test.*'
           - '/CompareFilter/*.test.*'
+          - '/DateDisplay/*.test.*'
           - '/InsightLabel/*.test.*'
           - '/Scenes/*.test.*'
           - '/Scenes/InsightOrDashboard/*.test.*'

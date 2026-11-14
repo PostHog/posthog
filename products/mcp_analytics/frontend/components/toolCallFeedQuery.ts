@@ -7,7 +7,7 @@ import { DataTableNode, HogQLFilters, NodeKind } from '~/queries/schema/schema-g
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LAB_ORDER, labSqlExpression } from '../aiLabs'
-import { labMark } from '../brandMarks'
+import { labMark } from '../aiLabs'
 import { HARNESS_BY_LABEL, harnessMark } from '../dashboard/harnessRegistry'
 
 export const MCP_ACTIVITY_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-activity')

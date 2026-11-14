@@ -1,9 +1,16 @@
 from datetime import datetime
 from uuid import UUID
 
-from products.business_knowledge.backend import billing
+from products.business_knowledge.backend import (
+    billing,
+    citations as run_citations,
+)
 from products.business_knowledge.backend.facade.contracts import KnowledgeHit, KnowledgeUsageByTeam
-from products.business_knowledge.backend.models import KnowledgeGapSuggestion, KnowledgeLearningRun
+from products.business_knowledge.backend.models import (
+    KnowledgeGapSuggestion,
+    KnowledgeLearningRun,
+    KnowledgeRunCitation,
+)
 
 
 def purge_ticket_derived_rows(*, team_id: int, ticket_id: UUID) -> None:
@@ -14,6 +21,30 @@ def purge_ticket_derived_rows(*, team_id: int, ticket_id: UUID) -> None:
     """
     KnowledgeGapSuggestion.objects.for_team(team_id).filter(ticket_id=ticket_id).delete()
     KnowledgeLearningRun.objects.for_team(team_id).filter(evidence_key__startswith=f"{ticket_id}:").delete()
+    KnowledgeRunCitation.objects.for_team(team_id).filter(ticket_id=ticket_id).delete()
+
+
+def record_run_citations(
+    *,
+    team_id: int,
+    run_id: str,
+    ticket_id: UUID,
+    citations: list[str],
+    persist_as: str = "",
+    confidence: float | None = None,
+) -> int:
+    """Record the knowledge chunks one support investigation run cited. Returns how many it cited.
+
+    Citations that are not knowledge chunk ids, such as docs URLs, are skipped.
+    """
+    return run_citations.record_run_citations(
+        team_id=team_id,
+        run_id=run_id,
+        ticket_id=ticket_id,
+        citations=citations,
+        persist_as=persist_as,
+        confidence=confidence,
+    )
 
 
 def get_usage_by_team(begin: datetime, end: datetime) -> KnowledgeUsageByTeam:

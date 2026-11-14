@@ -7,6 +7,18 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface LinkedInsightDTOApi {
+    /** True when the insight was deleted after it was linked. */
+    readonly deleted: boolean
+    id: number
+    short_id: string
+    name: string
+    /** @nullable */
+    created_at: string | null
+    /** @nullable */
+    last_modified_at: string | null
+}
+
 export interface LinkedSendDTOApi {
     id: string
     status: string
@@ -27,6 +39,8 @@ export interface ReleaseOwnerDTOApi {
 }
 
 export interface ReleaseDTOApi {
+    /** ID, short ID, name and dates of each linked insight the caller can see, including deleted ones. */
+    readonly insights: readonly LinkedInsightDTOApi[]
     /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
     readonly broadcasts: readonly LinkedBroadcastDTOApi[]
     /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
@@ -37,6 +51,8 @@ export interface ReleaseDTOApi {
     owner: ReleaseOwnerDTOApi | null
     feature_flag_ids: number[]
     broadcast_ids: string[]
+    survey_ids: string[]
+    insight_ids: number[]
     created_at: string
 }
 
@@ -63,13 +79,29 @@ export interface WriteReleaseApi {
      */
     owner_id?: number | null
     /**
-     * IDs of the feature flags that control who gets the release.
+     * IDs of the feature flags that control who gets the release, at most 100.
+     * @maxItems 100
      * @items.minimum 1
      * @items.maximum 2147483647
      */
     feature_flag_ids?: number[]
-    /** IDs of the broadcasts that announce the release. */
+    /**
+     * IDs of the broadcasts that announce the release, at most 100.
+     * @maxItems 100
+     */
     broadcast_ids?: string[]
+    /**
+     * IDs of the surveys that collect feedback on the release, at most 100.
+     * @maxItems 100
+     */
+    survey_ids?: string[]
+    /**
+     * IDs of the saved insights that measure the release, at most 100.
+     * @maxItems 100
+     * @items.minimum 1
+     * @items.maximum 2147483647
+     */
+    insight_ids?: number[]
 }
 
 export interface PatchedUpdateReleaseApi {
@@ -86,13 +118,29 @@ export interface PatchedUpdateReleaseApi {
      */
     owner_id?: number | null
     /**
-     * IDs of the feature flags that control who gets the release.
+     * IDs of the feature flags that control who gets the release, at most 100.
+     * @maxItems 100
      * @items.minimum 1
      * @items.maximum 2147483647
      */
     feature_flag_ids?: number[]
-    /** IDs of the broadcasts that announce the release. */
+    /**
+     * IDs of the broadcasts that announce the release, at most 100.
+     * @maxItems 100
+     */
     broadcast_ids?: string[]
+    /**
+     * IDs of the surveys that collect feedback on the release, at most 100.
+     * @maxItems 100
+     */
+    survey_ids?: string[]
+    /**
+     * IDs of the saved insights that measure the release, at most 100.
+     * @maxItems 100
+     * @items.minimum 1
+     * @items.maximum 2147483647
+     */
+    insight_ids?: number[]
 }
 
 export interface BroadcastOptionApi {
@@ -102,6 +150,11 @@ export interface BroadcastOptionApi {
     name: string
     /** Status of the broadcast, such as draft or active. */
     status: string
+}
+
+export interface ImportAllResponseApi {
+    /** How many releases the import created. */
+    created_count: number
 }
 
 export type ReleasesListParams = {
