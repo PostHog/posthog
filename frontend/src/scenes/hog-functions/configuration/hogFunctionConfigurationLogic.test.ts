@@ -287,6 +287,50 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
+    describe('drop warning on a transformation', () => {
+        const TRANSFORMATION_TEMPLATE: HogFunctionTemplateType = {
+            free: true,
+            status: 'stable',
+            id: 'template-blank-transformation',
+            type: 'transformation',
+            name: 'Custom transformation',
+            description: 'Start from scratch.',
+            code: 'return event',
+            code_language: 'hog',
+            inputs_schema: [],
+            filters: null,
+            masking: null,
+            icon_url: '/static/hedgehog/builder-hog-01.png',
+        }
+
+        beforeEach(async () => {
+            initKeaTests()
+            jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+            mockGetTemplate.mockReturnValue(Promise.resolve(TRANSFORMATION_TEMPLATE))
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        async function editHogCode(hog: string): Promise<void> {
+            logic.actions.setConfigurationValue('hog', hog)
+            await jest.advanceTimersByTimeAsync(300)
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        it('shows once a code path ends without returning the event, and clears when every path returns', async () => {
+            await editHogCode(`if (event.event == 'a') { event.properties.variant := 'a' } else { return event }`)
+            expect(logic.values.mightDropEvents).toBe(true)
+
+            await editHogCode(`if (event.event == 'a') { event.properties.variant := 'a' }\nreturn event`)
+            expect(logic.values.mightDropEvents).toBe(false)
+        })
+    })
+
     describe('resetting to template', () => {
         const USER_FILTERS: CyclotronJobFiltersType = {
             events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
