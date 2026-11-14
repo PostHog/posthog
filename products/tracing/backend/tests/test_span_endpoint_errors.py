@@ -104,6 +104,24 @@ class TestSpanCountErrorHandling(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("query_attribute_name", "query/", "http.method"),
+            ("aggregate_output_metric", "aggregate/", "p95"),
+            ("count_unknown_column", "count/", "environment"),
+        ]
+    )
+    def test_unknown_span_filter_key_returns_400(self, _name: str, path: str, key: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/{path}",
+            {"query": {"filterGroup": [{"key": key, "type": "span", "operator": "exact", "value": "x"}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        detail = response.json()["detail"]
+        self.assertIn(key, detail)
+        self.assertIn("duration", detail)
+
+    @parameterized.expand(
+        [
             ("query_string_limit", "post", "query/", {"query": {"limit": "abc"}}),
             ("query_string_prefetch_spans", "post", "query/", {"query": {"prefetchSpans": "abc"}}),
             ("query_negative_prefetch_spans", "post", "query/", {"query": {"prefetchSpans": -5}}),
