@@ -25,12 +25,14 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.applied_issue_tags import applied_issue_tags_query
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
+from products.error_tracking.backend.hogql_queries.error_tracking_query_validation_rules import ValidateVolumeResolution
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE,
     RecentIssueState,
@@ -53,6 +55,9 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
     date_to: datetime.datetime
 
     CACHE_VERSION = 4
+
+    def validators(self) -> tuple[QueryValidationRule[ErrorTrackingQuery], ...]:
+        return (ValidateVolumeResolution(),)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

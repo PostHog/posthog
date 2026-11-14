@@ -500,6 +500,22 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("too_large", 201), ("time_unit", "day")])
     def test_rejects_invalid_volume_resolution_with_accepted_values(self, _name: str, value: object) -> None:
+        query_response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            data={
+                "query": {
+                    "kind": "ErrorTrackingQuery",
+                    "orderBy": "last_seen",
+                    "dateRange": {"date_from": "-7d"},
+                    "volumeResolution": value,
+                    "withAggregations": True,
+                }
+            },
+            format="json",
+        )
+        assert query_response.status_code == 400
+        assert "volumeResolution" in query_response.json()["detail"]
+
         list_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
             data={"volumeResolution": value},
