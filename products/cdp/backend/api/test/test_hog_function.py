@@ -1383,6 +1383,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert obj.encrypted_inputs["secret1"]["value"] == "I AM SECRET"
         assert obj.encrypted_inputs["secret2"]["value"] == "I AM ALSO SECRET"
 
+    def test_auth_on_a_secret_input_is_refused(self, *args):
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "hog": "fetch('https://api.example.com', {'auth': inputs.token});",
+                "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "secret": True, "auth": True}],
+                "inputs": {"token": {"value": "SECRET"}},
+            },
+        )
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["attr"] == "inputs_schema__auth__token"
+
     def test_secret_input_turned_public_keeps_a_new_value(self, *args):
         payload = {
             "type": "destination",

@@ -27,6 +27,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.facade.api import get_actions
+from products.cdp.backend.credential_auth import validate_auth_declarations
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
     FILTER_FUNCTIONS,
@@ -818,6 +819,10 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     requiredScopes = serializers.CharField(required=False)
     # Indicates if hog templating should be used for this input
     templating = _TemplatingChoiceField(choices=[True, False, "hog", "liquid"], required=False)
+    auth = serializers.BooleanField(
+        required=False,
+        help_text="Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind.",
+    )
 
     # TODO Validate choices if type=choice
 
@@ -872,6 +877,7 @@ class InputsSchemaSerializer(serializers.ListField):
         schemas = super().to_internal_value(data)
         if self.unique_keys and duplicate_input_keys(schemas):
             raise serializers.ValidationError(DUPLICATE_INPUT_KEYS_ERROR)
+        validate_auth_declarations(schemas)
         return schemas
 
 

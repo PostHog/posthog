@@ -340,6 +340,8 @@ export interface InputsSchemaItemApi {
     integration_field?: string
     requiredScopes?: string
     templating?: boolean | 'hog' | 'liquid'
+    /** Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind. */
+    auth?: boolean
 }
 
 /**
