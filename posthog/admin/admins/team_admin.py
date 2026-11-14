@@ -408,19 +408,26 @@ class TeamAdmin(admin.ModelAdmin):
         if not team.pk:
             return "-"
         state = get_email_sending_state(team.pk)
+        parts = []
         if state and state.suspended_at:
-            return format_html(
-                '<span style="color:red"><strong>Suspended</strong></span> at {} — {}',
-                state.suspended_at.isoformat(),
-                state.suspension_reason or "no reason recorded",
+            parts.append(
+                format_html(
+                    '<span style="color:red"><strong>Suspended</strong></span> at {} — {}',
+                    state.suspended_at.isoformat(),
+                    state.suspension_reason or "no reason recorded",
+                )
             )
         if state and state.provider_paused:
-            return format_html(
-                '<span style="color:red"><strong>Paused by AWS SES</strong></span> (reputation impact: {}). '
-                "Re-enabling sending in the console does not lift it. The tenant has to be reinstated in AWS.",
-                state.provider_reputation_impact or "unknown",
+            parts.append(
+                format_html(
+                    '<span style="color:red"><strong>Paused by AWS SES</strong></span> (reputation impact: {}). '
+                    "Re-enabling sending in the console does not lift it. The tenant has to be reinstated in AWS.",
+                    state.provider_reputation_impact or "unknown",
+                )
             )
-        return mark_safe("<em>Sending enabled</em>")
+        if not parts:
+            return mark_safe("<em>Sending enabled</em>")
+        return format_html_join(mark_safe("<br>"), "{}", ((part,) for part in parts))
 
     @admin.display(description="Email sending actions")
     def email_sending_suspension_actions(self, team: Team):

@@ -3,12 +3,16 @@ import re
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.contrib import admin
 from django.contrib.messages import get_messages
+from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.admin.console.panels import Tone
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team import Team
 
 from products.workflows.backend.console import EmailSendingPanel
 from products.workflows.backend.facade.api import get_email_sending_state, suspend_email_sending
@@ -82,6 +86,29 @@ class TestEmailSendingConsolePanel(BaseTest):
 
         assert (facts["Status"].value, facts["Status"].tone) == expected_status
         assert (facts["AWS reputation impact"].value if "AWS reputation impact" in facts else None) == expected_impact
+
+    @parameterized.expand(
+        [
+            ("enabled", False, "ENABLED", ["Sending enabled"], ["Suspended", "Paused by AWS SES"]),
+            ("aws_paused", False, "DISABLED", ["Paused by AWS SES"], ["Suspended", "Sending enabled"]),
+            ("both", True, "DISABLED", ["Suspended", "Paused by AWS SES"], ["Sending enabled"]),
+        ]
+    )
+    def test_team_admin_state_reports_an_aws_tenant_pause(
+        self, _name: str, staff_suspended: bool, tenant_status: str, shown: list[str], hidden: list[str]
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "ses_tenant_sending_status": tenant_status,
+                "email_sending_suspended_at": timezone.now() if staff_suspended else None,
+            },
+        )
+
+        content = str(TeamAdmin(Team, admin.site).email_sending_suspension_state(self.team))
+
+        assert all(text in content for text in shown)
+        assert not any(text in content for text in hidden)
 
     def test_set_tier_form_starts_from_the_current_tier_and_pin(self) -> None:
         TeamWorkflowsConfig.objects.update_or_create(
