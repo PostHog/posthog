@@ -348,7 +348,7 @@ describe('workflowLogic email step "from" validation', () => {
 
     it.each([
         ['an unverified sender', { integrationId: 43 }, "This sender's domain isn't verified yet"],
-        ['a deleted sender', { integrationId: 99 }, 'This sender no longer exists'],
+        ['a deleted sender', { integrationId: 99 }, "This sender can't be found"],
         ['an unverified sender in the rotation', { integrationId: 42, integrationIds: [42, 43] }, "isn't verified yet"],
         ['no unverified primary sender a rotation replaces', { integrationId: 43, integrationIds: [42] }, null],
     ])('flags %s on the step before any save attempt', async (_name, fromValue, message) => {

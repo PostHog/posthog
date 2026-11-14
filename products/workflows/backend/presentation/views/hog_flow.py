@@ -4478,7 +4478,7 @@ def _refuse_unusable_email_senders(actions: list[dict], *, team_id: int) -> None
                     f"would fail. Verify the domain at {url}, or choose a verified sender."
                 )
             else:
-                problems.append(f'The "{step}" step uses an email sender that no longer exists. Choose another sender.')
+                problems.append(f"The \"{step}\" step's email sender can't be found. Choose another sender.")
             break
     if problems:
         raise serializers.ValidationError({"actions": " ".join(problems)})

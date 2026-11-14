@@ -272,14 +272,14 @@ class TestSandboxEmailSteps(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("new_value_on_publish", None, "active", 400),
-            ("stored_value_on_publish", "live", "active", 200),
-            ("value_only_in_the_staged_draft", "draft", "active", 400),
-            ("new_value_in_a_web_draft_save", None, "draft", 400),
+            ("new_value_on_publish", None, "active", "This sender can't send email from a workflow"),
+            ("stored_value_on_publish", "live", "active", "email sender can't be found"),
+            ("value_only_in_the_staged_draft", "draft", "active", "This sender can't send email from a workflow"),
+            ("new_value_in_a_web_draft_save", None, "draft", "This sender can't send email from a workflow"),
         ]
     )
     def test_an_email_step_cannot_newly_send_from_the_sandbox_row(
-        self, _name: str, stored_in: str | None, saved_status: str, expected: int
+        self, _name: str, stored_in: str | None, saved_status: str, error: str
     ) -> None:
         sync_template_to_db(_email_function_template())
         sandbox_row = Integration.objects.create(
@@ -303,9 +303,8 @@ class TestSandboxEmailSteps(APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == expected, response.json()
-        if expected == 400:
-            assert "This sender can't send email from a workflow" in response.json()["detail"]
+        assert response.status_code == 400, response.json()
+        assert error in response.json()["detail"]
 
 
 class TestSandboxEmailStepsOverTheApi(APIBaseTest):

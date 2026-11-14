@@ -3633,8 +3633,8 @@ function senderErrors(
 function unusableSenderError(senderIds: number[], integrations: IntegrationType[]): string | undefined {
     for (const senderId of senderIds) {
         const sender = integrations.find((integration) => integration.id === Number(senderId))
-        if (!sender) {
-            return 'This sender no longer exists. Choose another sender.'
+        if (!sender || sender.kind !== 'email') {
+            return "This sender can't be found. Choose another sender."
         }
         if (!isVerifiedEmailSender(sender)) {
             return "This sender's domain isn't verified yet, so its emails would fail. Verify the domain, or choose a verified sender."

@@ -1166,7 +1166,7 @@ class TestHogFlowAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("unverified_sender", "unverified", "isn't verified yet"),
-            ("deleted_sender", "deleted", "no longer exists"),
+            ("deleted_sender", "deleted", "can't be found"),
             ("unverified_sender_in_rotation", "rotation", "isn't verified yet"),
         ]
     )
