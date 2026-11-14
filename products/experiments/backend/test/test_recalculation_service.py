@@ -63,6 +63,7 @@ def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
 
 
 _RECALCULATION_MODULE = "products.experiments.backend.recalculation"
+_DISPATCH_MODULE = "products.experiments.backend.temporal.recalculation.dispatch"
 
 
 def _workflow_running() -> SimpleNamespace:
@@ -329,8 +330,8 @@ class TestRecalculationService(BaseTest):
                 "products.experiments.backend.organization_flags.feature_enabled_or_false", side_effect=evaluate_flag
             ),
             patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
-            patch(f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_not_found())),
-            patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            patch(f"{_DISPATCH_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_not_found())),
+            patch("products.experiments.backend.recalculation.cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
             over_limit = exceeds_recalculation_age_limit(exp)
@@ -417,10 +418,10 @@ class TestRecalculationService(BaseTest):
 
         with (
             patch(
-                f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(describe_outcome)
+                f"{_DISPATCH_MODULE}._describe_recalculation_workflow", new=_describe(describe_outcome)
             ) as mock_describe,
-            patch(f"{_RECALCULATION_MODULE}.capture_exception") as mock_capture_exception,
-            patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            patch(f"{_DISPATCH_MODULE}.capture_exception") as mock_capture_exception,
+            patch("products.experiments.backend.recalculation.cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request_recalculation(exp, self.user, "manual")
@@ -552,7 +553,7 @@ class TestRecalculationService(BaseTest):
                     created_at=timezone.now() - timedelta(hours=2)
                 )
 
-        with patch(f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_running())):
+        with patch(f"{_DISPATCH_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_running())):
             active = get_active_recalculation(exp)
         latest = get_latest_recalculation(exp)
         assert (active.id if active else None) == (row.id if row and expect_active else None)
