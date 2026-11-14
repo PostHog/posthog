@@ -26,6 +26,7 @@ import type {
     DiagnosticReportApi,
     ListParams,
     MemberOffboardingResourceApi,
+    MemberOffboardingUnattributedRecordingsApi,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
@@ -341,6 +342,42 @@ export const membersOffboardingPreviewRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getMembersOffboardingUnattributedRecordingsRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/offboarding_unattributed_recordings/`
+}
+
+export const membersOffboardingUnattributedRecordingsRetrieve = async (
+    organizationId: string,
+    userUuid: string,
+    options?: RequestInit
+): Promise<MemberOffboardingUnattributedRecordingsApi> => {
+    return apiMutator<MemberOffboardingUnattributedRecordingsApi>(
+        getMembersOffboardingUnattributedRecordingsRetrieveUrl(organizationId, userUuid),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getMembersOffboardingUnattributedRecordingsRevokeUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/offboarding_unattributed_recordings/revoke/`
+}
+
+export const membersOffboardingUnattributedRecordingsRevoke = async (
+    organizationId: string,
+    userUuid: string,
+    options?: RequestInit
+): Promise<MemberOffboardingUnattributedRecordingsApi> => {
+    return apiMutator<MemberOffboardingUnattributedRecordingsApi>(
+        getMembersOffboardingUnattributedRecordingsRevokeUrl(organizationId, userUuid),
+        {
+            ...options,
+            method: 'POST',
         }
     )
 }
