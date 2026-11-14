@@ -31,7 +31,6 @@ export function WorkflowsListV2(): JSX.Element {
         loadFailed,
         loadErrorDetail,
         shownColumns,
-        metricsLoading,
         serverSearchStatus,
         isUnfilteredAutomationView,
         hasHealthFilter,
@@ -42,6 +41,10 @@ export function WorkflowsListV2(): JSX.Element {
     // A new filter starts again on page one, as the flag-off list does.
     const filterKey = `${serializeFacetQuery(value.filters)}\n${value.text}`
     const [pageForFilter, setPageForFilter] = useState({ filterKey, page: 1 })
+    if (pageForFilter.filterKey !== filterKey) {
+        // Store the reset too: clearing a filter brings back an earlier key, which must not bring back its page.
+        setPageForFilter({ filterKey, page: 1 })
+    }
     const currentPage = pageForFilter.filterKey === filterKey ? pageForFilter.page : 1
 
     useOnMountEffect(() => {
@@ -122,7 +125,7 @@ export function WorkflowsListV2(): JSX.Element {
                         (loadingMoreWorkflows && filteredRows.length === 0)
                     }
                     rowKey="id"
-                    columns={buildWorkflowsListV2Columns(shownColumns, metricsLoading)}
+                    columns={buildWorkflowsListV2Columns(shownColumns, metricsStatus === 'failed')}
                     // Client-side pages stay out of the URL; `page` there is an old list param.
                     pagination={{
                         pageSize: PAGE_SIZE,
