@@ -414,7 +414,9 @@ The only sanctioned exception is a job whose purpose is validating the migration
 
 ## Runners
 
-`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs, except light jobs on the critical path of a merge-queue required check, which pick Depot on `trunk-merge/` runs only because GitHub-hosted runners queue longer at busy hours.
+`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
+Two kinds of light job go on Depot instead, because their GitHub-hosted queue costs more than their work: one on the critical path of a merge-queue required check, which picks Depot on `trunk-merge/` runs only, and one whose queue lands on a required-check lane a pull request waits on. The second kind is any job whose `started_at - created_at` is minutes for seconds of work: a `changes` detector first in its workflow, or a gate that only reads `needs` results.
+A job that runs fork-controlled code keeps the GitHub-hosted fallback, because Depot injects cache credentials ambiently and withheld fork secrets do not cover it. The expression in `ci-frontend.yml` is the shape to copy.
 **Name the OS version, never `ubuntu-latest`.**
 GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 became `latest` in 2025, 26.04 follows), which changes the toolchain and system packages under every job at once with nothing in this repo to bisect.
 `WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.
