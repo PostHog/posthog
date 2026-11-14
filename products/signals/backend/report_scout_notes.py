@@ -22,6 +22,7 @@ from django.db import transaction
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ScoutNoteLeft
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutNote
+from products.signals.backend.report_note_mentions import parse_note_mentions, schedule_note_mention_notifications
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, ScoutNote, leave_note
 
 
@@ -45,11 +46,13 @@ def leave_report_note(
     created_by_id: int | None,
     expires_at: datetime | None,
     attribution: ArtefactAttribution,
+    mention_author_id: int | None,
 ) -> ScoutNote:
     """Leave a scout note about `report` and record it on the report's activity log.
 
     `team_id` is the canonical team the scouts read notes from. The caller has already checked
-    that the report belongs to it and that the caller may write to reports and steer scouts.
+    that the report belongs to it and that the caller may write to reports and steer scouts. `mention_author_id`
+    is the person whose @mentions in the note notify people, or None when no person wrote it.
     """
     with transaction.atomic():
         note = leave_note(
@@ -60,10 +63,16 @@ def leave_report_note(
             expires_at=expires_at,
             origin=SignalScoutNote.Origin.REPORT_NOTE,
         )
-        SignalReportArtefact.add_log(
+        artefact = SignalReportArtefact.add_log(
             team_id=report.team_id,
             report_id=str(report.id),
             content=ScoutNoteLeft(note=text, skill_name=skill_name, scout_note_id=str(note.id)),
             attribution=attribution,
+        )
+        schedule_note_mention_notifications(
+            team_id=report.team_id,
+            artefact_id=str(artefact.id),
+            author_id=mention_author_id,
+            mentions=parse_note_mentions(text),
         )
     return note

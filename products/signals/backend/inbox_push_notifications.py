@@ -119,6 +119,18 @@ def notify_report_visible(*, team_id: int, report_id: str) -> list[int]:
     )
 
 
+def notify_report_note_mention(
+    report: SignalReport, users: Collection[User], *, title: str, body: str, dedupe_subject: str
+) -> list[int]:
+    """Push a note mention to the mentioned people. Returns the queued user ids.
+
+    The caller has already resolved the recipients and checked their Inbox access.
+    """
+    return _push_report(
+        report, users, kind="report_note_mention", title=title, body=body, dedupe_subject=dedupe_subject
+    )
+
+
 def notify_pull_request_ready(*, team_id: int, pull_request_id: str) -> list[int]:
     """Push a ready pull request to each linked report's claimant and suggested reviewers.
 
