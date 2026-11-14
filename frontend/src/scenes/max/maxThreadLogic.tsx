@@ -415,6 +415,9 @@ export interface maxThreadLogicActions {
     continueAfterApproval: (proposalId: string) => {
         proposalId: string
     }
+    continueAfterApprovals: (proposalIds: string[]) => {
+        proposalIds: string[]
+    }
     continueAfterForm: (formAnswers: MultiQuestionFormAnswers) => {
         formAnswers: MultiQuestionFormAnswers
     }
@@ -939,6 +942,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         continueWithClientToolResult: (result: Record<string, unknown>, toolCallId: string) => ({ result, toolCallId }),
         executePendingClientToolCall: true,
         continueAfterApproval: (proposalId: string) => ({ proposalId }),
+        continueAfterApprovals: (proposalIds: string[]) => ({ proposalIds }),
         continueAfterRejection: (proposalId: string, feedback?: string) => ({
             proposalId,
             feedback,
@@ -2510,6 +2514,22 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     conversation: values.conversationId,
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
                     resume_payload: { action: 'approve', proposal_id: proposalId },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
+        },
+        continueAfterApprovals: ({ proposalIds }) => {
+            actions.clearQueuedMessages()
+            proposalIds.forEach((proposalId) => actions.setResolvedApprovalStatus(proposalId, 'approved'))
+            actions.streamConversation(
+                {
+                    agent_mode: values.isSandboxMode ? null : values.agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
+                    content: null,
+                    conversation: values.conversationId,
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    resume_payload: { action: 'approve_all', proposal_ids: proposalIds },
                 },
                 0,
                 false // Don't add to thread - no human message to show
