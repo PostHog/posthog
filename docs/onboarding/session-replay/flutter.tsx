@@ -19,11 +19,18 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'yaml',
                                 file: 'pubspec.yaml',
                                 code: dedent`
-                                    posthog_flutter: ^5.24.0
+                                    posthog_flutter: ^6.0.0
                                 `,
                             },
                         ]}
                     />
+                    <Markdown>posthog_flutter 6.0 requires Flutter 3.41 or later on every platform.</Markdown>
+                    <Markdown>
+                        If you embed Flutter in an iOS app as a module (`flutter create -t module`), use Flutter 3.50 or
+                        later and build it with `flutter build swift-package`. Earlier Flutter versions install module
+                        plugins with CocoaPods, and posthog_flutter 6.0 has no podspec, so stay on posthog_flutter 5.x
+                        there.
+                    </Markdown>
                     <CalloutBox type="fyi" title="SDK version">
                         <Markdown>
                             Session replay requires PostHog Flutter SDK version 4.7.0 or higher. We recommend always
@@ -58,7 +65,10 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             },
                         ]}
                     />
-                    <Markdown>Update the minimum Android SDK version to **21** in `android/app/build.gradle`:</Markdown>
+                    <Markdown>
+                        posthog_flutter needs a minimum Android SDK version of **23** or higher. New Flutter projects
+                        default to 24, so change `android/app/build.gradle` only if your app sets a lower value:
+                    </Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -98,19 +108,11 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             },
                         ]}
                     />
-                    <Markdown>Update the minimum platform version to iOS 13.0 in your `Podfile`:</Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'ruby',
-                                file: 'Podfile',
-                                code: dedent`
-                                    platform :ios, '13.0'
-                                    # rest of your config
-                                `,
-                            },
-                        ]}
-                    />
+                    <Markdown>
+                        {dedent`
+                            iOS and macOS builds require Xcode 26 or later. Set the minimum deployment target to iOS 15.0, or macOS 11.0 for a macOS app, in Xcode (**Runner > General > Minimum Deployments**). PostHog installs through Swift Package Manager, which is on by default from Flutter 3.44. On Flutter 3.41 to 3.43, or if you turned it off, run \`flutter config --enable-swift-package-manager\`. If you keep a \`Podfile\` for other plugins, set \`platform :ios, '15.0'\` there too (\`platform :osx, '11.0'\` in \`macos/Podfile\`), then run \`flutter build ios --config-only\` (or \`flutter build macos --config-only\`).
+                        `}
+                    </Markdown>
                 </>
             ),
         },
