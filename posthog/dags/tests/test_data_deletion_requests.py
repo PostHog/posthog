@@ -18,6 +18,8 @@ import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
+from posthog.hogql.test.utils import native_stored_document
+
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
@@ -33,6 +35,7 @@ from posthog.dags.data_deletion_requests import (
     PropertyRemovalTarget,
     _cleaned_select_list,
     _holds_rows,
+    _json_drop_keys_expr,
     _presence_params,
     _property_removal_where,
     _refuse_property_removal_unsweepable,
@@ -3586,7 +3589,12 @@ def test_native_property_removal_gate_checks_retained_copies(
         start_time=marker_time - timedelta(days=1),
         end_time=marker_time + timedelta(days=1),
     )
-    stored = {"properties": "{}", "person_properties": "{}", "temporary_properties": "{}", column: document}
+    stored = {
+        "properties": "{}",
+        "person_properties": "{}",
+        "temporary_properties": "{}",
+        column: native_stored_document(document),
+    }
 
     def execute_query(query: Query, _role: NodeRole) -> Future[list[tuple[object, ...]]]:
         assert isinstance(query.parameters, dict)
@@ -3707,13 +3715,45 @@ def test_delete_person_profiles_op_raises_only_when_the_person_is_still_live(fai
         ('{"custom":""}', "custom", 0),
         ('{"custom":{"a":""}}', "custom", 1),
         ('{"custom":{"a":"y"}}', "custom", 1),
+        ('{"custom":{}}', "custom", 1),
+        ('{"$groups":{"custom_group":"g"}}', "$groups.organization", 0),
     ],
 )
 def test_json_property_presence_expr_treats_empty_values_as_absent(document: str, prop: str, expected: int):
     predicate = json_property_presence_expr("properties", prop)
     [(present,)] = sync_execute(
         f"SELECT toUInt8({predicate}) FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties)",
-        {"raw": document, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+        {"raw": native_stored_document(document), "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
     )
 
     assert present == expected
+
+
+@pytest.mark.parametrize(
+    "keys,changed",
+    [
+        (["plain"], {"plain": None}),
+        (["nested.secret", "plain"], {"plain": None, "nested": '{"price":2.0,"visible":"ok"}'}),
+        (["nested.missing"], {}),
+        (["tags.secret"], {"tags": '[{"keep":2}]'}),
+        (["quoted.secret"], {"quoted": '{"z":1}'}),
+        (["$feature_flags.beta"], {"$feature_flags": {}}),
+    ],
+)
+def test_json_drop_keys_expr_changes_only_the_member_that_holds_the_key(keys: list[str], changed: dict) -> None:
+    sent = (
+        '{"plain": "x", "nested": {"visible": "ok", "secret": "s", "price": 2.0}, '
+        '"unrelated": {"big": 123456789012345678901234567890, "price": 2.0}, '
+        '"quoted": "{ \\"z\\": 1, \\"secret\\": 2 }", "tags": [{"secret": 1, "keep": 2}], '
+        '"$feature_flags": {"beta": "on"}}'
+    )
+    stored = native_stored_document(sent)
+    [(rewritten,)] = sync_execute(
+        f"""SELECT toJSONString(CAST({_json_drop_keys_expr("properties", keys, "keys")}, %(json_type)s))
+        FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties)""",
+        {"raw": stored, "json_type": EVENTS_PROPERTIES_JSON_TYPE(), "keys": keys},
+    )
+
+    before = json.loads(stored)
+    after = json.loads(rewritten)
+    assert {key: after.get(key) for key in before} == {**before, **changed}

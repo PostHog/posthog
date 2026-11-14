@@ -132,10 +132,12 @@ fi
 echo "Passed per-row JSONDropKeysPool keys."
 
 query=$(cat <<'SQL'
-WITH concat('{"x":', repeat('[', 24), '[0]', repeat(',null]', 24), '}') AS raw
+WITH
+    concat(repeat('[', 24), '[0]', repeat(',null]', 24)) AS nested,
+    concat('{"x":', nested, '}') AS raw
 SELECT
-    JSONExtractString(toJSONString(CAST(JSONCleanPostHogEventProperties(raw) AS JSON(max_dynamic_paths=0))), '$unparseable_properties') = raw,
-    JSONExtractString(toJSONString(CAST(JSONCleanPostHogPersonProperties(raw) AS JSON(max_dynamic_paths=0))), '$unparseable_properties') = raw,
+    JSONExtractString(toJSONString(CAST(JSONCleanPostHogEventProperties(raw) AS JSON(max_dynamic_paths=0))), 'x') = nested,
+    JSONExtractString(toJSONString(CAST(JSONCleanPostHogPersonProperties(raw) AS JSON(max_dynamic_paths=0))), 'x') = nested,
     toJSONString(CAST(JSONCleanPostHogTemporaryProperties(raw) AS JSON(max_dynamic_paths=0))) = '{}'
 SETTINGS max_threads = 1, max_memory_usage = 268435456
 FORMAT TabSeparated
@@ -143,10 +145,10 @@ SQL
 )
 output=$(docker compose -f "$COMPOSE_FILE" exec -T clickhouse clickhouse-client --query "$query")
 if [[ "$output" != $'1\t1\t1' ]]; then
-    echo "Expected array quarantine to preserve the input and produce castable JSON, got: $output" >&2
+    echo "Expected deeply nested arrays to be stored as one string and produce castable JSON, got: $output" >&2
     exit 1
 fi
-echo "Passed nested-array quarantine JSON casts."
+echo "Passed nested-array string JSON casts."
 
 # ClickHouse started each pooled UDF process above while a client connection was open. A UDF process that keeps a
 # copy of a client socket holds the connection open after the server closes it, so the client's next request on

@@ -58,10 +58,11 @@ from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printin
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import json_dynamic_read_sql
+from posthog.hogql.test.utils import json_dynamic_read_sql, native_stored_document
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
+from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.instance_setting import override_instance_config
@@ -143,7 +144,10 @@ class TestPrinter(BaseTest):
         return self._json_dynamic_subcolumn_path_expr(root, [property_name.replace(".", "%2E")])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
-        return json_dynamic_read_sql(root, property_path)
+        text = json_dynamic_read_sql(root, property_path[:1])
+        if len(property_path) == 1:
+            return text
+        return json_extract_trim_quotes(text, *(f"%(hogql_val_{index})s" for index in range(len(property_path) - 1)))
 
     def _json_dynamic_property_expr(self, property_name: str, table_alias: str = "events") -> str:
         return self._json_dynamic_subcolumn_expr(f"{table_alias}.properties", property_name)
@@ -934,7 +938,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             expected_sql = self._json_dynamic_subcolumn_path_expr("events.properties", ["nomat", "json", "yet"])
-            expected_values = {}
+            expected_values = {"hogql_val_0": "json", "hogql_val_1": "yet"}
         else:
             expected_sql = "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', '')"
             expected_values = {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"}
@@ -1051,10 +1055,7 @@ class TestPrinter(BaseTest):
             self._expr("properties.withmat.json.yet", context),
             expected_withmat_sql,
         )
-        self.assertEqual(
-            context.values,
-            {} if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"hogql_val_0": "json", "hogql_val_1": "yet"},
-        )
+        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
         context = HogQLContext(team_id=self.team.pk)
         materialize("events", "withmat_nullable", is_nullable=True)
@@ -1067,10 +1068,7 @@ class TestPrinter(BaseTest):
             self._expr("properties.withmat_nullable.json.yet", context),
             expected_nullable_withmat_sql,
         )
-        self.assertEqual(
-            context.values,
-            {} if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"hogql_val_0": "json", "hogql_val_1": "yet"},
-        )
+        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
     def test_materialized_fields_and_properties(self):
         try:
@@ -1412,7 +1410,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         printed = self._expr("JSONHas(properties, 'metadata', 'score')", context)
         self.assertIn("JSONHas(ifNull(", printed)
-        self.assertIn("events.properties.^metadata", printed)
+        self.assertIn("events.properties.metadata", printed)
         self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -1437,14 +1435,19 @@ class TestPrinter(BaseTest):
     @parameterized.expand(
         [
             (expression, properties, expected)
-            for expression in ["properties", "toJSONString(properties)"]
+            for expression in [
+                "properties",
+                "toJSONString(properties)",
+                "JSONExtractString(toJSONString(tuple(properties)), 1)",
+            ]
             for properties, expected in [
                 ({}, {}),
                 (
                     {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []},
                     {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []},
                 ),
-                ({"$exception_types": [], "custom_empty": []}, {"custom_empty": []}),
+                ({"$exception_types": [], "custom_empty": []}, {"$exception_types": [], "custom_empty": []}),
+                ({"$browser": "", "note": ""}, {"note": ""}),
             ]
         ]
     )
@@ -1458,7 +1461,7 @@ class TestPrinter(BaseTest):
             "CAST('{}', %(temporary_type)s) AS temporary_properties, CAST([], 'Array(String)') AS properties_null_keys, "
             "CAST([], 'Array(String)') AS temporary_properties_null_keys) AS events",
             {
-                "raw": json.dumps(properties),
+                "raw": native_stored_document(json.dumps(properties)),
                 "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
             },
@@ -1487,7 +1490,11 @@ class TestPrinter(BaseTest):
         )
         [(result,)] = sync_execute(
             f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
-            {**context.values, "raw": json.dumps(properties), "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+            {
+                **context.values,
+                "raw": native_stored_document(json.dumps(properties)),
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
+            },
         )
         self.assertEqual(json.loads(result[0]) if result[0] is not None else None, expected_groups)
         self.assertEqual(result[1:4], (has_groups, has_organization, int(expected_groups is None)))
@@ -1607,9 +1614,9 @@ class TestPrinter(BaseTest):
             self._expr("properties.a.b", nested_context),
             self._json_dynamic_subcolumn_path_expr("events.properties", ["a", "b"]),
         )
-        self.assertEqual(nested_context.values, {})
+        self.assertEqual(nested_context.values, {"hogql_val_0": "b"})
 
-        document = json.dumps({"a.b": "flat", "a": {"b": "nested"}})
+        document = native_stored_document(json.dumps({"a.b": "flat", "a": {"b": "nested"}}))
         for expression, expected in (("properties.`a.b`", "flat"), ("properties.a.b", "nested")):
             context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
             printed = self._expr(expression, context)
@@ -3832,9 +3839,7 @@ class TestPrinter(BaseTest):
             context,
         )
         read_expr = (
-            self._json_dynamic_property_expr("$ai_trace_id")
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else expected_expr
+            "events.properties.`$ai_trace_id`" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else expected_expr
         )
         self.assertIn(f"countIf(isNotNull({read_expr}))", sql)
         self.assertIn(f"countIf(isNull({read_expr}))", sql)
@@ -3941,10 +3946,8 @@ class TestPrinter(BaseTest):
     @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
     def test_deep_key_materialized_read_prints_shared_json_extract_shape(self, mock_matcols_by_table):
         # Legacy materialized columns store the first key as a raw JSON string, so deeper reads must extract the tail
-        # keys with the same SQL shape as ingest and backfill. JSON subcolumns can address the full string-key path
-        # directly.
-        from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
-
+        # keys with the same SQL shape as ingest and backfill. The native table stores an object as a string of its
+        # JSON text, so it extracts the tail keys from the first key's text the same way.
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
         # The column is in the registry either way; JSON-backed event properties must ignore it.
@@ -3957,7 +3960,7 @@ class TestPrinter(BaseTest):
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             expected = self._json_dynamic_subcolumn_path_expr("events.properties", ["foo", "bar"])
-            expected_values = {}
+            expected_values = {"hogql_val_0": "bar"}
         else:
             head = "nullIf(nullIf(events.mat_foo, ''), 'null')"
             expected = json_extract_trim_quotes(head, "%(hogql_val_0)s")

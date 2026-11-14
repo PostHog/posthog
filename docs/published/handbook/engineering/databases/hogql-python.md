@@ -306,12 +306,17 @@ Numeric and Boolean properties on the native table compare as text when a string
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
 DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only a comparison with the empty string alone compares as text, and an `IN` list that also holds dates keeps the conversion.
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
-For String and untyped properties, constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
-Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
-Empty property names, including nested path segments, use bound `getSubcolumn` calls because ClickHouse rejects empty SQL identifiers.
-Bound sub-object paths escape backticks with backslashes rather than SQL identifier quoting.
+The native table stores every object and array as a string of JSON text with no whitespace and with the keys of every object sorted.
+Two events that hold the same object therefore hold the same string, so grouping by the property or comparing it compares the content.
+A single-property read returns that text, and a constant starting with `[` or `{` compares with it like any other constant.
+A read of a value inside an object or an array extracts it from the property's text, as the legacy table extracts it from the raw document.
+`IS NULL` and `IS NOT NULL` on a String or untyped property test the path without reading its value.
+Whole-document reads put each stored object and array back and still remove declared defaults.
+A string that is a valid JSON object or array reads as that object or array, because nothing records whether the cleaner stored it or the SDK sent that text.
+An empty property name uses a bound `getSubcolumn` call because ClickHouse rejects empty SQL identifiers.
 A JSON function on the native `properties` column needs JSON text, and rebuilding the whole document as text from every path is the slowest way to get it.
 A call with a constant first key, such as `JSONLength(properties, 'details')`, serializes only that key's value and runs the function on it. This includes calls through `toString(properties)` and keys stored among the temporary properties.
+A call with more path after the first key, such as `JSONExtractString(properties, 'details', 'name')`, runs on the stored text of that key.
 String, floating-point and Boolean extraction skip the serialization as well: they read the native value and apply the function's conversion and missing-value rules, independently of property-definition types. A stored floating-point value keeps the parser for string extraction, because JSON number formatting decides the result. It reads as false for Boolean extraction and as `Double` for `JSONType`, because the serialized form of an integral value is an integer token.
 Integer extraction keeps ClickHouse's JSON parser on the serialized value, because its coercion rules cost more SQL than the parse saves.
 `JSONHas`, a key computed per row and a call with no key still rebuild the whole document.
@@ -327,8 +332,8 @@ A key that a JSON function parses, as in `JSONExtractRaw(t.properties, 'key')`, 
 A user-written `toJSONString(t.properties.key)` exports the JSON text for a key without a property definition and the stored value for a key with one, so the definition's conversion applies before the serialization as in a direct read.
 In the clauses of a grouped query that run after grouping, the select list, `GROUP BY`, `HAVING` and `ORDER BY`, every key is exported as its stored value, because a direct read there serializes the value too, and a `GROUP BY` key then shares its column with the serialized read of the same key.
 The whole `properties` document is exported only where the outer query reads it whole, and each wrapped table decides this on its own.
-Raw SQL property readers preserve backslashes before forward slashes whether ClickHouse's `output_format_json_escape_forward_slashes` setting is enabled or disabled.
-Native queries disable forward-slash escaping so object and array text retains `/`.
+Raw SQL property readers return the stored text, so they do not depend on ClickHouse's `output_format_json_escape_forward_slashes` setting.
+Native queries disable forward-slash escaping so a rebuilt document retains `/`.
 
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.
 
