@@ -349,6 +349,7 @@ The example above exposes all flag tools plus `dashboard-get`.
 The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `exec` CLI-like tool (**cli** mode).
 **cli is the default for all clients.**
 When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name or its `Cursor/…` User-Agent).
+Cursor is moving to cli mode behind the `mcp-cursor-exec-mode` feature flag: a Cursor connection with the flag on gets the cli default, and one with the flag off keeps tools mode.
 Every OpenAI surface (ChatGPT, Codex, Agent Builder, Responses API) gets the cli default. OpenAI's `openai-mcp` client caches the roster it captures for a published plugin and serves that snapshot to every user of the plugin, so the mode a plugin listing should run in is pinned on the URL submitted to OpenAI rather than inferred from a User-Agent label.
 
 You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:

@@ -24,11 +24,31 @@ describe('resolveMode', () => {
         })
     })
 
+    const cursorByName = profile({ clientName: 'cursor' })
+    const cursorByUserAgent = profile({ clientName: undefined, userAgent: 'Cursor/3.1.15 (darwin arm64)' })
+
     it.each([
-        ['Cursor client name', profile({ clientName: 'cursor' })],
-        ['name-less Cursor user-agent', profile({ clientName: undefined, userAgent: 'Cursor/3.1.15 (darwin arm64)' })],
+        ['Cursor client name', cursorByName],
+        ['name-less Cursor user-agent', cursorByUserAgent],
     ])('auto-selects tools mode for the %s', (_label, clientProfile) => {
         expect(resolveMode({ mode: undefined, clientProfile })).toEqual({ mode: 'tools', useSingleExec: false })
+    })
+
+    it.each([
+        ['Cursor client name', cursorByName],
+        ['name-less Cursor user-agent', cursorByUserAgent],
+    ])('keeps the %s on the cli default when Cursor exec mode is on', (_label, clientProfile) => {
+        expect(resolveMode({ mode: undefined, clientProfile, cursorExecMode: true })).toEqual({
+            mode: 'cli',
+            useSingleExec: true,
+        })
+    })
+
+    it('explicit mode=tools wins over Cursor exec mode', () => {
+        expect(resolveMode({ mode: 'tools', clientProfile: cursorByName, cursorExecMode: true })).toEqual({
+            mode: 'tools',
+            useSingleExec: false,
+        })
     })
 
     it('explicit mode=cli forces single exec', () => {

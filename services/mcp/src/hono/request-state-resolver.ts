@@ -27,7 +27,7 @@ import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool,
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
+import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -113,15 +113,19 @@ export interface ResolvedState {
 
 // ─── Pure helpers ───
 
-export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MCPClientProfile }): {
+export function resolveMode(args: {
+    mode: McpMode | undefined
+    clientProfile: MCPClientProfile
+    cursorExecMode?: boolean | undefined
+}): {
     mode: McpMode
     useSingleExec: boolean
 } {
-    const { mode, clientProfile } = args
+    const { mode, clientProfile, cursorExecMode } = args
     // CLI (single-exec) is the default; only allow-listed clients (Cursor) keep
     // the full per-tool roster, and an explicit ?mode= / x-posthog-mcp-mode
     // header always wins over auto-detection.
-    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
+    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() && !cursorExecMode ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
 
@@ -212,6 +216,7 @@ export class RequestStateResolver {
                 ...getRequiredFeatureFlags(),
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
+                MCP_CURSOR_EXEC_MODE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_INBOX_FIRST_FLAG,
@@ -301,6 +306,7 @@ export class RequestStateResolver {
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,
             clientProfile,
+            cursorExecMode: mergedFlags[MCP_CURSOR_EXEC_MODE_FLAG] === true,
         })
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
