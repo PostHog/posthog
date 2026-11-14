@@ -49,6 +49,7 @@ from products.surveys.backend.api.survey import (
     nh3_clean_with_allow_list,
     normalize_survey_appearance,
 )
+from products.surveys.backend.facade.api import existing_survey_ids
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
 
 
@@ -3235,6 +3236,9 @@ class TestSurvey(APIBaseTest):
         results = response.json()["results"]
         assert len(results) == 1
         assert results[0]["id"] == str(regular_survey.id)
+        assert existing_survey_ids([regular_survey.id, product_tour_survey.id], team_id=self.team.id) == {
+            regular_survey.id
+        }
 
     def test_updating_survey_name_validates(self):
         survey_with_targeting = self.client.post(

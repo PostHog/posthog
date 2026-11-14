@@ -62,7 +62,7 @@ function NextRow({
     )
 }
 
-function SuggestionRow({
+function IdeaRow({
     avatar,
     title,
     detail,
@@ -183,7 +183,7 @@ export function ReleaseNextSteps({ row }: { row: ReleaseRow }): JSX.Element {
             {suggestions.length > 0 && (
                 <div className="mt-1 flex flex-col gap-0.5" data-attr="release-suggestions">
                     {(showAll ? suggestions : suggestions.slice(0, 1)).map((suggestion) => (
-                        <SuggestionRow
+                        <IdeaRow
                             key={suggestion.key}
                             avatar={suggestion.key as AvatarKind}
                             title={suggestion.title}
@@ -201,6 +201,7 @@ export function ReleaseNextSteps({ row }: { row: ReleaseRow }): JSX.Element {
                             variant="link-muted"
                             className="self-start px-0"
                             onClick={() => setShowAll(!showAll)}
+                            aria-expanded={showAll}
                             data-attr="release-suggestions-more"
                         >
                             {showAll ? 'Show less' : `${hidden} more ${hidden === 1 ? 'idea' : 'ideas'}`}

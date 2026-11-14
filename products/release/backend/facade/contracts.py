@@ -6,6 +6,7 @@ No Django imports. Used by facade as inputs/outputs.
 """
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -15,16 +16,12 @@ class ReleaseNotFoundError(Exception):
     pass
 
 
-class UnknownFeatureFlagsError(Exception):
-    def __init__(self, flag_ids: list[int]) -> None:
-        super().__init__(flag_ids)
-        self.flag_ids = flag_ids
-
-
-class UnknownBroadcastsError(Exception):
-    def __init__(self, broadcast_ids: list[UUID]) -> None:
-        super().__init__(broadcast_ids)
-        self.broadcast_ids = broadcast_ids
+class UnknownLinkedObjectsError(Exception):
+    def __init__(self, field: str, noun: str, ids: list[Any]) -> None:
+        super().__init__(field, ids)
+        self.field = field
+        self.noun = noun
+        self.ids = ids
 
 
 @dataclass(frozen=True)
@@ -54,16 +51,15 @@ class BroadcastVisibility:
         return self.existing - self.visible
 
 
-class UnknownSurveysError(Exception):
-    def __init__(self, survey_ids: list[UUID]) -> None:
-        super().__init__(survey_ids)
-        self.survey_ids = survey_ids
-
-
-class UnknownInsightsError(Exception):
-    def __init__(self, insight_ids: list[int]) -> None:
-        super().__init__(insight_ids)
-        self.insight_ids = insight_ids
+@dataclass(frozen=True)
+class LinkedSurveyDTO:
+    id: UUID
+    name: str
+    created_at: datetime
+    start_date: datetime | None
+    end_date: datetime | None
+    linked_flag_id: int | None
+    archived: bool
 
 
 @dataclass(frozen=True)
@@ -71,6 +67,7 @@ class SurveyVisibility:
     existing: frozenset[UUID]
     visible: frozenset[UUID]
     linkable: frozenset[UUID]
+    summaries: tuple[LinkedSurveyDTO, ...] = ()
 
     @property
     def hidden(self) -> frozenset[UUID]:
@@ -127,6 +124,7 @@ class ReleaseDTO:
     broadcast_ids: list[UUID]
     broadcasts: list[LinkedBroadcastDTO]
     survey_ids: list[UUID]
+    surveys: list[LinkedSurveyDTO]
     insight_ids: list[int]
     insights: list[LinkedInsightDTO]
     created_at: datetime

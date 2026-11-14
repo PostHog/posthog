@@ -42,7 +42,7 @@ export function ReleaseTrackLabel({
 }): JSX.Element {
     const detail = detailed ? laneDetail(lane) : ''
     return (
-        <div className={cn('flex items-center gap-2', className)} style={{ height: laneHeight(lane, detailed) }}>
+        <div className={cn('flex items-center gap-2', className)} style={{ height: laneHeight(detailed) }}>
             <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
                 {iconForType(LANE_ICON[lane.kind] as never)}
             </span>

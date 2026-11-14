@@ -185,7 +185,7 @@ class TestReleaseAPI(APIBaseTest):
     def test_linked_objects_must_exist_and_be_visible(self, _name: str, kind: str, case: str, expected: int) -> None:
         field = f"{kind}_ids"
         linked_id: str | int = 999999 if kind == "insight" else "00000000-0000-0000-0000-000000000001"
-        if case != "unknown":
+        if case in ("existing", "hidden"):
             linked_id, resource_path = self._linked_object(kind, "Launch")
         if case == "hidden":
             self._restrict_as_admin(resource_path)
@@ -225,12 +225,46 @@ class TestReleaseAPI(APIBaseTest):
         self._restrict_as_admin(hidden_path)
         self.client.force_login(self._create_user("member@example.com"))
 
+        unknown_id: str | int = 999999 if kind == "insight" else "00000000-0000-0000-0000-000000000001"
         member_view = self.client.get(self._url()).json()["results"][0]
+        guessed_linked = self.client.patch(self._url(f"{release_id}/"), {field: [visible_id, hidden_id]}, format="json")
+        guessed_unknown = self.client.patch(
+            self._url(f"{release_id}/"), {field: [visible_id, unknown_id]}, format="json"
+        )
         self.client.patch(self._url(f"{release_id}/"), {field: []}, format="json")
         stored = getattr(Release.objects.unscoped().get(id=release_id), field)
 
         assert member_view[field] == [visible_id]
+        assert [item["id"] for item in member_view[f"{kind}s"]] == [visible_id]
+        assert guessed_linked.status_code == guessed_unknown.status_code == status.HTTP_400_BAD_REQUEST
+        assert field in guessed_unknown.json()["attr"]
         assert [str(item) for item in stored] == [str(hidden_id)]
+
+    @parameterized.expand(
+        [
+            (f"{kind}_{name}", kind, scopes, shown)
+            for kind, scope in (("survey", "survey:read"), ("insight", "insight:read"))
+            for name, scopes, shown in (
+                ("flags_only", ["feature_flag:read"], False),
+                ("flags_and_resource", ["feature_flag:read", scope], True),
+                ("full_access", ["*"], True),
+            )
+        ]
+    )
+    def test_surveys_and_insights_follow_their_scope(
+        self, _name: str, kind: str, scopes: list[str], shown: bool
+    ) -> None:
+        field = f"{kind}_ids"
+        linked_id, _ = self._linked_object(kind, "Launch")
+        self.client.post(self._url(), {"name": "Dark mode", field: [linked_id]}, format="json")
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
+        self.client.logout()
+
+        release = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {token}").json()["results"][0]
+
+        assert release[field] == ([linked_id] if shown else [])
+        assert [item["id"] for item in release[f"{kind}s"]] == ([linked_id] if shown else [])
 
     def test_hidden_broadcasts_are_omitted_and_kept_on_update(self) -> None:
         visible_id, hidden_id = (

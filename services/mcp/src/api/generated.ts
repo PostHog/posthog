@@ -67512,6 +67512,19 @@ export namespace Schemas {
       status: string;
     }
 
+    export interface LinkedSurveyDTO {
+      id: string;
+      name: string;
+      created_at: string;
+      /** @nullable */
+      start_date: string | null;
+      /** @nullable */
+      end_date: string | null;
+      /** @nullable */
+      linked_flag_id: number | null;
+      archived: boolean;
+    }
+
     /**
      * 400 body when a write violates the wiki's structure rules.
      */
@@ -79044,6 +79057,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, name, dates, targeting flag and archived state of each linked survey the caller can see. */
+      readonly surveys: readonly LinkedSurveyDTO[];
       /** ID, short ID, name and dates of each linked insight the caller can see, including deleted ones. */
       readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */

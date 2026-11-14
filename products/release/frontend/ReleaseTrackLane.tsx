@@ -20,7 +20,7 @@ export function ReleaseTrackLane({
     detailed?: boolean
     stickyOffset?: number
 }): JSX.Element {
-    const height = laneHeight(lane, detailed)
+    const height = laneHeight(detailed)
     return (
         <div className={cn('relative', !detailed && 'border-t border-border/60')} style={{ height }}>
             {lane.kind === 'flag' && !lane.steps.length ? (

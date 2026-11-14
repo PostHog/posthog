@@ -119,10 +119,12 @@ interface ReleaseLogicActions {
         id: string
         changes: PatchedUpdateReleaseApi
         broadcasts?: LinkedBroadcastDTOApi[]
+        linked?: Pick<ReleaseDTOApi, 'surveys' | 'insights'>
     }) => {
         id: string
         changes: PatchedUpdateReleaseApi
         broadcasts?: LinkedBroadcastDTOApi[]
+        linked?: Pick<ReleaseDTOApi, 'surveys' | 'insights'>
     }
     loadFlags: () => void
     loadFlagsSuccess: (flags: FeatureFlagApi[]) => { flags: FeatureFlagApi[] }
@@ -350,7 +352,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     breakpoint()
                     return releases
                 },
-                setReleaseLocally: ({ id, changes, broadcasts }) =>
+                setReleaseLocally: ({ id, changes, broadcasts, linked }) =>
                     values.releases.map((release) =>
                         release.id === id
                             ? {
@@ -361,6 +363,8 @@ export const releaseLogic = kea<releaseLogicType>([
                                   broadcast_ids: changes.broadcast_ids ?? release.broadcast_ids,
                                   survey_ids: changes.survey_ids ?? release.survey_ids,
                                   insight_ids: changes.insight_ids ?? release.insight_ids,
+                                  surveys: linked?.surveys ?? release.surveys,
+                                  insights: linked?.insights ?? release.insights,
                                   broadcasts:
                                       broadcasts ??
                                       release.broadcasts.filter(
@@ -878,6 +882,7 @@ export const releaseLogic = kea<releaseLogicType>([
                                 insight_ids: saved.insight_ids,
                             },
                             broadcasts: [...saved.broadcasts],
+                            linked: { surveys: saved.surveys, insights: saved.insights },
                         })
                     }
                     if (successMessage) {

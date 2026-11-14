@@ -3,16 +3,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@p
 import { dayjs } from 'lib/dayjs'
 
 import { RolloutStep } from './releaseRollout'
-import { Scale, x } from './releaseTracks'
+import { Scale, rolloutSegments } from './releaseTracks'
 
 const LABEL_ROOM = 34
-
-interface Segment {
-    step: RolloutStep
-    left: number
-    right: number
-    projected: boolean
-}
+const DATED_LABEL_ROOM = 104
 
 function percentLabel(step: RolloutStep): string {
     return step.label === 'Everyone' ? '100%' : step.label
@@ -44,35 +38,8 @@ export function ReleaseRolloutBar({
     height: number
     stickyOffset?: number
 }): JSX.Element | null {
+    const segments = rolloutSegments(steps, scale, dayjs())
     const end = scale.days * scale.day
-    const today = x(dayjs().toISOString(), scale) + scale.day / 2
-    const past = steps.filter((step) => !step.upcoming)
-    const upcoming = steps.filter((step) => step.upcoming)
-    const current = past[past.length - 1]
-    const raw: Segment[] = [
-        ...past.map((step) => ({
-            step,
-            left: x(step.from, scale),
-            right: step === current ? today : x(step.to, scale),
-            projected: false,
-        })),
-        ...(current && upcoming.length
-            ? [{ step: current, left: today, right: x(upcoming[0].from, scale), projected: true }]
-            : []),
-        ...upcoming.map((step, index) => {
-            const left = x(step.from, scale)
-            const next = upcoming[index + 1]
-            return {
-                step,
-                left,
-                right: next ? x(next.from, scale) : Math.min(left + Math.max(3 * scale.day, 108), end),
-                projected: false,
-            }
-        }),
-    ]
-    const segments = raw
-        .filter(({ left, right }) => left < end && right > 0)
-        .map((segment) => ({ ...segment, width: Math.max(segment.right - segment.left, 4) }))
     if (!segments.length) {
         return null
     }
@@ -117,7 +84,7 @@ export function ReleaseRolloutBar({
                                     className="sticky truncate px-1.5"
                                     style={{ left: stickyOffset, maxWidth: width }}
                                 >
-                                    {step.upcoming && width >= 104
+                                    {step.upcoming && width >= DATED_LABEL_ROOM
                                         ? `${percentLabel(step)} on ${dayjs(step.from).format('D MMM')}`
                                         : percentLabel(step)}
                                 </span>
