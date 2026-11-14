@@ -533,6 +533,8 @@ Compare both Biome passes and the host-boundary check against a full checkout wh
 
 The HCL schema guard checks out `posthog/clickhouse/hcl/`, which contains its scripts, manifest, layers, golden dumps, and generated SQL.
 Keep the full directory so every environment and role remains available to validation and drift checks.
+The offline guard sets `HCLEXP_BIN` to the native binary extracted by `install-hclexp` from the selected image.
+Keep that path explicit: the wrapper ignores ambient binaries on `PATH` to preserve image pinning.
 
 OpenAPI codegen tests keep root files, every package manifest, patches, the pnpm setup actions, Husky hooks, the Linux-safe postinstall script, and `tools/openapi-codegen/`. The package manifests preserve workspace discovery during the frozen filtered install. Check both cold and warm installs, test discovery, and failure detection when changing these inputs.
 
