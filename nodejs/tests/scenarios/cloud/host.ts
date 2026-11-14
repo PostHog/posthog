@@ -18,6 +18,7 @@ const LIVENESS_MS = 5 * 60_000
 const PROBE_WAIT_MS = 2 * START_TIMEOUT_S * 1000
 const UNIT_GONE = new Set([3, 4])
 const SETTLED = new Set(['Success', 'Failed', 'Cancelled', 'TimedOut'])
+const UNDELIVERED = new Set(['Pending', 'Delayed'])
 const EXIT_CODES = new Set<number>(Object.values(EXIT_CODE))
 
 type Invocation = { Status: string; ResponseCode: number }
@@ -61,7 +62,7 @@ async function settleOnHost(
     timeoutSeconds: number,
     until: number,
     signal?: AbortSignal
-): Promise<Invocation | undefined> {
+): Promise<Invocation | 'undelivered' | undefined> {
     const { aws } = controller
     const { Command } = (await aws.call([
         'ssm',
@@ -75,6 +76,7 @@ async function settleOnHost(
         '--parameters',
         JSON.stringify({ commands, executionTimeout: [String(timeoutSeconds)] }),
     ])) as { Command: { CommandId: string } }
+    const deliverBy = controller.now().getTime() + DELIVERY_TIMEOUT_S * 1000
     for (;;) {
         await controller.sleep(POLL_MS)
         let invocation: Invocation | undefined
@@ -96,6 +98,9 @@ async function settleOnHost(
         if (invocation && SETTLED.has(invocation.Status)) {
             return invocation
         }
+        if ((!invocation || UNDELIVERED.has(invocation.Status)) && controller.now().getTime() >= deliverBy) {
+            return 'undelivered'
+        }
         if (controller.now().getTime() >= until) {
             return undefined
         }
@@ -111,6 +116,11 @@ async function runOnHost(
     signal?: AbortSignal
 ): Promise<Invocation> {
     const invocation = await settleOnHost(controller, instanceId, commands, timeoutSeconds, until, signal)
+    if (invocation === 'undelivered') {
+        throw new Error(
+            `The SSM agent on host ${instanceId} did not take the command within ${DELIVERY_TIMEOUT_S} seconds.`
+        )
+    }
     if (invocation === undefined) {
         throw new Error(`The host command did not finish by ${new Date(until).toISOString()}.`)
     }
@@ -238,7 +248,7 @@ export async function awaitCard(
                 Math.min(until, controller.now().getTime() + PROBE_WAIT_MS),
                 signal
             )
-            if (probe?.Status === 'Failed' && UNIT_GONE.has(probe.ResponseCode)) {
+            if (probe !== 'undelivered' && probe?.Status === 'Failed' && UNIT_GONE.has(probe.ResponseCode)) {
                 if (await reported()) {
                     return await reportOf(controller, profile, manifest)
                 }

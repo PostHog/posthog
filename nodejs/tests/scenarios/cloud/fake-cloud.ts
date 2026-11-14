@@ -32,6 +32,7 @@ type Command = {
     settlesAt: number
     status: string
     code: number
+    undelivered?: boolean
 }
 
 type Card = { runId: string; instanceId: string; endsAt: number; exitCode: number; reportsDone: boolean }
@@ -408,8 +409,14 @@ export class FakeCloud implements Aws {
             code: 0,
         }
         if (this.options.agent === 'offline') {
-            const deliveryS = Number(flags.get('timeout-seconds') ?? DEFAULT_DELIVERY_TIMEOUT_S)
-            this.commands.push({ ...command, settlesAt: now + deliveryS * 1000, status: 'TimedOut', code: -1 })
+            const deliveryMs = Number(flags.get('timeout-seconds') ?? DEFAULT_DELIVERY_TIMEOUT_S) * 1000
+            this.commands.push({
+                ...command,
+                settlesAt: now + deliveryMs + timeoutMs,
+                status: 'TimedOut',
+                code: -1,
+                undelivered: true,
+            })
             return command.id
         }
         if (script.includes('host-prepare.sh')) {
@@ -456,7 +463,7 @@ export class FakeCloud implements Aws {
         return {
             CommandId: command.id,
             InstanceId: command.instanceId,
-            Status: settled ? command.status : 'InProgress',
+            Status: settled ? command.status : command.undelivered ? 'Pending' : 'InProgress',
             ResponseCode: settled ? command.code : -1,
             StandardErrorContent: settled && command.code !== 0 ? 'the command failed on the host' : '',
         }

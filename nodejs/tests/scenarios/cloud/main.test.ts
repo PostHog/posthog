@@ -669,7 +669,7 @@ describe('cloud controller', () => {
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
-        expect(err.join('\n')).toContain('TimedOut')
+        expect(err.join('\n')).toContain('did not take the command')
         expect(deletedAt! - sentAt!).toBeLessThan(HOUR_MS / 12)
         expect(cloud.billable()).toEqual([])
     })
