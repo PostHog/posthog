@@ -2302,7 +2302,7 @@
         "feature_flag": "organization-billing-api"
     },
     "billing-overview-get": {
-        "description": "Fetch the organization's current billing state: subscribed products and addons, available features, plan tier, usage summary against limits, spending limits, and trial status. Use this to understand what the customer is paying for, which features they have access to, or aggregate usage for the current billing period. For time-series breakdowns of usage call billing-usage-get; for cost (spend) breakdowns call billing-spend-get. To check whether the customer has access to a specific feature (e.g. group analytics, white-labelling), inspect `available_product_features` in the response.",
+        "description": "Fetch the organization's current billing state: subscribed products and addons, available features, plan tier, usage summary against limits, spending limits, and trial status. Use this to understand what the customer is paying for, which features they have access to, or aggregate usage for the current billing period. For cost estimates based on analytics events, first load `posthog:understanding-billing-usage`. Raw event counts are not necessarily billable usage. For time-series breakdowns of usage call billing-usage-get; for cost (spend) breakdowns call billing-spend-get. To check whether the customer has access to a specific feature (e.g. group analytics, white-labelling), inspect `available_product_features` in the response.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get billing overview",
