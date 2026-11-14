@@ -89,7 +89,11 @@ ScopeLevel = Literal["read", "write"]
 
 
 def _surface(request: ValidatedRequest) -> WarehouseSuggestionSurface | None:
-    surface = request.validated_query_data.get("surface")
+    return _surface_from(request.validated_query_data)
+
+
+def _surface_from(data: dict[str, Any]) -> WarehouseSuggestionSurface | None:
+    surface = data.get("surface")
     return WarehouseSuggestionSurface(surface) if surface else None
 
 
@@ -192,7 +196,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         result = api.surface_more(
             self.team,
             self.user_access_control,
-            surface=WarehouseSuggestionSurface(request.validated_data["surface"]),
+            surface=_surface_from(request.validated_data),
             subject_kinds=self._subject_kinds,
         )
         return Response(WarehouseSuggestionSurfaceMoreResultSerializer(result).data)

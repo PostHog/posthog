@@ -6,4 +6,5 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class MemberfulSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str

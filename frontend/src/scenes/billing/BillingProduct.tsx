@@ -77,6 +77,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         productVariants,
         combinedMonetaryData,
         combinedMonetaryGaugeItems,
+        legacyInboxPricingNotice,
     } = useValues(billingProductLogic({ product }))
     const {
         setShowTierBreakdown,
@@ -147,6 +148,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     {displayProductName}{' '}
                                     {isTemporaryFreeProduct && (
                                         <LemonTag type="highlight">included with your plan</LemonTag>
+                                    )}
+                                    {legacyInboxPricingNotice && (
+                                        <Tooltip title={legacyInboxPricingNotice}>
+                                            <LemonTag type="highlight" icon={<IconInfo />}>
+                                                Legacy pricing
+                                            </LemonTag>
+                                        </Tooltip>
                                     )}
                                 </h3>
                                 <div>{product.description}</div>

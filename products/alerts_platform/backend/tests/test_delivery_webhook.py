@@ -1,3 +1,6 @@
+import socket
+import struct
+import threading
 from datetime import datetime
 from typing import Any, cast
 
@@ -9,13 +12,14 @@ from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
+from urllib3.exceptions import ProtocolError
 
 from posthog.models.scoping import team_scope
 from posthog.security.pinned_requests import SSRFBlockedError
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused
+from products.alerts_platform.backend.delivery.transport import DeliveryAmbiguous, DeliveryError, DestinationRefused
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport, alertmanager_body
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import (
@@ -57,7 +61,13 @@ class TestAlertmanagerBody(SimpleTestCase):
             "posthog_source_kind": "logs",
             "posthog_event_kind": "firing",
         }
-        annotations = {"summary": "API errors is firing", "description": "Value: 312\nThreshold: > 300", "value": "312"}
+        annotations = {
+            "summary": "API errors is firing",
+            "description": "Value: 312\nThreshold: > 300",
+            "value": "312",
+            "posthog_summary": "API errors is firing",
+            "posthog_description": "Value: 312\nThreshold: > 300",
+        }
         assert body == {
             "version": "4",
             "groupKey": "cfg-1:checkout",
@@ -83,6 +93,31 @@ class TestAlertmanagerBody(SimpleTestCase):
                     "fingerprint": body["alerts"][0]["fingerprint"],
                 }
             ],
+        }
+
+    def test_a_rule_speaks_through_labels_and_annotations_beside_the_platform_text(self) -> None:
+        message = alert_message(
+            headline="API errors is firing",
+            details=(MessageDetail(label="Value", value="312"),),
+            labels={"service": "checkout", "severity": "critical", "alertname": "spoofed"},
+            annotations={
+                "summary": "checkout errors over limit",
+                "runbook_url": "https://runbooks.example.com/api",
+                "value": "spoofed",
+            },
+        )
+
+        alert = alertmanager_body(message)["alerts"][0]
+
+        assert alert["labels"]["severity"] == "critical"
+        assert alert["labels"]["alertname"] == "API errors"
+        assert alert["annotations"] == {
+            "summary": "checkout errors over limit",
+            "description": "Value: 312",
+            "value": "300",
+            "runbook_url": "https://runbooks.example.com/api",
+            "posthog_summary": "API errors is firing",
+            "posthog_description": "Value: 312",
         }
 
     @parameterized.expand(
@@ -223,6 +258,73 @@ class TestWebhookTransport(SimpleTestCase):
         assert raised.value.__cause__ is None
 
 
+def _dropped_after_send() -> requests.ConnectionError:
+    # What `requests` raises when the connection drops after the request went out.
+    error = requests.ConnectionError(ProtocolError("Connection aborted.", ConnectionResetError()))
+    error.__context__ = error.args[0]
+    return error
+
+
+class TestAmbiguousSend(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("read_timeout", requests.ReadTimeout(f"Read timed out: {SECRET_URL}")),
+            ("broken_response", requests.exceptions.ChunkedEncodingError("Connection broken")),
+            ("dropped_after_send", _dropped_after_send()),
+        ]
+    )
+    def test_read_timeout_is_ambiguous(self, _name: str, error: Exception) -> None:
+        with pinned_post(error=error):
+            with pytest.raises(DeliveryAmbiguous) as raised:
+                WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
+
+        assert "not-a-real-token" not in str(raised.value)
+        assert raised.value.__cause__ is None
+
+    @parameterized.expand(
+        [
+            ("connect_timeout", requests.ConnectTimeout(f"Connection to {SECRET_URL} timed out")),
+            ("unreachable", requests.ConnectionError(f"Max retries exceeded with url: {SECRET_URL}")),
+            ("blocked", SSRFBlockedError(f"{SECRET_URL} resolves to a private address")),
+        ]
+    )
+    def test_connect_timeout_is_not_ambiguous(self, _name: str, error: Exception) -> None:
+        with pinned_post(error=error):
+            with pytest.raises(DeliveryError) as raised:
+                WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
+
+        assert not isinstance(raised.value, DeliveryAmbiguous)
+
+    def test_a_reset_during_the_tls_handshake_is_not_ambiguous(self) -> None:
+        with pinned_post(error=_reset_during_tls_handshake()):
+            with pytest.raises(DeliveryError) as raised:
+                WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
+
+        assert not isinstance(raised.value, DeliveryAmbiguous)
+
+
+def _reset_during_tls_handshake() -> requests.ConnectionError:
+    # The real error, so the frames it was raised from are urllib3's own.
+    with socket.create_server(("127.0.0.1", 0)) as server:
+
+        def reset_after_client_hello() -> None:
+            conn, _ = server.accept()
+            conn.recv(1024)
+            conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            conn.close()
+
+        peer = threading.Thread(target=reset_after_client_hello)
+        peer.start()
+        url = f"https://127.0.0.1:{server.getsockname()[1]}/"
+        try:
+            requests.adapters.HTTPAdapter().send(requests.Request("POST", url, data=b"{}").prepare(), timeout=(5, 5))
+        except requests.ConnectionError as error:
+            return error
+        finally:
+            peer.join(timeout=5)
+    raise AssertionError("the handshake was not reset")
+
+
 class TestWebhookThreads(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -238,7 +340,7 @@ class TestWebhookThreads(APIBaseTest):
                 check_interval_minutes=10,
             )
 
-    def _deliver(self, kind: AlertEventKind, evaluation_key: str) -> Any:
+    def _deliver(self, kind: AlertEventKind, evaluation_key: str, error: Exception | None = None) -> Any:
         announcement = EvaluationAnnouncement(
             source=SourceKind.LOGS,
             configuration_id=str(self.configuration.id),
@@ -246,7 +348,10 @@ class TestWebhookThreads(APIBaseTest):
             consecutive_failures=0,
             transitions=(announced_transition(kind),),
         )
-        with pinned_post() as adapter, patch("products.alerts_platform.backend.delivery.dispatch.record_delivery"):
+        with (
+            pinned_post(error=error) as adapter,
+            patch("products.alerts_platform.backend.delivery.dispatch.record_delivery"),
+        ):
             deliver(
                 transport=WebhookTransport(),
                 thread_store=DatabaseThreadStore(self.team.id),
@@ -269,3 +374,14 @@ class TestWebhookThreads(APIBaseTest):
         assert thread.delivered_evaluation_keys == ["eval-1", "eval-2"]
         assert thread.external_ref == {}
         assert "not-a-real-token" not in thread.channel_target
+
+    def test_a_send_whose_answer_was_lost_is_not_posted_again(self) -> None:
+        timed_out = self._deliver(AlertEventKind.FIRING, "eval-1", error=requests.ReadTimeout("Read timed out"))
+        retry = self._deliver(AlertEventKind.FIRING, "eval-1")
+
+        assert len(timed_out.sent) == 1
+        assert len(retry.sent) == 0
+        with team_scope(self.team.id):
+            thread = PlatformAlertThread.objects.get(configuration_id=self.configuration.id)
+        assert thread.delivered_evaluation_keys == ["eval-1"]
+        assert thread.pending_evaluation_key is None

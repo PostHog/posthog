@@ -24,48 +24,50 @@ describe('dataNodeLogic concurrency', () => {
         initKeaTests()
     })
 
-    it.each([Scene.SavedInsights, Scene.AnalyticsProductHome])(
-        'starts six Home queries before starting a seventh in %s',
-        async (scene) => {
-            sceneLogic.mount()
-            sceneLogic.actions.setScene(scene, undefined, { params: {}, searchParams: {}, hashParams: {} })
-            const response: HogQLQueryResponse = { results: [], columns: [], types: [] }
-            const pendingResponses = Array.from({ length: 7 }, () => promiseResolveReject<HogQLQueryResponse>())
-            const seventhQueryStarted = promiseResolveReject<void>()
-            let nextResponse = 0
-            mockedQuery.mockImplementation(() => {
-                const pendingResponse = pendingResponses[nextResponse++]
-                if (nextResponse === 7) {
-                    seventhQueryStarted.resolve()
-                }
-                return pendingResponse.promise
-            })
-            const logics = pendingResponses.map((_, index) =>
-                dataNodeLogic({
-                    key: `home-${index}`,
-                    query: { kind: NodeKind.HogQLQuery, query: `SELECT ${index}` },
-                    loadPriority: index,
-                })
-            )
-
-            jest.useFakeTimers()
-            try {
-                logics.forEach((logic) => logic.mount())
-                jest.advanceTimersByTime(0)
-                expect(mockedQuery).toHaveBeenCalledTimes(6)
-
-                pendingResponses[0].resolve(response)
-                await seventhQueryStarted.promise
-                expect(mockedQuery).toHaveBeenCalledTimes(7)
-            } finally {
-                jest.useRealTimers()
-                pendingResponses.forEach(({ resolve }) => resolve(response))
-                await Promise.all(logics.map((logic) => expectLogic(logic).toFinishAllListeners()))
-                logics.forEach((logic) => logic.unmount())
-                sceneLogic.unmount()
+    it.each([
+        { scene: Scene.SavedInsights, limit: 6 },
+        { scene: Scene.AnalyticsProductHome, limit: 6 },
+        { scene: Scene.Max, limit: 4 },
+        { scene: Scene.Insight, limit: 1 },
+    ])('runs at most $limit queries at once in $scene', async ({ scene, limit }) => {
+        sceneLogic.mount()
+        sceneLogic.actions.setScene(scene, undefined, { params: {}, searchParams: {}, hashParams: {} })
+        const response: HogQLQueryResponse = { results: [], columns: [], types: [] }
+        const pendingResponses = Array.from({ length: limit + 1 }, () => promiseResolveReject<HogQLQueryResponse>())
+        const nextQueryStarted = promiseResolveReject<void>()
+        let nextResponse = 0
+        mockedQuery.mockImplementation(() => {
+            const pendingResponse = pendingResponses[nextResponse++]
+            if (nextResponse === limit + 1) {
+                nextQueryStarted.resolve()
             }
+            return pendingResponse.promise
+        })
+        const logics = pendingResponses.map((_, index) =>
+            dataNodeLogic({
+                key: `scene-${scene}-${index}`,
+                query: { kind: NodeKind.HogQLQuery, query: `SELECT ${index}` },
+                loadPriority: index,
+            })
+        )
+
+        jest.useFakeTimers()
+        try {
+            logics.forEach((logic) => logic.mount())
+            jest.advanceTimersByTime(0)
+            expect(mockedQuery).toHaveBeenCalledTimes(limit)
+
+            pendingResponses[0].resolve(response)
+            await nextQueryStarted.promise
+            expect(mockedQuery).toHaveBeenCalledTimes(limit + 1)
+        } finally {
+            jest.useRealTimers()
+            pendingResponses.forEach(({ resolve }) => resolve(response))
+            await Promise.all(logics.map((logic) => expectLogic(logic).toFinishAllListeners()))
+            logics.forEach((logic) => logic.unmount())
+            sceneLogic.unmount()
         }
-    )
+    })
 
     it('starts two account table queries before starting a third', async () => {
         const pendingResponses = [

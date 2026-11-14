@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.db import models
+
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -14,13 +16,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.messaging.backend.facade.suppression import (
     SUPPRESSION_SOURCE_CHOICES,
+    BulkSuppressionRequest,
     ComplaintConfirmationRequired,
     RemovedSuppressions,
     Suppression,
     add_manual_suppression,
+    bulk_add_suppressions,
     list_active_suppressions,
     remove_suppressions,
 )
+
+MAX_BULK_SUPPRESSION_ENTRIES = 1000
 
 
 class SuppressionPagination(BoundedPageNumberPagination):
@@ -97,6 +103,42 @@ class AddSuppressionRequestSerializer(serializers.Serializer):
     )
 
 
+class BulkSuppressionReason(models.TextChoices):
+    BOUNCE = "bounce"
+    COMPLAINT = "complaint"
+    MANUAL = "manual"
+
+
+class BulkSuppressionEntrySerializer(serializers.Serializer):
+    identifier = serializers.CharField(
+        max_length=512,
+        help_text="The email address to suppress. Matched case-insensitively.",
+    )
+    reason = serializers.ChoiceField(
+        choices=BulkSuppressionReason.choices,
+        required=False,
+        default=BulkSuppressionReason.MANUAL,
+        help_text="Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.",
+    )
+
+
+class BulkAddSuppressionsRequestSerializer(serializers.Serializer):
+    suppressions = BulkSuppressionEntrySerializer(
+        many=True,
+        allow_empty=False,
+        max_length=MAX_BULK_SUPPRESSION_ENTRIES,  # type: ignore[call-arg]
+        help_text=f"Addresses to suppress, at most {MAX_BULK_SUPPRESSION_ENTRIES} per request.",
+    )
+
+
+class BulkAddSuppressionsResultSerializer(serializers.Serializer):
+    total = serializers.IntegerField(help_text="Number of distinct addresses received, after lowercasing.")
+    created = serializers.IntegerField(help_text="Number of addresses added to the suppression list.")
+    already_present = serializers.IntegerField(
+        help_text="Number of addresses that already had an entry. Their entry is left unchanged, even when someone removed it from the list."
+    )
+
+
 CONFIRM_COMPLAINTS_HELP_TEXT = (
     "Set to true to remove addresses that are suppressed because the recipient reported a message as spam. "
     "Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing "
@@ -146,7 +188,12 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # Custom actions must declare their write status so TeamAndOrgViewSetMixin's AccessControlPermission
     # checks hog_flow:write on the mutating endpoints. `suppressions` and the removals also need person:read in their
     # `required_scopes`, because their responses tell which addresses are on the list and which reported spam.
-    scope_object_write_actions = ["add_suppression", "remove_suppression", "bulk_remove_suppressions"]
+    scope_object_write_actions = [
+        "add_suppression",
+        "bulk_add_suppressions",
+        "remove_suppression",
+        "bulk_remove_suppressions",
+    ]
     serializer_class = _FallbackSerializer
 
     @validated_request(
@@ -204,6 +251,26 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         response_status = status.HTTP_201_CREATED if added.created else status.HTTP_200_OK
         return Response(MessageSuppressionSerializer(added.suppression).data, status=response_status)
+
+    @extend_schema(
+        request=BulkAddSuppressionsRequestSerializer,
+        responses={200: BulkAddSuppressionsResultSerializer},
+        summary="Add multiple email addresses to the suppression list",
+    )
+    @action(detail=False, methods=["post"])
+    def bulk_add_suppressions(self, request: Request, **kwargs: Any) -> Response:
+        """Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe."""
+        self._require_editor_access()
+        serializer = BulkAddSuppressionsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        requests = [
+            BulkSuppressionRequest(identifier=_normalized(entry["identifier"]), source=entry["reason"].upper())
+            for entry in serializer.validated_data["suppressions"]
+        ]
+        result = bulk_add_suppressions(self.team_id, requests, request.user.id)
+
+        return Response(BulkAddSuppressionsResultSerializer(result).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=RemoveSuppressionRequestSerializer,

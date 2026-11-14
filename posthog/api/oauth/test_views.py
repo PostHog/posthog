@@ -442,6 +442,32 @@ class TestOAuthAPI(APIBaseTest):
         )
         self.assertEqual(set(token["scope"].split()), expected_token_scopes)
 
+    @time_machine.travel("2026-03-01 12:00:00", tick=False)
+    def test_mcp_reauthorize_counts_as_already_granted_only_the_scopes_granted_for_the_preselected_projects(self):
+        self.confidential_application.supports_step_up = True
+        self.confidential_application.save()
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        for token, scope, team, created in [
+            ("pha_other_project_grant", "openid feature_flag:write", other_team, timezone.now() - timedelta(hours=2)),
+            ("pha_newest_grant", "openid insight:write", self.team, timezone.now() - timedelta(hours=1)),
+        ]:
+            access_token = OAuthAccessToken.objects.create(
+                application=self.confidential_application,
+                user=self.user,
+                token=token,
+                expires=timezone.now() + timedelta(hours=1),
+                scope=scope,
+                scoped_teams=[team.id],
+            )
+            OAuthAccessToken.objects.filter(pk=access_token.pk).update(created=created)
+
+        consent = self.client.get(f"{self.base_authorization_url}&scope={quote('comment:write')}{MCP_RESOURCE_PARAM}")
+
+        resolution = consent.context["posthog_app_context"]["oauth_scope_resolution"]
+        self.assertEqual(resolution["scopes"], ["comment:write", "feature_flag:write", "insight:write", "openid"])
+        self.assertEqual(resolution["already_granted_scopes"], ["insight:write", "openid"])
+        self.assertEqual(resolution["earlier_access"], {"scoped_teams": [self.team.id], "scoped_organizations": []})
+
     @patch("posthog.api.oauth.views.render_template")
     def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):
         mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
@@ -4629,7 +4655,7 @@ class TestOAuthAPI(APIBaseTest):
     def test_self_introspection_succeeds_without_introspection_scope(
         self, impersonated: bool, supports_step_up: bool
     ) -> None:
-        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
         access_token.impersonated_by = self.user if impersonated else None
         access_token.supports_step_up = supports_step_up
         access_token.save(update_fields=["impersonated_by", "supports_step_up"])
@@ -4643,9 +4669,12 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertTrue(data["active"])
-        self.assertEqual(data["scope"], "openid user:read")
+        self.assertEqual(data["scope"], "openid")
         self.assertEqual(data["is_impersonated"], impersonated)
         self.assertEqual(data["supports_step_up"], supports_step_up)
+        self.assertEqual(data["user_distinct_id"], self.user.distinct_id)
+        self.assertEqual(data["current_organization_id"], str(self.user.current_organization_id))
+        self.assertEqual(data["current_team_id"], self.user.current_team_id)
 
     def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
         """Self-introspection also works via GET method."""
@@ -4769,6 +4798,9 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
+        self.assertNotIn("user_distinct_id", data)
+        self.assertNotIn("current_organization_id", data)
+        self.assertNotIn("current_team_id", data)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_client_gets_extended_token_expiry(self):

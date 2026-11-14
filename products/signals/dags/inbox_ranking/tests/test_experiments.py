@@ -22,7 +22,9 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
     REPORT_FACT_FEATURE_NAMES,
     REPORT_FACT_GROUPS,
+    REPORT_SCORED_FACTS_EXTRA,
     REPORT_SOURCES_EXTRA,
+    SOURCES_GROUP_FEATURE_NAMES,
     report_fact_matrix,
 )
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
@@ -31,6 +33,8 @@ from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_TABLE,
     LABELS_TABLE,
+    SCORED_FACTS_SCHEMA,
+    SCORED_FACTS_TABLE,
     SIGNAL_EMBEDDINGS_SCHEMA,
     SIGNAL_EMBEDDINGS_TABLE,
     USER_INTERACTIONS_SCHEMA,
@@ -508,6 +512,36 @@ def _signal_log(signals: list[tuple[str, str, str, str]]) -> bytes:
     return sink.getvalue().to_pybytes()
 
 
+def _scored_facts_day(rows: list[tuple[str, str]]) -> bytes:
+    table = pa.Table.from_pylist(
+        [
+            {"report_id": report_id, "scored_at": pd.Timestamp(scored_at).to_pydatetime()}
+            for report_id, scored_at in rows
+        ],
+        schema=SCORED_FACTS_SCHEMA,
+    )
+    sink = pa.BufferOutputStream()
+    pq.write_table(table, sink)
+    return sink.getvalue().to_pybytes()
+
+
+def test_the_scored_facts_side_input_reads_each_report_only_once_it_was_scored():
+    objects = {
+        partition_object_key(PREFIX, SCORED_FACTS_TABLE, "2026-10-19"): _scored_facts_day(
+            [("r0", "2026-10-19T10:00:00+00:00")]
+        ),
+        partition_object_key(PREFIX, SCORED_FACTS_TABLE, PARTITION): _scored_facts_day(
+            [("r1", "2026-10-20T10:00:00+00:00")]
+        ),
+    }
+
+    extras = load_side_inputs(_ModelStoreS3(objects), "bucket", PREFIX, PARTITION, [REPORT_SCORED_FACTS_EXTRA])
+
+    assert sorted(extras[REPORT_SCORED_FACTS_EXTRA]["report_id"]) == ["r0", "r1"]
+    moment = datetime.datetime(2026, 10, 20, tzinfo=datetime.UTC)
+    assert list(rows_as_of(extras, REPORT_SCORED_FACTS_EXTRA, moment)["report_id"]) == ["r0"]
+
+
 def test_a_late_signal_does_not_leak_into_an_earlier_row():
     day_before, day = datetime.date(2026, 10, 19), datetime.date(2026, 10, 20)
     objects = {
@@ -542,6 +576,49 @@ def test_a_late_signal_does_not_leak_into_an_earlier_row():
     # The github signal landed on dt=D, after the dt=D-1 row's moment, so only the dt=D row sees it.
     # A report with no signals has zero in every source column.
     assert matrix[columns].values.tolist() == [[1, 0, 0, 1, 1], [1, 1, 0, 2, 1], [0, 0, 0, 0, 0]]
+
+
+def test_the_serving_sources_columns_equal_the_training_ones_for_the_same_live_signals():
+    moment = datetime.datetime(2026, 10, 20, 12, tzinfo=datetime.UTC)
+    landed = pd.Timestamp("2026-10-20T09:00:00", tz="UTC")
+    log = pd.DataFrame(
+        [
+            ("s1", "r1", "error_tracking", False, landed),
+            ("s2", "r1", "a_new_product", False, landed),
+            ("s3", "r1", None, False, landed),
+            ("s4", "r2", "github", False, landed),
+            # Retracted later, so it is not live.
+            ("s5", "r2", "zendesk", False, landed),
+            ("s5", "r2", "zendesk", True, landed + pd.Timedelta(hours=1)),
+            # Regrouped from r3 to r2, so r3 has no live signal.
+            ("s6", "r3", "linear", False, landed),
+            ("s6", "r2", "linear", False, landed + pd.Timedelta(hours=1)),
+        ],
+        columns=["signal_id", "report_id", "source_product", "is_deleted", "embedding_inserted_at"],
+    ).assign(team_id=1)
+    live = pd.DataFrame(
+        [("r1", "error_tracking"), ("r1", "a_new_product"), ("r1", None), ("r2", "github"), ("r2", "linear")],
+        columns=["report_id", "source_product"],
+    )
+    vectors = pd.DataFrame(
+        {
+            "embedding_small": [np.zeros(EMBEDDING_DIMENSIONS, dtype=np.float32)] * 3,
+            "embedding_inserted_at": [landed] * 3,
+        },
+        index=pd.Index(["r1", "r2", "r3"], name="report_id"),
+    )
+    rows = pd.DataFrame({"priority": [None] * 3}, index=vectors.index)
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET
+
+    training = feature_set.build_matrix(
+        rows, {REPORT_EMBEDDINGS_EXTRA: vectors, REPORT_SOURCES_EXTRA: log}, as_of=moment
+    )
+    serving = feature_set.build_matrix(rows, {REPORT_EMBEDDINGS_EXTRA: vectors, REPORT_SOURCES_EXTRA: live})
+
+    columns = list(SOURCES_GROUP_FEATURE_NAMES)
+    pd.testing.assert_frame_equal(serving[columns], training[columns])
+    picked = ["source_error_tracking", "source_github", "source_linear", "source_other", "source_count", "has_sources"]
+    assert training[picked].values.tolist() == [[1, 0, 0, 1, 3, 1], [0, 1, 1, 0, 2, 1], [0, 0, 0, 0, 0, 0]]
 
 
 _REPORT_FACTS = {

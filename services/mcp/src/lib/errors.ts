@@ -199,6 +199,13 @@ export class ToolInputValidationError extends Error {
     }
 }
 
+export class ExperimentNotStartedError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ExperimentNotStartedError'
+    }
+}
+
 export type ExecCommandErrorReason =
     | 'unknown_command'
     | 'tool_as_command'
@@ -349,6 +356,11 @@ export class PostHogTransportError extends Error {
     public readonly attempts: number
     /** True when the request hit the client's deadline instead of failing to connect. */
     public readonly timedOut: boolean
+    /**
+     * Names and codes from the cause chain, such as `TypeError > Error(ECONNREFUSED)`, for our
+     * logs and error tracking. It is not in `message`, and it never holds the cause's own text.
+     */
+    public readonly failure: string
 
     constructor(options: PostHogTransportErrorOptions) {
         const advice = options.retryable
@@ -364,7 +376,47 @@ export class PostHogTransportError extends Error {
         this.attempts = options.attempts
         // A forwarded request nests the local transport error, so look through the cause chain.
         this.timedOut = hasTimeoutCause(options.cause)
+        this.failure = describeTransportCause(options.cause)
     }
+}
+
+const SAFE_ERROR_LABEL = /^[A-Za-z][\w.-]{0,63}$/
+
+/** Summarizes a transport cause by error names and codes only. Messages can hold headers or URL secrets. */
+export function describeTransportCause(cause: unknown): string {
+    const parts: string[] = []
+    let current: unknown = cause
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current) && parts.length < 5) {
+        seen.add(current)
+        if (!(current instanceof Error)) {
+            parts.push(typeof current)
+            break
+        }
+        // The client wraps each attempt's failure, and that error keeps no `cause` to walk.
+        if (current instanceof PostHogTransportError) {
+            parts.push(current.failure)
+            break
+        }
+        const name = SAFE_ERROR_LABEL.test(current.name) ? current.name : 'Error'
+        const code = (current as Error & { code?: unknown }).code
+        parts.push(typeof code === 'string' && SAFE_ERROR_LABEL.test(code) ? `${name}(${code})` : name)
+        current = (current as Error & { cause?: unknown }).cause
+    }
+    return parts.join(' > ') || 'unknown'
+}
+
+export function findTransportError(error: unknown): PostHogTransportError | undefined {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (current instanceof PostHogTransportError) {
+            return current
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return undefined
 }
 
 /**
@@ -568,6 +620,39 @@ export function serverDetailOf(error: unknown): string | undefined {
     return undefined
 }
 
+// Analytics-safe shapes: a snake_case code and a DRF field path. Anything else in the body is
+// free text that can hold caller input, so it never reaches analytics.
+const API_ERROR_CODE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/
+const API_ERROR_ATTR_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,127}$/
+
+export interface ApiErrorIdentifiers {
+    code?: string
+    attr?: string
+}
+
+/**
+ * The machine-readable `code` and field `attr` of an API error body, for analytics. Reads a top-level
+ * object or the first item of a list, and keeps a value only when it looks like an identifier.
+ * `detail`, `message` and every other field are never read.
+ */
+export function parseApiErrorIdentifiers(body: string): ApiErrorIdentifiers {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(body)
+    } catch {
+        return {}
+    }
+    const source = Array.isArray(parsed) ? parsed[0] : parsed
+    if (source === null || typeof source !== 'object') {
+        return {}
+    }
+    const { code, attr } = source as { code?: unknown; attr?: unknown }
+    return {
+        ...(typeof code === 'string' && API_ERROR_CODE_PATTERN.test(code) ? { code } : {}),
+        ...(typeof attr === 'string' && API_ERROR_ATTR_PATTERN.test(attr) ? { attr } : {}),
+    }
+}
+
 function drfDetail(body: string): string | undefined {
     try {
         const detail = (JSON.parse(body) as { detail?: unknown } | null)?.detail
@@ -721,6 +806,7 @@ export function handleToolError(
         is_mcp_tool_error: error instanceof MCPToolError,
         suppress_analytics: suppressAnalytics,
         $exception_fingerprint: mcpError.tool,
+        transport_failure: findTransportError(error)?.failure,
     }
 
     if (sessionUuid) {
