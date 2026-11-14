@@ -8,7 +8,7 @@ from django.db import transaction
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -613,6 +613,53 @@ def unsupported_row_filter_reason(*, is_direct_query: bool, is_cdc: bool) -> str
     return None
 
 
+def live_query_unavailable_reason(
+    *,
+    source_serves_live_queries: bool,
+    engine_supports_live_tables: bool,
+    has_row_filters: bool,
+    has_masked_columns: bool,
+    has_column_metadata: bool,
+) -> str | None:
+    """Why a table can't be made queryable live without syncing it, or None when it can.
+
+    A live query reads the upstream table directly, so it can't apply the row filters or masks a
+    sync would. The live table is built from the stored column metadata, so it needs some.
+    """
+    if not source_serves_live_queries:
+        return "Live queries are only available on synced sources that have live queries turned on."
+    if not engine_supports_live_tables:
+        return "Unsynced tables can't be queried live on this type of source yet."
+    if has_row_filters:
+        return "Tables with row filters can't be queried live, because a live query reads every row."
+    if has_masked_columns:
+        return "Tables with masked columns can't be queried live, because a live query reads the original values."
+    if not has_column_metadata:
+        return 'This table has no column information yet. Run "Pull new schemas" on the source, then try again.'
+    return None
+
+
+def schema_live_query_unavailable_reason(
+    schema: ExternalDataSchema, *, row_filters: object, masked_columns: object
+) -> str | None:
+    # Function-local: these modules pull the direct-SQL drivers and engine helpers.
+    from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
+    from products.data_warehouse.backend.facade.direct_query import LIVE_TABLE_ENGINES  # noqa: PLC0415
+
+    source = schema.source
+    metadata = schema.schema_metadata
+    return live_query_unavailable_reason(
+        source_serves_live_queries=(
+            source.access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_direct_capable(source)
+        ),
+        engine_supports_live_tables=source.direct_engine in LIVE_TABLE_ENGINES,
+        has_row_filters=bool(row_filters),
+        has_masked_columns=bool(masked_columns),
+        has_column_metadata=isinstance(metadata, dict) and bool(metadata.get("columns")),
+    )
+
+
 def _apply_primary_key_columns(
     data: dict[str, Any],
     payload: dict[str, Any],
@@ -949,6 +996,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     )
     incremental = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
+    live_query_unavailable_reason = serializers.SerializerMethodField(
+        help_text="Why this table can't be made queryable live without syncing it, or null when it can.",
+    )
     sync_type = serializers.ChoiceField(
         choices=ExternalDataSchema.SyncType.choices,
         required=False,
@@ -1161,6 +1211,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "table",
             "table_id",
             "should_sync",
+            "live_query_enabled",
+            "live_query_unavailable_reason",
             "last_synced_at",
             "latest_error",
             "incremental",
@@ -1206,6 +1258,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "latest_error",
             "status",
             "pending_self_managed_table",
+            "live_query_unavailable_reason",
             "incremental_sync_blocked",
             "webhook_not_registered",
             "next_full_refresh_at",
@@ -1285,6 +1338,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
                 "access_method": {"type": "string"},
+                "direct_query_enabled": {"type": "boolean"},
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
                 "requires_exact_column_metadata": {"type": "boolean"},
@@ -1321,6 +1375,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "source_type": source.source_type,
             # The schema page hides sync-history UI for direct-query sources, which have no jobs.
             "access_method": source.access_method,
+            # The schema page offers the live query switch only on a synced source that also serves live queries.
+            "direct_query_enabled": source.direct_query_enabled,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
             "requires_exact_column_metadata": source_requires_exact_column_metadata(source.source_type),
@@ -1388,6 +1444,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         }
                     )
         return attrs
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_live_query_unavailable_reason(self, schema: ExternalDataSchema) -> str | None:
+        return schema_live_query_unavailable_reason(
+            schema, row_filters=schema.row_filters, masked_columns=schema.masked_columns
+        )
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         return schema_display_status(schema)
@@ -1493,6 +1555,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         removed = [key for key in original_sync_type_config if key not in intended]
         with transaction.atomic():
             locked = ExternalDataSchema.objects.select_for_update().get(pk=instance.pk)
+            if (
+                validated_data.get("live_query_enabled") is True
+                and not locked.live_query_enabled
+                and locked.table_id != instance.table_id
+            ):
+                # The table changed after the request was checked, e.g. a concurrent data delete took its access rules.
+                raise ValidationError(
+                    {"live_query_enabled": "This table changed while saving. Reload the page and try again."}
+                )
             merged = locked.sync_type_config or {}
             merged.update(changed)
             for key in removed:
@@ -1514,6 +1585,19 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Each scheduled run of such a table would bill the same rows again.
         if validated_data.get("should_sync") is True and source_syncs_on_demand(instance.source.source_type):
             raise ValidationError({"should_sync": ON_DEMAND_SYNC_ERROR})
+
+        if validated_data.get("live_query_enabled") is True and not instance.live_query_enabled:
+            if reason := schema_live_query_unavailable_reason(
+                instance,
+                row_filters=validated_data.get("row_filters", instance.row_filters),
+                masked_columns=validated_data.get("masked_columns", instance.masked_columns),
+            ):
+                raise ValidationError({"live_query_enabled": reason})
+        elif instance.live_query_enabled and (
+            validated_data.get("row_filters") or validated_data.get("masked_columns")
+        ):
+            # A live query can't apply row filters or masks, so the table leaves live queries instead of keeping a hidden flag.
+            validated_data["live_query_enabled"] = False
 
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
@@ -1678,7 +1762,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if self._webhook_only_check_applies():
             if self._is_webhook_only_schema_cached(instance):
                 raise ValidationError(
-                    f"{instance.name} can only be synced via webhooks — pick the Webhook sync method."
+                    f"{instance.name} can only be synced via webhooks. Pick the Webhook sync method for it."
                 )
 
         # Only update sync_type if it was explicitly provided in the request
@@ -2835,6 +2919,96 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
         return ret
 
 
+COMPACT_ERROR_MAX_LENGTH = 500
+ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY = "error_redaction_values_by_source"
+
+
+def truncate_error(message: str | None, max_length: int = COMPACT_ERROR_MAX_LENGTH) -> str | None:
+    if message is None or len(message) <= max_length:
+        return message
+    return f"{message[:max_length]}… [truncated, {len(message)} characters]"
+
+
+class ExternalDataSchemaSummarySerializer(serializers.ModelSerializer):
+    """One summary row per table, for the compact source responses that agents read.
+
+    It reads only stored schema columns, so it adds no query per row. The error is redacted, then truncated.
+    """
+
+    status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this table.")
+    latest_error = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            f"The latest sync error with secrets redacted, cut to {COMPACT_ERROR_MAX_LENGTH} characters. "
+            "Null when the last sync did not fail."
+        ),
+    )
+
+    class Meta:
+        model = ExternalDataSchema
+        fields = ["id", "name", "should_sync", "status", "last_synced_at", "latest_error"]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_status(self, schema: ExternalDataSchema) -> str | None:
+        return schema_display_status(schema)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_error(self, schema: ExternalDataSchema) -> str | None:
+        if not schema.latest_error:
+            return schema.latest_error
+        by_source: dict[uuid.UUID, frozenset[str]] = self.context.get(ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY, {})
+        secret_values = by_source.get(schema.source_id)
+        if secret_values is not None:
+            redacted = source_helpers.redact_error_message(schema.latest_error, secret_values)
+        else:
+            redacted = redact_schema_error(schema, self.context)
+        return truncate_error(redacted)
+
+
+class ExternalDataSchemaCompactSerializer(ExternalDataSchemaSummarySerializer):
+    """The compact row of the schemas list: the summary row plus the source it belongs to and its sync type."""
+
+    class Meta(ExternalDataSchemaSummarySerializer.Meta):
+        fields = [
+            "id",
+            "name",
+            "source_id",
+            "should_sync",
+            "live_query_enabled",
+            "sync_type",
+            "status",
+            "last_synced_at",
+            "latest_error",
+        ]
+        read_only_fields = fields
+
+
+def error_redaction_values_by_source(schemas: Iterable[ExternalDataSchema]) -> dict[uuid.UUID, frozenset[str]]:
+    """The secret values of each source that has a failed table, read with one inputs query for all of them."""
+    sources = {schema.source_id: schema.source for schema in schemas if schema.latest_error}
+    if not sources:
+        return {}
+    inputs = SourceInputsStore.load_many(sources.values())
+    # A source left out of `inputs` falls back to the per-schema lookup, which handles unreadable inputs.
+    return {
+        source_id: source_helpers.get_error_redaction_values(source, inputs[source_id])
+        for source_id, source in sources.items()
+        if source_id in inputs
+    }
+
+
+class ExternalDataSchemaListQuerySerializer(serializers.Serializer):
+    compact = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at "
+            "and a truncated latest_error) instead of the full sync configuration. Use it to check table health."
+        ),
+    )
+
+
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSchema
@@ -2878,6 +3052,7 @@ class WarehouseTableAccessPermission(AccessControlPermission):
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
+@extend_schema_view(list=extend_schema(parameters=[ExternalDataSchemaListQuerySerializer]))
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
     permission_classes = [WarehouseTableAccessPermission]
@@ -2922,19 +3097,43 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # otherwise route POST here, whose serializer create path skips the api_version guards.
         raise MethodNotAllowed("POST")
 
+    def _is_compact_list(self) -> bool:
+        if getattr(self, "action", None) != "list" or getattr(self, "swagger_fake_view", False):
+            return False
+        cached: bool | None = getattr(self, "_compact_list", None)
+        if cached is None:
+            query = ExternalDataSchemaListQuerySerializer(data=self.request.query_params)
+            query.is_valid(raise_exception=True)
+            cached = bool(query.validated_data["compact"])
+            self._compact_list = cached
+        return cached
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self._is_compact_list():
+            return ExternalDataSchemaCompactSerializer
+        return super().get_serializer_class()
+
     def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
         if "context" not in kwargs:
             kwargs["context"] = self.get_serializer_context()
         if kwargs.get("many") and args:
             context = kwargs["context"]
-            context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
-            context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
+            if self._is_compact_list():
+                schemas = list(args[0])
+                args = (schemas, *args[1:])
+                context[ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY] = error_redaction_values_by_source(schemas)
+            else:
+                context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
+                context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
         serializer_class = self.get_serializer_class()
         return serializer_class(*args, **kwargs)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         if getattr(self, "swagger_fake_view", False):
+            return context
+        if self._is_compact_list():
+            # The compact row reads no columns, so it skips building the HogQL database.
             return context
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).

@@ -19,8 +19,8 @@ export interface AnalyticsMetricCardProps extends Omit<
     'children' | 'series'
 > {
     title: ReactNode
-    /** Render the change pill after the subtitle instead of in the title row. */
-    changeBesideSubtitle?: boolean
+    /** Render the change pill beside the headline value instead of in the title row. */
+    changeBesideValue?: boolean
     loading?: boolean
     error?: ReactNode
     emptyMessage?: ReactNode
@@ -45,7 +45,7 @@ export function AnalyticsMetricCard({
     className,
     dataAttr,
     title,
-    changeBesideSubtitle = false,
+    changeBesideValue = false,
     ...metricProps
 }: AnalyticsMetricCardProps): JSX.Element {
     const Content = onClick ? 'button' : 'div'
@@ -101,21 +101,21 @@ export function AnalyticsMetricCard({
                     </span>
                 ) : (
                     <Metric {...metricProps} className="w-full px-3">
-                        {(label || !changeBesideSubtitle) && (
+                        {(label || !changeBesideValue) && (
                             // The spare height goes above the headline, so a wrapped title does not move it.
-                            <MetricHeader className={clsx(!changeBesideSubtitle && 'flex-1', !label && 'justify-end')}>
+                            <MetricHeader className={clsx(!changeBesideValue && 'flex-1', !label && 'justify-end')}>
                                 {label && <MetricTitle>{label}</MetricTitle>}
-                                {!changeBesideSubtitle && <MetricDelta />}
+                                {!changeBesideValue && <MetricDelta />}
                             </MetricHeader>
                         )}
-                        {changeBesideSubtitle ? (
+                        {changeBesideValue ? (
                             <>
-                                <MetricValue className={clsx(label && 'mt-2')} />
-                                {/* The subtitle truncates, so the pill never wraps when hover changes the text width. */}
-                                <div className="mt-1 flex flex-1 items-start gap-2">
-                                    <MetricSubtitle className="min-w-0 flex-1 truncate" />
+                                {/* The headline shrinks with the card, so it shares one row with the pill at any width. */}
+                                <div className={clsx('@container flex items-center gap-2', label && 'mt-2')}>
+                                    <MetricValue className="text-2xl @[11rem]:text-3xl @[15rem]:text-4xl" />
                                     <MetricDelta className="ml-auto shrink-0" />
                                 </div>
+                                <MetricSubtitle className="mt-1 flex-1 truncate" />
                             </>
                         ) : (
                             <>

@@ -3,10 +3,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -16,10 +19,13 @@ from products.tasks.backend.logic.services.workflow_dispatch import materialize_
 from products.tasks.backend.models import Task, TaskRun, TaskStatusChange
 from products.tasks.backend.task_profiles import USER
 from products.tasks.backend.task_run_sync import (
+    DoneMode,
     LatestRun,
     StatusMismatch,
     collect_status_mismatches,
     derive_task_status,
+    repair_status_mismatches,
+    sync_task_status,
 )
 
 
@@ -164,6 +170,111 @@ class TestTaskRunSync(TestCase):
         self.assertEqual(
             collect_status_mismatches(), [StatusMismatch(stored_status="running", derived_status="idle", count=1)]
         )
+
+    @parameterized.expand(
+        [
+            ("run_started_before_its_first_sync", "idle", TaskRun.Status.IN_PROGRESS, "running", 0),
+            ("run_went_back_to_queued", "running", TaskRun.Status.QUEUED, "queued", 1),
+        ]
+    )
+    def test_counts_only_the_moves_the_table_forbids(
+        self, _name: str, stored: str, run_status: str, derived: str, counted: int
+    ) -> None:
+        sample = {"from_status": stored, "to_status": derived}
+        before = REGISTRY.get_sample_value("posthog_tasks_status_outside_transitions_total", sample) or 0
+        self._lose_sync(self.task, run_status=run_status, stored=stored)
+
+        sync_task_status(self.task.id)
+
+        after = REGISTRY.get_sample_value("posthog_tasks_status_outside_transitions_total", sample) or 0
+        self.task.refresh_from_db()
+        self.assertEqual((after - before, self.task.status), (counted, derived))
+
+    def _lose_sync(self, task: Task, *, run_status: str | None, stored: str | None) -> None:
+        if run_status is not None:
+            TaskRun.objects.create(task=task, team=self.team, status=run_status)
+        Task.objects.filter(pk=task.pk).update(status=stored)
+
+    @parameterized.expand(
+        [
+            ("running_but_run_finished", TaskRun.Status.COMPLETED, "running", "idle"),
+            ("queued_but_run_running", TaskRun.Status.IN_PROGRESS, "queued", "running"),
+            ("null_with_open_run", TaskRun.Status.IN_PROGRESS, None, "running"),
+        ]
+    )
+    def test_repair_fixes_a_task_whose_sync_was_lost(
+        self, _name: str, run_status: str, stored: str | None, derived: str
+    ) -> None:
+        self._lose_sync(self.task, run_status=run_status, stored=stored)
+
+        repaired = repair_status_mismatches()
+
+        self.task.refresh_from_db()
+        self.assertEqual(repaired, [StatusMismatch(stored_status=stored, derived_status=derived, count=1)])
+        self.assertEqual((self.task.status, self.task.status_changed_by), (derived, "status_repair"))
+        self.assertEqual(collect_status_mismatches(), [])
+
+    def test_repair_records_a_status_change_with_the_repair_actor(self) -> None:
+        self._lose_sync(self.task, run_status=TaskRun.Status.IN_PROGRESS, stored="queued")
+
+        repair_status_mismatches()
+
+        changes = TaskStatusChange.objects.for_team(self.team.id).filter(task=self.task)
+        self.assertEqual(list(changes.values_list("status", "changed_by")), [("running", "status_repair")])
+
+    def test_repair_leaves_a_matching_task_alone(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run()
+        changes_before = TaskStatusChange.objects.for_team(self.team.id).count()
+
+        self.assertEqual(repair_status_mismatches(), [])
+
+        self.assertEqual(TaskStatusChange.objects.for_team(self.team.id).count(), changes_before)
+
+    def test_repair_leaves_a_done_task_alone(self) -> None:
+        self._lose_sync(self.task, run_status=TaskRun.Status.IN_PROGRESS, stored="done")
+
+        with patch("products.tasks.backend.task_run_sync.done_mode", return_value=DoneMode.OFF):
+            repaired = repair_status_mismatches()
+
+        self.task.refresh_from_db()
+        self.assertEqual((repaired, self.task.status), ([], "done"))
+
+    def test_repair_does_not_count_a_task_another_writer_fixed_first(self) -> None:
+        self._lose_sync(self.task, run_status=TaskRun.Status.IN_PROGRESS, stored="queued")
+
+        with patch("products.tasks.backend.task_run_sync.sync_task_status", return_value=False):
+            repaired = repair_status_mismatches()
+
+        self.assertEqual(repaired, [])
+
+    def test_repair_stops_at_the_cap(self) -> None:
+        tasks = [self.task, self._task(), self._task()]
+        for task in tasks:
+            self._lose_sync(task, run_status=TaskRun.Status.IN_PROGRESS, stored="queued")
+
+        repaired = repair_status_mismatches(max_repairs=2)
+
+        self.assertEqual(repaired, [StatusMismatch(stored_status="queued", derived_status="running", count=2)])
+        self.assertEqual(
+            collect_status_mismatches(), [StatusMismatch(stored_status="queued", derived_status="running", count=1)]
+        )
+
+    def test_repair_continues_after_a_task_fails(self) -> None:
+        tasks = [self.task, self._task(), self._task()]
+        for task in tasks:
+            self._lose_sync(task, run_status=TaskRun.Status.IN_PROGRESS, stored="queued")
+
+        def fail_for_first(task_id: Any, *, changed_by: str) -> bool:
+            if str(task_id) == str(tasks[0].id):
+                raise RuntimeError("boom")
+            return sync_task_status(task_id, changed_by=changed_by)
+
+        with patch("products.tasks.backend.task_run_sync.sync_task_status", side_effect=fail_for_first):
+            repaired = repair_status_mismatches()
+
+        self.assertEqual(repaired, [StatusMismatch(stored_status="queued", derived_status="running", count=2)])
+        self.assertEqual(Task.objects.filter(status="running").count(), 2)
 
     @parameterized.expand([("wizard", "wizard_head_branch"), ("self_driving", "self_driving_head_branch")])
     def test_create_records_the_server_head_branch(self, _name: str, argument: str) -> None:

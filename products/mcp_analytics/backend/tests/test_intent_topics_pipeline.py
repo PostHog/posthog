@@ -451,9 +451,9 @@ class TestAssignmentSlices:
         end = start + timedelta(days=2, hours=5)
 
         assert list(pipeline.assignment_slices(start, end)) == [
-            (start, start + timedelta(days=1)),
-            (start + timedelta(days=1), start + timedelta(days=2)),
-            (start + timedelta(days=2), end),
+            pipeline.TimeSlice(start=start, end=start + timedelta(days=1)),
+            pipeline.TimeSlice(start=start + timedelta(days=1), end=start + timedelta(days=2)),
+            pipeline.TimeSlice(start=start + timedelta(days=2), end=end),
         ]
 
     def test_an_empty_window_has_no_slices(self) -> None:

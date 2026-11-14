@@ -979,6 +979,16 @@ export interface AEOPromptSetOverviewApi {
      * * `branded` - Branded
      * * `non_branded` - Non-branded */
     branded: BrandedSegmentEnumApi
+    /**
+     * The answer engine every count covers, as requested. Null when every engine counts.
+     * @nullable
+     */
+    engine: string | null
+    /**
+     * The prompt topic every count covers, as requested. Empty for prompts with no topic, null when every topic counts.
+     * @nullable
+     */
+    topic: string | null
     /** Answered checks in the current window whose prompt named the brand, whatever 'branded' selects. The sample size behind the branded numbers. */
     branded_answers: number
     /** Answered checks in the current window whose prompt did not name the brand, whatever 'branded' selects. The sample size behind the non-branded numbers. */
@@ -1072,6 +1082,16 @@ export interface AEOPromptSetRankingsApi {
      * * `branded` - Branded
      * * `non_branded` - Non-branded */
     branded: BrandedSegmentEnumApi
+    /**
+     * The answer engine every count covers, as requested. Null when every engine counts.
+     * @nullable
+     */
+    engine: string | null
+    /**
+     * The prompt topic every count covers, as requested. Empty for prompts with no topic, null when every topic counts.
+     * @nullable
+     */
+    topic: string | null
     /** Answered checks in the current window: the denominator of every share. */
     answers: number
     /** Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains. */
@@ -1189,6 +1209,169 @@ export interface AEOPromptTopicApi {
     topic: string
     /** How many prompts in the set have this topic. */
     prompts: number
+}
+
+export interface AEOSetupRequestApi {
+    /**
+     * The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true.
+     * @maxLength 200
+     */
+    domain?: string
+    /**
+     * The brand name. Inferred from the site when empty.
+     * @maxLength 200
+     */
+    brand?: string
+    /**
+     * What the product does and who it is for. Inferred from the site when empty.
+     * @maxLength 1000
+     */
+    description?: string
+    /**
+     * The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.
+     * @maxItems 20
+     * @items.maxLength 64
+     */
+    engines?: string[]
+    /** Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned on, for example with only_first_run and activate_paused_prompts. */
+    run_first_check?: boolean
+    /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
+    only_first_run?: boolean
+    /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+    activate_paused_prompts?: boolean
+}
+
+/**
+ * * `brand` - Brand
+ * * `prompts` - Prompts
+ * * `keywords` - Keywords
+ * * `first_run` - First Run
+ */
+export type SetupStepEnumApi = (typeof SetupStepEnumApi)[keyof typeof SetupStepEnumApi]
+
+export const SetupStepEnumApi = {
+    Brand: 'brand',
+    Prompts: 'prompts',
+    Keywords: 'keywords',
+    FirstRun: 'first_run',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `done` - Done
+ * * `skipped` - Skipped
+ * * `failed` - Failed
+ */
+export type SetupStepStatusEnumApi = (typeof SetupStepStatusEnumApi)[keyof typeof SetupStepStatusEnumApi]
+
+export const SetupStepStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Done: 'done',
+    Skipped: 'skipped',
+    Failed: 'failed',
+} as const
+
+export interface AEOSetupStepApi {
+    /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+     *
+     * * `brand` - Brand
+     * * `prompts` - Prompts
+     * * `keywords` - Keywords
+     * * `first_run` - First Run */
+    step: SetupStepEnumApi
+    /** pending, running, done, skipped (the project already had it, or the first run was not requested or is not available) or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `done` - Done
+     * * `skipped` - Skipped
+     * * `failed` - Failed */
+    status: SetupStepStatusEnumApi
+    /** How many brands, prompts or keywords the step added. */
+    added?: number
+    /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+    detail?: string
+}
+
+export interface AEOSetupJobApi {
+    /** The setup steps in the order they run. */
+    steps: AEOSetupStepApi[]
+    /** Job id. Poll GET aeo_setup/<id>/ with it. */
+    id: string
+    /** pending while PostHog works, then completed or failed. A failed keywords step does not fail the job.
+     *
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: AEOSuggestionJobStatusEnumApi
+    /** Why the job failed. Empty unless status is failed. */
+    error?: string
+}
+
+export interface AEOSetupConflictApi {
+    /** Why the request was refused. */
+    detail: string
+    /** The setup job already running. Poll GET aeo_setup/<id>/ with it. */
+    job_id: string
+}
+
+/**
+ * * `own_brand` - Own Brand
+ * * `app_urls` - App Urls
+ * * `recording_domains` - Recording Domains
+ * * `pageviews` - Pageviews
+ */
+export type WebsiteSourceEnumApi = (typeof WebsiteSourceEnumApi)[keyof typeof WebsiteSourceEnumApi]
+
+export const WebsiteSourceEnumApi = {
+    OwnBrand: 'own_brand',
+    AppUrls: 'app_urls',
+    RecordingDomains: 'recording_domains',
+    Pageviews: 'pageviews',
+} as const
+
+export interface AEOWebsiteCandidateApi {
+    /** A registrable domain the project may be about, for example example.com. */
+    domain: string
+    /** Where PostHog found it: own_brand (an own brand in the catalog), app_urls (the project's authorized URLs), recording_domains (the domains allowed to record sessions) or pageviews (hosts with pageviews in the last 7 days).
+     *
+     * * `own_brand` - Own Brand
+     * * `app_urls` - App Urls
+     * * `recording_domains` - Recording Domains
+     * * `pageviews` - Pageviews */
+    source: WebsiteSourceEnumApi
+    /**
+     * Pageviews on the domain in the last 7 days. Null unless source is pageviews.
+     * @nullable
+     */
+    pageviews?: number | null
+}
+
+export interface AEOSetupContextApi {
+    /** Up to 5 domains the project may be about, the most likely first. */
+    websites: AEOWebsiteCandidateApi[]
+    /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
+    engines: AEOEngineSettingApi[]
+    /** Domains already set as the project's own brands. */
+    own_domains: string[]
+    /** Active, unarchived prompts the project tracks. */
+    active_prompts: number
+    /** Unarchived prompts that are turned off. No run checks them. */
+    paused_prompts: number
+    /** Keywords in the project's keyword list. */
+    keywords: number
+    /** Whether any citation check has been recorded for the project. */
+    has_checks: boolean
+    /** Whether the organization approved AI data processing. Setup needs it. */
+    ai_data_processing_approved: boolean
+    /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
+    first_run_available: boolean
+    /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+    prompt_target: number
+    /** The window, in days, that pageview hosts among the websites cover. */
+    website_days: number
 }
 
 export interface HeatmapCapturePageApi {
@@ -2885,27 +3068,85 @@ export const AeoBrandsListStatus = {
 
 export type AeoKeywordsModifiersParams = {
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoKeywordsModifiersBranded
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
      * @minimum 1
-     * @maximum 30
+     * @maximum 90
      */
     days?: number
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null
     /**
      * Only count answers whose web searches contain this phrase, case ignored. Usually one of the project's keywords.
      * @minLength 1
      * @maxLength 100
      */
     keyword?: string
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null
 }
+
+export type AeoKeywordsModifiersBranded = (typeof AeoKeywordsModifiersBranded)[keyof typeof AeoKeywordsModifiersBranded]
+
+export const AeoKeywordsModifiersBranded = {
+    All: 'all',
+    Branded: 'branded',
+    NonBranded: 'non_branded',
+} as const
 
 export type AeoKeywordsReportParams = {
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoKeywordsReportBranded
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
      * @minimum 1
-     * @maximum 30
+     * @maximum 90
      */
     days?: number
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null
 }
+
+export type AeoKeywordsReportBranded = (typeof AeoKeywordsReportBranded)[keyof typeof AeoKeywordsReportBranded]
+
+export const AeoKeywordsReportBranded = {
+    All: 'all',
+    Branded: 'branded',
+    NonBranded: 'non_branded',
+} as const
 
 export type AeoPromptsListParams = {
     /**
@@ -2919,6 +3160,18 @@ export type AeoPromptsListParams = {
      */
     branded?: boolean | null
     /**
+     * The window needs_improvement reads, in days ending now. Default 30, at most 90. Ignored unless needs_improvement is true.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
+    /**
+     * With needs_improvement, only read the answers of this engine, for example 'claude-web-search'. Ignored unless needs_improvement is true.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null
+    /**
      * Also list archived prompts. Archived prompts are left out by default.
      */
     include_archived?: boolean
@@ -2928,7 +3181,7 @@ export type AeoPromptsListParams = {
      */
     limit?: number
     /**
-     * Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.
+     * Only list prompts that the engines answered in the last 'days' days without citing a target domain. Prompts with no answered check in that window are left out.
      */
     needs_improvement?: boolean
     /**
@@ -2989,6 +3242,18 @@ export type AeoPromptsOverviewParams = {
      * @maximum 90
      */
     days?: number
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null
 }
 
 export type AeoPromptsOverviewBranded = (typeof AeoPromptsOverviewBranded)[keyof typeof AeoPromptsOverviewBranded]
@@ -3015,6 +3280,18 @@ export type AeoPromptsRankingsParams = {
      * @maximum 90
      */
     days?: number
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null
 }
 
 export type AeoPromptsRankingsBranded = (typeof AeoPromptsRankingsBranded)[keyof typeof AeoPromptsRankingsBranded]

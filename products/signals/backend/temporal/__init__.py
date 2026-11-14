@@ -96,8 +96,13 @@ from products.signals.backend.temporal.grouping import (
     match_signal_to_report_activity,
     verify_match_specificity_activity,
 )
+from products.signals.backend.temporal.grouping_record_cleanup import (
+    SignalGroupingRecordCleanupWorkflow,
+    delete_expired_grouping_records_activity,
+)
 from products.signals.backend.temporal.grouping_v2 import (
     TeamSignalGroupingV2Workflow,
+    assigned_signal_ids_activity,
     check_signals_ai_consent_activity,
     discard_signal_batches_activity,
     read_signals_from_s3_activity,
@@ -166,6 +171,7 @@ WORKFLOWS = [
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
+    SignalGroupingRecordCleanupWorkflow,
     BufferSignalsWorkflow,
     SignalEmitterWorkflow,
     SignalReportSummaryWorkflow,
@@ -185,6 +191,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    assigned_signal_ids_activity,
+    delete_expired_grouping_records_activity,
     check_signals_ai_consent_activity,
     discard_signal_batches_activity,
     poll_monitoring_assessment_activity,

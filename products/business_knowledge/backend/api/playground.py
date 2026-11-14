@@ -20,6 +20,7 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.tasks.backend.facade import api as tasks_facade
 
 from ..constants import MAX_OPEN_RUNS_PER_OWNER
 from ..models import PlaygroundChat
@@ -164,4 +165,6 @@ class BusinessKnowledgePlaygroundChatViewSet(
             )
         except SandboxRunInProgress:
             raise SandboxConflict()
+        except tasks_facade.TaskDoneError as error:
+            raise SandboxConflict(str(error))
         return Response(PlaygroundChatSerializer(payload).data, status=status.HTTP_201_CREATED)

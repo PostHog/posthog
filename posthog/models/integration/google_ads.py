@@ -43,8 +43,8 @@ class GoogleAdsQuotaExhaustedError(Exception):
 def _google_ads_request(method: str, url: str, **kwargs) -> requests.Response:
     """`requests.request` with retries for a transient timeout/connection blip.
 
-    `list_google_ads_accessible_accounts` walks the account hierarchy with a chain of sequential
-    requests, so a single transient blip on any one of them would otherwise fail the whole walk.
+    Google Ads intermittently answers slower than our timeout. Without a retry, one slow reply fails a
+    picker the user is waiting on, or the whole chain of requests in the accessible-accounts walk.
     """
     return requests.request(method, url, **kwargs)
 
@@ -65,7 +65,7 @@ class GoogleAdsIntegration:
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         # Only CDP destinations list conversion actions.
         developer_token = get_or_settings(DEVELOPER_TOKEN_KEY, CredentialsCaller.CDP)
-        response = requests.request(
+        response = _google_ads_request(
             "POST",
             f"https://googleads.googleapis.com/v24/customers/{customer_id}/googleAds:searchStream",
             json={

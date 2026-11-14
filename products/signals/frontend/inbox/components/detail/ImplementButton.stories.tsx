@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
@@ -11,7 +13,7 @@ import { ImplementButton } from './ImplementButton'
 const meta: Meta<typeof ImplementButton> = {
     title: 'Scenes-App/Inbox/ImplementButton',
     component: ImplementButton,
-    parameters: { layout: 'centered' },
+    parameters: { layout: 'centered', featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE] },
 }
 export default meta
 

@@ -4,10 +4,11 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { analyticsPinnedLogic, pinKey, scenePinTarget } from 'scenes/analytics/analyticsPinnedLogic'
+import { scenePinTarget } from 'scenes/analytics/analyticsPinnedLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneMenuBarItem } from '~/layout/scenes/components/SceneMenuBar'
+import { pinTargetKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 
 import { sceneFileLogic } from './sceneFileLogic'
 
@@ -16,13 +17,13 @@ export function SceneMenuBarPinItem({ dataAttrKey }: { dataAttrKey: string }): J
     useMountedLogic(sceneFileLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
-    const { pinnedShortcutIds, shortcutDataLoading } = useValues(analyticsPinnedLogic)
-    const { togglePinned } = useActions(analyticsPinnedLogic)
+    const { pinnedShortcutIds, shortcutDataLoading } = useValues(sidebarPinsLogic)
+    const { togglePinned } = useActions(sidebarPinsLogic)
     const target = scenePinTarget(projectTreeRefEntry)
     if (!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] || !target) {
         return null
     }
-    const pinned = pinnedShortcutIds.has(pinKey(target.type, target.ref))
+    const pinned = pinnedShortcutIds.has(pinTargetKey(target))
     return (
         <SceneMenuBarItem
             disabled={shortcutDataLoading}
