@@ -508,7 +508,7 @@ def create_from_template(
 
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
-    dashboard.filters = template.dashboard_filters
+    dashboard.filters = template.dashboard_filters or {}
     dashboard.description = template.dashboard_description or ""
     dashboard.customization = {
         **stored_customization(template.customization),
