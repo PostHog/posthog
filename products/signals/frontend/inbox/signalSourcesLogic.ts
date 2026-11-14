@@ -645,6 +645,7 @@ export interface signalSourcesLogicMeta {
             sourceCategory: string,
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
                 | 'appfigures'
@@ -663,6 +664,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -741,6 +743,7 @@ export interface signalSourcesLogicMeta {
                 | 'rollbar'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
                 | 'servicenow'
@@ -793,6 +796,7 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
                 | 'appfigures'
@@ -811,6 +815,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -889,6 +894,7 @@ export interface signalSourcesLogicMeta {
                 | 'rollbar'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
                 | 'servicenow'
@@ -931,6 +937,7 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
                 | 'appfigures'
@@ -949,6 +956,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -1027,6 +1035,7 @@ export interface signalSourcesLogicMeta {
                 | 'rollbar'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
                 | 'servicenow'
