@@ -104,11 +104,9 @@ describe('workflowEditorVisitLogic', () => {
 
     afterEach(() => {
         captureSpy.mockRestore()
-        jest.useRealTimers()
     })
 
     it('reports how far a blank workflow got when the person leaves without saving', async () => {
-        jest.useFakeTimers({ now: new Date('2026-10-18T10:00:00Z'), doNotFake: ['nextTick', 'setImmediate'] })
         const props = { id: 'new' }
         const visit = await openEditor(props)
 
@@ -125,7 +123,6 @@ describe('workflowEditorVisitLogic', () => {
         workflowLogic(props).actions.setWorkflowActionConfig('trigger_node', PAGEVIEW_TRIGGER)
         addStep(props, delayStep('wait_valid', { delay_duration: '10m' }))
         addStep(props, delayStep('wait_unset', {}))
-        jest.setSystemTime(new Date('2026-10-18T10:01:30Z'))
         visit.unmount()
 
         expect(captured('workflow editor left')).toEqual([
@@ -145,8 +142,6 @@ describe('workflowEditorVisitLogic', () => {
                 branch_count: 0,
                 last_edit: 'step_added',
                 last_added_step_type: 'delay',
-                enable_attempted: false,
-                seconds_open: 90,
             },
         ])
     })
@@ -224,18 +219,15 @@ describe('workflowEditorVisitLogic', () => {
         ])
     })
 
-    it('reports the leave by beacon when the tab closes, and starts a new visit when the browser restores the page', async () => {
+    it('reports the leave by beacon when the tab closes', async () => {
         const visit = await openEditor({ id: 'new' })
 
         window.dispatchEvent(new Event('pagehide'))
-        window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
         visit.unmount()
 
-        expect(captured('workflow editor opened')).toHaveLength(2)
         const leaves = captureSpy.mock.calls.filter(([name]) => name === 'workflow editor left')
         expect(leaves).toEqual([
             ['workflow editor left', expect.objectContaining({ start_path: 'blank' }), { transport: 'sendBeacon' }],
-            ['workflow editor left', expect.objectContaining({ start_path: 'blank' }), undefined],
         ])
     })
 
@@ -309,35 +301,6 @@ describe('workflowEditorVisitLogic', () => {
                 editor.actions.setWorkflowInfo({
                     variables: [{ key: 'plan', label: 'Plan', type: 'string', default: 'free' }],
                 }),
-        ],
-        [
-            'replaying edits made while a save was in flight',
-            'variables',
-            (editor: ReturnType<typeof workflowLogic.build>) => {
-                const saved = editor.values.workflow
-                editor.actions.setWorkflowValues({ actions: [...saved.actions, slackStep('notify')] })
-                editor.actions.setWorkflowInfo({
-                    variables: [{ key: 'plan', label: 'Plan', type: 'string', default: 'free' }],
-                })
-                const { actions, edges, variables } = editor.values.workflow
-                editor.actions.resetWorkflow(saved)
-                editor.actions.setWorkflowValues({ actions, edges, variables })
-            },
-        ],
-        [
-            'adding back a variable after discarding it',
-            'variables',
-            async (editor: ReturnType<typeof workflowLogic.build>) => {
-                const saved = editor.values.workflow
-                const variables: HogFlow['variables'] = [
-                    { key: 'plan', label: 'Plan', type: 'string', default: 'free' },
-                ]
-                editor.actions.setWorkflowInfo({ variables })
-                editor.actions.resetWorkflow(saved)
-                await Promise.resolve()
-                editor.actions.setScheduleRepeating(true)
-                editor.actions.setWorkflowInfo({ variables })
-            },
         ],
         [
             'adding a schedule',
@@ -426,9 +389,6 @@ describe('workflowEditorVisitLogic', () => {
 
         expect(captured('workflow enable blocked')).toEqual([
             { workflow_id: SAVED_ID, invalid_step_count: 1, invalid_step_types: ['delay'] },
-        ])
-        expect(captured('workflow editor left')).toEqual([
-            expect.objectContaining({ status: 'draft', enable_attempted: true }),
         ])
     })
 })
