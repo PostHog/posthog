@@ -1,7 +1,10 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
 
+import { Skeleton } from '@posthog/quill'
+
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -36,6 +39,11 @@ import { SqlInsightFilters } from './SqlInsightFilters'
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
+}
+
+function DataVisualizationReloadSkeleton(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    return todayRailNav ? <Skeleton className="h-100 w-full" /> : <LemonSkeleton className="h-100 w-full" />
 }
 
 export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JSX.Element | null {
@@ -116,7 +124,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 <SqlInsightFilters query={query} setQuery={setQuery}>
                     {isDataVisualizationNode(query) && insightLoading ? (
                         // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
-                        <LemonSkeleton className="h-100 w-full" />
+                        <DataVisualizationReloadSkeleton />
                     ) : (
                         <Query
                             attachTo={attachTo}

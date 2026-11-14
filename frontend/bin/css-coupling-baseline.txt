@@ -45,7 +45,6 @@ products/business_intelligence/frontend/BIPivotTable.tsx -> .DataVisualizationTa
 products/dashboards/frontend/components/ImageTile/DashboardImageTile.tsx -> .DashboardTileCard
 products/dashboards/frontend/items/DashboardErrorTileItem.tsx -> .InsightCard
 products/product_analytics/frontend/insights/funnels/Funnel.tsx -> .FunnelInsight
-products/product_analytics/frontend/insights/insightScene/InsightSkeleton.tsx -> .InsightVizDisplay
 products/product_analytics/frontend/insights/insightScene/SqlInsightFilters.tsx -> .InsightVizDisplay
 products/product_analytics/frontend/insights/retention/RetentionContainer.tsx -> .RetentionContainer
 products/product_analytics/frontend/insights/trends/Trends.tsx -> .TrendsInsight
