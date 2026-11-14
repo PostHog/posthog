@@ -1,9 +1,14 @@
+import { useValues } from 'kea'
+
 import { LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 
-import type { HealthRowCell, HealthRowsTable } from './healthCheckRows'
+import { FeatureFlagReleaseConditionsChange } from 'products/feature_flags/frontend/FeatureFlagReleaseConditionsChange'
+
+import type { HealthRowCell, HealthRowsRow, HealthRowsTable } from './healthCheckRows'
 
 function renderCell(cell: HealthRowCell | undefined): JSX.Element | null {
     if (!cell) {
@@ -20,6 +25,9 @@ function renderCell(cell: HealthRowCell | undefined): JSX.Element | null {
 }
 
 export function HealthCheckRowsTable({ table }: { table: HealthRowsTable }): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const flagId = String(experiment.feature_flag?.id ?? '')
+    const expands = table.rows.some((row) => row.conditionsChange)
     return (
         <LemonTable
             size="small"
@@ -31,8 +39,26 @@ export function HealthCheckRowsTable({ table }: { table: HealthRowsTable }): JSX
                 title: column.title,
                 key: column.key,
                 align: column.align,
-                render: (_: unknown, row: Record<string, HealthRowCell>) => renderCell(row[column.key]),
+                render: (_: unknown, row: HealthRowsRow) => renderCell(row.cells[column.key]),
             }))}
+            expandable={
+                expands
+                    ? {
+                          rowExpandable: (row) => !!row.conditionsChange,
+                          expandedRowRender: (row) =>
+                              row.conditionsChange && (
+                                  <FeatureFlagReleaseConditionsChange
+                                      flagId={flagId}
+                                      // The diff keys its logic on this, so it must differ from the flag history's
+                                      // keys and between the saves of one flag.
+                                      activityId={`experiment-health-${row.conditionsChange.changedAt}`}
+                                      before={row.conditionsChange.before}
+                                      after={row.conditionsChange.after}
+                                  />
+                              ),
+                      }
+                    : undefined
+            }
         />
     )
 }

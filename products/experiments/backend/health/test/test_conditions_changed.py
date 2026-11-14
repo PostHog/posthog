@@ -19,6 +19,8 @@ from products.experiments.backend.health.checks.conditions_changed import (
     release_conditions_changed_mid_run,
     release_conditions_changed_rows,
 )
+from products.experiments.backend.health.checks.flag_change_findings import MAX_SAVED_CONDITIONS_LENGTH
+from products.experiments.backend.health.condition_changes import conditions_change_from_activity
 from products.experiments.backend.health.context import (
     ChangeWindow,
     ConditionSetTraffic,
@@ -98,6 +100,52 @@ def _before_exposure(ctx: HealthContext) -> HealthContext:
     history = ctx.flag_history
     assert isinstance(history, FlagHistory)
     return replace(ctx, flag_history=replace(history, counted_since=None))
+
+
+def _saved_context(*conditions: list[dict[str, Any]], flag_aggregation: int | None = None) -> HealthContext:
+    changes = []
+    for index, (before, after) in enumerate(zip(conditions, conditions[1:])):
+        change = conditions_change_from_activity(
+            changed_at=FIRST_CHANGE_AT + timedelta(minutes=17 * index),
+            job_type=None,
+            before_groups=before,
+            after_groups=after,
+            before_aggregation=flag_aggregation,
+            after_aggregation=flag_aggregation,
+            before_variants=EVEN,
+            after_variants=EVEN,
+        )
+        assert change is not None
+        changes.append(change)
+    return replace(
+        RUNNING_CONTEXT,
+        flag=parse_flag_state(
+            active=True,
+            deleted=False,
+            groups=conditions[-1],
+            variants=EVEN,
+            aggregation_group_type_index=flag_aggregation,
+        ),
+        flag_history=flag_history(changes, start_date=LAUNCHED_AT),
+    )
+
+
+def _saved(groups: list[dict[str, Any]], flag_aggregation: int | None = None) -> dict[str, Any]:
+    return {"groups": groups, "aggregation_group_type_index": flag_aggregation}
+
+
+def _emails(prefix: str) -> dict[str, Any]:
+    # Each condition takes about 40% of the size limit, so the latest change's two sides fit and nothing else does.
+    emails = [f"{prefix}-{index}@example.com" for index in range(MAX_SAVED_CONDITIONS_LENGTH // 60)]
+    return {"properties": [{"key": "email", "value": emails, "operator": "exact", "type": "person"}]}
+
+
+def _filter(**changed: Any) -> dict[str, Any]:
+    return {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person", **changed}]}
+
+
+def _group_filter(group_type_index: int) -> dict[str, Any]:
+    return _filter(type="group", group_type_index=group_type_index)
 
 
 def _traffic(people_by_set: dict[int, int]) -> ConditionSetTraffic:
@@ -542,4 +590,60 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                     "Set 1: 100%, filters on plan\nSet 2: 50%",
                 )
             ],
+        )
+
+    @parameterized.expand(
+        [
+            ("a_filter_value", [_filter()], [_filter(value=["team"])], None),
+            ("an_operator", [_filter()], [_filter(operator="is_not")], None),
+            ("the_type_of_a_filter_with_the_same_key", [_filter()], [_filter(type="event")], None),
+            ("the_group_type_of_a_group_filter", [_group_filter(0)], [_group_filter(1)], 0),
+            (
+                "one_cohort_for_another",
+                [{"properties": [{"key": "id", "value": 12, "type": "cohort"}]}],
+                [{"properties": [{"key": "id", "value": 34, "type": "cohort"}]}],
+                None,
+            ),
+            (
+                "the_value_of_a_flag_dependency",
+                [{"properties": [{"key": "41", "value": True, "operator": "flag_evaluates_to", "type": "flag"}]}],
+                [{"properties": [{"key": "41", "value": False, "operator": "flag_evaluates_to", "type": "flag"}]}],
+                None,
+            ),
+            (
+                "the_group_type_of_a_set_in_a_flag_that_mixes_group_types",
+                [{**EVERYONE, "aggregation_group_type_index": 0}, EVERYONE],
+                [{**EVERYONE, "aggregation_group_type_index": 1}, EVERYONE],
+                None,
+            ),
+        ]
+    )
+    def test_lists_each_change_with_the_conditions_as_saved(
+        self,
+        _name: str,
+        before: list[dict[str, Any]],
+        after: list[dict[str, Any]],
+        flag_aggregation: int | None,
+    ) -> None:
+        rows = release_conditions_changed_rows(_saved_context(before, after, flag_aggregation=flag_aggregation))
+
+        self.assertEqual(
+            [
+                (row[ExperimentHealthValueKey.BEFORE_FILTERS], row[ExperimentHealthValueKey.AFTER_FILTERS])
+                for row in rows
+            ],
+            [(_saved(before, flag_aggregation), _saved(after, flag_aggregation))],
+        )
+
+    def test_leaves_out_the_saved_conditions_of_earlier_changes_past_the_size_limit(self) -> None:
+        first, second = [_emails("first")], [_emails("second")]
+
+        rows = release_conditions_changed_rows(_saved_context([PRO], first, second))
+
+        self.assertEqual(
+            [
+                (row[ExperimentHealthValueKey.BEFORE_FILTERS], row[ExperimentHealthValueKey.AFTER_FILTERS])
+                for row in rows
+            ],
+            [(None, None), (_saved(first), _saved(second))],
         )
