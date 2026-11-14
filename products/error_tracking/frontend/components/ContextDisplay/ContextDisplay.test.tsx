@@ -65,4 +65,41 @@ describe('ContextDisplay', () => {
             }),
         ])
     })
+
+    it.each([
+        { propertyNameFilter: '', expand: true },
+        { propertyNameFilter: 'job', expand: false },
+    ])(
+        'lists SDK $ properties that no built-in row or internal key covers (filter: "$propertyNameFilter")',
+        ({ propertyNameFilter, expand }) => {
+            render(
+                <Provider>
+                    <ContextDisplay
+                        loading={false}
+                        properties={{
+                            $job_class: 'SendEmailJob',
+                            $browser: 'Chrome',
+                            $browser_version: '120',
+                            $exception_types: ['TypeError'],
+                            plan: 'free',
+                        }}
+                        additionalProperties={{ plan: 'free' }}
+                        propertyNameFilter={propertyNameFilter}
+                    />
+                </Provider>
+            )
+
+            if (expand) {
+                expect(screen.queryByText('SendEmailJob')).not.toBeInTheDocument()
+                fireEvent.click(screen.getByText('PostHog properties (1)'))
+            }
+
+            const section = within(screen.getByText(/PostHog properties/).closest('section')!)
+            expect(section.getByText('$job_class')).toBeInTheDocument()
+            expect(section.getByText('SendEmailJob')).toBeInTheDocument()
+            for (const hiddenKey of ['$browser', '$browser_version', '$exception_types', 'plan']) {
+                expect(section.queryByText(hiddenKey)).not.toBeInTheDocument()
+            }
+        }
+    )
 })
