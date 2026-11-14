@@ -32,11 +32,13 @@ const commentsListSchema = z.object({
     limit: z.number().int().min(1).max(100).default(50).describe('Maximum root comments to return. Defaults to 50.'),
     cursor: z.string().min(1).max(256).optional().describe('Opaque cursor returned by a previous call.'),
 })
+// Comment ids are UUIDTs, whose version and variant digits do not follow RFC 4122,
+// so `z.uuid()` rejects them. `z.guid()` accepts any 8-4-4-4-12 hex string.
 const commentsRetrieveSchema = z.object({
-    root_comment_id: z.string().uuid().describe('Root comment id returned by tasks-comments-list.'),
+    root_comment_id: z.guid().describe('Root comment id returned by tasks-comments-list.'),
     limit: z.number().int().min(1).max(100).default(50).describe('Maximum comments to return. Defaults to 50.'),
     cursor: z.string().min(1).max(256).optional().describe('Opaque cursor returned by a previous call.'),
-    comment_id: z.string().uuid().optional().describe('Comment id whose truncated body should continue.'),
+    comment_id: z.guid().optional().describe('Comment id whose truncated body should continue.'),
     content_offset: z
         .number()
         .int()
