@@ -270,6 +270,8 @@ def build_insight_alert_url_config(
     else:
         label = f"Webhook {url_hostname(url)}"
         inputs = {"url": {"value": url}, "body": {"value": _WEBHOOK_BODY}}
+        if headers := data.get("webhook_headers"):
+            inputs["headers"] = {"value": headers}
     spec = DESTINATION_SPECS[destination_type]
     return AlertDestinationConfig(
         payload={

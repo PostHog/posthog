@@ -307,7 +307,7 @@ class WebhookDestination(_WebhookUrlDestination):
         return {
             "body": {"value": event_kind_spec.webhook_body},
             "url": {"value": data["webhook_url"]},
-            "headers": {"value": WEBHOOK_HEADERS},
+            "headers": {"value": {**WEBHOOK_HEADERS, **data.get("webhook_headers", {})}},
         }
 
 

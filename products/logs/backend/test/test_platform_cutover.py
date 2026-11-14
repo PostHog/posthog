@@ -91,7 +91,11 @@ def sync_destination_templates() -> None:
             "description": "Generic webhook template",
             "code": "return event",
             "code_language": "hog",
-            "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+            "inputs_schema": [
+                {"key": "url", "type": "string"},
+                {"key": "body", "type": "json"},
+                {"key": "headers", "type": "dictionary"},
+            ],
             "type": "destination",
             "status": "stable",
         },
@@ -295,10 +299,15 @@ class TestPlatformCutover(APIBaseTest):
         return result.skipped
 
     def _platform_destination(
-        self, alert: LogsAlertConfiguration, destination_type: DestinationType, *, retired_hog_functions: bool = False
+        self,
+        alert: LogsAlertConfiguration,
+        destination_type: DestinationType,
+        *,
+        retired_hog_functions: bool = False,
+        fields: dict[str, Any] | None = None,
     ) -> UUID:
         sync_destination_templates()
-        data = cast(AlertDestinationData, {"type": destination_type, **DESTINATION_DATA[destination_type]})
+        data = cast(AlertDestinationData, {"type": destination_type, **(fields or DESTINATION_DATA[destination_type])})
         hog_function_ids: tuple[UUID, ...] = ()
         if retired_hog_functions:
             hog_function_ids = create_alert_destination_hog_functions(
@@ -337,19 +346,32 @@ class TestPlatformCutover(APIBaseTest):
     @parameterized.expand(
         [
             *(
-                (f"{t}_row_only", t, False)
+                (f"{t}_row_only", t, False, DESTINATION_DATA[t])
                 for t in (DestinationType.SLACK, DestinationType.WEBHOOK, DestinationType.TEAMS)
             ),
-            ("pagerduty_row_only", DestinationType.PAGERDUTY, False),
-            ("pagerduty_retired_hog_functions", DestinationType.PAGERDUTY, True),
-            ("slack_retired_hog_functions", DestinationType.SLACK, True),
+            (
+                "webhook_with_added_headers",
+                DestinationType.WEBHOOK,
+                False,
+                {**DESTINATION_DATA[DestinationType.WEBHOOK], "webhook_headers": {"Authorization": "Bearer fake"}},
+            ),
+            ("pagerduty_row_only", DestinationType.PAGERDUTY, False, DESTINATION_DATA[DestinationType.PAGERDUTY]),
+            (
+                "pagerduty_retired_hog_functions",
+                DestinationType.PAGERDUTY,
+                True,
+                DESTINATION_DATA[DestinationType.PAGERDUTY],
+            ),
+            ("slack_retired_hog_functions", DestinationType.SLACK, True, DESTINATION_DATA[DestinationType.SLACK]),
         ]
     )
     def test_rolling_back_gives_a_platform_only_destination_its_hog_functions(
-        self, _name: str, destination_type: DestinationType, retired_hog_functions: bool
+        self, _name: str, destination_type: DestinationType, retired_hog_functions: bool, fields: dict[str, Any]
     ) -> None:
         alert = self._moved()
-        row_id = self._platform_destination(alert, destination_type, retired_hog_functions=retired_hog_functions)
+        row_id = self._platform_destination(
+            alert, destination_type, retired_hog_functions=retired_hog_functions, fields=fields
+        )
         retired = set(HogFunction.objects.filter(team=self.team, deleted=True).values_list("id", flat=True))
 
         assert self._rolled_back(alert, NOW + timedelta(days=8)) is None
@@ -357,10 +379,7 @@ class TestPlatformCutover(APIBaseTest):
         (group,) = list_alert_destination_groups(
             team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
         )
-        assert {key: group.data.get(key) for key in ("type", *DESTINATION_DATA[destination_type])} == {
-            "type": destination_type,
-            **DESTINATION_DATA[destination_type],
-        }
+        assert {key: group.data.get(key) for key in ("type", *fields)} == {"type": destination_type, **fields}
         rebuilt = HogFunction.objects.filter(id__in=group.hog_function_ids)
         assert sorted(
             event["id"] for function in rebuilt for event in (function.filters or {}).get("events", [])

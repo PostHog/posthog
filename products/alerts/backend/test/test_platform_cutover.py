@@ -53,7 +53,11 @@ def sync_destination_templates() -> None:
             "description": "Generic webhook template",
             "code": "return event",
             "code_language": "hog",
-            "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+            "inputs_schema": [
+                {"key": "url", "type": "string"},
+                {"key": "body", "type": "json"},
+                {"key": "headers", "type": "dictionary"},
+            ],
             "type": "destination",
             "status": "stable",
         },
@@ -300,6 +304,10 @@ class TestInsightPlatformCutover(APIBaseTest):
         [
             (DestinationType.SLACK, {"slack_workspace_id": 1, "slack_channel_id": "C-1"}),
             (DestinationType.WEBHOOK, {"webhook_url": "https://hooks.example.com/hook"}),
+            (
+                DestinationType.WEBHOOK,
+                {"webhook_url": "https://hooks.example.com/hook", "webhook_headers": {"Authorization": "Bearer fake"}},
+            ),
             (DestinationType.DISCORD, {"webhook_url": "https://discord.com/api/webhooks/1/secret"}),
             (
                 DestinationType.TEAMS,
