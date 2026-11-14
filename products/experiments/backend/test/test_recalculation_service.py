@@ -152,7 +152,7 @@ class TestRecalculationService(BaseTest):
             ("manual_retry_inside_window_starts_new", "manual_retry", "completed", "manual", 2, True),
         ]
     )
-    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    @patch("products.experiments.backend.organization_flags.feature_enabled_or_false", return_value=True)
     def test_request_recalculation_user_refresh_window(
         self,
         name: str,
@@ -222,7 +222,7 @@ class TestRecalculationService(BaseTest):
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == (2 if expects_new_run else 1)
 
     @override_settings(DEBUG=True, TEST=False)
-    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    @patch("products.experiments.backend.organization_flags.feature_enabled_or_false", return_value=True)
     def test_request_recalculation_skips_the_refresh_window_in_local_development(self, _mock_flag):
         exp = self._launched_experiment(flag_key="window-debug")
         ExperimentMetricsRecalculation.objects.create(
@@ -239,7 +239,7 @@ class TestRecalculationService(BaseTest):
         assert result["is_existing"] is False
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
 
-    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=False)
+    @patch("products.experiments.backend.organization_flags.feature_enabled_or_false", return_value=False)
     def test_request_recalculation_skips_the_refresh_window_when_the_flag_is_off(self, _mock_flag):
         exp = self._launched_experiment(flag_key="window-flag-off")
         ExperimentMetricsRecalculation.objects.create(
@@ -325,7 +325,9 @@ class TestRecalculationService(BaseTest):
             )
 
         with (
-            patch("products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag),
+            patch(
+                "products.experiments.backend.organization_flags.feature_enabled_or_false", side_effect=evaluate_flag
+            ),
             patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
             patch(f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_not_found())),
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,

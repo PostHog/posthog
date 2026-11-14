@@ -11,7 +11,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
-from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -26,7 +25,6 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -52,7 +50,6 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.recalculation import _activity_task_queue, recalculation_clickhouse_user
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     CAPACITY_RETRY_BACKOFF_COEFFICIENT,
@@ -70,6 +67,12 @@ from products.experiments.backend.temporal.models import (
     MetricOutOfTimeFailure,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
+)
+from products.experiments.backend.temporal.recalculation.routing import (
+    _activity_task_queue,
+    _calc_route,
+    _CalcRoute,
+    recalculation_clickhouse_user,
 )
 from products.experiments.stats.shared.statistics import StatisticError
 
@@ -126,48 +129,6 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
         metric_uuids=row["metric_uuids"] or [],
         query_to=row["query_to"],
         trigger=row["trigger"],
-    )
-
-
-@frozen
-class _CalcRoute:
-    """The queue and precompute mode of one metric's calc activity, for a run on the activity queue flag."""
-
-    task_queue: str
-    precomputation_mode: PrecomputationMode | None
-
-
-def _calc_route(
-    experiment: Experiment, team_experiments_config: TeamExperimentsConfig, definition: dict[str, Any]
-) -> _CalcRoute:
-    """
-    A metric that can read precomputed exposures and metric events goes to the precompute queue in the AUTO
-    mode, and the runner checks the gates again when it calculates. The route does not use
-    PrecomputationMode.PRECOMPUTED, which is reserved for staff tools, so for now the check runs twice. Any other
-    metric goes to the activity queue and scans directly, so it never starts a precompute build there.
-    """
-    try:
-        runner = ExperimentQueryRunner(
-            query=ExperimentQuery(experiment_id=experiment.id, metric=build_metric(definition)),
-            team=experiment.team,
-            experiment=experiment,
-            team_experiments_config=team_experiments_config,
-            bypass_warehouse_access_control=True,
-            user_facing=False,
-            error_event_context=None,
-        )
-        reads_precomputed = runner._exposures_precompute_applicable() and runner._metric_events_precompute_applicable()
-    except Exception as e:
-        # The AUTO mode is what every run used before this routing, so a failed check falls back to it. Report
-        # it, because a broken check sends every metric to the precompute queue.
-        capture_exception(e, additional_properties={"tag": "experiment_recalculation_route_failed"})
-        reads_precomputed = True
-
-    if reads_precomputed:
-        return _CalcRoute(task_queue=settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE, precomputation_mode=None)
-    return _CalcRoute(
-        task_queue=settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
-        precomputation_mode=PrecomputationMode.DIRECT,
     )
 
 

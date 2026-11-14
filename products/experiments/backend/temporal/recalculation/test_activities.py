@@ -276,12 +276,12 @@ class TestRecalculationActivities(BaseTest):
 
         with (
             patch(
-                "products.experiments.backend.recalculation._organization_flag_enabled",
+                "products.experiments.backend.temporal.recalculation.routing.organization_flag_enabled",
                 return_value=flag == "on",
                 side_effect=Exception("flags down") if flag == "error" else None,
             ),
             patch(
-                "products.experiments.backend.temporal.recalculation.logic.ExperimentQueryRunner",
+                "products.experiments.backend.temporal.recalculation.routing.ExperimentQueryRunner",
                 side_effect=Exception("boom") if route_check_fails else ExperimentQueryRunner,
             ) as runner,
             patch(
