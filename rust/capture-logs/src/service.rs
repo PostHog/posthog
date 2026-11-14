@@ -436,14 +436,21 @@ pub fn check_metrics_expansion(
                 resource_metrics.resource.as_ref(),
             ));
         for scope_metrics in &resource_metrics.scope_metrics {
+            let scope_bytes = scope_metrics.scope.as_ref().map_or(0, |scope| {
+                scope
+                    .name
+                    .len()
+                    .saturating_add(scope.version.len())
+                    .saturating_add(1)
+            });
             for metric in &scope_metrics.metrics {
+                let row_bytes = resource_bytes
+                    .saturating_add(metric.name.len())
+                    .saturating_add(metric.unit.len())
+                    .saturating_add(scope_bytes);
                 // flatten_metric converts the resource even for a metric with no data points.
                 expanded_bytes = expanded_bytes
-                    .saturating_add(
-                        data_point_count(metric)
-                            .max(1)
-                            .saturating_mul(resource_bytes),
-                    )
+                    .saturating_add(data_point_count(metric).max(1).saturating_mul(row_bytes))
                     .saturating_add(metric.encoded_len());
                 if expanded_bytes > limit {
                     return Err(expansion_rejection(limit));
@@ -1090,14 +1097,48 @@ mod tests {
     }
 
     #[test]
-    fn check_metrics_expansion_charges_the_resource_per_data_point() {
-        const LIMIT: usize = 64 * 1024 * 1024;
-        let big_resource = 1024 * 1024;
+    fn check_metrics_expansion_charges_shared_fields_per_data_point() {
+        use opentelemetry_proto::tonic::common::v1::InstrumentationScope;
 
-        assert!(check_metrics_expansion(&metrics_request(big_resource, 10), LIMIT).is_ok());
+        const LIMIT: usize = 64 * 1024 * 1024;
+        const LARGE_FIELD: usize = 1024 * 1024;
+
         assert!(check_metrics_expansion(&metrics_request(64, 10_000), LIMIT).is_ok());
 
-        let err = check_metrics_expansion(&metrics_request(big_resource, 100), LIMIT).unwrap_err();
-        assert_eq!(err.0, StatusCode::PAYLOAD_TOO_LARGE);
+        for field in ["resource", "name", "unit", "scope_name", "scope_version"] {
+            for data_points in [10, 100] {
+                let resource_bytes = if field == "resource" { LARGE_FIELD } else { 64 };
+                let mut request = metrics_request(resource_bytes, data_points);
+                let scope_metrics = &mut request.resource_metrics[0].scope_metrics[0];
+                match field {
+                    "name" => scope_metrics.metrics[0].name = "m".repeat(LARGE_FIELD),
+                    "unit" => scope_metrics.metrics[0].unit = "u".repeat(LARGE_FIELD),
+                    "scope_name" => {
+                        scope_metrics.scope = Some(InstrumentationScope {
+                            name: "s".repeat(LARGE_FIELD),
+                            ..Default::default()
+                        });
+                    }
+                    "scope_version" => {
+                        scope_metrics.scope = Some(InstrumentationScope {
+                            version: "v".repeat(LARGE_FIELD),
+                            ..Default::default()
+                        });
+                    }
+                    _ => {}
+                }
+
+                let result = check_metrics_expansion(&request, LIMIT);
+                if data_points == 10 {
+                    assert!(result.is_ok(), "{field}");
+                } else {
+                    assert_eq!(
+                        result.unwrap_err().0,
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "{field}"
+                    );
+                }
+            }
+        }
     }
 }
