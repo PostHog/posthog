@@ -562,7 +562,7 @@ class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
             for row in self.rows.order_by("identifier")
         ] == [("known@example.com", 1, True, True), ("new@example.com", 1, True, True)]
 
-    def test_import_skips_a_page_a_bounce_write_holds_through_every_retry_and_finishes_the_rest(self):
+    def test_import_reports_failure_for_a_page_a_bounce_write_holds_through_every_retry_and_finishes_the_rest(self):
         self.rows.create(
             team=self.team, identifier="known@example.com", source=SuppressionSource.MANUAL, suppressed=True
         )
@@ -580,7 +580,15 @@ class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
                 )
                 progress = self._start_import(executor).result(timeout=10)
 
-        assert (progress["status"], progress["suppressions_imported"], len(progress["errors"])) == ("completed", 0, 1)
+        assert (progress["status"], progress["suppressions_imported"], progress["globally_unsubscribed_count"]) == (
+            "failed",
+            0,
+            1,
+        )
+        assert progress["errors"] == [
+            "Couldn't import part of the Customer.io bounces list because bounce feedback was updating some of the "
+            "same addresses. Run the import again to add them."
+        ]
         assert [
             (row.identifier, row.transient_bounce_count, row.hard_bounced_at is None)
             for row in self.rows.order_by("identifier")

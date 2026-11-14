@@ -80,6 +80,7 @@ class CustomerIOImportService:
         self.topic_mapping: dict[str, str] = {}  # Maps Customer.io topic IDs to PostHog MessageCategory IDs
         self.topic_names: dict[str, str] = {}  # Maps topic IDs to their display names
         self.all_processed_users: set[str] = set()  # Track ALL unique users across API and CSV
+        self.skipped_suppression_pages = False
         self.progress: dict[str, Any] = {
             "status": "initializing",
             "topics_found": 0,
@@ -152,7 +153,7 @@ class CustomerIOImportService:
             # Step 4: Process globally unsubscribed users
             self._process_globally_unsubscribed_users()
 
-            self.progress["status"] = "completed"
+            self.progress["status"] = "failed" if self.skipped_suppression_pages else "completed"
 
         except Exception as e:
             self.progress["status"] = "failed"
@@ -508,6 +509,7 @@ class CustomerIOImportService:
                 except OperationalError as e:
                     if not isinstance(e.__cause__, LockNotAvailable):
                         raise
+                    self.skipped_suppression_pages = True
                     self.progress["errors"].append(
                         f"Couldn't import part of the Customer.io {suppression_type} list because bounce feedback was "
                         "updating some of the same addresses. Run the import again to add them."
