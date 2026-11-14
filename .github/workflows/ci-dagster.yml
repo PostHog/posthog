@@ -74,7 +74,7 @@ jobs:
     # actually import — prevents silent drift where a new import slips in
     # without a matching filter entry.
     validate-paths:
-        # Push and schedule runs bypass the path filter and run the full suite.
+        # Schedules run the full suite; pushes rely on merge-queue coverage.
         # PRs, including the merge queue, validate coverage before changes land.
         if: github.event_name == 'pull_request'
         runs-on: ubuntu-24.04
