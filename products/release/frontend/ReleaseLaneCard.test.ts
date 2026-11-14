@@ -23,6 +23,15 @@ function flagLane(active: boolean, audience: { percent: number | null; who: stri
     return { kind: 'flag', title: 'quiet-theme', status: active ? 'Live' : 'Off', flag: { active }, audience } as Lane
 }
 
+const experiment = (from: string): ReleaseSpan => ({
+    key: 'e1',
+    kind: 'experiment',
+    from,
+    to: '2026-11-14T12:00:00Z',
+    label: 'Experiment running',
+    href: '/experiments/1',
+})
+
 const step = (from: string, to: string, label: string, upcoming = false): RolloutStep =>
     ({ from, to, label, percent: 0, upcoming }) as RolloutStep
 
@@ -78,6 +87,24 @@ describe('laneCardFacts', () => {
             [
                 ['Started', '1 Nov, 13 days ago'],
                 ['Ended', '10 Nov, after 9 days'],
+            ],
+        ],
+        [
+            'an experiment a day short of two weeks still points to its results date',
+            { span: experiment('2026-11-01T12:00:00Z') },
+            [
+                ['Progress', 'Day 14 of 14'],
+                ['Started', '1 Nov, 13 days ago'],
+                ['Results', 'Around 15 Nov'],
+            ],
+        ],
+        [
+            'an experiment with two full weeks is ready to read',
+            { span: experiment('2026-10-31T12:00:00Z') },
+            [
+                ['Progress', 'Day 14 of 14'],
+                ['Started', '31 Oct, 14 days ago'],
+                ['Results', 'Ready to read'],
             ],
         ],
         [

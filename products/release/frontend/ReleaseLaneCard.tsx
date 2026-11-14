@@ -79,13 +79,13 @@ function experimentFacts(span: ReleaseSpan): Fact[] {
     if (span.label === 'Experiment paused') {
         return [['Progress', 'Paused'], started(span.from)]
     }
-    const count = between(span.from) + 1
+    const elapsed = between(span.from)
     return [
-        ['Progress', `Day ${count} of ${REVIEW_AFTER_DAYS}`],
+        ['Progress', `Day ${Math.min(elapsed + 1, REVIEW_AFTER_DAYS)} of ${REVIEW_AFTER_DAYS}`],
         started(span.from),
         [
             'Results',
-            count >= REVIEW_AFTER_DAYS
+            elapsed >= REVIEW_AFTER_DAYS
                 ? 'Ready to read'
                 : `Around ${day(dayjs(span.from).add(REVIEW_AFTER_DAYS, 'day').toISOString())}`,
         ],
