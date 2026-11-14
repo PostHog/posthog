@@ -573,6 +573,13 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             'FILTER (WHERE (CAST("f"."is_active" AS INTEGER) != 0))',
         ),
         ("SELECT sumIf(id, flagged.score = 1) FROM flagged", 'FILTER (WHERE ("flagged"."score" = 1))'),
+        # A view over another view still holds the boolean expression from the innermost body.
+        ("SELECT is_active = 1 FROM rollup", '(CAST("rollup"."is_active" AS INTEGER) = 1)'),
+        ("SELECT any_active = 1 FROM rollup", '(CAST("rollup"."any_active" AS INTEGER) = 1)'),
+        ("SELECT max(is_active) = 1 FROM flagged", '(CAST(max("flagged"."is_active") AS INTEGER) = 1)'),
+        ("SELECT x = 1 FROM (SELECT argMax(is_active, id) AS x FROM flagged)", '(CAST("x" AS INTEGER) = 1)'),
+        ("WITH c AS (SELECT min(is_active) AS x FROM flagged) SELECT x = 1 FROM c", '(CAST("c"."x" AS INTEGER) = 1)'),
+        ("SELECT max(score) = 1 FROM flagged", '(max("flagged"."score") = 1)'),
     ],
 )
 def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
@@ -590,6 +597,21 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
                     "id": IntegerDatabaseField(name="id"),
                     "is_active": IntegerDatabaseField(name="is_active"),
                     "score": IntegerDatabaseField(name="score"),
+                },
+            ),
+        )
+    )
+    context.database.tables.add_child(
+        TableNode(
+            name="rollup",
+            table=SavedQuery(
+                id="rollup",
+                name="rollup",
+                query="SELECT id, is_active, max(is_active) AS any_active FROM flagged GROUP BY id, is_active",
+                fields={
+                    "id": IntegerDatabaseField(name="id"),
+                    "is_active": IntegerDatabaseField(name="is_active"),
+                    "any_active": IntegerDatabaseField(name="any_active"),
                 },
             ),
         )
@@ -848,6 +870,62 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "TRY_CAST(truncate(",
         ),
         ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(CAST(", "__hogql_accurate_cast_value"),
+        # Trino rejects SELECT DISTINCT ordered by an unselected expression, so each distinct row keeps its first match.
+        (
+            "SELECT DISTINCT user_id FROM users ORDER BY created_at DESC",
+            'row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC)',
+            "DISTINCT",
+        ),
+        # Trino rejects an aggregate inside a lambda, so the aggregate is computed outside and passed in.
+        (
+            "SELECT groupArray(id) AS ids, arrayMap(i -> ids[i], range(1, 3)) AS r FROM users",
+            'element_at(transform(ARRAY[ROW(array_agg("users"."id"))], __hogql_aggregates_0 -> transform(',
+            '"i" -> element_at(array_agg(',
+        ),
+        (
+            "SELECT arrayFilter(x -> x > avg(id), groupArray(id)) FROM users",
+            "__hogql_aggregates_0 -> filter(__hogql_aggregates_0[2], ",
+            '"x" -> ("x" > avg(',
+        ),
+        # Trino has no sum() or avg() over varchar, so property and text values are summed as numbers.
+        (
+            "SELECT sumIf(properties.amount, id > 0) FROM users",
+            'sum(CAST(json_extract_scalar("users"."properties", \'$["amount"]\') AS DOUBLE)) FILTER',
+            "sum(json_extract_scalar(",
+        ),
+        (
+            "SELECT avg(properties.amount) FROM users",
+            'avg(CAST(json_extract_scalar("users"."properties", \'$["amount"]\') AS DOUBLE))',
+            "avg(json_extract_scalar(",
+        ),
+        ("SELECT avgIf(user_id, id > 0) FROM users", 'avg(TRY_CAST("users"."user_id" AS DOUBLE)) FILTER', 'avg("users'),
+        (
+            "SELECT sum(coalesce(properties.amount, 0)) FROM users",
+            "sum(TRY_CAST(coalesce(json_extract_scalar(",
+            "sum(coalesce(",
+        ),
+        # ClickHouse filters on any non-zero number, but a Trino filter clause must be a boolean.
+        ("SELECT user_id FROM users WHERE id % 2", 'WHERE CAST(MOD("users"."id", 2) AS BOOLEAN)', "WHERE MOD("),
+        (
+            "SELECT user_id FROM users PREWHERE length(user_id)",
+            'WHERE CAST(length("users"."user_id") AS BOOLEAN)',
+            "WHERE length(",
+        ),
+        (
+            "SELECT user_id FROM users GROUP BY user_id HAVING count()",
+            "HAVING CAST(count(*) AS BOOLEAN)",
+            "HAVING count(*)",
+        ),
+        (
+            "SELECT users.id FROM users JOIN users AS other ON position(other.user_id, users.user_id)",
+            'ON CAST(strpos("other"."user_id", "users"."user_id") AS BOOLEAN)',
+            "ON strpos(",
+        ),
+        (
+            "SELECT user_id FROM users QUALIFY row_number() OVER (PARTITION BY user_id ORDER BY id) - 1",
+            'WHERE CAST("__hogql_trino_source_0"."__hogql_qualify_0" AS BOOLEAN)',
+            'WHERE "__hogql_trino_source_0"',
+        ),
     ],
 )
 def test_lowers_clickhouse_semantics_trino_rejects(query: str, required: str, forbidden: str) -> None:
@@ -1567,6 +1645,28 @@ def test_lowers_limit_by_to_row_number_wrapper() -> None:
     assert "LIMIT 2 BY" not in sql
 
 
+@pytest.mark.parametrize("query", ["SELECT account_id FROM latest", "SELECT * FROM latest"])
+def test_lowers_limit_by_inside_a_saved_view(query: str) -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="latest",
+            table=SavedQuery(
+                id="latest",
+                name="latest",
+                query="SELECT user_id AS account_id FROM users ORDER BY created_at DESC LIMIT 1 BY user_id",
+                fields={"account_id": StringDatabaseField(name="account_id")},
+            ),
+        )
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert 'WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 1)' in sql
+    assert sql.startswith('SELECT "latest"."account_id" FROM (SELECT "__hogql_trino_source_0"."account_id" FROM')
+
+
 def test_lowers_qualify_alias_to_outer_filter() -> None:
     context = _context_with_trino_table()
 
@@ -1885,10 +1985,60 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "SELECT 1 AS first, 2 AS second UNION ALL BY NAME SELECT 2 AS second, 1 AS first",
             [(1, 2), (1, 2)],
         ),
+        (
+            "WITH rows AS (SELECT 3 AS id, 'a' AS name UNION ALL SELECT 1, 'b' UNION ALL SELECT 3, 'a' "
+            "UNION ALL SELECT 2, 'c') SELECT DISTINCT name AS label FROM rows ORDER BY id DESC LIMIT 2",
+            [("a",), ("c",)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'a' UNION ALL SELECT 3, 'b') "
+            "SELECT DISTINCT name, row_number() OVER (ORDER BY id) AS position FROM rows QUALIFY position > 1 "
+            "ORDER BY id DESC",
+            [("b", 3), ("a", 2)],
+        ),
+        # ANY JOIN ON terms that read one side only filter the match; they don't need to be equality keys.
+        (
+            "WITH l AS (SELECT 1 AS k UNION ALL SELECT 2 UNION ALL SELECT 3) "
+            "SELECT l.k, r.v FROM l LEFT ANY JOIN right_view AS r ON l.k = r.k AND r.live > 0 ORDER BY l.k",
+            [(1, 20), (2, 30), (3, None)],
+        ),
+        (
+            "WITH l AS (SELECT 1 AS k UNION ALL SELECT 2) "
+            "SELECT l.k, r.v FROM l LEFT ANY JOIN right_view AS r ON equals(l.k, r.k) AND l.k > 1 ORDER BY l.k",
+            [(1, None), (2, 30)],
+        ),
+        (
+            "WITH l AS (SELECT 1 AS k, 1 AS live UNION ALL SELECT 1, 0) "
+            "SELECT l.live, r.v FROM l ANY INNER JOIN right_view AS r ON and(equals(l.k, r.k), equals(l.live, r.live)) "
+            "ORDER BY l.live",
+            [(0, 10), (1, 20)],
+        ),
+        # ClickHouse lets a projection name a part of itself, and inlining the projection must not redefine that name.
+        (
+            "WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2) "
+            "SELECT (id AS y) + 1 AS x, x * 2 AS z, sum(y) OVER () AS total FROM rows WHERE x > 2",
+            [(3, 6, 2)],
+        ),
     ],
 )
 def test_relational_rewrites_preserve_results(query: str, expected: list[tuple[object, ...]]) -> None:
     context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="right_view",
+            table=SavedQuery(
+                id="right_view",
+                name="right_view",
+                query="SELECT 1 AS k, 10 AS v, 0 AS live UNION ALL SELECT 1, 20, 1 UNION ALL SELECT 2, 30, 1",
+                fields={
+                    "k": IntegerDatabaseField(name="k"),
+                    "v": IntegerDatabaseField(name="v"),
+                    "live": IntegerDatabaseField(name="live"),
+                },
+            ),
+        )
+    )
     sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
     sql, values = convert_pyformat_placeholders(sql, context.values)
     with duckdb.connect(":memory:") as connection:
@@ -2996,7 +3146,16 @@ def test_curated_array_field_over_a_text_column_compares_as_text(structure: str,
     assert expected in sql
 
 
-def test_lowers_any_join_to_the_deduplicated_trino_persons_relation() -> None:
+@pytest.mark.parametrize(
+    "constraint",
+    [
+        "events.person_id = persons.id",
+        # The persons relation already has one row per id, so further terms can't add matches.
+        "events.person_id = persons.id AND events.properties.email = persons.properties.email",
+        "events.person_id = persons.id AND persons.is_identified",
+    ],
+)
+def test_lowers_any_join_to_the_deduplicated_trino_persons_relation(constraint: str) -> None:
     context = HogQLContext(
         database=Database(include_posthog_tables=True),
         modifiers=_trino_modifiers(),
@@ -3012,9 +3171,7 @@ def test_lowers_any_join_to_the_deduplicated_trino_persons_relation() -> None:
     )
 
     sql, _ = prepare_and_print_ast(
-        parse_select(
-            "SELECT persons.properties.email FROM events LEFT ANY JOIN persons ON events.person_id = persons.id"
-        ),
+        parse_select(f"SELECT persons.properties.email FROM events LEFT ANY JOIN persons ON {constraint}"),
         context,
         "trino",
     )
@@ -3208,18 +3365,8 @@ def test_wrapper_sort_projections_preserve_output(query: str, snapshot: Snapshot
             "SELECT user_id FROM users ORDER BY count() + 1 LIMIT 1 BY user_id",
             "TRINO_WRAPPER_ORDER_NOT_PROJECTED",
         ),
-        (
-            "SELECT DISTINCT user_id, row_number() OVER (ORDER BY user_id) AS position "
-            "FROM users QUALIFY position = 1 ORDER BY created_at",
-            "TRINO_WRAPPER_ORDER_NOT_PROJECTED",
-        ),
         ("SELECT user_id FROM users ORDER BY 2 LIMIT 1 BY user_id", "TRINO_POSITIONAL_REFERENCE_INVALID"),
         ("SELECT user_id FROM users LIMIT 1 BY 2", "TRINO_POSITIONAL_REFERENCE_INVALID"),
-        (
-            "SELECT DISTINCT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn "
-            "FROM users QUALIFY rn > 0 ORDER BY user_id = toString(true)",
-            "TRINO_WRAPPER_ORDER_NOT_PROJECTED",
-        ),
     ],
 )
 def test_wrapper_rejects_unsafe_sort_or_partition(query: str, feature_code: str) -> None:

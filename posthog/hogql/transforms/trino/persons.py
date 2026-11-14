@@ -16,7 +16,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS, PersonsTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
 TRINO_PERSONS_PDI_TABLE_NAME = "__trino_persons_pdi"
 
@@ -55,7 +55,14 @@ def _latest_rows_select(
 
     for alias, chain in table_to_add.fields_accessed.items():
         if chain and chain[0] == "last_seen_at":
-            raise QueryError("Last seen is not available for managed warehouse queries.")
+            raise TrinoLoweringError(
+                "TRINO_PERSONS_LAST_SEEN_UNAVAILABLE",
+                "persons.last_seen_at",
+                detail=(
+                    "Last seen is not available for managed warehouse queries. "
+                    "Use max(timestamp) from events, grouped by person_id, instead."
+                ),
+            )
         if chain == [group_field]:
             if alias != group_field:
                 select.append(ast.Alias(alias=alias, expr=ast.Field(chain=[group_field])))

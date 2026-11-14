@@ -35,9 +35,10 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_WINDOW_ONLY_FUNCTIONS,
 )
 from posthog.hogql.printer.trino_json import keys_and_values, keys_and_values_path, parse_keys_and_values_type
+from posthog.hogql.printer.trino_lambda_aggregates import aggregates_to_hoist
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
-from posthog.hogql.transforms.trino.expressions import constant_integer
+from posthog.hogql.transforms.trino.expressions import constant_integer, expression_key
 from posthog.hogql.transforms.trino.limits import MAX_TRINO_SQL_LENGTH
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -280,11 +281,51 @@ class _JoinByTypeFinder(TraversingVisitor):
         super().visit_join_expr(node)
 
 
+class _SelectQueryIndex(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.by_type: dict[int, ast.SelectQuery] = {}
+
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node.type is not None:
+            self.by_type[id(node.type)] = node
+        super().visit_select_query(node)
+
+
+_FIRST_ARGUMENT_TYPE_AGGREGATES = frozenset(
+    {
+        "any",
+        "anyif",
+        "anylast",
+        "anylastif",
+        "anyheavy",
+        "argmax",
+        "argmaxif",
+        "argmin",
+        "argminif",
+        "max",
+        "maxif",
+        "min",
+        "minif",
+    }
+)
+
+
 class TrinoPrinter(PostgresPrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "trino"
     DIALECT_LABEL: ClassVar[str] = "Trino"
 
     def visit(self, node: ast.AST | None) -> str:
+        hoisted = self.__dict__.get("_hoisted_aggregates")
+        if hoisted and isinstance(node, ast.Call):
+            reference = hoisted.get(expression_key(node))
+            if reference is not None:
+                return reference
         sql = super().visit(node)
         if len(sql) > MAX_TRINO_SQL_LENGTH:
             self._unsupported(
@@ -579,6 +620,10 @@ class TrinoPrinter(PostgresPrinter):
         return self.visit(node.expr)
 
     def visit_call(self, node: ast.Call) -> str:
+        hoisted = self.__dict__.setdefault("_hoisted_aggregates", {})
+        aggregates = aggregates_to_hoist(node, lambda call: expression_key(call) in hoisted)
+        if aggregates:
+            return self._visit_with_hoisted_aggregates(node, aggregates)
         name = node.name.lower()
         pattern_index = _TRINO_REGEX_PATTERN_ARGUMENTS.get(name)
         if pattern_index is not None and pattern_index < len(node.args):
@@ -977,16 +1022,12 @@ class TrinoPrinter(PostgresPrinter):
             return f"date_diff({', '.join(rendered_args)})"
         if name == "length" and node.args and isinstance(self._resolve_type(node.args[0]), ast.ArrayType):
             return self._visit_unary_function(node, "cardinality")
-        if name in {"sum", "avg"} and len(node.args) == 1 and not self._is_dynamic_property(node.args[0]):
-            arg_type = self._resolve_type(node.args[0])
-            if isinstance(arg_type, ast.StringType):
+        if (name in {"sum", "avg"} and len(node.args) == 1) or (name in {"sumif", "avgif"} and len(node.args) == 2):
+            numeric_value = self._numeric_aggregate_value(node.args[0])
+            if numeric_value is not None:
                 lowered = clone_expr(node, clear_types=False)
-                lowered.args[0] = ast.TryCast(expr=lowered.args[0], type_name="double")
-                return super().visit_call(lowered)
-            if isinstance(arg_type, ast.BooleanType):
-                lowered = clone_expr(node, clear_types=False)
-                lowered.args[0] = ast.TypeCast(expr=lowered.args[0], type_name="bigint")
-                return super().visit_call(lowered)
+                lowered.args[0] = numeric_value
+                return self.visit_call(lowered)
         if name in {"toint", "tointorzero", "tointordefault", "_touint64"} and node.args:
             arg = node.args[0]
             arg_type = self._resolve_type(arg)
@@ -1105,10 +1146,6 @@ class TrinoPrinter(PostgresPrinter):
                 f"CASE WHEN {binary_args.left} IS NULL OR {binary_args.right} IS NULL THEN NULL "
                 f"ELSE array_join(repeat({binary_args.left}, {binary_args.right}), '') END"
             )
-        if name == "sum" and len(node.args) == 1 and self._is_dynamic_property(node.args[0]):
-            lowered = clone_expr(node)
-            lowered.args = [ast.TypeCast(expr=lowered.args[0], type_name="double")]
-            return super().visit_call(lowered)
         if name in {
             "jsonextract",
             "jsonextractstring",
@@ -1335,9 +1372,34 @@ class TrinoPrinter(PostgresPrinter):
             self._unsupported("TRINO_WITH_FILL_UNSUPPORTED", "WITH FILL is not supported in Trino mode.", node)
         return super().visit_order_expr(node)
 
+    def _visit_with_hoisted_aggregates(self, node: ast.Call, aggregates: list[ast.Call]) -> str:
+        hoisted: dict[tuple[object, ...], str] = self.__dict__["_hoisted_aggregates"]
+        index = self.__dict__.get("_hoisted_aggregates_index", 0)
+        self.__dict__["_hoisted_aggregates_index"] = index + 1
+        variable = f"__hogql_aggregates_{index}"
+        values: list[str] = []
+        added: list[tuple[object, ...]] = []
+        for aggregate in aggregates:
+            key = expression_key(aggregate)
+            if key in hoisted:
+                continue
+            values.append(self.visit(aggregate))
+            hoisted[key] = f"{variable}[{len(values)}]"
+            added.append(key)
+        try:
+            body = self.visit_call(node)
+        finally:
+            for key in added:
+                del hoisted[key]
+        return f"element_at(transform(ARRAY[ROW({', '.join(values)})], {variable} -> {body}), 1)"
+
     def _visit_predicate(self, node: ast.Expr) -> str:
         rendered = self.visit(node)
         return f"CAST({rendered} AS BOOLEAN)" if self._is_numeric(node) or self._is_dynamic_property(node) else rendered
+
+    def _visit_filter_condition(self, node: ast.Expr) -> str:
+        # ClickHouse keeps rows where the condition is any non-zero number, but Trino requires a boolean.
+        return self._visit_predicate(node)
 
     def visit_and(self, node: ast.And) -> str:
         return "(" + " AND ".join(f"({self._visit_predicate(expr)})" for expr in node.exprs) + ")"
@@ -1586,6 +1648,24 @@ class TrinoPrinter(PostgresPrinter):
                 self._is_dynamic_property(arg) for arg in node.args
             ):
                 return ast.BooleanType()
+            argument_types = [self._resolve_type(arg) for arg in node.args]
+            if any(isinstance(arg_type, ast.StringType) for arg_type in argument_types) and any(
+                self._is_numeric(arg) for arg in node.args
+            ):
+                nullable = node.name.lower() == "nullif" or all(
+                    arg_type is None or arg_type.nullable for arg_type in argument_types
+                )
+                return ast.StringType(nullable=nullable)
+        if (
+            isinstance(node, ast.Call)
+            and node.name.lower() in _FIRST_ARGUMENT_TYPE_AGGREGATES
+            and node.args
+            and isinstance(node.type, ast.CallType)
+            and isinstance(node.type.return_type, ast.IntegerType)
+            and isinstance(self._resolve_type(node.args[0]), ast.BooleanType)
+        ):
+            # The resolver took the argument's integer type from a view column that holds a boolean expression.
+            return ast.BooleanType(nullable=node.type.return_type.nullable)
         if isinstance(node, ast.ArrayAccess) and isinstance(node.type, ast.UnknownType):
             # The resolver types an element read off a CTE column as unknown, though the printer can see the array.
             array_type = self._resolve_type(node.array)
@@ -1609,8 +1689,10 @@ class TrinoPrinter(PostgresPrinter):
                     # An inlined view prints its body. ClickHouse types a comparison or AND there as UInt8, so the
                     # view's saved columns record an integer, but Trino types the same expression as boolean.
                     body_type = table_type.select_query_type.resolve_column_constant_type(value_type.name, self.context)
-                    if isinstance(body_type, ast.BooleanType):
-                        return body_type
+                    if isinstance(body_type, ast.BooleanType) or self._is_boolean_column(
+                        table_type.select_query_type, value_type.name
+                    ):
+                        return ast.BooleanType(nullable=body_type.nullable)
                 select_type: ast.Type | None = None
                 if isinstance(table_type, (ast.CTETableType, ast.SelectQueryAliasType)):
                     select_type = table_type.select_query_type
@@ -1623,6 +1705,11 @@ class TrinoPrinter(PostgresPrinter):
                 if isinstance(select_type, ast.SelectQueryType):
                     column_type = select_type.columns.get(value_type.name)
                     if column_type is not None:
+                        column_constant_type = column_type.resolve_constant_type(self.context)
+                        if isinstance(column_constant_type, ast.IntegerType) and self._is_boolean_column(
+                            select_type, value_type.name
+                        ):
+                            return ast.BooleanType(nullable=column_constant_type.nullable)
                         value_type = column_type
                         continue
                 if isinstance(table_type, ast.ColumnAliasedTableType):
@@ -1652,6 +1739,30 @@ class TrinoPrinter(PostgresPrinter):
         ):
             return merged_type
         return resolved
+
+    def _is_boolean_column(self, select_type: ast.SelectQueryType | ast.SelectSetQueryType, name: str) -> bool:
+        # Column types record the resolver's view of an expression, which reads a view column as its saved integer
+        # type. The printer types the projected expression itself, so a boolean behind a view keeps its type here.
+        while isinstance(select_type, ast.SelectSetQueryType) and select_type.types:
+            select_type = select_type.types[0]
+        if not isinstance(select_type, ast.SelectQueryType) or not self.stack:
+            return False
+        root = self.stack[0]
+        cached = self.__dict__.get("_select_query_index")
+        if cached is None or cached[0] is not root:
+            index = _SelectQueryIndex()
+            index.visit(root)
+            cached = (root, index.by_type)
+            self.__dict__["_select_query_index"] = cached
+        query = cached[1].get(id(select_type))
+        if query is None or query.type is not select_type:
+            return False
+        for projection in query.select:
+            if isinstance(projection, ast.Alias) and projection.alias == name:
+                return isinstance(self._resolve_type(projection.expr), ast.BooleanType)
+            if isinstance(projection, ast.Field) and projection.chain and projection.chain[-1] == name:
+                return isinstance(self._resolve_type(projection), ast.BooleanType)
+        return False
 
     def _is_text_backed_warehouse_column(self, field_type: ast.FieldType) -> bool:
         # Curated source schemas type some JSON text columns as arrays, but the synced column is text.
@@ -1791,6 +1902,17 @@ class TrinoPrinter(PostgresPrinter):
         }:
             return self._is_integer_operand(node.left) and self._is_integer_operand(node.right)
         return False
+
+    def _numeric_aggregate_value(self, node: ast.Expr) -> ast.Expr | None:
+        # A property is typed as text, though a numeric property definition makes ClickHouse read it as a number.
+        if self._is_dynamic_property(node):
+            return ast.TypeCast(expr=node, type_name="double")
+        value_type = self._resolve_type(node)
+        if isinstance(value_type, ast.StringType):
+            return ast.TryCast(expr=node, type_name="double")
+        if isinstance(value_type, ast.BooleanType):
+            return ast.TypeCast(expr=node, type_name="bigint")
+        return None
 
     def _is_numeric(self, node: ast.Expr) -> bool:
         return isinstance(self._resolve_type(node), (ast.IntegerType, ast.FloatType, ast.DecimalType))
