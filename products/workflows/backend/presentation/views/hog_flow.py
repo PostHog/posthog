@@ -4443,9 +4443,12 @@ def _patched_sender_ids(email_patch: Any) -> list[Any]:
 def _sender_id(value: Any) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
-    # isdigit alone accepts digits such as "²" that int() rejects.
+    # isdigit alone accepts digits such as "²" that int() rejects, and int() refuses very long digit strings.
     if isinstance(value, str) and value.isascii() and value.isdigit():
-        return int(value)
+        try:
+            return int(value)
+        except ValueError:
+            return None
     # Any other shape names no sender the send path can load.
     return None
 

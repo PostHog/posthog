@@ -1170,6 +1170,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("unverified_sender_in_rotation", "rotation", "function_email", "isn't verified yet"),
             ("malformed_sender_id", "malformed", "function_email", "can't be found"),
             ("non_ascii_digit_sender_id", "non_ascii_digit", "function_email", "can't be found"),
+            ("overlong_digit_sender_id", "overlong_digits", "function_email", "can't be found"),
             ("generic_step_running_the_email_template", "unverified", "function", "isn't verified yet"),
         ]
     )
@@ -1182,6 +1183,7 @@ class TestHogFlowAPI(APIBaseTest):
             "rotation": {"integrationId": verified.id, "integrationIds": [unverified.id]},
             "malformed": {"integrationId": {"id": unverified.id}},
             "non_ascii_digit": {"integrationId": "²"},
+            "overlong_digits": {"integrationId": "9" * 5000},
         }
         hog_flow = self._email_flow(senders[case], step_type)
 
