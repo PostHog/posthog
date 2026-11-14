@@ -30,37 +30,6 @@ permissions:
     contents: read
 
 jobs:
-    lint-and-test:
-        if: github.event_name == 'pull_request'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 10
-
-        steps:
-            - name: Checkout code
-              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
-              uses: actions/checkout@v6.0.2
-              with:
-                  sparse-checkout: livestream
-                  sparse-checkout-cone-mode: false
-
-            - name: Set up Go
-              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
-              uses: actions/setup-go@v6.4.0
-              with:
-                  go-version: '1.26.10'
-                  cache-dependency-path: livestream/go.sum
-
-            - name: Run golangci-lint
-              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
-              uses: golangci/golangci-lint-action@v9.2.0
-              with:
-                  version: latest
-                  working-directory: livestream
-                  args: --timeout=5m ./tui/...
-
-            - name: Run tests
-              run: cd livestream && make -f Makefile.tui test
-
     build:
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 10

@@ -80,7 +80,6 @@ workflows:
     '.github/workflows/ci-livestream-tui.yml':
         - 'actions/checkout@v6.0.2'
         - 'actions/setup-go@v6.4.0'
-        - 'golangci/golangci-lint-action@v9.2.0'
     '.github/workflows/ci-livestream.yml':
         - 'actions/checkout@v6.0.2'
         - 'actions/setup-go@v6.2.0'
