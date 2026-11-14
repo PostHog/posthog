@@ -3106,9 +3106,19 @@ class IntegrationViewSet(
             {
                 "method": self._email_domain_setup_method(request, instance),
                 "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
+                "previous_email_providers": self._previous_email_providers(instance),
             },
             team=self.team,
         )
+
+    # The domain is already verified when this runs, so a failed lookup must not fail the request.
+    @staticmethod
+    def _previous_email_providers(instance: IntegrationRecord) -> list[str] | None:
+        try:
+            return lookup_existing_email_tools(extract_root_domain_and_host(instance.config["domain"]).root_domain)
+        except Exception as e:
+            capture_exception(e)
+            return None
 
     @staticmethod
     def _email_domain_setup_method(request: Request, instance: IntegrationRecord) -> str:

@@ -77,13 +77,26 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
             "dmarc": ["verified"],
         }
         assert not self.is_verified(sender)
+        self.world.dns.publish_txt(ROOT_DOMAIN, "v=spf1 include:sendgrid.net ~all")
+        self.world.dns.publish_txt(f"resend._domainkey.{ROOT_DOMAIN}", "p=MIGfMA0GCSqGSIb3DQEB")
 
         assert self.verify(sender).status_code == status.HTTP_200_OK
         assert self.status_body(sender)["verified"] is True
         assert self.is_verified(sender) and self.is_verified(sibling)
         assert TeamWorkflowsConfig.objects.get(team_id=self.team.id).default_email_integration_id == sender
         assert self.verified_events() == [
-            ((ANY, "email domain verified", {"method": "agent", "seconds_since_created": ANY}), {"team": ANY})
+            (
+                (
+                    ANY,
+                    "email domain verified",
+                    {
+                        "method": "agent",
+                        "seconds_since_created": ANY,
+                        "previous_email_providers": ["SendGrid", "Resend"],
+                    },
+                ),
+                {"team": ANY},
+            )
         ]
         self.reload_workers.assert_called_once_with(self.team.id, sorted([sender, sibling]))
         assert self.world.ses.writes.count("verify_domain_identity") == 3
@@ -148,6 +161,17 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
             report = EmailIntegration(Integration.objects.get(id=sender)).status(refresh=False)
 
         assert (report.check.status, report.verified) == ("verified", False)
+
+    def test_a_failed_previous_provider_lookup_still_verifies_and_reports_the_verification(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        with patch("products.workflows.backend.services.existing_email_tools.cache") as tools_cache:
+            tools_cache.get.side_effect = ConnectionError("Redis is down")
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+
+        assert self.is_verified(sender)
+        assert [call.args[2]["previous_email_providers"] for call in self.verified_events()] == [None]
 
     def test_a_browser_session_poll_reports_but_only_email_verify_records_the_verification(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
