@@ -59,12 +59,12 @@ class UpstashSource(SimpleSource[UpstashSourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Upstash",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Enter your Upstash account email and a management API key to pull your Upstash Redis databases, usage stats, teams, and vector indexes into the PostHog Data warehouse.
+            caption="""Enter your Upstash account email and a management API key to pull your Upstash Redis databases, vector and search indexes, usage stats, teams, and team members into the PostHog Data warehouse.
 
 Create a management API key in the [Upstash console](https://console.upstash.com/account/api) under **Account > Management API**. The Developer API is only available to native Upstash accounts (not Vercel or Fly.io marketplace accounts).""",
             iconPath="/static/services/upstash.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/upstash",
-            keywords=["redis", "serverless", "qstash", "vector"],
+            keywords=["redis", "serverless", "qstash", "vector", "search"],
             fields=cast(
                 list[FieldType],
                 [
