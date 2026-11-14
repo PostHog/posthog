@@ -14,25 +14,29 @@ function isEndlessLoop(node: ASTNode): boolean {
     return node.node === 'ForStatement' && (node.condition == null || isConstantTrue(node.condition))
 }
 
-function alwaysExits(node: ASTNode | null | undefined): boolean {
-    if (!node) {
-        return false
+function ifAlwaysExits(node: ASTNode): boolean {
+    if (isConstantTrue(node.expr)) {
+        return alwaysExits(node.then)
     }
-    switch (node.node) {
+    return alwaysExits(node.then) && alwaysExits(node.else_)
+}
+
+function tryCatchAlwaysExits(node: ASTNode): boolean {
+    const catchBlocks: ASTNode[] = node.catches.map(([, , block]: [string, string | null, ASTNode]) => block)
+    return (alwaysExits(node.try_stmt) && catchBlocks.every(alwaysExits)) || alwaysExits(node.finally_stmt)
+}
+
+function alwaysExits(node: ASTNode | null | undefined): boolean {
+    switch (node?.node) {
         case 'ReturnStatement':
         case 'ThrowStatement':
             return true
         case 'Block':
             return node.declarations.some(alwaysExits)
         case 'IfStatement':
-            if (isConstantTrue(node.expr)) {
-                return alwaysExits(node.then)
-            }
-            return alwaysExits(node.then) && alwaysExits(node.else_)
-        case 'TryCatchStatement': {
-            const catchBlocks: ASTNode[] = node.catches.map(([, , block]: [string, string | null, ASTNode]) => block)
-            return (alwaysExits(node.try_stmt) && catchBlocks.every(alwaysExits)) || alwaysExits(node.finally_stmt)
-        }
+            return ifAlwaysExits(node)
+        case 'TryCatchStatement':
+            return tryCatchAlwaysExits(node)
         case 'WhileStatement':
         case 'ForStatement':
             return isEndlessLoop(node)
