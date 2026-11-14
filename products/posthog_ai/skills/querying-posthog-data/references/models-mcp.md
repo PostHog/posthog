@@ -165,9 +165,9 @@ The label comes from three raw properties, strongest signal first. The `x-anthro
 ```sql
 SELECT
     properties.$virt_mcp_harness AS harness,
-    uniq(person_id) AS users,
-    round(uniq(person_id) * 100.0 / (
-        SELECT uniq(person_id) FROM events
+    uniq(distinct_id) AS users,
+    round(uniq(distinct_id) * 100.0 / (
+        SELECT uniq(distinct_id) FROM events
         WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
     ), 1) AS pct_of_users
 FROM events
@@ -176,7 +176,7 @@ GROUP BY harness
 ORDER BY users DESC
 ```
 
-The denominator is total distinct users, so per-harness shares can sum past 100% (one user may use several harnesses). Swap the aggregate for other harness cuts: `count()` for call volume, `quantile(0.95)(toFloat(properties.$mcp_duration_ms))` for latency. For `query-trends`, use `properties.$virt_mcp_harness` as a **HogQL breakdown** to get the same labels in a trends series.
+The denominator is total distinct users, so per-harness shares can sum past 100% (one user may use several harnesses). This counts distinct IDs, like the dashboard, so a person with several distinct IDs can count more than once. Swap the aggregate for other harness cuts: `count()` for call volume, `quantile(0.95)(toFloat(properties.$mcp_duration_ms))` for latency. For `query-trends`, use `properties.$virt_mcp_harness` as a **HogQL breakdown** to get the same labels in a trends series.
 
 **Tool co-occurrence** (which tool tends to run right before a given tool, within a session) — prefer `posthog:query-mcp-tool-neighbors` (`neighborDirection: before`/`after`); this SQL is the recipe behind it, for custom window logic:
 
