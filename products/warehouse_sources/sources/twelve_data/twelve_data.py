@@ -1,14 +1,24 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Session
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SortMode,
+    SourceResponse,
+    make_tracked_session,
+)
 from products.warehouse_sources.sources.twelve_data.settings import (
+    CALENDAR_LOOKAHEAD_DAYS,
+    CALENDAR_LOOKBACK_DAYS,
     ENDPOINTS,
+    MARKET_CAP_ENDPOINT,
+    MAX_CALENDAR_PAGES,
+    MAX_MARKET_CAP_PAGES_PER_SYMBOL,
     MAX_SYMBOLS,
     MAX_TIME_SERIES_PAGES_PER_SYMBOL,
     TIME_SERIES_ENDPOINT,
@@ -87,6 +97,14 @@ def _format_time_bound(value: Any) -> str:
     return str(value)
 
 
+def _format_date_bound(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)[:10]
+
+
 def _catalog_rows(session: Session, endpoint_config: TwelveDataEndpointConfig) -> Iterator[list[dict]]:
     body = _fetch(session, endpoint_config.path, dict(endpoint_config.params))
     rows = (body or {}).get(endpoint_config.data_key) or []
@@ -98,6 +116,10 @@ def _symbol_rows(session: Session, endpoint_config: TwelveDataEndpointConfig, sy
     """One-shot per-symbol endpoints (quote, profile, statistics, dividends, splits, earnings, statements)."""
     params = {"symbol": symbol, **endpoint_config.params}
     body = _fetch(session, endpoint_config.path, params)
+    return _rows_from_symbol_body(body, endpoint_config, symbol)
+
+
+def _rows_from_symbol_body(body: Any, endpoint_config: TwelveDataEndpointConfig, symbol: str) -> list[dict]:
     if not body:
         return []
 
@@ -112,6 +134,128 @@ def _symbol_rows(session: Session, endpoint_config: TwelveDataEndpointConfig, sy
     if isinstance(rows, dict):
         rows = [rows]
     return [{**row_meta, **row} for row in rows]
+
+
+def _paged_symbol_rows(
+    session: Session,
+    endpoint_config: TwelveDataEndpointConfig,
+    symbol: str,
+    start_date: str | None,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict]]:
+    """Per-symbol endpoints paged with ``page``/``outputsize`` (market cap), newest rows first."""
+    assert endpoint_config.page_size is not None
+    for page in range(1, MAX_MARKET_CAP_PAGES_PER_SYMBOL + 1):
+        params: dict[str, Any] = {
+            "symbol": symbol,
+            "outputsize": endpoint_config.page_size,
+            "page": page,
+            **endpoint_config.params,
+        }
+        if start_date:
+            params["start_date"] = start_date
+
+        rows = _rows_from_symbol_body(_fetch(session, endpoint_config.path, params), endpoint_config, symbol)
+        if rows:
+            yield rows
+        if len(rows) < endpoint_config.page_size:
+            return
+
+    logger.warning(
+        "Twelve Data: page cap reached, stopping symbol walk",
+        endpoint=endpoint_config.path,
+        symbol=symbol,
+        pages_fetched=MAX_MARKET_CAP_PAGES_PER_SYMBOL,
+    )
+
+
+def _calendar_window(today: date) -> tuple[date, date]:
+    return today - timedelta(days=CALENDAR_LOOKBACK_DAYS), today + timedelta(days=CALENDAR_LOOKAHEAD_DAYS)
+
+
+def _calendar_body_rows(body: Any, endpoint_config: TwelveDataEndpointConfig) -> list[dict]:
+    if not body:
+        return []
+    data = body.get(endpoint_config.data_key) if endpoint_config.data_key else body
+    if not endpoint_config.date_keyed:
+        return [row for row in data or [] if isinstance(row, dict)]
+    if not isinstance(data, dict):
+        return []
+    return [
+        {"date": day, **row}
+        for day, day_rows in data.items()
+        if isinstance(day_rows, list)
+        for row in day_rows
+        if isinstance(row, dict)
+    ]
+
+
+def _calendar_rows(
+    session: Session,
+    endpoint_config: TwelveDataEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[TwelveDataResumeConfig],
+    logger: FilteringBoundLogger,
+    today: date,
+) -> Iterator[list[dict]]:
+    window_start, window_end = _calendar_window(today)
+    chunk_days = endpoint_config.chunk_days or (window_end - window_start).days + 1
+
+    # Pending (start, end) windows, both inclusive, earliest last so pop() keeps date order.
+    windows: list[tuple[date, date]] = []
+    chunk_start = window_start
+    while chunk_start <= window_end:
+        chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), window_end)
+        windows.append((chunk_start, chunk_end))
+        chunk_start = chunk_end + timedelta(days=1)
+    windows.reverse()
+
+    while windows:
+        start, end = windows.pop()
+        params: dict[str, Any] = {
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            **endpoint_config.params,
+        }
+
+        if endpoint_config.page_size is None:
+            rows = _calendar_body_rows(_fetch(session, endpoint_config.path, params), endpoint_config)
+            limit = endpoint_config.record_limit
+            if limit is not None and len(rows) >= limit:
+                if start < end:
+                    middle = start + timedelta(days=(end - start).days // 2)
+                    windows.extend([(middle + timedelta(days=1), end), (start, middle)])
+                    resumable_source_manager.safe_point()
+                    continue
+                logger.warning(
+                    "Twelve Data: calendar record limit reached for a single day, rows may be missing",
+                    endpoint=endpoint_config.path,
+                    date=start.isoformat(),
+                    limit=limit,
+                )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+            continue
+
+        previous_page: list[dict] | None = None
+        for page in range(1, MAX_CALENDAR_PAGES + 1):
+            page_params = {**params, "outputsize": endpoint_config.page_size, "page": page}
+            rows = _calendar_body_rows(_fetch(session, endpoint_config.path, page_params), endpoint_config)
+            # Guards against the API ignoring `page` and returning the same rows forever.
+            if not rows or rows == previous_page:
+                resumable_source_manager.safe_point()
+                break
+            yield rows
+            if len(rows) < endpoint_config.page_size:
+                break
+            previous_page = rows
+        else:
+            logger.warning(
+                "Twelve Data: calendar page cap reached, stopping walk",
+                endpoint=endpoint_config.path,
+                pages_fetched=MAX_CALENDAR_PAGES,
+            )
 
 
 def _time_series_pages(
@@ -199,6 +343,10 @@ def twelve_data_rows(
     endpoint_config = ENDPOINTS[endpoint]
     session = _make_session(api_key)
 
+    if endpoint_config.calendar:
+        yield from _calendar_rows(session, endpoint_config, resumable_source_manager, logger, datetime.now(UTC).date())
+        return
+
     if not endpoint_config.per_symbol:
         yield from _catalog_rows(session, endpoint_config)
         return
@@ -220,11 +368,14 @@ def twelve_data_rows(
             f"current_symbol={resume_symbol}, next_end_date={resume_end_date}"
         )
 
+    incremental_start = should_use_incremental_field and db_incremental_field_last_value is not None
     start_date: str | None
-    if should_use_incremental_field and db_incremental_field_last_value is not None:
+    if incremental_start:
         start_date = _format_time_bound(db_incremental_field_last_value)
     else:
         start_date = config_start_date or None
+    # The configured start date is a time series setting; market cap only filters on its watermark.
+    market_cap_start_date = _format_date_bound(db_incremental_field_last_value) if incremental_start else None
 
     for symbol in symbols:
         if symbol in completed:
@@ -244,6 +395,8 @@ def twelve_data_rows(
                             completed_symbols=completed, current_symbol=symbol, next_end_date=next_end_date
                         )
                     )
+        elif endpoint == MARKET_CAP_ENDPOINT:
+            yield from _paged_symbol_rows(session, endpoint_config, symbol, market_cap_start_date, logger)
         else:
             rows = _symbol_rows(session, endpoint_config, symbol)
             if rows:
@@ -265,7 +418,14 @@ def twelve_data_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     endpoint_config = ENDPOINTS[endpoint]
-    is_time_series = endpoint == TIME_SERIES_ENDPOINT
+    sort_mode: SortMode | None = "asc"
+    if endpoint == TIME_SERIES_ENDPOINT:
+        # Time series history is walked newest → oldest, so the incremental watermark must only
+        # persist once the whole run completes (desc semantics), like Stripe.
+        sort_mode = "desc"
+    elif endpoint == MARKET_CAP_ENDPOINT:
+        # Each symbol is walked newest first, one symbol after another: not one ordered series.
+        sort_mode = None
 
     return SourceResponse(
         name=endpoint,
@@ -281,9 +441,7 @@ def twelve_data_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # Time series history is walked newest → oldest, so the incremental watermark must only
-        # persist once the whole run completes (desc semantics), like Stripe.
-        sort_mode="desc" if is_time_series else "asc",
+        sort_mode=sort_mode,
         partition_count=1 if endpoint_config.partition_key else None,
         partition_size=1 if endpoint_config.partition_key else None,
         partition_mode="datetime" if endpoint_config.partition_key else None,
