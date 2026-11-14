@@ -499,7 +499,7 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 return draftMaxReportsPerDay === maxReportsPerDay ? 'No changes to save' : null
             },
         ],
-        // Doubles as the save button's tooltip, in the same shape as the daily limit above. A blank
+        // The save button only renders while this is null, and the Enter path checks it too. A blank
         // name is a valid save: it means "use the default label".
         savePullRequestLabelDisabledReason: [
             (s) => [s.draftPullRequestLabel, s.pullRequestLabel],

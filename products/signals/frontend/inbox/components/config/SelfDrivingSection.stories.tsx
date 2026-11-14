@@ -182,6 +182,11 @@ export const SettingsTabPullRequestLabel: Story = {
     render: () => <SettingsCard width="wide" prLabelEnabled prLabel="agent-pr" />,
 }
 
+// The PR label turned on with no name: the row says the default label applies and Save stays hidden.
+export const SettingsTabPullRequestDefaultLabel: Story = {
+    render: () => <SettingsCard width="wide" prLabelEnabled />,
+}
+
 // Master switch off in the Settings tab: the project threshold hides. Base branches and your own threshold stay.
 export const SettingsTabDisabled: Story = {
     render: () => <SettingsCard width="wide" enabled={false} />,
