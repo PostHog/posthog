@@ -922,8 +922,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         # An in-process caller has no request to take the acting user from, so it passes
-        # `created_by` to `save()` instead.
-        validated_data["created_by"] = validated_data.get("created_by") or self.context["request"].user
+        # `created_by` to `save()` instead, or None for a function no person asked for.
+        request = self.context.get("request")
+        validated_data["created_by"] = validated_data.get("created_by") or (request.user if request else None)
 
         template_id = validated_data.get("template_id")
         if template_id:

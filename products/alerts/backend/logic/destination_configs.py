@@ -304,11 +304,15 @@ class WebhookDestination(_WebhookUrlDestination):
         *,
         slack_context_elements: tuple[str, ...],
     ) -> dict[str, Any]:
-        return {
+        inputs: dict[str, Any] = {
             "body": {"value": event_kind_spec.webhook_body},
             "url": {"value": data["webhook_url"]},
             "headers": {"value": WEBHOOK_HEADERS},
         }
+        # An added header usually holds a credential, which the template's secret input encrypts and masks.
+        if added := data.get("webhook_headers"):
+            inputs["secret_headers"] = {"value": added}
+        return inputs
 
 
 class DiscordDestination(_WebhookUrlDestination):

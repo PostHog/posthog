@@ -804,6 +804,18 @@ def list_source_destinations(
     )
 
 
+def source_destinations_without_hog_functions(*, team_id: int, public_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    """The alert's non-subscriber rows that copy no live HogFunction, which its source cannot send to."""
+    return alert_destinations.source_destinations_without_hog_functions(team_id=team_id, public_id=public_id)
+
+
+def link_source_destination(*, team_id: int, destination_id: UUID, hog_function_ids: Collection[UUID]) -> None:
+    """Records that the row copies these HogFunctions, so delivery skips it while any of them exists."""
+    alert_destinations.link_source_destination(
+        team_id=team_id, destination_id=destination_id, hog_function_ids=hog_function_ids
+    )
+
+
 def delete_source_destination_rows(
     *, team_id: int, public_id: UUID, destination_ids: Collection[UUID], hog_function_ids: Collection[UUID]
 ) -> DeletedSourceDestinations:
