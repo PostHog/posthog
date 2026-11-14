@@ -4,6 +4,7 @@ import { parse } from 'yaml'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import type { ValveTimelineEntry } from '../valves/valves'
 import { Aws, AwsError } from './aws'
 
 type Schedule = { expression: string; target: { Arn: string; RoleArn: string; Input: string } }
@@ -439,7 +440,7 @@ export class FakeCloud implements Aws {
         const status = this.options.card?.runnerStatus ?? STATUSES[exitCode] ?? 'invalid'
         const statusReason = status === 'passed' ? '' : `the card ended ${status}`
         const failoverAt = this.failovers.get(card.runId)
-        const timeline =
+        const timeline: ValveTimelineEntry[] =
             failoverAt === undefined
                 ? []
                 : [
