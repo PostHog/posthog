@@ -12,7 +12,10 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
+import { gitlabProjectsLogic } from '../../../logics/gitlabProjectsLogic'
 import type { RepositoryConfig } from '../../../types/taskTypes'
+import type { GitlabProjectOption } from '../../../utils/gitlabProjects'
+import { GitLabProjectCombobox } from './GitLabProjectCombobox'
 
 export interface RepositorySelectorProps {
     value: RepositoryConfig
@@ -24,18 +27,31 @@ const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next:
 /**
  * Compact repo/branch picker. With no GitHub integration it shows a single "Connect GitHub" chip;
  * with one or more it shows a joined [repo ▾][branch ▾] ButtonGroup (matching the posthog/code
- * composer), plus a leading integration switcher when several GitHub orgs are connected.
+ * composer), plus a leading integration switcher when several GitHub orgs are connected. When gitlab.com GitLab
+ * connections exist, a GitLab project picker follows. Picking in one picker clears the other.
  */
 export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { gitlabTaskIntegrations } = useValues(gitlabProjectsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const githubIntegrations = getIntegrationsByKind(['github'])
+    const gitlabProject = value.repositoryIntegrationId ? (value.repository ?? '') : ''
 
     const reportConnect = (): void => reportIntegrationConnectClicked('github', 'github', 'task_composer')
 
     // Selecting a repo clears the branch so GitHubBranchCombobox auto-picks the new repo's default branch.
     const handleRepositoryChange = (repository: string | null): void => {
-        onChange({ ...value, repository: repository ?? undefined, branch: undefined })
+        onChange({
+            ...value,
+            repository: repository ?? undefined,
+            branch: undefined,
+            repositoryIntegrationId: undefined,
+        })
+    }
+
+    // A GitLab task always starts from the project's default branch, so the selection carries no branch.
+    const handleGitlabProjectChange = ({ project, integrationId }: GitlabProjectOption): void => {
+        onChange({ ...value, repository: project, repositoryIntegrationId: integrationId, branch: undefined })
     }
 
     const handleBranchChange = (branch: string | null): void => {
@@ -43,8 +59,19 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
     }
 
     const handleIntegrationChange = (integrationId: number): void => {
-        onChange({ ...value, integrationId, repository: undefined, branch: undefined })
+        onChange({
+            ...value,
+            integrationId,
+            repository: undefined,
+            branch: undefined,
+            repositoryIntegrationId: undefined,
+        })
     }
+
+    const gitlabPicker =
+        gitlabTaskIntegrations.length > 0 ? (
+            <GitLabProjectCombobox value={gitlabProject} onChange={handleGitlabProjectChange} />
+        ) : null
 
     if (integrationsLoading) {
         // Inert placeholder so we never flash "Connect GitHub" before the integration list resolves.
@@ -71,6 +98,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                 >
                     Connect GitHub
                 </LemonButton>
+                {gitlabPicker}
             </div>
         )
     }
@@ -114,13 +142,24 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
             )}
 
             {value.integrationId ? (
-                <RepositoryBranchPickers
-                    integrationId={value.integrationId}
-                    value={value}
-                    onRepositoryChange={handleRepositoryChange}
-                    onBranchChange={handleBranchChange}
-                />
+                gitlabProject ? (
+                    <GitHubRepositoryCombobox
+                        integrationId={value.integrationId}
+                        value=""
+                        onChange={handleRepositoryChange}
+                        placeholder="No repo"
+                        showNoneOption
+                    />
+                ) : (
+                    <RepositoryBranchPickers
+                        integrationId={value.integrationId}
+                        value={value}
+                        onRepositoryChange={handleRepositoryChange}
+                        onBranchChange={handleBranchChange}
+                    />
+                )
             ) : null}
+            {gitlabPicker}
         </div>
     )
 }

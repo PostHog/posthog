@@ -556,6 +556,7 @@ export const FEATURE_FLAGS = {
     TASK_SUMMARIES: 'task-summaries', // owner: #team-ai-observability
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-ai-observability
+    TASKS_GITLAB: 'tasks-gitlab', // owner: #team-agent-infrastructure, lets the web task composer start a task in a gitlab.com project
     TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH: 'taxonomic-filter-fuzzy-event-search', // owner: @pauldambra multivariate=control,test, experiment: test makes Events and Custom events searches with no match ask the API for similar event names
     TAXONOMIC_FILTER_SEARCH_INTENT: 'taxonomic-filter-search-intent', // owner: @pauldambra multivariate=control,banner,promote, classifies a picker search with the decision model. control changes nothing, banner suggests the right tab, promote moves the predicted group to the top of the All tab
     TAXONOMIC_FILTER_VALUE_SEARCH_GATING: 'taxonomic-filter-value-search-gating', // owner: @pauldambra
