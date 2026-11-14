@@ -36,11 +36,9 @@ from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.destinations import (
-    build_alert_destination_config,
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
     customized_alert_destination_ids,
-    destination_handles_event_kind,
     destination_template_id,
     list_alert_destination_groups,
     owned_alert_destination_ids,
@@ -82,11 +80,10 @@ from products.alerts_platform.backend.presentation.views.platform_alert import (
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
-    EVENT_KIND_CONFIG,
-    EVENT_KINDS,
     LOGS_ALERT_EVENT_IDS,
-    LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
     LOGS_DESTINATION_TYPES,
+    build_logs_destination_configs,
+    logs_destination_event_kinds,
     row_event_kinds,
 )
 from products.logs.backend.alert_state_machine import (
@@ -1854,22 +1851,11 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
-        event_kinds = [
-            kind for kind in EVENT_KINDS if destination_handles_event_kind(data["type"], EVENT_KIND_CONFIG[kind])
-        ]
+        event_kinds = logs_destination_event_kinds(data["type"])
 
         with transaction.atomic():
             alert = self._get_locked_alert()
-            configs = [
-                build_alert_destination_config(
-                    spec=EVENT_KIND_CONFIG[kind],
-                    alert_id=str(alert.id),
-                    alert_name=alert.name,
-                    data=data,
-                    slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
-                )
-                for kind in event_kinds
-            ]
+            configs = build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data)
             try:
                 hog_function_ids = create_alert_destination_hog_functions(
                     configs,

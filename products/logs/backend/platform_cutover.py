@@ -16,14 +16,22 @@ from django.db import transaction
 from django.db.models import Min
 from django.utils import timezone
 
+import structlog
 import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
+from products.alerts.backend.facade.destinations import rebuild_source_destination_hog_functions
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import Grouping, HandbackRefusal, PlatformOwnershipHandover
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationValidationError,
+    Grouping,
+    HandbackRefusal,
+    PlatformOwnershipHandover,
+)
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.logs.backend.alert_destinations import LOGS_ALERT_EVENT_IDS, build_logs_destination_configs
 from products.logs.backend.alert_state_machine import ControlPlaneOutcome, apply_outcome
 from products.logs.backend.alert_utils import due_alerts_q
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
@@ -34,6 +42,7 @@ from products.logs.backend.platform_alert_backfill import (
 )
 
 State = LogsAlertConfiguration.State
+logger = structlog.get_logger(__name__)
 
 
 class CutoverSkip(StrEnum):
@@ -114,6 +123,9 @@ class RollbackSkip(StrEnum):
     PLATFORM_FIRING = "platform_firing"
     PLATFORM_CHECK_DUE = "platform_check_due"
     NOT_PORTABLE = "not_portable"
+    # A destination kept only on the platform could not be given its HogFunctions back, so handing the
+    # alert back would leave it silent there.
+    DESTINATION_NOT_REBUILT = "destination_not_rebuilt"
 
 
 _ROLLBACK_SKIP: dict[HandbackRefusal, RollbackSkip] = {
@@ -150,6 +162,9 @@ def _roll_back_alert(alert_id: UUID, now: datetime | None) -> RollbackSkip | Non
         handback = give_back_ownership(team_id=alert.team_id, legacy_configuration_id=alert.id, at=at)
         if isinstance(handback, HandbackRefusal):
             return _ROLLBACK_SKIP[handback]
+        if not _rebuild_destinations(alert):
+            transaction.set_rollback(True)
+            return RollbackSkip.DESTINATION_NOT_REBUILT
 
         update_fields = apply_outcome(
             alert,
@@ -167,6 +182,25 @@ def _roll_back_alert(alert_id: UUID, now: datetime | None) -> RollbackSkip | Non
         alert.next_check_at = handback.next_check_at
         alert.save(update_fields=[*update_fields, "owner", "owner_changed_at", "last_notified_at", "next_check_at"])
     return None
+
+
+def _rebuild_destinations(alert: LogsAlertConfiguration) -> bool:
+    """The logs stack sends only through HogFunctions, so a destination kept as an `AlertDestination` row
+    alone gets its HogFunctions back. False when a row cannot be rebuilt."""
+    try:
+        rebuild_source_destination_hog_functions(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            created_by_id=alert.created_by_id,
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            build_configs=lambda data: build_logs_destination_configs(
+                alert_id=str(alert.id), alert_name=alert.name, data=data
+            ),
+        )
+    except AlertDestinationValidationError:
+        logger.warning("logs_alert_rollback_destination_not_rebuilt", alert_id=str(alert.id), exc_info=True)
+        return False
+    return True
 
 
 def in_an_environment(alert: LogsAlertConfiguration) -> bool:

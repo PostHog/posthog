@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 from typing import Any, NamedTuple, cast
 from uuid import UUID
@@ -14,6 +14,7 @@ from django.db.models import Q, QuerySet
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
@@ -21,6 +22,10 @@ from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.alerts.backend.facade.contracts import AlertInternalEvent, AlertInternalEventsNotDelivered
 from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, url_hostname
+from products.alerts_platform.backend.facade.api import (
+    link_source_destination,
+    source_destinations_without_hog_functions,
+)
 from products.alerts_platform.backend.facade.contracts import (
     ActiveAlertDestination,
     AlertDestinationConfig,
@@ -262,7 +267,7 @@ def create_alert_destination_hog_functions(
     configs: list[AlertDestinationConfig],
     *,
     team_id: int,
-    created_by_id: int,
+    created_by_id: int | None,
     alert_id: str,
     allowed_event_ids: Collection[str],
 ) -> tuple[UUID, ...]:
@@ -287,6 +292,40 @@ def create_alert_destination_hog_functions(
         )
         _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=created_ids)
     return tuple(created_ids)
+
+
+def rebuild_source_destination_hog_functions(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    created_by_id: int | None,
+    allowed_event_ids: Collection[str],
+    build_configs: Callable[[AlertDestinationData], Sequence[AlertDestinationConfig]],
+) -> tuple[UUID, ...]:
+    """Gives every `AlertDestination` row of the alert that no live HogFunction stands behind the
+    HogFunctions its source's route would create for it, and links the row to them. Returns the rows
+    rebuilt. Call it in the caller's transaction, because a refused row raises
+    `AlertDestinationValidationError` after earlier rows were written."""
+    rebuilt: list[UUID] = []
+    for destination in source_destinations_without_hog_functions(team_id=team_id, public_id=alert_id):
+        # A row delivery disabled stays off on the source too, rather than sending again after the handback.
+        configs = [
+            AlertDestinationConfig(payload={**config.payload, "enabled": destination.enabled})
+            for config in build_configs(destination.data)
+        ]
+        try:
+            hog_function_ids = create_alert_destination_hog_functions(
+                configs,
+                team_id=team_id,
+                created_by_id=created_by_id,
+                alert_id=str(alert_id),
+                allowed_event_ids=allowed_event_ids,
+            )
+        except DRFValidationError as error:
+            raise AlertDestinationValidationError(str(error.detail)) from error
+        link_source_destination(team_id=team_id, destination_id=destination.id, hog_function_ids=hog_function_ids)
+        rebuilt.append(destination.id)
+    return tuple(rebuilt)
 
 
 def _report_unreadable_destination_configs(

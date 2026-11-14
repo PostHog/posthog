@@ -24,6 +24,7 @@ from products.alerts.backend.logic.destination_configs import (
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
+    AlertDestinationValidationError,
     DestinationType,
     EventKindSpec,
     IncidentAction,
@@ -335,3 +336,17 @@ def build_insight_alert_pagerduty_configs(
         )
         for spec in INSIGHT_INCIDENT_EVENT_KINDS
     ]
+
+
+def build_insight_alert_destination_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    """What the insight destination route for `data`'s type creates."""
+    destination_type = DestinationType(data["type"])
+    if destination_type == DestinationType.SLACK:
+        return [build_insight_alert_slack_config(alert_id=alert_id, alert_name=alert_name, data=data)]
+    if destination_type in (DestinationType.WEBHOOK, DestinationType.DISCORD, DestinationType.TEAMS):
+        return [build_insight_alert_url_config(alert_id=alert_id, alert_name=alert_name, data=data)]
+    if destination_type == DestinationType.PAGERDUTY:
+        return build_insight_alert_pagerduty_configs(alert_id=alert_id, alert_name=alert_name, data=data)
+    raise AlertDestinationValidationError(f"Insight alerts have no {destination_type} destination.", field="type")
