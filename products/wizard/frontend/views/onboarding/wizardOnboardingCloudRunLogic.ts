@@ -2,7 +2,6 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
 import { resolveTeamGitHubIntegration } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
@@ -16,6 +15,13 @@ import { getIntegrationsAuthorizeRetrieveUrl } from 'products/integrations/front
 import { wizardRegistryList, wizardRunsCreate } from '../../generated/api'
 import type { WizardProgramApi, WizardRunApi, WizardRunCreateRequestApi } from '../../generated/api.schemas'
 import { wizardEventProperties } from '../../lib/wizardAnalytics'
+import {
+    wizardCloudProgram,
+    wizardCloudRunRequest,
+    wizardCloudSetupError,
+    wizardCloudSetupLoading,
+    wizardCreateRunError,
+} from '../../lib/wizardCloudRun'
 import { wizardRunIsActive } from '../../lib/wizardRunDisplay'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 import { onboardingWizardRunLogic } from './onboardingWizardRunLogic'
@@ -169,11 +175,11 @@ export const wizardOnboardingCloudRunLogic = kea<wizardOnboardingCloudRunLogicTy
             {
                 createRunRequest: () => null,
                 setRepository: () => null,
-                // The API explains limits and invalid input in `detail`. Network failures have none.
                 createRunRequestFailure: (_, { errorObject }) =>
-                    errorObject instanceof ApiError && errorObject.detail
-                        ? errorObject.detail
-                        : 'Could not start the cloud run. Check the repository and try again.',
+                    wizardCreateRunError(
+                        errorObject,
+                        'Could not start the cloud run. Check the repository and try again.'
+                    ),
             },
         ],
     }),
@@ -201,10 +207,7 @@ export const wizardOnboardingCloudRunLogic = kea<wizardOnboardingCloudRunLogicTy
         program: [
             (s) => [s.registry],
             (registry: WizardProgramApi[] | null): WizardProgramApi | null =>
-                registry?.find(
-                    (program) =>
-                        program.id === 'posthog-integration' && program.supported_environments.includes('cloud')
-                ) ?? null,
+                wizardCloudProgram(registry, 'posthog-integration'),
         ],
         setupLoading: [
             (s) => [s.integrationsLoading, s.registryLoading, s.registry, s.registryError],
@@ -213,16 +216,15 @@ export const wizardOnboardingCloudRunLogic = kea<wizardOnboardingCloudRunLogicTy
                 registryLoading: boolean,
                 registry: WizardProgramApi[] | null,
                 registryError: boolean
-            ): boolean => integrationsLoading || registryLoading || (registry === null && !registryError),
+            ): boolean => wizardCloudSetupLoading(integrationsLoading, registryLoading, registry, registryError),
         ],
         setupError: [
             (s) => [s.integrations, s.registryError],
             (integrations: IntegrationType[] | null, registryError: boolean): string | null =>
-                !integrations
-                    ? 'Could not check the GitHub connection. Retry or run it yourself.'
-                    : registryError
-                      ? 'Could not load the setup program. Retry or run it yourself.'
-                      : null,
+                wizardCloudSetupError(integrations, registryError, {
+                    integrations: 'Could not check the GitHub connection. Retry or run it yourself.',
+                    registry: 'Could not load the setup program. Retry or run it yourself.',
+                }),
         ],
         startLabel: [
             (s) => [s.run],
@@ -270,13 +272,7 @@ export const wizardOnboardingCloudRunLogic = kea<wizardOnboardingCloudRunLogicTy
                 location: 'onboarding',
                 program_id: values.program.id,
             })
-            actions.createRunRequest({
-                program_id: values.program.id,
-                wizard_version: values.program.wizard_version,
-                environment: 'cloud',
-                workspace: { type: 'git_repository', repository: values.repository },
-                idempotency_key: values.idempotencyKey,
-            })
+            actions.createRunRequest(wizardCloudRunRequest(values.program, values.repository, values.idempotencyKey))
         },
         createRunRequestSuccess: ({ createRunRequest: run }) => {
             const onboarding = onboardingWizardRunLogic(props)
