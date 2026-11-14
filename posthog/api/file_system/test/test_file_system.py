@@ -1339,13 +1339,18 @@ class TestFileSystemAPI(APIBaseTest):
         for ordering, expected in [("-last_viewed_at", [1, 3, 0, 5, 4, 2]), ("last_viewed_at", [3, 0, 1, 5, 4, 2])]:
             next_url = f"{base}{ordering}&limit=2"
             results = []
+            counts: list[int] = []
             while next_url:
-                response = self.client.get(next_url)
+                with CaptureQueriesContext(connection) as queries:
+                    response = self.client.get(next_url)
                 self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+                if not counts:
+                    self.assertFalse([query["sql"] for query in queries if "COUNT(*)" in query["sql"]])
                 data = response.json()
-                self.assertEqual(data["count"], 6)
+                counts.append(data["count"])
                 results.extend(data["results"])
                 next_url = data["next"]
+            self.assertEqual(counts, [3, 5, 6])
             self.assertEqual([row["id"] for row in results], [str(files[index].id) for index in expected])
             self.assertTrue(all(row["last_viewed_at"] is None for row in results[-3:]))
             self.assertTrue(all(row["last_viewed_at"] for row in results[:-3]))
