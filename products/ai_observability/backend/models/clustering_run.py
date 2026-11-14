@@ -42,6 +42,13 @@ class ClusteringRun(TeamScopedRootMixin, UUIDModel):
     finished_at = models.DateTimeField(null=True)
 
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["last_dispatch_at", "created_at"],
+                condition=models.Q(status=ClusteringRunStatus.QUEUED),
+                name="aio_clustering_queued_dispatch",
+            )
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["job"],

@@ -99,8 +99,65 @@ class TestClusteringConfigViewSet(APIBaseTest):
             list(ClusteringRun.objects.for_team(self.team.id).values_list("event_filters", flat=True)), [filters] * 3
         )
 
-    @parameterized.expand([("member",), ("role",)])
-    def test_restricted_filters_cannot_start_runs_or_expose_existing_progress(self, subject):
+    @parameterized.expand([(8,), (9,), (10,)])
+    def test_enabling_adds_defaults_only_within_the_job_limit(self, count):
+        for i in range(count):
+            ClusteringJob.objects.create(team=self.team, name=f"Traces {i}", analysis_level="trace")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/llm_analytics/clustering_config/set_enabled/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data["enabled"])
+        self.assertEqual(ClusteringJob.objects.filter(team=self.team).count(), 10)
+        self.assertEqual(ClusteringRun.objects.for_team(self.team.id).count(), 10)
+
+    @parameterized.expand(
+        [
+            (
+                "filters",
+                {"event_filters": [{"key": "$ai_model", "type": "event", "value": "new-model", "operator": "exact"}]},
+                True,
+            ),
+            ("level", {"analysis_level": "generation"}, True),
+            ("name", {"name": "Renamed"}, False),
+        ]
+    )
+    def test_updating_waiting_job_restarts_only_when_scope_changes(self, _name, changes, restart):
+        ClusteringConfig.objects.create(team=self.team, enabled=True)
+        url = f"/api/projects/{self.team.id}/llm_analytics/clustering_jobs/"
+        response = self.client.post(url, {"name": "Scoped", "analysis_level": "trace"}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        run = ClusteringRun.objects.for_team(self.team.id).get()
+        run.status = "waiting"
+        run.save()
+        response = self.client.patch(f"{url}{run.job_id}/", changes, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "canceled" if restart else "waiting")
+        active = ClusteringRun.objects.for_team(self.team.id).exclude(status="canceled").get()
+        self.assertEqual(active.event_filters, changes.get("event_filters", []))
+        self.assertEqual(active.id != run.id, restart)
+        context = clustering_run_context(ClusteringRunRef(team_id=self.team.id, run_id=str(active.id)))
+        assert context is not None
+        self.assertEqual(context.analysis_level, changes.get("analysis_level", "trace"))
+
+    @parameterized.expand(
+        [
+            (subject, property_type, key, group_index)
+            for subject in ("member", "role")
+            for property_type, key, group_index in (
+                ("event", "private_property", None),
+                ("event", "private_property.nested", None),
+                ("group", "private_property", 0),
+                ("group", "private_property", "0"),
+            )
+        ]
+    )
+    def test_restricted_filters_cannot_start_runs_or_expose_existing_progress(
+        self, subject, property_type, key, group_index
+    ):
         reader = self._create_user("cluster-reader@example.com")
         self.organization.available_product_features = [
             {"name": feature, "key": feature}
@@ -108,7 +165,10 @@ class TestClusteringConfigViewSet(APIBaseTest):
         ]
         self.organization.save()
         definition = PropertyDefinition.objects.create(
-            team=self.team, name="private_property", type=PropertyDefinition.Type.EVENT
+            team=self.team,
+            name="private_property",
+            type=PropertyDefinition.Type.GROUP if property_type == "group" else PropertyDefinition.Type.EVENT,
+            group_type_index=0 if property_type == "group" else None,
         )
         member = reader.organization_memberships.get(organization=self.organization)
         role = Role.objects.create(name="Restricted", organization=self.organization)
@@ -120,7 +180,15 @@ class TestClusteringConfigViewSet(APIBaseTest):
             role=role if subject == "role" else None,
             access_level="none",
         )
-        filters = [{"key": "private_property", "type": "event", "operator": "exact", "value": "example"}]
+        filters = [
+            {
+                "key": key,
+                "type": property_type,
+                "operator": "exact",
+                "value": "example",
+                "group_type_index": group_index,
+            }
+        ]
         ClusteringConfig.objects.create(team=self.team, enabled=True)
         url = f"/api/projects/{self.team.id}/llm_analytics/clustering_jobs/"
         response = self.client.post(

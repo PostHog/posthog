@@ -81,7 +81,7 @@ describe('clustering progress updates', () => {
         expect(clusteringProgressLogic.values.progress[0].status).toBe('queued')
     })
 
-    it('keeps discovering a completed result until ingestion makes it queryable', async () => {
+    it.each([true, false])('bounds result discovery when ingestion succeeds: %s', async (arrives) => {
         let visible = false
         const query = jest.spyOn(api, 'queryHogQL').mockImplementation(async (sql) => ({
             results: String(sql).includes('$ai_clusters')
@@ -98,16 +98,22 @@ describe('clustering progress updates', () => {
         try {
             await expectLogic(clusters).toFinishAllListeners()
             clusteringProgressLogic.unmount()
-            jest.useFakeTimers()
+            jest.useFakeTimers({ now: new Date(completedJob.updated_at!).getTime() })
             clusteringProgressLogic.mount()
             await expectLogic(clusteringProgressLogic).toFinishAllListeners()
             await jest.advanceTimersByTimeAsync(10000)
             await expectLogic(clusters).toFinishAllListeners()
             expect(clusters.values.clusteringRuns.map(({ runId }) => runId)).toEqual(['old-run'])
-            visible = true
+            visible = arrives
             await jest.advanceTimersByTimeAsync(10000)
             await expectLogic(clusters).toFinishAllListeners()
-            expect(clusters.values.clusteringRuns.map(({ runId }) => runId)).toContain('new-run')
+            expect(clusters.values.clusteringRuns.some(({ runId }) => runId === 'new-run')).toBe(arrives)
+            await jest.advanceTimersByTimeAsync(5 * 60 * 1000)
+            await expectLogic(clusters).toFinishAllListeners()
+            const reads = query.mock.calls.length
+            await jest.advanceTimersByTimeAsync(30000)
+            await expectLogic(clusters).toFinishAllListeners()
+            expect(query.mock.calls.length).toBe(reads)
         } finally {
             clusters.unmount()
             query.mockRestore()

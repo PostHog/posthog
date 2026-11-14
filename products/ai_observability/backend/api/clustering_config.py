@@ -17,6 +17,7 @@ from posthog.models.user import User
 from posthog.permissions import AccessControlPermission
 
 from ..facade.api import validate_clustering_filters
+from ..logic.clustering.constants import MAX_JOBS_PER_TEAM
 from ..models.clustering_config import ClusteringConfig
 from ..models.clustering_job import DEFAULT_LEVEL_SPECS, ClusteringAnalysisLevel, ClusteringJob
 from ..models.clustering_run import ClusteringRunStatus
@@ -111,7 +112,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             config.enabled = enabled
             config.save(update_fields=["enabled", "updated_at"])
             if enabled:
-                existing_levels = set(
+                existing_levels = list(
                     ClusteringJob.objects.filter(team_id=self.team_id).values_list("analysis_level", flat=True)
                 )
                 ClusteringJob.objects.bulk_create(
@@ -125,7 +126,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         )
                         for name, level in DEFAULT_LEVEL_SPECS
                         if level not in existing_levels
-                    ],
+                    ][: max(0, MAX_JOBS_PER_TEAM - len(existing_levels))],
                     ignore_conflicts=True,
                 )
                 request_first_clustering_runs(self.team_id, cast(User, request.user))

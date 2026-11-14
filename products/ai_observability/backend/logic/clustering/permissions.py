@@ -1,7 +1,8 @@
 from typing import Any
 
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from posthog.models.property import Property
 from posthog.models.user import User
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
@@ -20,16 +21,22 @@ def can_access_clustering_filters(team_id: int, user: User, filters: list[dict[s
         "group": PropertyDefinition.Type.GROUP,
     }
     for event_filter in filters:
-        property_type = property_types.get(event_filter.get("type", "event"))
+        if not isinstance(event_filter.get("key"), str):
+            return False
+        try:
+            prop = Property(**event_filter)
+        except (TypeError, ValueError, ValidationError):
+            return False
+        property_type = property_types.get(prop.type)
         # Cohort and HogQL predicates can reference properties indirectly.
         if property_type is None:
             return False
         if any(
             restriction.property_type == property_type
-            and restriction.name == event_filter.get("key")
+            and (restriction.name == prop.key or prop.key.startswith(f"{restriction.name}."))
             and (
                 property_type != PropertyDefinition.Type.GROUP
-                or restriction.group_type_index in (None, event_filter.get("group_type_index"))
+                or restriction.group_type_index in (None, prop.group_type_index)
             )
             for restriction in restrictions
         ):

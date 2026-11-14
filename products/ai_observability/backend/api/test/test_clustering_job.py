@@ -112,7 +112,7 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(job.analysis_level, "generation")
 
     def test_create_enforces_max_jobs_per_team(self):
-        from products.ai_observability.backend.api.clustering_job import MAX_JOBS_PER_TEAM
+        from products.ai_observability.backend.logic.clustering.constants import MAX_JOBS_PER_TEAM
 
         for i in range(MAX_JOBS_PER_TEAM):
             self._create_job(name=f"Job {i}")
