@@ -158,7 +158,7 @@ A "harness" is the friendly product label for the MCP client that made a call �
 
 **For custom cuts in `execute-sql`, select `properties.$virt_mcp_harness`.** It returns the same label as the dashboard, as a string on `$mcp_*` events and `NULL` on other events. It also applies the custom harness names a team sets in Settings > MCP analytics. The hand-written SQL below does not know those names, so use it only when you need the token or the bucketing steps themselves.
 
-**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals, over exactly three properties — the `x-anthropic-client` header (`$mcp_vendor_client`, with the legacy `mcp_vendor_client` coalesced for historical rows) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent (`$mcp_client_user_agent`, also the generic last fallback); and `clientInfo.name` arrives as `$mcp_client_name`. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
+**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals, over exactly three properties — the `x-anthropic-client` header (`$mcp_vendor_client`, with the legacy `mcp_vendor_client` coalesced for historical rows) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design / Claude Artifacts); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent (`$mcp_client_user_agent`, also the generic last fallback); and `clientInfo.name` arrives as `$mcp_client_name`. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
 
 **Share of users by harness** (answers "what % of my users are on Claude Code"):
 
@@ -182,6 +182,7 @@ FROM (
             h = 'anthropic/api', 'Anthropic API',
             h = 'cowork', 'Cowork',
             h = 'claude-design', 'Claude Design',
+            h = 'claude-artifacts', 'Claude Artifacts',
             h = 'openai-mcp chatgpt', 'ChatGPT',
             h = 'openai-mcp agent builder', 'OpenAI Agent Builder',
             h = 'openai-mcp responses api', 'OpenAI Responses API',
@@ -228,6 +229,7 @@ FROM (
                         lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudeai', 'claude-ai'), 'claude-ai',
                         lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) = 'cowork', 'cowork',
                         lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudedesign', 'claude-design'), 'claude-design',
+                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudeartifacts', 'claude-artifacts'), 'claude-artifacts',
                         NULL
                     ),
                     if(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',
