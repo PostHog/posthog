@@ -109,7 +109,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
     const otherTeamId = (): number => teamId + 1
 
-    async function startQueue(url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port)) {
+    async function startQueue(url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port), insertBatchSize = 1000) {
         const queue = new CyclotronJobQueuePostgresV2(10, {
             CYCLOTRON_NODE_DATABASE_URL: url,
             CYCLOTRON_SHARD_DEPTH_LIMIT: 1_000_000,
@@ -118,7 +118,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             CDP_CYCLOTRON_BOUNDED_POLLS: false,
             CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: false,
             CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: false,
-            CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
+            CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: insertBatchSize,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
             ENCRYPTION_SALT_KEYS,
@@ -400,6 +400,23 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             expect(await jobRow(failingId)).toMatchObject({ status: 'running' })
         }
     )
+
+    it('queues a one-insert batch whole or not at all, whatever the insert size', async () => {
+        const queue = await startQueue(undefined, 2)
+        const taken = await enqueue(queue)
+        const fresh = [uuidv7(), uuidv7(), uuidv7()]
+        const batch = [...fresh, taken].map((id) => ({
+            ...baseInvocation,
+            id,
+            teamId,
+            queue: queueName as CyclotronJobQueueKind,
+        }))
+
+        await expect(queue.queueInvocations(batch, { oneInsert: true })).rejects.toThrow()
+
+        const { rows } = await db.query('SELECT id FROM cyclotron_jobs WHERE id = ANY($1)', [fresh])
+        expect(rows).toEqual([])
+    })
 
     it('hands a job back with its deferral state, and counts its next dequeue as late from its first due time', async () => {
         const queue = await startQueue()

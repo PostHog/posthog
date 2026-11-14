@@ -242,7 +242,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
 
     public async queueInvocations(
         invocations: CyclotronJobInvocation[],
-        options: { overwriteExisting?: boolean } = {}
+        options: { overwriteExisting?: boolean; oneInsert?: boolean } = {}
     ): Promise<void> {
         if (invocations.length === 0) {
             return
@@ -260,7 +260,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         }))
 
         try {
-            const chunked = chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+            const chunked = options.oneInsert ? [jobs] : chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
             if (this.config.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
                 await Promise.all(
                     chunked.map((batch) =>

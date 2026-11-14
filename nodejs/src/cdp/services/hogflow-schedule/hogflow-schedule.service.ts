@@ -54,12 +54,14 @@ export class HogFlowScheduleService {
     private readonly pollIntervalMs: number
     private readonly maxPollIntervalMs: number
     private readonly healthTimeoutMs: number
+    private readonly requestTimeoutMs: number
     private readonly internalFetchService: InternalFetchService
 
     constructor(private config: PluginsServerConfig) {
         this.pollIntervalMs = config.HOGFLOW_SCHEDULER_POLL_INTERVAL_MS
         this.maxPollIntervalMs = config.HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS
         this.healthTimeoutMs = config.HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS
+        this.requestTimeoutMs = config.HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS
         this.internalFetchService = new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
     }
 
@@ -109,6 +111,7 @@ export class HogFlowScheduleService {
                 urlPath: '/api/internal/hog_flows/process_due_schedules',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: this.requestTimeoutMs,
                 },
             })
 
