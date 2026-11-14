@@ -3765,7 +3765,9 @@ export const workflowLogic = kea<workflowLogicType>([
                         } catch (error) {
                             if (error instanceof ApiError && error.code === SECRET_REENTRY_CODE) {
                                 const refused = SECRET_REENTRY_ATTR.exec(error.attr ?? '')
-                                if (refused) {
+                                // An edit made during the request starts its own save, whose answer
+                                // replaces this one. Recording this refusal would block that save.
+                                if (refused && values.workflowEditVersion === saveContext.editVersion) {
                                     actions.setSecretReentryError(refused[1], refused[2], error.detail ?? '')
                                 }
                             }

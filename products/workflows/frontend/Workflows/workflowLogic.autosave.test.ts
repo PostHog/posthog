@@ -372,6 +372,57 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.autoSaveBlockedBySecret).toBe(false)
         })
 
+        it('ignores a secret refusal for content edited while the save was in flight', async () => {
+            const webhookStep = {
+                id: 'action_1',
+                type: 'function',
+                name: 'Webhook',
+                description: '',
+                created_at: 0,
+                updated_at: 0,
+                config: { template_id: 'template-webhook', inputs: { url: { value: 'https://example.com' } } },
+            } as HogFlow['actions'][number]
+            const withSecretStep = makeWorkflow({ actions: [...makeWorkflow().actions, webhookStep] })
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/': withSecretStep },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => {
+                        updateCalls += 1
+                        return updateCalls === 1
+                            ? [
+                                  400,
+                                  {
+                                      type: 'validation_error',
+                                      code: 'secret_reentry_required',
+                                      detail: 'Enter this secret again',
+                                      attr: 'actions__action_1__inputs__api_key',
+                                  },
+                              ]
+                            : [200, withSecretStep]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+            logic.actions.setWorkflowValue('name', 'Edit 1')
+            await expectLogic(logic, () => {
+                logic.actions.markAutoSave(true)
+                logic.actions.saveWorkflow(logic.values.workflow)
+                logic.actions.partialSetWorkflowActionConfig('action_1', {
+                    inputs: { url: { value: 'https://example.com' }, api_key: { value: 'typed again' } },
+                })
+            }).toDispatchActions(['saveWorkflowFailure'])
+            expect(logic.values.autoSaveBlockedBySecret).toBe(false)
+
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+            expect(updateCalls).toBe(2)
+        })
+
         it('does not auto-save when nothing has changed', async () => {
             initKeaTests()
             logic = workflowLogic({ id: WORKFLOW_ID })
