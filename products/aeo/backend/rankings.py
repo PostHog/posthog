@@ -24,12 +24,11 @@ import tldextract
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.aeo.backend.brand import SEGMENT_SQL, brand_names, brand_regex, segment_filter, segment_sql_params
+from products.aeo.backend.brand import brand_names, brand_regex
 from products.aeo.backend.facade.contracts import (
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
-    BrandedSegment,
     BrandKind,
     BrandStatus,
     CheckMode,
@@ -40,6 +39,7 @@ from products.aeo.backend.facade.contracts import (
     RankedPage,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck
+from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scope_sql_params
 
 # Registrable names of sites answers cite whatever the brand, so they are never a competitor.
 NON_BRAND_NAMES = frozenset(
@@ -69,7 +69,7 @@ _BRAND_DAYS_SQL = f"""
     CROSS JOIN unnest(%s::text[], %s::text[], %s::bool[]) AS brand(domain, pattern, is_target)
     WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
         AND check_row.mode = 'web_search'
-        AND {SEGMENT_SQL}
+        AND {SCOPE_SQL}
     GROUP BY brand.domain, day
 """
 
@@ -82,7 +82,7 @@ _CITED_HOSTS_SQL = f"""
         ) AS host
     WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
         AND check_row.mode = 'web_search'
-        AND {SEGMENT_SQL}
+        AND {SCOPE_SQL}
 """
 # The host to registrable domain mapping arrives as two parallel arrays.
 _DOMAIN_ANSWERS_SQL = f"""
@@ -95,7 +95,7 @@ _DOMAIN_ANSWERS_SQL = f"""
     WHERE lower(cited_host) = mapping.host
         AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
         AND check_row.mode = 'web_search'
-        AND {SEGMENT_SQL}
+        AND {SCOPE_SQL}
     GROUP BY mapping.domain
 """
 # URLs per host never overlap, so a domain's distinct URLs are the sum over its hosts.
@@ -109,7 +109,7 @@ _DOMAIN_URLS_SQL = f"""
     WHERE lower(substring(url from '^[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^@/?#]*@)?([^/:?#]+)')) = mapping.host
         AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
         AND check_row.mode = 'web_search'
-        AND {SEGMENT_SQL}
+        AND {SCOPE_SQL}
     GROUP BY mapping.domain
 """
 _PAGES_SQL = f"""
@@ -120,7 +120,7 @@ _PAGES_SQL = f"""
         ) AS url
     WHERE url <> '' AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
         AND check_row.mode = 'web_search'
-        AND {SEGMENT_SQL}
+        AND {SCOPE_SQL}
     GROUP BY url
     ORDER BY count(DISTINCT check_row.id) DESC, url
     LIMIT %s
@@ -134,7 +134,7 @@ def registrable_domain(host: str) -> str:
 
 
 def get_rankings(
-    team_id: int, *, target_domains: list[str], timezone_name: str, days: int, segment: BrandedSegment
+    team_id: int, *, target_domains: list[str], timezone_name: str, days: int, scope: CheckScope
 ) -> PromptSetRankings:
     tz = ZoneInfo(timezone_name)
     window_to = timezone.now().astimezone(tz).date()
@@ -145,7 +145,7 @@ def get_rankings(
     # Every read stops at the same instant, so a check written mid-request can't make the counts disagree.
     until = timezone.now()
     answered = AEOCitationCheck.objects.for_team(team_id).filter(
-        segment_filter(segment, target_domains),
+        scope_filter(scope, target_domains),
         created_at__gte=window_start,
         created_at__lt=until,
         check_failed=False,
@@ -155,9 +155,9 @@ def get_rankings(
 
     # A target like docs.example.com stands for the whole example.com brand.
     targets = {registrable_domain(domain.lower()) for domain in target_domains}
-    segment_params = segment_sql_params(segment, target_domains)
+    scope_params = scope_sql_params(scope, target_domains)
     citations = _Citations(
-        resolve_effective_team_id(team_id), since=window_start, until=until, segment_params=segment_params
+        resolve_effective_team_id(team_id), since=window_start, until=until, scope_params=scope_params
     )
     ranked_domains = citations.ranked_domains()
     # Competitors a person confirmed in the brand catalog win; until there are any, derive them from citations.
@@ -183,7 +183,7 @@ def get_rankings(
         since=previous_start,
         until=until,
         window_from=window_from,
-        segment_params=segment_params,
+        scope_params=scope_params,
     )
     positive_share = _positive_share(answered) if target_domain else None
 
@@ -207,7 +207,9 @@ def get_rankings(
         days=days,
         window_from=window_from,
         window_to=window_to,
-        branded=segment,
+        branded=scope.segment,
+        engine=scope.engine,
+        topic=scope.topic,
         answers=answers,
         brands=tuple(ranked_brands),
         daily=brand_days.daily,
@@ -255,10 +257,8 @@ class _Citations:
     once per answer. Python only maps the distinct cited hosts to registrable domains, which needs the
     public suffix list."""
 
-    def __init__(
-        self, team_id: int, *, since: dt.datetime, until: dt.datetime, segment_params: list[str | None]
-    ) -> None:
-        self._params: list[Any] = [team_id, since, until, *segment_params]
+    def __init__(self, team_id: int, *, since: dt.datetime, until: dt.datetime, scope_params: list[str | None]) -> None:
+        self._params: list[Any] = [team_id, since, until, *scope_params]
         with connection.cursor() as cursor:
             cursor.execute(_CITED_HOSTS_SQL, self._params)
             hosts = [host for (host,) in cursor.fetchall() if host]
@@ -356,7 +356,7 @@ def _brand_days(
     since: dt.datetime,
     until: dt.datetime,
     window_from: dt.date,
-    segment_params: list[str | None],
+    scope_params: list[str | None],
 ) -> _BrandDays:
     current: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     previous: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
@@ -375,7 +375,7 @@ def _brand_days(
                 effective_team_id,
                 since,
                 until,
-                *segment_params,
+                *scope_params,
             ],
         )
         rows = cursor.fetchall()

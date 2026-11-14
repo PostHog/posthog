@@ -280,6 +280,21 @@ class TestFramer:
         assert exc_info.value.code == "CONNECTION_CLOSED"
         assert exc_info.value.retryable
 
+    def test_client_wraps_send_failure_as_retryable(self) -> None:
+        # A dropped socket during a methodInvocation write surfaces as ConnectionClosedError
+        # straight from the websocket library, unlike the handshake and receive paths above.
+        server = FakeFramerServer()
+        client = make_client(server)
+
+        def raise_closed(_text: str) -> None:
+            raise ConnectionClosedError(None, None)
+
+        server.send = raise_closed  # type: ignore
+        with pytest.raises(FramerAPIError) as exc_info:
+            client.call("getCollections")
+        assert exc_info.value.code == "CONNECTION_CLOSED"
+        assert exc_info.value.retryable
+
     @parameterized.expand(
         [
             ("generic", "Node not found", "METHOD_ERROR", False),

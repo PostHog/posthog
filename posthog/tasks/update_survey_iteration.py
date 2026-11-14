@@ -3,12 +3,14 @@ from datetime import date, timedelta
 from django.db.models import Q
 from django.utils import timezone
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.tasks.survey_system_stop import log_survey_stopped_by_system
 
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import replace_release_conditions
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.surveys.backend.internal_targeting import build_internal_targeting_groups
 from products.surveys.backend.models import Survey, open_ended_iteration, update_survey_iterations
 
 
@@ -91,26 +93,9 @@ def _was_resumed_by_a_person_after(survey: Survey, day: date) -> bool:
 
 def _get_targeting_flag(survey: Survey) -> FeatureFlag:
     existing_targeting_flag: FeatureFlag | None = survey.internal_targeting_flag
-    user_submitted_dismissed_groups = [
-        {
-            "variant": "",
-            "rollout_percentage": 100,
-            "properties": [
-                {
-                    "key": f"$survey_dismissed/{survey.id}/{survey.current_iteration}",
-                    "value": "is_not_set",
-                    "operator": "is_not_set",
-                    "type": "person",
-                },
-                {
-                    "key": f"$survey_responded/{survey.id}/{survey.current_iteration}",
-                    "value": "is_not_set",
-                    "operator": "is_not_set",
-                    "type": "person",
-                },
-            ],
-        }
-    ]
+    user_submitted_dismissed_groups = build_internal_targeting_groups(
+        f"{survey.id}/{survey.current_iteration}", survey.conditions
+    )
 
     if existing_targeting_flag is not None:
         # Note: groups are replaced wholesale so old iteration-unaware properties don't survive
@@ -177,6 +162,7 @@ def update_survey_iteration() -> None:
         schedule=Survey.Schedule.RECURRING,
     ).only(
         "id",
+        "team",
         "schedule",
         "start_date",
         "end_date",
@@ -185,7 +171,13 @@ def update_survey_iteration() -> None:
         "repeat_until_stopped",
         "iteration_start_dates",
         "current_iteration",
+        "conditions",
     )
 
     for survey in list(surveys_with_recurring_schedules):
-        _update_survey_iteration(survey)
+        try:
+            _update_survey_iteration(survey)
+        except Exception as e:
+            # Every team's recurring surveys roll over in this one loop, and the rows carry
+            # user-written JSON, so a row that fails must not take the rest of the run with it.
+            capture_exception(e, additional_properties={"survey_id": str(survey.id), "team_id": survey.team_id})

@@ -64,6 +64,8 @@ The hobby smoke test starts the Go installer, which copies the Compose file dire
 It does not execute `bin/upgrade-hobby` or its environment substitution step.
 The separate `Test hobby upgrade rendering` CI job exercises `bin/helpers/render-hobby-compose.sh`, which the upgrade script calls.
 It checks that deployment values render while container shell variables and Compose defaults stay intact.
+It also renders the hobby Compose file with `docker compose config`.
+It fails if a service gets the shared object storage keys, directly or from `.env.services`, or if a reference to the keys has a default.
 
 ## Option 2: stay on your current version
 
@@ -86,3 +88,22 @@ Dev and CI register an `anonymous` SeaweedFS identity with Admin rights, so unsi
 Hobby does not, because Caddy proxies `/posthog/*` straight to `objectstorage`.
 An anonymous identity there makes every object readable and writable from the internet.
 Only the `posthog` identity is registered, so SeaweedFS rejects unsigned requests and the presigned URLs Django hands out keep working.
+
+## Per-install object storage keys
+
+For the same reason, every install has its own keys for the `posthog` identity.
+Every install used to share `object_storage_root_user` and `object_storage_root_password`.
+Now `.env` holds `OBJECT_STORAGE_ACCESS_KEY_ID` and `OBJECT_STORAGE_SECRET_ACCESS_KEY`, random hex values that `bin/deploy-hobby` or the hobby installer writes.
+`bin/upgrade-hobby`, a re-run of `bin/deploy-hobby` and an installer upgrade add missing keys, and replace the shared keys if `.env` holds them.
+Both installers restrict `.env` to its owner.
+
+At each start, `objectstorage` deletes the `posthog` identity and registers it again with only the install's key.
+This removes the shared key and any key from before a rotation.
+Stored objects stay readable.
+
+Without the keys, Compose refuses to start and reports that `OBJECT_STORAGE_ACCESS_KEY_ID` is missing a value.
+An upgrade that runs `bin/upgrade-hobby` from a checkout older than this change copies the new Compose file before it adds the keys, so that first run stops at `docker-compose pull`.
+Run `bin/upgrade-hobby` again to add the keys and finish the upgrade.
+
+Tools that used the shared keys against `127.0.0.1:19000` must use the keys in `.env`.
+Use hex only: the keys go through `weed shell`, which splits on spaces.

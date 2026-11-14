@@ -17,6 +17,7 @@ from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.temporal.ai_reply.gate import format_findings_comment
 from products.conversations.backend.temporal.ai_reply.publish import channel_allows_bot_reply
+from products.conversations.backend.temporal.ai_reply.run_citations import record_note_citations
 from products.conversations.backend.temporal.ai_reply.schemas import (
     PersistReplyInput,
     PersistReplyOutput,
@@ -119,6 +120,8 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             item_context["unknowns"] = input.unknowns
             item_context["clarifying_questions"] = input.clarifying_questions
             item_context["findings_reason"] = input.findings_reason
+        if input.run_id:
+            item_context["run_id"] = input.run_id
 
         # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
         Comment.objects.create(
@@ -128,6 +131,14 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             content=content,
             rich_content=markdown_to_tiptap_doc(content),
             item_context=item_context,
+        )
+        record_note_citations(
+            team_id=input.team_id,
+            run_id=input.run_id,
+            ticket_id=input.ticket_id,
+            citations=input.citations,
+            persist_as=persist_as,
+            confidence=input.confidence,
         )
         if input.require_awaiting_clarification and ticket is not None:
             # Post and reopen together. record_triage is best-effort and would leave the

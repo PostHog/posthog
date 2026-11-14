@@ -107,7 +107,7 @@ Many pulls to refresh in a row can still empty the minute bucket. Reads then fai
 1. Title. On Home the tabs header draws "Live", with the Pause or Resume button (`live-pause`) left of More, and the content has no title row. The pushed screen draws its own title "Live" with a dot: green and pulsing while live, gray when paused or reconnecting, still with reduced motion. Its status line (`live-status`) says "Live · updated 12 s ago", "Paused", "Reconnecting…" or "Loading…", and its Pause or Resume pill (`live-pause`) sits at the right of the title.
 2. Paused banner (`live-paused-banner`): "Paused. Tap Resume to catch up." with Resume (`live-banner-resume`).
 3. Stats (`live-stats`): Users online, Unique visitors and Pageviews, with the web's tooltips in a toast when a label is tapped. A changed number counts to its new value in 300 ms and flashes blue.
-4. Where visitors are (`live-map`): "18 countries · last 30 minutes", a world map, and "🇺🇸 United States leads with 15 visitors". Land is `segmentEmpty`; a country with visitors is blue by its share of the leading country's visitors, with the web's 30% floor toward the land color. The whole card opens Visitors by country; a tap on a country with visitors opens it with that country selected.
+4. Where visitors are (`live-map`): "18 countries · last 30 minutes", a world map, and "🇺🇸 United States leads with 15 visitors". Land is `segmentEmpty`; a country with visitors is blue by its share of the leading country's visitors, with the web's 30% floor toward the land color. The whole card opens Visitors by country.
 5. Active users per minute (`live-activity`): 30 stacked bars, new visitors (green) under returning visitors (blue), as the web draws them. A visitor is new in the first minute of the window that shows them. The line under the chart names the scrubbed minute, or the current one: "21:14 · 18 visitors · 9 pageviews". The last bar is in progress.
 6. Top pages and Top referrers (`live-top-pages`, `live-top-referrers`): ten rows with views and their share of the window's pageviews. A row that changes rank slides to its place with a ↑ or ↓ badge that fades after 4 seconds. "Direct / None" is in italics. App only shows Top screens (`live-top-screens`, column "Screen") in place of Top pages, with shares of the listed screen views, and no Top referrers.
 7. Breakdown (`live-breakdown`): Devices, Browsers or Countries, with the total and a share bar per row. Devices or Browsers is not offered when its only row is "Unknown", as for app events. With neither and no countries, the card is hidden. Browsers and countries show their top six and an "Other" row. Countries show a flag and a name from the web analytics helper (`countryName`), which uses `Intl.DisplayNames` where the runtime has it and a short list otherwise; codes neither names stay codes. Rows do not open anything, because the web's visitor drill-down is behind a flag.
@@ -146,14 +146,12 @@ Meanwhile sends no data reads: pin values, automatic pin displays and the unread
 
 ## Visitors by country
 
-`/views/live-countries[?country={ISO code}]` (`liveCountriesHref`), pushed from the map card with Back only.
+`/views/live-countries` (`liveCountriesHref`), pushed from the map card with Back only.
 The title block is the "Live" eyebrow, "Visitors by country", and a status line with the live dot: "60 visitors in 20 countries · last 30 minutes", "Paused · …", "Reconnecting…" or "Loading…".
-The map is full width, up to 40% of the window height and centered, so in landscape the stuck map leaves room for the list. A caption sits under it: the leader and "Tap a country", or the selected country ("🇦🇺 Australia · 5 visitors (6.8%)") with Clear.
-The map and caption stick under the chrome while the list scrolls, so a selected row and its outline stay on screen together.
+The map is full width, up to 40% of the window height and centered, so in landscape it leaves room for the list. A caption under it names the leading country and its visitor count.
+The title, map, caption, and country list scroll together as one page.
 The list (`live-countries-list`) has every country: flag, name, a blue bar scaled to the leading country, and "13 (21.7%)". Rows slide when ranks change, like the top pages rows.
-A tap on a country with visitors selects it: an `ink` outline on the map, a tinted row, and the list scrolls the row into view. A tap on a row selects it on the map. A tap on the sea or on a country without visitors does nothing.
-A tap on the sea, or inside a country smaller than 12 pt, also tries points up to 12 pt around it, so small countries can be tapped.
-A `country` in the route that is not in the screen's first countries selects nothing.
+The map and list display visitor counts without country selection or automatic scrolling.
 Loading shows the skeleton, a first read that fails shows "Couldn't load live data" with Try again, and no countries say "No country data in the last 30 minutes".
 
 ### Map data
@@ -174,9 +172,7 @@ The map draws the viewBox from x 90 to 2670 and y 16 to 1172, without the empty 
 | `mobile_live_breakdown_changed`  | `breakdown`: `devices`, `browsers` or `countries`                                                                                                                                |
 | `mobile_live_event_sheet_opened` | `kind`: `pageview`, `screen` or `other`                                                                                                                                          |
 | `mobile_live_event_action_taken` | `action`: `view_person`, `watch_recording`, `copy_distinct_id`                                                                                                                   |
-| `mobile_live_map_opened`         | `from`: `card` (the card) or `map_country` (a country on the card's map)                                                                                                         |
-| `mobile_live_country_selected`   | `source`: `map` or `row`, on Visitors by country                                                                                                                                 |
-| `mobile_live_country_cleared`    | Clear on Visitors by country                                                                                                                                                     |
+| `mobile_live_map_opened`         | `from`: `card`                                                                                                                                                                   |
 | `mobile_live_state_shown`        | `state`: `app_only`, `quiet` or `not_set_up`, once per focus for each state                                                                                                      |
 | `mobile_live_setup_opened`       | Open setup guide on Not set up                                                                                                                                                   |
 | `mobile_live_meanwhile_opened`   | `target`: `view` or `inbox`                                                                                                                                                      |

@@ -232,7 +232,7 @@ const ExternalDataSchemasListSchema = () => {
             .default(true)
             .optional()
             .describe(
-                'Return one short health row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, latest_error cut to 500 characters). Defaults to true. Set to false for the full sync configuration of each table.'
+                'Return one short health row per table (id, name, source_id, should_sync, live_query_enabled, sync_type, status, last_synced_at, latest_error cut to 500 characters). Defaults to true. Set to false for the full sync configuration of each table.'
             ),
     })
 }

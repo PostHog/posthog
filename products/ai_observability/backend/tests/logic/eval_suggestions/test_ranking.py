@@ -92,6 +92,23 @@ class TestCodeCheckValidation:
             assert proposal.sample_size == main[1]
 
 
+@parameterized.expand(
+    [
+        ("small_team_checks_every_trace", 1000, 100.0, 1000),
+        ("largest_team_gets_a_sample", 13_500_000, 0.74, 99_900),
+    ]
+)
+def test_a_code_check_stays_near_the_weekly_run_cap(_name: str, traces: int, rollout: float, weekly_runs: int) -> None:
+    measurement, sample = _measurement((3, 250), (0, 100))
+
+    proposal = ranking.code_check_proposal(
+        measurement, sample, replace(PROFILE, traces=traces), similar_evaluation_id=None
+    )
+
+    assert proposal is not None
+    assert (proposal.rollout_percentage, proposal.estimated_weekly_runs) == (rollout, weekly_runs)
+
+
 class TestFilterRule:
     @parameterized.expand(
         [

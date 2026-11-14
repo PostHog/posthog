@@ -8,6 +8,7 @@ import { promisify } from 'util'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
+import { PluginsServerConfig } from '~/types'
 
 import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
 
@@ -151,6 +152,20 @@ export async function groupMembers(group: string, docker: string): Promise<numbe
     return members
 }
 
+export function lagOf(rpkDescribe: string): number | null {
+    const lag = /^TOTAL-LAG\s+(\d+)\s*$/m.exec(rpkDescribe)
+    return lag ? Number(lag[1]) : null
+}
+
+export async function groupLag(group: string, docker: string): Promise<number> {
+    const output = await rpk(docker, ['group', 'describe', group])
+    const lag = lagOf(output)
+    if (lag === null) {
+        throw new Error(`Could not read the lag of ${group} from rpk:\n${output}`)
+    }
+    return lag
+}
+
 export function seekFailures(rpkSeek: string): string[] {
     const lines = rpkSeek.split('\n').filter((line) => line.trim() !== '')
     const header = lines[0] ?? ''
@@ -192,14 +207,51 @@ export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string
 
 export const cyclotronUrlOf = (spec: RoleSpec): string => spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl
 
-export const postgresUrlOf = (spec: RoleSpec): string =>
-    overrideWithEnv({ ...getDefaultConfig(), DATABASE_URL: STACK.postgresUrl }, spec.env).DATABASE_URL
+const settingsOf = (spec: RoleSpec): PluginsServerConfig =>
+    overrideWithEnv({ ...getDefaultConfig(), DATABASE_URL: STACK.postgresUrl }, spec.env)
+
+export const postgresUrlOf = (spec: RoleSpec): string => settingsOf(spec).DATABASE_URL
+
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']
+const POSTGRES_URL = /^postgres(ql)?:\/\//
+
+function serverOf(url: string): string {
+    const { hostname, port } = new URL(url)
+    return `${LOOPBACK_HOSTS.includes(hostname) ? 'localhost' : hostname}:${port || '5432'}`
+}
+
+export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[] {
+    const urls = [
+        postgresUrl,
+        ...Object.values(settingsOf(spec)).filter(
+            (value): value is string => typeof value === 'string' && POSTGRES_URL.test(value)
+        ),
+    ]
+    return urls.filter((url, i) => urls.findIndex((other) => serverOf(other) === serverOf(url)) === i)
+}
 
 export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> {
     await withPostgres(
         (client) => client.query("DELETE FROM cyclotron_jobs WHERE status IN ('available', 'running')"),
         cyclotronUrl
     )
+}
+
+export async function terminateRoleConnections(postgresUrl: string, share: number): Promise<number> {
+    return await withPostgres(async (client) => {
+        const { rows } = await client.query<{ pid: number }>(
+            `SELECT pid FROM pg_stat_activity
+             WHERE pid <> pg_backend_pid() AND (application_name = ANY($1) OR application_name LIKE 'scenario-%')
+             ORDER BY random()`,
+            [Object.keys(ROLE_PORTS)]
+        )
+        const chosen = rows.slice(0, Math.ceil(share * rows.length)).map(({ pid }) => pid)
+        const terminated = await client.query<{ terminated: number }>(
+            'SELECT count(*) FILTER (WHERE pg_terminate_backend(pid))::int AS terminated FROM unnest($1::int[]) AS pid',
+            [chosen]
+        )
+        return terminated.rows[0].terminated
+    }, postgresUrl)
 }
 
 export async function rolesNotReady(specs: RoleSpec[]): Promise<Role[]> {

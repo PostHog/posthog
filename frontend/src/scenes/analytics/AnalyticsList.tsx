@@ -45,6 +45,7 @@ import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnal
 import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { AnalyticsDeleteDialog } from './AnalyticsDeleteDialog'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
 import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
@@ -54,6 +55,7 @@ import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
+import { AnalyticsTagsDialog } from './AnalyticsTagsDialog'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
 import { ShareToSpaceDialog } from './ShareToSpaceDialog'
@@ -65,6 +67,8 @@ export const scene: SceneExport = {
     component: AnalyticsList,
     logic: analyticsListLogic,
 }
+
+const rowHoverGroup = (): string => 'group/row'
 
 export function AnalyticsList(): JSX.Element {
     const analyticsEnabled = useFeatureFlag('TODAY_RAIL_NAV')
@@ -258,6 +262,7 @@ function AnalyticsListContent(): JSX.Element {
                             }}
                             className="flex min-h-0 flex-col [--quill-table-sticky-bg:var(--card)]"
                             empty={EMPTY_COLLECTION}
+                            rowClassName={rowHoverGroup}
                         />
                     </Card>
                 )}
@@ -361,6 +366,8 @@ function AnalyticsListContent(): JSX.Element {
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />
+            <AnalyticsTagsDialog />
+            <AnalyticsDeleteDialog />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )
