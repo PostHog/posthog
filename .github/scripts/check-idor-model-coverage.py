@@ -176,6 +176,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # first and write the row through it, and no endpoint takes a user-supplied row id.
         # Fail-closed via TeamScopedManager (TeamScopedRootMixin) on top.
         "NodeSubscription",
+        # The table an engine wrote for a DAG node. Written by the materialization run and read by
+        # the HogQL database build, both with the team id in hand; no endpoint takes a
+        # user-supplied row id. Fail-closed via TeamScopedManager (TeamScopedRootMixin) on top.
+        "NodeEngineTable",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
         "StreamlitAppVersion",
