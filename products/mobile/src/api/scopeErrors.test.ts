@@ -38,6 +38,7 @@ describe('missingScope', () => {
         ['a grant without the summary scopes', ['session_recording:read'], 'replay', 'replay_scanner:read'],
         ['an inbox write that covers the read', ['inbox:write'], 'inbox', null],
         ['a read-only inbox grant', ['inbox:read'], 'inbox', 'inbox:write'],
+        ['a read-only experiments grant', ['experiment:read'], 'experiments', 'experiment:write'],
     ])('finds the missing feature scope in %s', (_name, granted, feature, expected) => {
         expect(missingFeatureScope(granted, feature)).toBe(expected)
     })

@@ -57,7 +57,7 @@ describe('mobile feature flag identity', () => {
             initAnalytics()
             expect(mockFlagProperties).toEqual({ project_id: 2, email: null })
             const { result, unmount } = renderHook(useMobileProductFlags)
-            expect(result.current).toEqual({ errors: false, replay: false })
+            expect(result.current).toEqual({ errors: false, replay: false, experiments: false })
 
             act(() =>
                 useAuthStore.setState({
@@ -80,7 +80,7 @@ describe('mobile feature flag identity', () => {
                 false
             )
             await act(async () => requests[1]?.({ [FEATURE_FLAGS.sessionReplay]: true }))
-            expect(result.current).toEqual({ errors: false, replay: true })
+            expect(result.current).toEqual({ errors: false, replay: true, experiments: false })
 
             const secondUser = {
                 id: 2,
@@ -92,15 +92,15 @@ describe('mobile feature flag identity', () => {
             }
             act(() => appChange('active'))
             act(() => useAuthStore.setState({ user: secondUser }))
-            expect(result.current).toEqual({ errors: false, replay: false })
+            expect(result.current).toEqual({ errors: false, replay: false, experiments: false })
             expect(mockClient.setPersonPropertiesForFlags).toHaveBeenLastCalledWith(
                 { project_id: 2, email: 'second@example.com' },
                 false
             )
             await act(async () => requests[2]?.({ [FEATURE_FLAGS.sessionReplay]: true }))
-            expect(result.current).toEqual({ errors: false, replay: false })
+            expect(result.current).toEqual({ errors: false, replay: false, experiments: false })
             await act(async () => requests[3]?.({ [FEATURE_FLAGS.errorTracking]: true }))
-            expect(result.current).toEqual({ errors: true, replay: false })
+            expect(result.current).toEqual({ errors: true, replay: false, experiments: false })
 
             act(() => appChange('active'))
             const previousEmailRequest = requests.at(-1)
@@ -110,11 +110,11 @@ describe('mobile feature flag identity', () => {
                 { project_id: 2, email: null },
                 false
             )
-            expect(result.current).toEqual({ errors: false, replay: false })
+            expect(result.current).toEqual({ errors: false, replay: false, experiments: false })
             await act(async () => previousEmailRequest?.({ [FEATURE_FLAGS.errorTracking]: true }))
-            expect(result.current).toEqual({ errors: false, replay: false })
+            expect(result.current).toEqual({ errors: false, replay: false, experiments: false })
             await act(async () => requests.at(-1)?.({ [FEATURE_FLAGS.errorTracking]: true }))
-            expect(result.current).toEqual({ errors: true, replay: false })
+            expect(result.current).toEqual({ errors: true, replay: false, experiments: false })
 
             act(() => useAuthStore.setState({ user: { ...secondUser, anonymizeData: undefined } }))
             expect(mockClient.setPersonPropertiesForFlags).toHaveBeenLastCalledWith(
@@ -125,7 +125,7 @@ describe('mobile feature flag identity', () => {
             act(() => appChange('active'))
             act(() => useAuthStore.setState({ status: 'signed_out', signedIn: false, user: null }))
             await act(async () => requests.at(-1)?.({ [FEATURE_FLAGS.errorTracking]: true }))
-            expect(result.current).toEqual({ errors: false, replay: false })
+            expect(result.current).toEqual({ errors: false, replay: false, experiments: false })
             unmount()
         } finally {
             setAnalyticsClient(null)
