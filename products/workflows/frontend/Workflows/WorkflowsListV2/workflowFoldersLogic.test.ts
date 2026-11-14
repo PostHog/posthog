@@ -10,6 +10,7 @@ import { createElement } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { folderFormLogic } from 'lib/components/FileSystem/FolderSelect/folderFormLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -1635,8 +1636,8 @@ describe('workflowFoldersLogic', () => {
         renaming.forEach((name) => logic.actions.renameFolder('Billing', name))
         await waitFor(() => expect(moves).toEqual(renaming))
 
-        moveToLogic.actions.setFormValue('folder', destination)
-        moveToLogic.actions.submitForm()
+        folderFormLogic({ dialog: 'move' }).actions.setFormValue('folder', destination)
+        folderFormLogic({ dialog: 'move' }).actions.submitForm()
         expect(await screen.findByText(toast)).toBeInTheDocument()
         expect(moveToLogic.values.isOpen).toBe(true)
         release()
@@ -1656,8 +1657,8 @@ describe('workflowFoldersLogic', () => {
         await logic.asyncActions.renameFolder('Billing', 'Accounts')
         await waitFor(() => expect(logic.values.folderMutationDisabledReason('Accounts')).toBeNull())
 
-        moveToLogic.actions.setFormValue('folder', 'Empty')
-        moveToLogic.actions.submitForm()
+        folderFormLogic({ dialog: 'move' }).actions.setFormValue('folder', 'Empty')
+        folderFormLogic({ dialog: 'move' }).actions.submitForm()
         await waitFor(() => expect(logic.values.pendingFileMoveIds).toEqual([]))
         await expectLogic(logic).toFinishAllListeners()
 

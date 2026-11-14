@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
+import { folderFormLogic } from 'lib/components/FileSystem/FolderSelect/folderFormLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -874,8 +875,8 @@ describe('WorkflowsScene', () => {
             const unmountMoveTo = moveToLogic.mount()
             fireEvent.click(screen.getByLabelText('Select Welcome series'))
             fireEvent.click(await screen.findByText('Move to…'))
-            moveToLogic.actions.setFormValue('folder', 'Billing/Cards')
-            moveToLogic.actions.submitForm()
+            folderFormLogic({ dialog: 'move' }).actions.setFormValue('folder', 'Billing/Cards')
+            folderFormLogic({ dialog: 'move' }).actions.submitForm()
             await waitFor(() => expect(shownRowNames()).not.toContain('Welcome series'))
 
             fireEvent.click(screen.getByLabelText('Select all movable items'))
