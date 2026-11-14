@@ -110,6 +110,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$replay_vision_request_completed',
                 },
             ]
+        case 'signals-reports':
+            return [
+                {
+                    label: 'Inbox report ready',
+                    value: '$signals_report_ready',
+                },
+            ]
         default:
             return [
                 {
@@ -149,6 +156,8 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
                 '$exception_functions',
                 '$exception_handled',
             ]
+        case 'signals-reports':
+            return ['priority', 'actionability', 'source_products', 'repo_slug', 'suggested_reviewers', 'title']
     }
 
     return []
@@ -164,6 +173,13 @@ const ACTIVITY_LOG_SCOPE_VALUES: PropValue[] = Object.values(ActivityLogListScop
 // which can still be entered as custom values.
 const ACTIVITY_LOG_ACTIVITY_VALUES: PropValue[] = ['created', 'updated', 'deleted'].map((name) => ({ name }))
 const NO_SUGGESTED_VALUES: PropValue[] = []
+// The values the backend writes on `$signals_report_ready` (report priority judgment and actionability judgment).
+const SIGNALS_REPORT_PRIORITY_VALUES: PropValue[] = ['P0', 'P1', 'P2', 'P3', 'P4'].map((name) => ({ name }))
+const SIGNALS_REPORT_ACTIONABILITY_VALUES: PropValue[] = [
+    'immediately_actionable',
+    'requires_human_input',
+    'not_actionable',
+].map((name) => ({ name }))
 
 /**
  * Value suggestions for the property filters on the 'Trigger' field. Internal events are
@@ -175,15 +191,25 @@ export const getProductEventPropertyValues = (
     contextId: HogFunctionConfigurationContextId,
     propertyKey: string
 ): PropValue[] | null => {
-    if (contextId !== 'activity-log') {
-        return null
+    if (contextId === 'activity-log') {
+        switch (propertyKey) {
+            case 'scope':
+                return ACTIVITY_LOG_SCOPE_VALUES
+            case 'activity':
+                return ACTIVITY_LOG_ACTIVITY_VALUES
+            default:
+                return NO_SUGGESTED_VALUES
+        }
     }
-    switch (propertyKey) {
-        case 'scope':
-            return ACTIVITY_LOG_SCOPE_VALUES
-        case 'activity':
-            return ACTIVITY_LOG_ACTIVITY_VALUES
-        default:
-            return NO_SUGGESTED_VALUES
+    if (contextId === 'signals-reports') {
+        switch (propertyKey) {
+            case 'priority':
+                return SIGNALS_REPORT_PRIORITY_VALUES
+            case 'actionability':
+                return SIGNALS_REPORT_ACTIONABILITY_VALUES
+            default:
+                return NO_SUGGESTED_VALUES
+        }
     }
+    return null
 }

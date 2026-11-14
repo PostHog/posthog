@@ -423,6 +423,71 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         managed.refresh_from_db()
         self.assertEqual(managed.name, "Alert destination")
 
+    @parameterized.expand(
+        [
+            ("create with inbox read", "create", ["hog_function:write", "inbox:read"], status.HTTP_201_CREATED),
+            ("create with legacy task read", "create", ["hog_function:write", "task:read"], status.HTTP_201_CREATED),
+            ("create without inbox read", "create", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "edit stored destination with inbox read",
+                "edit",
+                ["hog_function:write", "inbox:read"],
+                status.HTTP_200_OK,
+            ),
+            ("edit stored destination without inbox read", "edit", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            ("move a destination onto the event", "retarget", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_destination_on_signals_reports_needs_the_inbox_read_scope(self, _name, mode, scopes, expected_status):
+        report_filters = {"events": [{"id": "$signals_report_ready", "type": "events"}]}
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {key}"}
+
+        if mode == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Inbox webhook",
+                    "hog": "fetch('https://example.com');",
+                    "type": "internal_destination",
+                    "filters": report_filters,
+                },
+                **auth,
+            )
+        else:
+            stored_filters = (
+                report_filters
+                if mode == "edit"
+                else {"events": [{"id": "$activity_log_entry_created", "type": "events"}]}
+            )
+            destination = self._create_internal_destination(stored_filters)
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{destination.id}/",
+                data={"filters": report_filters, "inputs": {"channel": {"value": "#elsewhere"}}},
+                **auth,
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    def test_a_destination_on_signals_reports_needs_viewer_access_to_the_inbox(self):
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, required_level=None, **_: resource != "inbox",
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Inbox webhook",
+                    "hog": "fetch('https://example.com');",
+                    "type": "internal_destination",
+                    "filters": {"events": [{"id": "$signals_report_ready", "type": "events"}]},
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        self.assertFalse(HogFunction.objects.filter(team=self.team, name="Inbox webhook").exists())
+
     def test_generic_api_cannot_restore_a_managed_alert_destination(self):
         managed = self._create_internal_destination(_alert_filters(), deleted=True)
 

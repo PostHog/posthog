@@ -339,6 +339,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'replay-vision-requests',
         filters: { source: 'internal-events', events: [{ id: '$replay_vision_request_completed', type: 'events' }] },
     },
+    'signals-report-ready': {
+        sub_template_id: 'signals-report-ready',
+        type: 'internal_destination',
+        context_id: 'signals-reports',
+        filters: { source: 'internal-events', events: [{ id: '$signals_report_ready', type: 'events' }] },
+    },
 }
 
 const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
@@ -1902,6 +1908,14 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'signals-report-ready': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['signals-report-ready'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook when an Inbox report is ready',
+            description: 'Send a webhook when a self-driving Inbox report is ready',
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1954,6 +1968,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'replay-vision-alerts'
         case '$replay_vision_request_completed':
             return 'replay-vision-requests'
+        case '$signals_report_ready':
+            return 'signals-reports'
         default:
             return 'standard'
     }

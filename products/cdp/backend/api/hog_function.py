@@ -51,6 +51,7 @@ from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSe
 from products.cdp.backend.filters import DATA_WAREHOUSE_SOURCES
 from products.cdp.backend.internal_events import (
     generic_api_editable_alert_scope,
+    internal_event_read_scope,
     is_managed_alert_internal_event,
     is_reserved_internal_event,
 )
@@ -1203,6 +1204,35 @@ class HogFunctionViewSet(
             self._cached_editable_alert_scope = next(iter(scopes), None) if len(scopes) == 1 else None
         return self._cached_editable_alert_scope
 
+    def _internal_event_read_scopes(self, request: Request) -> list[str]:
+        """Scope objects whose data this write lets the destination send, from its stored and submitted events."""
+        if self.action not in self.scope_object_write_actions:
+            return []
+        if not hasattr(self, "_cached_internal_event_read_scopes"):
+            event_filters: list[Any] = []
+            hog_function_id = self.kwargs.get("pk")
+            if hog_function_id:
+                try:
+                    stored = (
+                        HogFunction.objects.filter(team_id=self.team_id, id=str(hog_function_id))
+                        .values_list("filters", flat=True)
+                        .first()
+                    )
+                except (ValueError, DjangoValidationError):
+                    stored = None
+                event_filters += (stored or {}).get("events") or []
+            data = getattr(request, "data", None)
+            submitted = data.get("filters") if isinstance(data, dict) else None
+            if isinstance(submitted, dict) and isinstance(submitted.get("events"), list):
+                event_filters += submitted["events"]
+            scopes = {
+                internal_event_read_scope(event_filter.get("id"))
+                for event_filter in event_filters
+                if isinstance(event_filter, dict)
+            }
+            self._cached_internal_event_read_scopes = sorted(scope for scope in scopes if scope)
+        return self._cached_internal_event_read_scopes
+
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         alert_scope = self._editable_alert_scope()
@@ -1210,6 +1240,11 @@ class HogFunctionViewSet(
             cast(APIScopeObject, alert_scope), required_level="editor"
         ):
             raise PermissionDenied(f"Editing this alert destination requires {alert_scope} write access.")
+        for read_scope in self._internal_event_read_scopes(request):
+            if not self.user_access_control.check_access_level_for_resource(
+                cast(APIScopeObject, read_scope), required_level="viewer"
+            ):
+                raise PermissionDenied(f"Editing this destination requires {read_scope} read access.")
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # A managed alert destination is also gated by the owning product's write scope, so a
@@ -1218,6 +1253,8 @@ class HogFunctionViewSet(
         alert_scope = self._editable_alert_scope()
         if alert_scope:
             required_scopes.append(f"{alert_scope}:write")
+        # A destination on an internal event that carries product data can send that data out of PostHog.
+        required_scopes += [f"{scope}:read" for scope in self._internal_event_read_scopes(request)]
         # Rerun re-executes stored invocations — it replays up to 30 days of
         # persisted event/person/group data through the current (possibly
         # reconfigured) function. A `hog_function:write`-only token could use

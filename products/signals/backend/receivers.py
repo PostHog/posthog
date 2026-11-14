@@ -407,6 +407,46 @@ def schedule_github_writeback_on_status_change(
     )
 
 
+def _became_ready_on_this_save(
+    instance: SignalReport, *, created: bool, update_fields: set[str] | None, prior_status: str | None
+) -> bool:
+    if instance.status != SignalReport.Status.READY:
+        return False
+    if created:
+        return True
+    if update_fields is not None and "status" not in update_fields:
+        return False
+    return prior_status is not None and prior_status != SignalReport.Status.READY
+
+
+@receiver(post_save, sender=SignalReport)
+def emit_report_ready_internal_event(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Send `$signals_report_ready` to CDP destinations once per transition into READY."""
+    if not _became_ready_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    team_id, report_id = instance.team_id, str(instance.id)
+
+    def _emit() -> None:
+        # Function-local to keep the CDP producer and the ClickHouse query off the django.setup() path.
+        from products.signals.backend.report_ready_event import emit_report_ready_event  # noqa: PLC0415
+
+        # A hook outside an atomic block runs inside save(), so an error here must not reach the caller.
+        try:
+            emit_report_ready_event(team_id=team_id, report_id=report_id, is_safety_suppressed=_is_safety_suppressed)
+        except Exception:
+            logger.exception("signals.report_ready_event_failed", team_id=team_id, report_id=report_id)
+
+    transaction.on_commit(_emit, robust=True)
+
+
 def _pr_close_reason(
     instance: SignalReport,
     *,

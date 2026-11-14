@@ -15,6 +15,16 @@ describe('getProductEventPropertyValues', () => {
         // Keys without a statically known value set must suppress suggestions entirely,
         // because the events-table fallback would surface values from unrelated analytics events
         { contextId: 'activity-log' as const, propertyKey: 'detail.name', expected: [] },
+        { contextId: 'signals-reports' as const, propertyKey: 'repo_slug', expected: [] },
+        {
+            contextId: 'signals-reports' as const,
+            propertyKey: 'actionability',
+            expected: [
+                { name: 'immediately_actionable' },
+                { name: 'requires_human_input' },
+                { name: 'not_actionable' },
+            ],
+        },
         // Non-internal contexts keep the default events-table suggestions
         { contextId: 'error-tracking' as const, propertyKey: '$exception_types', expected: null },
         { contextId: 'standard' as const, propertyKey: 'scope', expected: null },
