@@ -420,10 +420,12 @@ The repository default is read-only, so a workflow without a block works today a
 
 A trusted-context trigger (`pull_request_target`, `issue_comment`, `workflow_run`) runs with the base repository's token and secrets, so it must never check out the pull request head: that puts contributor code one `run:` step away from those credentials.
 Check out the base ref and read the head commit as data instead.
-`WF016-untrusted-trigger-checkout` blocks the head checkout: the `pull_request.head`, `workflow_run.head_sha`, `merge_commit_sha` and `refs/pull/*/(head|merge)` forms, and a `repository:` that resolves to the contributor's fork.
-It sees values, not data flow, so a head commit plumbed through `needs.<job>.outputs` is still the reader's job to catch.
+`WF016-untrusted-trigger-checkout` fails closed: on a trusted trigger, a checkout's `ref:` and `repository:` may only be literals or read base-side contexts (`github.sha`, `github.ref`, `github.event.pull_request.base.*`, `github.event.repository.*`, `vars.*`).
+`env.*`, `matrix.*`, `needs.*.outputs`, `steps.*.outputs` and event payload fields are reported, because any of them can carry the head SHA.
+Local reusable workflows are followed to any depth, and a callee's `inputs.<name>` is judged by what its caller passes, or by the input's `default:`.
+A job that builds the head on purpose, behind its own approval gate, puts `# hogli-lint: allow-trusted-checkout -- <reason>` above its job key (`canary-flags-enable.yml` does).
 
-A reusable-workflow call is exempt from `WF015` only while the callee declares its own `permissions:`; a local callee that declares none is reported on the caller, because at that point both inherit the default.
+A reusable-workflow call is exempt from `WF015` only while every job the callee runs declares its own `permissions:`, following the callee's own local calls; a bare job anywhere in that chain is reported on the caller, because at that point it inherits the default.
 
 ## Required status checks
 
