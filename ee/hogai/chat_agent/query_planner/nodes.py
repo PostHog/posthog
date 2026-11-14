@@ -152,6 +152,8 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
             include=["reasoning.encrypted_content"],
             team=self._team,
             user=self._user,
+            # The injected context puts this time before the static prompt, so a per-call time breaks prompt caching.
+            conversation_start_dt=state.start_dt,
             # LangChain sometimes incorrectly handles reasoning items. They fixed it in the new output version.
             # Ref: https://forum.langchain.com/t/langgraph-openai-responses-api-400-error-web-search-call-was-provided-without-its-required-reasoning-item/1740/2
             output_version="responses/v1",
