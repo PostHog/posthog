@@ -1204,6 +1204,11 @@
         "params": [],
         "scope": "project"
     },
+    "logsSavedView": {
+        "template": "/logs",
+        "params": [],
+        "scope": "project"
+    },
     "managedMigration": {
         "template": "/managed_migrations",
         "params": [],

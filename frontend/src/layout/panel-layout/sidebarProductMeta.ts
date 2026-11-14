@@ -132,6 +132,7 @@ const examples: Record<string, string> = {
     Tasks: 'Ask an agent to investigate an issue and prepare a code change.',
     Toolbar: 'Inspect elements on your website while setting up tracking.',
     Tracing: 'Follow a slow request across services to find the bottleneck.',
+    'Uptime monitoring': 'Check whether your checkout page stayed up overnight.',
     'Visual review': 'Review visual changes before they reach users.',
     'Web scripts': 'Add a website tag without changing your application code.',
     Wizard: 'Review the code changes an agent prepares to set up PostHog.',

@@ -56,7 +56,7 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
 import { ActivityScope, CohortType, SidePanelTab } from '~/types'
@@ -391,7 +391,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                     <SceneContent>
                         <LemonField name="name" className="contents">
                             <SceneTitleSection
-                                nameAction={<TodayPeoplePinButton />}
+                                nameAction={<TodayScenePinButton />}
                                 name={cohort.name}
                                 nameSuffix={
                                     !isNewCohort ? (

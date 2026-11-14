@@ -3,12 +3,14 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { LOGS_SCENE_VIEWER_ID } from '../../logsSceneLogic'
 import { DEFAULT_LOGS_COLUMNS, LogsColumnConfig } from '../LogsViewer/config/columns'
 import { logsViewerConfigLogic } from '../LogsViewer/config/logsViewerConfigLogic'
 import { logsViewsListLogic } from './logsViewsListLogic'
 import { LogsView } from './logsViewsLogic'
 
-const TEST_ID = 'test-views'
+// Saved views open only in the logs scene, so loading one applies it to the scene's viewer.
+const TEST_ID = LOGS_SCENE_VIEWER_ID
 
 const CUSTOM_COLUMNS: LogsColumnConfig[] = [
     { id: 'timestamp', type: 'timestamp', width: 180 },

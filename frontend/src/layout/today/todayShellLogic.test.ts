@@ -59,7 +59,7 @@ describe('todayShellLogic', () => {
         ['/project/1/airplane', null],
         ['/project/1/homework', null],
     ])('puts %s under %s', (pathname, pane) => {
-        expect(railPaneForPath(pathname)).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(pane)
     })
 
     test.each([
@@ -79,7 +79,7 @@ describe('todayShellLogic', () => {
         ['/project/1/support/tickets/12', 'people'],
         ['/project/1/customer_analytics/configuration', 'people'],
     ])('puts %s under %s', (pathname, pane) => {
-        expect(railPaneForPath(pathname)).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(pane)
     })
 
     test.each([
@@ -166,6 +166,56 @@ describe('todayShellLogic', () => {
         logic.actions.pickPane(pane)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(pathname)
         expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        ['/project/1/error-tracking', 'monitor', 'products'],
+        ['/project/1/error-tracking/0190-issue', 'monitor', 'products'],
+        ['/project/1/logs', 'monitor', 'products'],
+        ['/project/1/tracing', 'monitor', 'products'],
+        ['/project/1/inbox/scouts', 'products', 'products'],
+        ['/project/1/inbox/scouts/checkout-errors', 'products', 'products'],
+        ['/project/1/ai-observability/traces', 'monitor', null],
+        ['/project/1/ai-evals/taggers', 'monitor', 'products'],
+        ['/project/1/prompt-management/prompts', 'monitor', 'products'],
+        ['/project/1/application-observability', 'products', 'products'],
+        ['/project/1/inbox/reports', 'products', 'products'],
+    ])('puts %s under %s with monitor-area on, and under %s with it off', (pathname, pane, paneWithoutMonitor) => {
+        expect(railPaneForPath(pathname, { [FEATURE_FLAGS.MONITOR_AREA]: true })).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(paneWithoutMonitor)
+    })
+
+    test.each([
+        [true, 'monitor', 'analytics', ['home', 'spaces', 'analytics', 'people', 'monitor', 'products']],
+        [false, 'products', 'products', ['home', 'spaces', 'analytics', 'people', 'products']],
+    ] as const)(
+        'with monitor-area %s, a Monitor pick shows %s and an issue opened from an insight shows %s',
+        (enabled, pickedPane, issuePane, railPanes) => {
+            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: enabled }
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            const logic = todayShellLogic()
+            logic.mount()
+            expect(logic.values.railPanes).toEqual(railPanes)
+
+            router.actions.push('/project/1/airplane')
+            logic.actions.pickPane('monitor')
+            expect(logic.values.activePane).toBe(pickedPane)
+
+            router.actions.push('/project/1/insights/abc')
+            router.actions.push('/project/1/error-tracking/0190-issue')
+            expect(logic.values.activePane).toBe(issuePane)
+        }
+    )
+
+    test.each([true, false])('with monitor-area %s, Error tracking opened from Products keeps Products', (enabled) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: enabled }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane('products')
+        router.actions.push('/project/1/error-tracking')
+        expect(logic.values.activePane).toBe('products')
     })
 
     test.each([

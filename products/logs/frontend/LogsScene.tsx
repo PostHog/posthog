@@ -14,6 +14,7 @@ import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
@@ -71,6 +72,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
             <LogsAgentIntegration activeTabIsViewer={activeTab === 'viewer'} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
+                nameAction={<TodayScenePinButton />}
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}

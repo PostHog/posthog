@@ -1,7 +1,7 @@
 import './TodayShell.scss'
 
-import { useActions, useValues } from 'kea'
-import { Suspense, useEffect, useRef } from 'react'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { ComponentType, Suspense, useEffect, useRef } from 'react'
 
 import { Skeleton, ToastProvider } from '@posthog/quill'
 
@@ -20,7 +20,14 @@ import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
-import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
+import { todayRecentsLogic } from './todayRecentsLogic'
+import {
+    TODAY_RAIL_WIDTH,
+    TODAY_SIDEBAR_CLOSE_THRESHOLD,
+    TodayRailPane,
+    clampSidebarWidth,
+    todayShellLogic,
+} from './todayShellLogic'
 import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
@@ -31,6 +38,11 @@ const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m)
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
     import('products/today/frontend/analytics/TodayAnalyticsSidebar').then((m) => ({
         default: m.TodayAnalyticsSidebar,
+    }))
+)
+const TodayMonitorSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/monitor/TodayMonitorSidebar').then((m) => ({
+        default: m.TodayMonitorSidebar,
     }))
 )
 const TodayPeopleSidebar = lazyWithRetry(() =>
@@ -45,6 +57,16 @@ const ReleaseSidebar = lazyWithRetry(() =>
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
 )
+const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: ComponentType; previews?: boolean }> = {
+    spaces: { Sidebar: TodaySpacesPane },
+    analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
+    monitor: { Sidebar: TodayMonitorSidebar, previews: true },
+    people: { Sidebar: TodayPeopleSidebar, previews: true },
+    release: { Sidebar: ReleaseSidebar },
+    settings: { Sidebar: TodaySettingsSidebar },
+    products: { Sidebar: TodayProductsPane },
+}
+
 const NewSpaceDialog = lazyWithRetry(() =>
     import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
@@ -54,6 +76,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
+    useMountedLogic(todayRecentsLogic)
     useShortcut({
         name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],
@@ -98,25 +122,17 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         }
     }, [mobileLayout, sidebarVisible])
 
+    const paneSidebar = activePane === 'home' ? null : PANE_SIDEBARS[activePane]
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
-            {activePane === 'home' ? null : activePane === 'spaces' ? (
-                <TodaySpacesPane />
-            ) : activePane === 'analytics' ? (
-                <TodayPreviewCardProvider disabled={phoneLayout}>
-                    <TodayAnalyticsSidebar />
-                </TodayPreviewCardProvider>
-            ) : activePane === 'people' ? (
-                <TodayPreviewCardProvider disabled={phoneLayout}>
-                    <TodayPeopleSidebar />
-                </TodayPreviewCardProvider>
-            ) : activePane === 'release' ? (
-                <ReleaseSidebar />
-            ) : activePane === 'settings' ? (
-                <TodaySettingsSidebar />
-            ) : (
-                <TodayProductsPane />
-            )}
+            {paneSidebar &&
+                (paneSidebar.previews ? (
+                    <TodayPreviewCardProvider disabled={phoneLayout}>
+                        <paneSidebar.Sidebar />
+                    </TodayPreviewCardProvider>
+                ) : (
+                    <paneSidebar.Sidebar />
+                ))}
         </Suspense>
     )
 

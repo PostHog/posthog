@@ -4,8 +4,10 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from './todayPeople'
-import { TODAY_PEOPLE_RECENTS_LIMIT, addPeopleRecent, todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
+import { TodayMonitorRecent } from './todayMonitor'
+import { TodayPeopleRecent } from './todayPeople'
+import { TODAY_RECENTS_LIMIT, TODAY_RECENT_KEY, TodayRecent, addTodayRecent } from './todayRecents'
+import { todayRecentsLogic } from './todayRecentsLogic'
 
 // The real logic loads every scene. This one lets a test set the active scene logic's record.
 jest.mock('scenes/sceneLogic', () => {
@@ -29,45 +31,59 @@ jest.mock('scenes/sceneLogic', () => {
 })
 
 const recent = (href: string, name: string = href): TodayPeopleRecent => ({ type: 'cohort', name, href })
-const sceneShowing = (record: TodayPeopleRecent | null): unknown => ({
-    selectors: { [TODAY_PEOPLE_RECENT_KEY]: () => record },
+const issue: TodayMonitorRecent = { type: 'error_tracking_issue', name: 'Checkout timeout', href: '/error-tracking/1' }
+const sceneShowing = (record: TodayRecent | null): unknown => ({
+    selectors: { [TODAY_RECENT_KEY]: () => record },
 })
 
-describe('todayPeopleRecentsLogic', () => {
+describe('todayRecentsLogic', () => {
     it('puts a visit first, renames it in place, and keeps the list at the limit', () => {
         const a = recent('/a')
         const b = recent('/b')
-        expect(addPeopleRecent([a, b], b).map((item) => item.href)).toEqual(['/b', '/a'])
-        expect(addPeopleRecent([a, b], { ...a, name: 'Renamed' })).toEqual([{ ...a, name: 'Renamed' }, b])
+        expect(addTodayRecent([a, b], b).map((item) => item.href)).toEqual(['/b', '/a'])
+        expect(addTodayRecent([a, b], { ...a, name: 'Renamed' })).toEqual([{ ...a, name: 'Renamed' }, b])
 
         const unchanged = [a, b]
-        expect(addPeopleRecent(unchanged, a)).toBe(unchanged)
+        expect(addTodayRecent(unchanged, a)).toBe(unchanged)
 
-        const full = Array.from({ length: TODAY_PEOPLE_RECENTS_LIMIT }, (_, index) => recent(`/${index}`))
-        const added = addPeopleRecent(full, recent('/new'))
-        expect(added).toHaveLength(TODAY_PEOPLE_RECENTS_LIMIT)
+        const full = Array.from({ length: TODAY_RECENTS_LIMIT }, (_, index) => recent(`/${index}`))
+        const added = addTodayRecent(full, recent('/new'))
+        expect(added).toHaveLength(TODAY_RECENTS_LIMIT)
         expect(added[0].href).toBe('/new')
     })
 
     test.each([
-        ['on', true, ['Churned']],
-        ['off', false, []],
-    ])('with today-rail-nav %s, a scene adds %o once its record loads', (_, enabled, names) => {
+        [
+            'a cohort with today-rail-nav on',
+            { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true },
+            recent('/cohorts/5', 'Churned'),
+            ['Churned'],
+            [],
+        ],
+        ['a cohort with today-rail-nav off', {}, recent('/cohorts/5', 'Churned'), [], []],
+        [
+            'an issue with monitor-area on',
+            { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: true },
+            issue,
+            [],
+            ['Checkout timeout'],
+        ],
+        ['an issue with monitor-area off', { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }, issue, [], []],
+    ])('a scene showing %s adds it to its pane once it loads', (_, flags, record, people, monitor) => {
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: enabled,
-        })
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
         sceneLogic.mount()
-        const logic = todayPeopleRecentsLogic()
+        const logic = todayRecentsLogic()
         logic.mount()
         const setActive = (sceneLogic.actions as any).setActiveSceneLogic
 
         setActive(sceneShowing(null))
-        expect(logic.values.recents).toEqual([])
+        expect(logic.values.peopleRecents).toEqual([])
 
-        setActive(sceneShowing(recent('/cohorts/5', 'Churned')))
-        expect(logic.values.recents.map((item) => item.name)).toEqual(names)
+        setActive(sceneShowing(record))
+        expect(logic.values.peopleRecents.map((item) => item.name)).toEqual(people)
+        expect(logic.values.monitorRecents.map((item) => item.name)).toEqual(monitor)
     })
 
     it('reads the record with the props of the open scene', () => {
@@ -77,7 +93,7 @@ describe('todayPeopleRecentsLogic', () => {
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
         })
         sceneLogic.mount()
-        const logic = todayPeopleRecentsLogic()
+        const logic = todayRecentsLogic()
         logic.mount()
         const sceneActions = sceneLogic.actions as any
 
@@ -88,23 +104,23 @@ describe('todayPeopleRecentsLogic', () => {
         })
         sceneActions.setActiveSceneLogic({
             selectors: {
-                [TODAY_PEOPLE_RECENT_KEY]: (_: unknown, props: { id?: string }) =>
+                [TODAY_RECENT_KEY]: (_: unknown, props: { id?: string }) =>
                     props.id ? recent(`/cohorts/${props.id}`, `Cohort ${props.id}`) : null,
             },
         })
 
-        expect(logic.values.recents).toEqual([recent('/cohorts/7', 'Cohort 7')])
+        expect(logic.values.peopleRecents).toEqual([recent('/cohorts/7', 'Cohort 7')])
     })
 
     it('stores a recent, newest first, and lists the rows by name', () => {
         initKeaTests()
-        const logic = todayPeopleRecentsLogic()
+        const logic = todayRecentsLogic()
         logic.mount()
 
         logic.actions.addRecent(recent('/cohorts/1'))
         logic.actions.addRecent(recent('/cohorts/2'))
 
-        expect(logic.values.recents.map((item) => item.href)).toEqual(['/cohorts/2', '/cohorts/1'])
-        expect(logic.values.recentRows.map((item) => item.href)).toEqual(['/cohorts/1', '/cohorts/2'])
+        expect(logic.values.peopleRecents.map((item) => item.href)).toEqual(['/cohorts/2', '/cohorts/1'])
+        expect(logic.values.peopleRecentRows.map((item) => item.href)).toEqual(['/cohorts/1', '/cohorts/2'])
     })
 })
