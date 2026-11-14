@@ -5,6 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
+import { logsAlertEventHistoryLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertEventHistoryLogic'
 import { logsAlertFormLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertFormLogic'
 import { logsAlertingLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertingLogic'
 import {
@@ -89,7 +90,7 @@ jest.mock('@posthog/lemon-ui', () => ({
 
 const mockedApi = require('products/logs/frontend/generated/api')
 
-describe('logsAlertDetailSceneLogic — save-then-enable chain', () => {
+describe('logsAlertDetailSceneLogic', () => {
     let alertingLogic: ReturnType<typeof logsAlertingLogic.build>
 
     beforeEach(() => {
@@ -192,6 +193,42 @@ describe('logsAlertDetailSceneLogic — save-then-enable chain', () => {
             .toDispatchActions(['submitAlertFormSuccess', 'loadAlert'])
             .toNotHaveDispatchedActions(['applyEnabledChange'])
 
+        logic.unmount()
+    })
+
+    it('shows a missing alert as not found without requesting its events or failing the load', async () => {
+        mockedApi.logsAlertsRetrieve.mockRejectedValue({ status: 404, detail: 'Not found.' })
+        const logic = logsAlertDetailSceneLogic({ id: MOCK_ALERT_ID })
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        })
+            .toDispatchActions(['loadAlertSuccess'])
+            .toNotHaveDispatchedActions(['loadAlertFailure'])
+            .toFinishAllListeners()
+            .toMatchValues({ alert: null, alertLoading: false })
+
+        expect(mockedApi.logsAlertsEventsList).not.toHaveBeenCalled()
+        logic.unmount()
+    })
+
+    it('loads event history once when the history mounts, and refreshes it when the alert reloads', async () => {
+        const logic = await mountSceneLogic()
+        const historyLogic = logsAlertEventHistoryLogic({ alertId: MOCK_ALERT_ID })
+        historyLogic.mount()
+        await expectLogic(historyLogic).toFinishAllListeners()
+
+        expect(mockedApi.logsAlertsEventsList).toHaveBeenCalledTimes(1)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAlert()
+        })
+            .toDispatchActions(['loadAlertSuccess'])
+            .toFinishAllListeners()
+        await expectLogic(historyLogic).toFinishAllListeners()
+
+        expect(mockedApi.logsAlertsEventsList).toHaveBeenCalledTimes(2)
+        historyLogic.unmount()
         logic.unmount()
     })
 })
