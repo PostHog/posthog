@@ -76494,6 +76494,27 @@ export namespace Schemas {
       outcome: KeyActionOutcomeEnum;
     }
 
+    export interface OrganizationPersonalAPIKeyBulkActionResult {
+      /** Number of keys that got a new secret that nobody sees. Their old secrets no longer work anywhere. */
+      rolled: number;
+      /** Number of keys that no longer exist. */
+      deleted: number;
+      /** Number of keys left unchanged because they were rolled at or after 'skip_rolled_since'. */
+      skipped: number;
+      /** Number of keys that an error left unchanged. Run the action again to change them. */
+      failed: number;
+      /** When the roll of all keys started. A retry returns the 'skip_rolled_since' it was given. */
+      started_at: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyRollAllRequest {
+      /**
+         * Leave keys alone that were rolled at or after this time. To retry a roll of all keys without rolling its keys again, pass the 'started_at' that the earlier attempt returned.
+         * @nullable
+         */
+      skip_rolled_since?: string | null;
+    }
+
     export interface OrganizationRemoveBlockedMembersResponse {
       /** Whether verified-domain enforcement was turned on. */
       success: boolean;
