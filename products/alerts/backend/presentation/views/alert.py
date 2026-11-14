@@ -106,6 +106,7 @@ from products.alerts.backend.facade.api import (
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
     assign_alert_owner,
+    forecast_rule,
     is_llm_detector_config,
     llm_detector_access_error,
 )
@@ -161,7 +162,6 @@ from products.alerts.backend.facade.platform import (
     write_moved_alert_edit,
     write_native_alert_edit,
 )
-from products.alerts.backend.forecast.rules import forecast_rule
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,

@@ -30,7 +30,8 @@ from products.alerts.backend.llm_detector_limits import LLMAlertWrite, admit_llm
 
 GATEWAY = {"AI_GATEWAY_URL": "https://ai-gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"}
 
-FAKE_TEAM = MagicMock(spec=Team, id=42, organization_id="0190f2a4-0000-0000-0000-000000000001")
+FAKE_ORGANIZATION = MagicMock(id="0190f2a4-0000-0000-0000-000000000001", is_ai_data_processing_approved=True)
+FAKE_TEAM = MagicMock(spec=Team, id=42, organization=FAKE_ORGANIZATION, organization_id=FAKE_ORGANIZATION.id)
 FAKE_USER = MagicMock(spec=User, distinct_id="creator-distinct-id")
 
 
@@ -74,12 +75,19 @@ def _forecast_answer(expected: float = 100.0, lower: float = 80.0, upper: float 
 
 
 def _evaluate(
-    series: list[ComparableSeries], detector_config: dict[str, Any], *, send: Any, rolled_out: bool | None = True
+    series: list[ComparableSeries],
+    detector_config: dict[str, Any],
+    *,
+    send: Any,
+    rolled_out: bool | None = True,
+    ai_processing_approved: bool = True,
 ) -> tuple[Any, MagicMock]:
     mock = {"side_effect": send} if callable(send) or isinstance(send, Exception) else {"return_value": send}
     with (
         override_settings(**GATEWAY),
+        patch.object(FAKE_ORGANIZATION, "is_ai_data_processing_approved", ai_processing_approved),
         patch("posthoganalytics.feature_enabled", return_value=rolled_out),
+        patch("ee.hogai.utils.feature_flags.is_privacy_mode_enabled", return_value=True),
         patch.object(httpx.Client, "send", **mock) as sent,
     ):
         result = evaluate_with_detector(
@@ -140,7 +148,9 @@ class TestForecastCheck(SimpleTestCase):
 
         result, sent = _evaluate([_series([*history, 180.0])], {"type": "forecast"}, send=_forecast_answer())
 
-        body = json.loads(sent.call_args.args[0].content)
+        request = sent.call_args.args[0]
+        assert request.headers["X-PostHog-Privacy-Mode"] == "true"
+        body = json.loads(request.content)
         # At most 512 points of history, and the checked point is never part of its own history.
         assert body["inputs"][0]["target"] == [100.0] * 512
         assert body["parameters"]["quantile_levels"] == [0.05, 0.5, 0.95]
@@ -217,6 +227,14 @@ class TestForecastCheck(SimpleTestCase):
 
         assert raised.value.error_code == code  # type: ignore[attr-defined]
         assert "internal detail" not in str(raised.value)
+
+    def test_withdrawn_ai_processing_approval_pauses_the_check_before_any_call(self) -> None:
+        with pytest.raises(LLMDetectorPausedError, match="AI data processing is turned off") as raised:
+            _evaluate(
+                [_series([100.0] * 40)], {"type": "forecast"}, send=_forecast_answer(), ai_processing_approved=False
+            )
+
+        assert raised.value.error_code == FORECAST_DETECTOR_PAUSED_ERROR_CODE
 
     def test_a_plain_http_gateway_pauses_the_check_before_the_key_is_sent(self) -> None:
         with (

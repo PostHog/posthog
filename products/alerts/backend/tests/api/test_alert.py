@@ -3446,12 +3446,13 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert reenabled.status_code == status.HTTP_400_BAD_REQUEST, reenabled.content
         assert "not enabled for your account" in reenabled.json()["detail"]
 
+    @parameterized.expand([("llm",), ("forecast",)])
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_rejected_without_ai_processing_consent(self, _flag) -> None:
+    def test_rejected_without_ai_processing_consent(self, detector_type: str, _flag) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
 
-        response = self._create({"type": "llm"})
+        response = self._create({"type": detector_type})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "AI data processing is turned off" in response.json()["detail"]

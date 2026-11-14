@@ -64,7 +64,7 @@ from products.alerts.backend.judge.contract import (
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
-from products.alerts.backend.llm_detector_limits import calls_ai_gateway, is_llm_detector_config
+from products.alerts.backend.llm_detector_limits import calls_ai_gateway
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.logic.destinations import configured_destination_template_ids
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -835,15 +835,15 @@ def _decide(
 
 
 def _ai_detector_not_copied(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> bool:
-    """Whether a parallel-run copy made without the AI detector would now run one.
+    """Whether a parallel-run copy made without a gateway detector (the AI or forecast detector) would now run one.
 
-    A check reads the alert's live detector, so an alert switched to the AI detector after the
-    backfill copied it would make a model call the project pays for twice. The backfill copies
+    A check reads the alert's live detector, so an alert switched to a gateway detector after the
+    backfill copied it would make a gateway call the project pays for twice. The backfill copies
     AI detector alerts only on request, and a copy it made that way stores the AI detector.
     """
-    if check.owned_by_platform or not is_llm_detector_config(alert.detector_config):
+    if check.owned_by_platform or not calls_ai_gateway(alert.detector_config):
         return False
-    return not is_llm_detector_config(check.condition.get("detector"))
+    return not calls_ai_gateway(check.condition.get("detector"))
 
 
 def _run_as_copy_creator(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> None:

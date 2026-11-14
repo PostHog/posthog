@@ -41,9 +41,21 @@ class ForecastRule:
             )
 
     @property
-    def quantile_levels(self) -> tuple[float, float, float]:
+    def quantile_levels(self) -> "QuantileLevels":
         lower, upper = BAND_QUANTILES[self.band]
-        return (lower, EXPECTED_QUANTILE, upper)
+        return QuantileLevels(lower=lower, expected=EXPECTED_QUANTILE, upper=upper)
+
+
+@frozen
+class QuantileLevels:
+    """The quantiles a rule reads from the forecast: the range ends and the expected value."""
+
+    lower: float
+    expected: float
+    upper: float
+
+    def as_list(self) -> list[float]:
+        return [self.lower, self.expected, self.upper]
 
 
 def forecast_rule(config: dict[str, Any]) -> ForecastRule:

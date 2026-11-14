@@ -178,7 +178,7 @@ def _admit_forecast_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | None:
     if write.principal is None:
         return LLMAlertRefusal(message=FORECAST_DETECTOR_NO_CREATOR_MESSAGE, reason="access")
     if error := forecast_detector_access_error(
-        distinct_id=str(write.principal.distinct_id), organization_id=write.organization.id
+        distinct_id=str(write.principal.distinct_id), organization=write.organization
     ):
         return LLMAlertRefusal(message=error, reason="access", field="detector_config")
     return None

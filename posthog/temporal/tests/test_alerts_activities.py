@@ -1625,7 +1625,7 @@ class TestRecordFailedEvaluation:
         assert result.alert_check_id is not None
         assert [call.args[0] for call in mock_outcome.call_args_list] == expected_outcomes
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
-        assert check.error.get("code") == expected_code
+        assert (check.error or {}).get("code") == expected_code
 
     async def test_does_not_count_an_unavailable_outcome_it_never_recorded(self, alert_with_user) -> None:
         # A disable between prepare and evaluate writes no errored check, so it is not a failed

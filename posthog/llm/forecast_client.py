@@ -84,10 +84,12 @@ def forecast(
     prediction_length: int = 1,
     trace_id: str | None = None,
     timeout: httpx.Timeout | float = DEFAULT_TIMEOUT,
+    privacy_mode: bool = False,
 ) -> dict[str, SeriesForecast]:
     """Forecast ``prediction_length`` steps of each series, keyed by ``item_id``.
 
     ``ai_product`` and ``team_id`` label the gateway's event, and ``team_id`` names the team the call is for.
+    With ``privacy_mode``, the gateway's event keeps no inputs or outputs.
     Raises ``ValueError`` for an input the gateway cannot accept, and a ``ForecastError`` subclass when the call fails.
     """
     _validate(
@@ -114,6 +116,7 @@ def forecast(
             or {}
         ),
         "Authorization": f"Bearer {gateway.api_key}",
+        **({"X-PostHog-Privacy-Mode": "true"} if privacy_mode else {}),
     }
     url = gateway.url.rstrip("/") + "/forecast"
     forecasts: dict[str, SeriesForecast] = {}

@@ -32,6 +32,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.alerts.backend import platform_subscribers
 from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.facade import contracts
+from products.alerts.backend.forecast.rules import forecast_rule
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.judge.contract import (
     DETECTOR_PAUSED_ERROR_CODES,
@@ -716,6 +717,7 @@ __all__ = [
     "admit_llm_alert_write",
     "assign_alert_owner",
     "calls_ai_gateway",
+    "forecast_rule",
     "is_llm_detector_config",
     "llm_detector_access_error",
 ]
