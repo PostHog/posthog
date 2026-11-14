@@ -184,6 +184,10 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
     } = useActions(logic)
 
     const messageCustomization = useFeatureFlag('ALERTS_DESTINATION_CUSTOMIZATION')
+    // PagerDuty's insight messages cannot be edited, and only an alert PostHog alerts checks sends the standard message.
+    const offersMessageAction = (destination: AlertDestinationListItemApi): boolean =>
+        messageCustomization &&
+        (destination.message_customized ? pagerDutyAvailable : destination.type !== ALERT_NOTIFICATION_TYPE_PAGERDUTY)
 
     const selectedType =
         !pagerDutyAvailable && storedSelectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY
@@ -263,7 +267,7 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
                           targetBlank: true,
                       }
                     : undefined,
-            messageAction: messageCustomization
+            messageAction: offersMessageAction(destination)
                 ? destinationMessageAction({
                       messageCustomized: destination.message_customized,
                       loading: changingMessageDestinationKeys.has(destinationKey(destination)),

@@ -1737,9 +1737,14 @@ _ROW_EVENT_KINDS: dict[DestinationType, tuple[AlertEventKind, ...]] = {
 }
 
 
+# The generic HogFunction editor refuses the insight incident events, so a PagerDuty destination's
+# message cannot be edited and Customize would leave it with HogFunctions nobody can change.
 _CUSTOMIZABLE_DESTINATION_TYPES: tuple[DestinationType, ...] = (
     *INSIGHT_ALERT_DESTINATION_TYPES,
     *INSIGHT_ALERT_URL_DESTINATION_TYPES,
+)
+_RESETTABLE_DESTINATION_TYPES: tuple[DestinationType, ...] = (
+    *_CUSTOMIZABLE_DESTINATION_TYPES,
     DestinationType.PAGERDUTY,
 )
 
@@ -3026,7 +3031,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 allowed_destination_types=_CUSTOMIZABLE_DESTINATION_TYPES,
                 destination_id=serializer.validated_data["destination_id"],
                 hog_function_ids=serializer.validated_data["hog_function_ids"],
-                build_configs=lambda data: _insight_destination_configs(alert.id, alert.name, data),
+                # An insight destination hears firings only, so the row's event kinds add nothing.
+                build_configs=lambda data, _event_kinds: _insight_destination_configs(alert.id, alert.name, data),
                 created_by_id=request.user.id,
             )
         except AlertDestinationValidationError as error:
@@ -3066,7 +3072,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 team_id=self.team_id,
                 alert_id=alert.id,
                 allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
-                allowed_destination_types=_CUSTOMIZABLE_DESTINATION_TYPES,
+                allowed_destination_types=_RESETTABLE_DESTINATION_TYPES,
                 hog_function_ids=serializer.validated_data["hog_function_ids"],
                 row_event_kinds=lambda destination_type: _ROW_EVENT_KINDS.get(
                     destination_type, (AlertEventKind.FIRING,)
