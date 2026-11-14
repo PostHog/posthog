@@ -136,6 +136,7 @@ from posthog.permissions import (
     credential_admits_team,
     get_authenticator_scoped_team_ids,
     get_request_reachable_organization_ids,
+    organization_refuses_personal_api_key,
 )
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
@@ -986,15 +987,37 @@ class UserSerializer(serializers.ModelSerializer):
         reachable_organizations = get_request_reachable_organization_ids(request)
         if reachable_organizations is None:
             return None
-        candidates = user.teams.filter(organization_id__in=reachable_organizations)
+        candidates = Team.objects.filter(organization_id__in=reachable_organizations)
         scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
         if scoped_teams:
             candidates = candidates.filter(id__in=scoped_teams)
         blocked_organizations = get_ip_blocked_organization_ids(request)
         if blocked_organizations:
             candidates = candidates.exclude(organization_id__in=blocked_organizations)
-        teams = list(candidates.select_related("organization")[:2])
-        return teams[0] if len(teams) == 1 else None
+
+        user_permissions = self.context.get("user_permissions")
+        if not isinstance(user_permissions, UserPermissions) or user_permissions.user != user:
+            user_permissions = UserPermissions(user)
+        # `/api/users/@me/` skips the organization gates that every route of the named project applies, so a
+        # project those gates refuse must not be named here either.
+        organization_admits: dict[str, bool] = {}
+        sole_team: Team | None = None
+        for team in candidates.select_related("organization").order_by("id"):
+            organization_id = str(team.organization_id)
+            if organization_id not in organization_admits:
+                organization_admits[organization_id] = not (
+                    OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, team.organization)
+                    or organization_refuses_personal_api_key(request, team.organization)
+                )
+            if (
+                not organization_admits[organization_id]
+                or user_permissions.team(team).effective_membership_level is None
+            ):
+                continue
+            if sole_team is not None:
+                return None
+            sole_team = team
+        return sole_team
 
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):

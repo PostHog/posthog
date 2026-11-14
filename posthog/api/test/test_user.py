@@ -428,24 +428,36 @@ class TestUserAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("one_organization", "organization", False, True),
-            ("one_team", "team", False, True),
-            ("two_teams", "two_teams", False, False),
-            ("one_team_in_an_ip_blocked_organization", "team", True, False),
+            ("one_organization", "organization", None, True),
+            ("one_team", "team", None, True),
+            ("two_teams", "two_teams", None, False),
+            ("one_team_in_an_ip_blocked_organization", "team", "ip_restrictions", False),
+            ("one_team_in_a_domain_enforcing_organization", "team", "verified_domains", False),
+            ("one_team_where_member_keys_are_off", "team", "member_personal_api_keys_off", False),
         ]
     )
     @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
     def test_me_with_a_scoped_key_hides_other_organizations_and_names_a_sole_reachable_project(
-        self, _name: str, scope: str, ip_blocked: bool, names_the_reachable_project: bool
+        self, _name: str, scope: str, restriction: str | None, names_the_reachable_project: bool
     ) -> None:
         other_organization, _, other_team = Organization.objects.bootstrap(self.user)
         self.user.current_team = other_team
         self.user.current_organization = other_organization
         self.user.save()
-        if ip_blocked:
+        if restriction == "ip_restrictions":
             OrganizationIPRestrictions.objects.create(
                 organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
             )
+        elif restriction == "verified_domains":
+            self.organization.enforce_verified_domains = True
+            self.organization.save()
+            OrganizationDomain.objects.create(
+                domain="verified.example.com", organization=self.organization, verified_at=timezone.now()
+            )
+        elif restriction == "member_personal_api_keys_off":
+            self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}]
+            self.organization.members_can_use_personal_api_keys = False
+            self.organization.save()
         scope_fields: dict[str, dict[str, list]] = {
             "organization": {"scoped_organizations": [str(self.organization.id)]},
             "team": {"scoped_teams": [self.team.id]},
