@@ -48,7 +48,11 @@ describe('tracePageLogic', () => {
     it.each([
         ['event', '?event=gen-1', { requestedStepId: 'gen-1', openingMode: null }],
         ['tab=summary', '?tab=summary', { requestedStepId: null, openingMode: 'summary', detailTab: 'messages' }],
-        ['tab=thread', '?tab=thread', { requestedStepId: null, openingMode: 'thread', detailTab: 'messages' }],
+        [
+            'tab=thread',
+            '?tab=thread',
+            { requestedStepId: null, openingMode: 'thread', mode: 'thread', detailTab: 'messages' },
+        ],
         [
             'tab=evals with no event',
             '?tab=evals',
@@ -106,16 +110,20 @@ describe('tracePageLogic', () => {
         expect(host.values).toMatchObject({ mode: 'spans', detailTab: 'messages' })
     })
 
-    it('opens another trace on tab=evals, and keeps the tab the person picks when a step writes the URL', () => {
+    it.each([
+        ['evals', { detailTab: 'evals' }],
+        ['thread', { mode: 'thread' }],
+    ])('opens another trace on tab=%s, and keeps later tab choices when a step writes the URL', (tab, expected) => {
         open('')
-        open('?tab=evals', 'trace-2')
-        expect(host.values.detailTab).toBe('evals')
+        open(`?tab=${tab}`, 'trace-2')
+        expect(host.values).toMatchObject(expected)
 
         host.actions.setDetailTab('raw')
+        host.actions.setMode('spans')
         host.actions.requestStep('gen-2', 'trace-2')
 
-        expect(router.values.searchParams).toMatchObject({ tab: 'evals', event: 'gen-2' })
-        expect(host.values.detailTab).toBe('raw')
+        expect(router.values.searchParams).toMatchObject({ tab, event: 'gen-2' })
+        expect(host.values).toMatchObject({ detailTab: 'raw', mode: 'spans' })
     })
 
     it.each([

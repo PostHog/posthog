@@ -211,6 +211,9 @@ export const tracePageLogic = kea<tracePageLogicType>([
                 actions.setMode('spans')
                 actions.setDetailTab('messages')
             }
+            if (isNewTrace && tab === 'thread') {
+                actions.setMode('thread')
+            }
             // The page writes its URL on each step, so a later pass here would undo the tab the person picked.
             if (isNewTrace && tab === 'evals') {
                 actions.setDetailTab('evals')
