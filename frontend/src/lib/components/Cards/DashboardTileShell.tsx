@@ -7,11 +7,10 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export type DashboardTileShellProps = React.HTMLAttributes<HTMLDivElement> & {
     transparent?: boolean | null
-    showResizeHandles?: boolean
 }
 
 export const DashboardTileShell = React.forwardRef<HTMLDivElement, DashboardTileShellProps>(function DashboardTileShell(
-    { transparent, showResizeHandles, className, children, ...divProps },
+    { transparent, className, children, ...divProps },
     ref
 ): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -27,12 +26,7 @@ export const DashboardTileShell = React.forwardRef<HTMLDivElement, DashboardTile
     return (
         <div
             ref={ref}
-            className={clsx(
-                'rounded',
-                !transparent && 'bg-surface-primary border',
-                transparent && showResizeHandles && 'border border-dashed border-border',
-                className
-            )}
+            className={clsx('rounded', !transparent && 'bg-surface-primary border', className)}
             {...divProps}
         >
             {children}
