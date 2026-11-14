@@ -1,13 +1,46 @@
+from django.conf import settings
 from django.db import migrations
 
 import structlog
 
+from products.cohorts.backend.backfill.finalize import refresh_readiness_caches
 from products.cohorts.backend.models.cohort import Cohort as LiveCohort
 
 logger = structlog.get_logger(__name__)
 
 BATCH_SIZE = 1_000
 LOG_EVERY_BATCHES = 25
+ROUTED_COHORT_TYPES = ("realtime", "behavioral")
+READINESS_STAMPS = (
+    "last_backfill_events_at",
+    "last_backfill_person_properties_at",
+    "last_realtime_cohort_calculation_at",
+)
+
+
+def _flags_routing_can_change(cohort) -> bool:
+    """Whether the new value can move this cohort onto the flags service's membership table path."""
+    return (
+        cohort.cohort_type in ROUTED_COHORT_TYPES
+        and not cohort.is_static
+        and not cohort.deleted
+        and any(getattr(cohort, stamp) is not None for stamp in READINESS_STAMPS)
+        and (cohort.condition_type["behavioral"] or cohort.condition_type["lifecycle"])
+    )
+
+
+def _refresh_flags_caches(team_ids: set[int]) -> None:
+    # The flags service reads cohorts from the team's flags cache, and `bulk_update` fires none of the
+    # cohort save receivers that rebuild it. Without the flags cache there is nothing to rebuild, and
+    # an unreachable broker could stall the deploy, so this follows the save receiver's guard.
+    if not settings.FLAGS_REDIS_URL:
+        return
+    for team_id in sorted(team_ids):
+        try:
+            refresh_readiness_caches(team_id)
+        except Exception:
+            # The cache entry still refreshes before it expires, so a failed dispatch only delays the change.
+            logger.exception("cohort_condition_type_backfill_cache_refresh_failed", team_id=team_id)
 
 
 def backfill_condition_type(apps, schema_editor):
@@ -21,16 +54,23 @@ def backfill_condition_type(apps, schema_editor):
     Cohort = apps.get_model("cohorts", "Cohort")
     db_alias = schema_editor.connection.alias
     unclassified = Cohort.objects.using(db_alias).filter(condition_type__isnull=True)
+    fields = ("id", "team_id", "filters", "cohort_type", "is_static", "deleted", *READINESS_STAMPS)
 
     last_id = 0
     batches = 0
     classified = 0
+    refreshed_teams: set[int] = set()
     while True:
         # Keyset pagination over the primary key, because a cohort without leaf conditions stays
         # null and would come back in every batch of a plain `IS NULL ... LIMIT` loop.
-        batch = list(unclassified.filter(id__gt=last_id).order_by("id").only("id", "filters")[:BATCH_SIZE])
+        batch = list(unclassified.filter(id__gt=last_id).order_by("id").only(*fields)[:BATCH_SIZE])
         if not batch:
-            logger.info("cohort_condition_type_backfill_completed", batches=batches, classified=classified)
+            logger.info(
+                "cohort_condition_type_backfill_completed",
+                batches=batches,
+                classified=classified,
+                refreshed_teams=len(refreshed_teams),
+            )
             return
         last_id = batch[-1].id
 
@@ -49,6 +89,12 @@ def backfill_condition_type(apps, schema_editor):
         # The `IS NULL` filter stays on the update, so a cohort that a save classified after this
         # batch was read keeps the value that the save computed from its newer filters.
         classified += unclassified.bulk_update(changed, ["condition_type"])
+
+        # Refreshed per batch, because a retry after a partial run finds these rows classified and
+        # would not refresh their teams again.
+        teams = {cohort.team_id for cohort in changed if _flags_routing_can_change(cohort)} - refreshed_teams
+        _refresh_flags_caches(teams)
+        refreshed_teams |= teams
 
         batches += 1
         if batches % LOG_EVERY_BATCHES == 0:
