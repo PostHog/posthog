@@ -43,7 +43,11 @@ const apmAttributeBreakdown = (): ToolBase<
 
 const ApmAttributeValuesListSchema = () => {
     const TracingSpansValuesRetrieveQueryParams = orvalSchemas.TracingSpansValuesRetrieveQueryParams()
-    return TracingSpansValuesRetrieveQueryParams
+    return TracingSpansValuesRetrieveQueryParams.extend({
+        dateRange: z
+            .preprocess(castObjectToJsonString, TracingSpansValuesRetrieveQueryParams.shape['dateRange'])
+            .optional(),
+    })
 }
 
 const apmAttributeValuesList = (): ToolBase<ReturnType<typeof ApmAttributeValuesListSchema>, unknown> => ({
@@ -72,7 +76,11 @@ const apmAttributeValuesList = (): ToolBase<ReturnType<typeof ApmAttributeValues
 
 const ApmAttributesListSchema = () => {
     const TracingSpansAttributesRetrieveQueryParams = orvalSchemas.TracingSpansAttributesRetrieveQueryParams()
-    return TracingSpansAttributesRetrieveQueryParams
+    return TracingSpansAttributesRetrieveQueryParams.extend({
+        dateRange: z
+            .preprocess(castObjectToJsonString, TracingSpansAttributesRetrieveQueryParams.shape['dateRange'])
+            .optional(),
+    })
 }
 
 const apmAttributesList = (): ToolBase<
