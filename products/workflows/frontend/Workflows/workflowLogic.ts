@@ -472,8 +472,8 @@ export interface workflowLogicValues {
     aiEmailDraftLoading: boolean
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
     autoSaveBlockedByValidation: boolean
-    awaitsSenderFix: boolean
     autoSaveEnabled: boolean
+    awaitsSenderFix: boolean
     currentSchedule: HogFlowSchedule | null
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
@@ -3432,6 +3432,7 @@ export interface workflowLogicMeta {
         ) => HogFlowAction[]
         workflowHasActionErrors: (actionsWithErrors: HogFlowAction[]) => boolean
         autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
+        awaitsSenderFix: (workflow: HogFlow, integrations: IntegrationType[] | null) => boolean
         keepsLocalEditsOnExternalEdit: (featureFlags: FeatureFlagsSet) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
         isRowScopedTrigger: (
