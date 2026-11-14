@@ -401,14 +401,16 @@ def handle_logs_config(request: request.Request, team: Team) -> response.Respons
     and project routers so the canonical /api/projects/ URL resolves alongside the legacy
     /api/environments/ alias. Both endpoints operate on the env-scoped TeamLogsConfig
     keyed by team_id."""
-    config = get_or_create_team_extension(team, TeamLogsConfig)
-
     if request.method == "PATCH":
+        config = get_or_create_team_extension(team, TeamLogsConfig)
         serializer = TeamLogsConfigSerializer(config, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return response.Response(serializer.data)
 
+    # A read must not create the row. Ingestion falls back to its own key list when a team has no
+    # row, so a stored row with the Django default would change that team's stored patterns.
+    config = TeamLogsConfig.objects.filter(team=team).first() or TeamLogsConfig(team=team)
     return response.Response(TeamLogsConfigSerializer(config).data)
 
 
