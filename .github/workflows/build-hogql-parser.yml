@@ -52,8 +52,9 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   # A manual dispatch is already a release decision, so it checks the version
                   # without asking which files changed.
-                  PARSER_CHANGED: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changed-files.outputs.parser }}
-                  WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow }}
+                  # The PR files API caps its list at 3,000 paths, so large PRs must run both checks.
+                  PARSER_CHANGED: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.changed_files >= 3000 || steps.changed-files.outputs.parser == 'true' }}
+                  WORKFLOW_CHANGED: ${{ github.event.pull_request.changed_files >= 3000 || steps.changed-files.outputs.workflow == 'true' }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
               run: |
                   parser_release_needed='false'
