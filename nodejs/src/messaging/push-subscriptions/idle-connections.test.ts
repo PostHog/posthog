@@ -1,4 +1,4 @@
-import { Server, createServer } from 'http'
+import { Server, ServerResponse, createServer } from 'http'
 import { AddressInfo, Socket, connect } from 'net'
 
 import { capIdleConnections } from './idle-connections'
@@ -11,7 +11,6 @@ describe('capIdleConnections', () => {
     beforeEach(async () => {
         server = createServer((req, res) => {
             if (req.url === '/slow') {
-                setTimeout(() => res.end('ok'), 200)
                 return
             }
             res.end('ok')
@@ -59,12 +58,22 @@ describe('capIdleConnections', () => {
 
     it('never closes a connection that is serving a request', async () => {
         const busy = await open()
+        const started = new Promise<ServerResponse>((resolve) => {
+            server.once('request', (_req, res) => resolve(res))
+        })
         const finished = request(busy, '/slow')
-        for (let i = 0; i < 3; i++) {
-            await request(await open())
-        }
+        const response = await started
+        try {
+            for (let i = 0; i < 3; i++) {
+                await request(await open())
+            }
 
+            expect(response.writableEnded).toBe(false)
+            expect(await isOpen(busy)).toBe(true)
+        } finally {
+            response.end('ok')
+        }
         await finished
-        expect(await isOpen(busy)).toBe(true)
+        await request(busy)
     })
 })
