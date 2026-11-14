@@ -13,6 +13,9 @@ RESPONSE_TIMES_WINDOW_DAYS = 7
 # First response_times sync walks back this far. Free plans only retain recent response times, so a
 # deeper backfill would mostly fetch empty windows; merge dedupes any overlap on later runs.
 RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS = 30
+# First monitor_daily_uptime sync (and every full refresh) covers this many finished days. Each day is
+# one request per monitor, so a deeper backfill multiplies the request count.
+DAILY_UPTIME_INITIAL_LOOKBACK_DAYS = 30
 
 
 def _datetime_incremental_fields() -> list[IncrementalField]:
@@ -25,6 +28,29 @@ def _datetime_incremental_fields() -> list[IncrementalField]:
             "field_type": IncrementalFieldType.Integer,
         },
     ]
+
+
+def _iso_datetime_incremental_fields(field_name: str) -> list[IncrementalField]:
+    return [
+        {
+            "label": field_name,
+            "type": IncrementalFieldType.DateTime,
+            "field": field_name,
+            "field_type": IncrementalFieldType.DateTime,
+        }
+    ]
+
+
+@frozen
+class UptimeRobotFanOut:
+    # v3 list endpoint of the parent rows (e.g. "/incidents"). Paged with `limit` and a cursor.
+    parent_path: str
+    # Column the parent's `id` is written to on each child row.
+    parent_key: str
+    # Child rows come from one request per parent per UTC day instead of a cursor-paged list.
+    daily_windows: bool = False
+    # Incremental runs only revisit parents whose `resolvedAt` is empty or after the watermark.
+    skip_resolved_parents: bool = False
 
 
 @frozen
@@ -52,6 +78,12 @@ class UptimeRobotEndpointConfig:
     monitor_list_key: Optional[Literal["logs", "response_times"]] = None
     # Redact the `value` of credential-bearing alert contacts (webhook/integration URLs and tokens).
     redact_alert_contact_values: bool = False
+    # v3 only: the child endpoint is called once per parent row; `method` holds the path with `{id}`.
+    fan_out: Optional[UptimeRobotFanOut] = None
+    # Rows with no id get an `id` derived from the parent id and these fields.
+    row_id_fields: tuple[str, ...] = ()
+    # (value field, channel type field) of a recipient that can be a webhook URL or a token.
+    recipient_fields: Optional[tuple[str, str]] = None
 
 
 UPTIMEROBOT_ENDPOINTS: dict[str, UptimeRobotEndpointConfig] = {
@@ -135,6 +167,75 @@ UPTIMEROBOT_ENDPOINTS: dict[str, UptimeRobotEndpointConfig] = {
         response_key="data",
         api_version="v3",
         v3_accepts_limit=True,
+    ),
+    # One row per monitor per finished UTC day. A finished day never changes, so the date is a safe cursor.
+    "monitor_daily_uptime": UptimeRobotEndpointConfig(
+        name="monitor_daily_uptime",
+        method="/monitors/{id}/stats/uptime",
+        response_key="data",
+        api_version="v3",
+        fan_out=UptimeRobotFanOut(parent_path="/monitors", parent_key="monitor_id", daily_windows=True),
+        primary_keys=["monitor_id", "date"],
+        partition_key="date",
+        supports_incremental=True,
+        incremental_fields=[
+            {
+                "label": "date",
+                "type": IncrementalFieldType.Date,
+                "field": "date",
+                "field_type": IncrementalFieldType.Date,
+            }
+        ],
+    ),
+    # Sent alerts never change, but they arrive while an incident is open, so incremental runs revisit
+    # only the incidents that are open or resolved after the watermark.
+    "incident_alerts": UptimeRobotEndpointConfig(
+        name="incident_alerts",
+        method="/incidents/{id}/alerts",
+        response_key="data",
+        api_version="v3",
+        v3_accepts_limit=True,
+        fan_out=UptimeRobotFanOut(parent_path="/incidents", parent_key="incident_id", skip_resolved_parents=True),
+        row_id_fields=("timestamp", "channelType", "recipientName", "recipientValue"),
+        recipient_fields=("recipientValue", "channelType"),
+        partition_key="timestamp",
+        supports_incremental=True,
+        incremental_fields=_iso_datetime_incremental_fields("timestamp"),
+    ),
+    "incident_activity_log": UptimeRobotEndpointConfig(
+        name="incident_activity_log",
+        method="/incidents/{id}/activity-log",
+        response_key="data",
+        api_version="v3",
+        v3_accepts_limit=True,
+        fan_out=UptimeRobotFanOut(parent_path="/incidents", parent_key="incident_id", skip_resolved_parents=True),
+        # The delivery status of a notification can change, so it is not part of the id.
+        row_id_fields=(
+            "type",
+            "date",
+            "region",
+            "incidentStatus",
+            "alertLogType",
+            "commentId",
+            "sentToFullName",
+            "sentToValue",
+            "notificationType",
+        ),
+        recipient_fields=("sentToValue", "notificationType"),
+        partition_key="date",
+        supports_incremental=True,
+        incremental_fields=_iso_datetime_incremental_fields("date"),
+    ),
+    # Announcements change status (pending, published, archived), and the API has no updated-since
+    # filter, so full refresh every run.
+    "status_page_announcements": UptimeRobotEndpointConfig(
+        name="status_page_announcements",
+        method="/psps/{id}/announcements",
+        response_key="data",
+        api_version="v3",
+        v3_accepts_limit=True,
+        fan_out=UptimeRobotFanOut(parent_path="/psps", parent_key="psp_id"),
+        primary_keys=["psp_id", "id"],
     ),
 }
 

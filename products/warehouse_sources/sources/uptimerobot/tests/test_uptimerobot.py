@@ -1,7 +1,8 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock
 
 import requests
@@ -402,9 +403,14 @@ class TestSourceResponseWiring:
             ("alert_contacts", ["id"], "asc"),
             ("maintenance_windows", ["id"], "asc"),
             ("status_pages", ["id"], "asc"),
+            # One request series per parent, so no order across the run can be promised.
+            ("monitor_daily_uptime", ["monitor_id", "date"], None),
+            ("incident_alerts", ["id"], None),
+            ("incident_activity_log", ["id"], None),
+            ("status_page_announcements", ["psp_id", "id"], None),
         ]
     )
-    def test_primary_keys_and_sort_mode(self, endpoint: str, primary_keys: list[str], sort_mode: str) -> None:
+    def test_primary_keys_and_sort_mode(self, endpoint: str, primary_keys: list[str], sort_mode: str | None) -> None:
         response = uptimerobot_source(
             api_key="key",
             endpoint=endpoint,
@@ -529,3 +535,236 @@ class TestV3Rows:
             assert str(result.raised).startswith(AUTH_ERROR_PREFIX)
         else:
             assert "403 Client Error: Forbidden for url: https://api.uptimerobot.com" in str(result.raised)
+
+
+def _by_path(pages: dict[Any, Any]) -> Any:
+    def respond(request: Any) -> ScriptedResponse:
+        return ScriptedResponse(json=pages[(request.path, request.param("cursor"))])
+
+    return respond
+
+
+class TestV3FanOutRows:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(UptimerobotSource(), UptimerobotSourceConfig(api_key="ur123-key"))
+
+    @parameterized.expand(
+        [
+            ("alerts", "incident_alerts", "/v3/incidents", "/v3/incidents/{id}/alerts", "incident_id"),
+            (
+                "activity_log",
+                "incident_activity_log",
+                "/v3/incidents",
+                "/v3/incidents/{id}/activity-log",
+                "incident_id",
+            ),
+            ("announcements", "status_page_announcements", "/v3/psps", "/v3/psps/{id}/announcements", "psp_id"),
+        ]
+    )
+    def test_walks_every_parent_page_and_child_page(
+        self, _name: str, endpoint: str, parent_path: str, child_path: str, parent_key: str
+    ) -> None:
+        first_child = child_path.format(id="a1")
+        second_child = child_path.format(id="b2")
+        pages: dict[Any, Any] = {
+            (parent_path, None): {
+                "data": [{"id": "a1"}],
+                "nextLink": f"https://api.uptimerobot.com{parent_path}?cursor=p2",
+            },
+            (parent_path, "p2"): {"data": [{"id": "b2"}], "nextLink": None},
+            (first_child, None): {
+                "data": [{"id": 1, "timestamp": "x"}],
+                "nextLink": f"https://api.uptimerobot.com{first_child}?cursor=c2",
+            },
+            (first_child, "c2"): {"data": [{"id": 2, "timestamp": "y"}], "nextLink": None},
+            (second_child, None): {"data": [{"id": 3, "timestamp": "z"}], "nextLink": None},
+        }
+
+        result = self._driver().run(endpoint, _by_path(pages))
+
+        assert result.raised is None
+        assert result.paths == [parent_path, first_child, first_child, parent_path, second_child]
+        assert result.params("limit") == ["200"] * 5
+        assert [row[parent_key] for row in result.rows] == ["a1", "a1", "b2"]
+        assert result.committed_states == [
+            UptimeRobotResumeConfig(),
+            UptimeRobotResumeConfig(parent_index=0, child_cursor="c2"),
+            UptimeRobotResumeConfig(parent_index=1),
+            UptimeRobotResumeConfig(parent_cursor="p2"),
+            UptimeRobotResumeConfig(parent_cursor="p2", parent_index=1),
+        ]
+
+    def test_resumes_at_the_saved_parent_and_child_cursor(self) -> None:
+        pages = {
+            ("/v3/incidents", "p2"): {"data": [{"id": "a1"}, {"id": "b2"}], "nextLink": None},
+            ("/v3/incidents/b2/alerts", "c9"): {"data": [{"timestamp": "2026-01-01T00:00:00Z"}], "nextLink": None},
+        }
+
+        result = self._driver().run(
+            "incident_alerts",
+            _by_path(pages),
+            resume_state=UptimeRobotResumeConfig(parent_cursor="p2", parent_index=1, child_cursor="c9"),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v3/incidents", "/v3/incidents/b2/alerts"]
+        assert [row["incident_id"] for row in result.rows] == ["b2"]
+
+    @parameterized.expand(
+        [
+            ("full_refresh", None, ["old", "open", "late"], 3),
+            # Resolved before the watermark: no alert can follow, so the incident is not read again.
+            ("incremental", datetime(2026, 1, 10, tzinfo=UTC), ["open", "late"], 1),
+        ]
+    )
+    def test_incremental_skips_incidents_resolved_before_the_watermark(
+        self, _name: str, last_value: datetime | None, visited: list[str], rows_per_visit: int
+    ) -> None:
+        incidents: list[dict[str, Any]] = [
+            {"id": "old", "resolvedAt": "2026-01-05T00:00:00Z"},
+            {"id": "open", "resolvedAt": None},
+            {"id": "late", "resolvedAt": "2026-01-12T00:00:00Z"},
+        ]
+        alerts = [
+            {
+                "timestamp": "2026-01-04T00:00:00Z",
+                "channelType": "Email",
+                "recipientName": "a",
+                "recipientValue": "a@example.com",
+            },
+            {
+                "timestamp": "2026-01-09T00:00:00Z",
+                "channelType": "Email",
+                "recipientName": "b",
+                "recipientValue": "b@example.com",
+            },
+            {
+                "timestamp": "2026-01-11T00:00:00Z",
+                "channelType": "Email",
+                "recipientName": "c",
+                "recipientValue": "c@example.com",
+            },
+        ]
+        pages: dict[Any, Any] = {("/v3/incidents", None): {"data": incidents, "nextLink": None}}
+        for incident in incidents:
+            pages[(f"/v3/incidents/{incident['id']}/alerts", None)] = {"data": alerts, "nextLink": None}
+
+        inputs: dict[str, Any] = {}
+        if last_value is not None:
+            inputs = {"incremental_field": "timestamp", "db_incremental_field_last_value": last_value}
+        result = self._driver().run("incident_alerts", _by_path(pages), **inputs)
+
+        assert result.raised is None
+        assert result.paths[1:] == [f"/v3/incidents/{incident_id}/alerts" for incident_id in visited]
+        assert len(result.rows) == len(visited) * rows_per_visit
+        if last_value is not None:
+            assert {row["timestamp"] for row in result.rows} == {"2026-01-11T00:00:00Z"}
+
+    @parameterized.expand(
+        [
+            ("webhook", "Webhook", None),
+            ("slack", "Slack", None),
+            ("unknown_channel", "SomethingNew", None),
+            ("missing_channel", None, None),
+            ("email", "Email", "ops@example.com"),
+            ("sms", "SMS", "ops@example.com"),
+        ]
+    )
+    def test_recipient_value_is_redacted_unless_plain_destination(
+        self, _name: str, channel: str | None, expected_value: str | None
+    ) -> None:
+        alert = {"timestamp": "2026-01-01T00:00:00Z", "recipientName": "on-call", "recipientValue": "ops@example.com"}
+        if channel is not None:
+            alert["channelType"] = channel
+        pages = {
+            ("/v3/incidents", None): {"data": [{"id": "a1"}], "nextLink": None},
+            ("/v3/incidents/a1/alerts", None): {"data": [alert], "nextLink": None},
+        }
+
+        result = self._driver().run("incident_alerts", _by_path(pages))
+
+        assert result.rows[0]["recipientValue"] == expected_value
+
+    def test_derived_ids_differ_for_recipients_that_differ_only_in_the_redacted_value(self) -> None:
+        notification = {
+            "type": "NOTIFICATION",
+            "date": "2026-01-01T00:00:00Z",
+            "sentToFullName": "hook",
+            "notificationType": "Webhook",
+        }
+        pages = {
+            ("/v3/incidents", None): {"data": [{"id": "a1"}], "nextLink": None},
+            ("/v3/incidents/a1/activity-log", None): {
+                "data": [
+                    {**notification, "sentToValue": "https://hooks.example.com/one", "notificationStatus": "SUCCESS"},
+                    {**notification, "sentToValue": "https://hooks.example.com/two", "notificationStatus": "SUCCESS"},
+                ],
+                "nextLink": None,
+            },
+        }
+
+        result = self._driver().run("incident_activity_log", _by_path(pages))
+
+        assert [row["sentToValue"] for row in result.rows] == [None, None]
+        assert len({row["id"] for row in result.rows}) == 2
+
+    def test_derived_id_does_not_change_with_the_delivery_status(self) -> None:
+        def run(status: str) -> str:
+            pages = {
+                ("/v3/incidents", None): {"data": [{"id": "a1"}], "nextLink": None},
+                ("/v3/incidents/a1/activity-log", None): {
+                    "data": [{"type": "NOTIFICATION", "date": "2026-01-01T00:00:00Z", "notificationStatus": status}],
+                    "nextLink": None,
+                },
+            }
+            return self._driver().run("incident_activity_log", _by_path(pages)).rows[0]["id"]
+
+        assert run("NOT_DELIVERED") == run("SUCCESS")
+
+    @parameterized.expand(
+        [
+            ("full_refresh", None, 30),
+            ("incremental_from_watermark", date(2026, 3, 7), 2),
+            ("incremental_up_to_date", date(2026, 3, 9), 0),
+        ]
+    )
+    def test_daily_uptime_requests_one_finished_day_per_monitor(
+        self, _name: str, last_value: date | None, expected_days: int
+    ) -> None:
+        def respond(request: Any) -> ScriptedResponse:
+            if request.path == "/v3/monitors":
+                return ScriptedResponse(json={"data": [{"id": 11}], "nextLink": None})
+            return ScriptedResponse(json={"uptime": 99.5, "incident_count": 1, "from": request.param("from")})
+
+        inputs: dict[str, Any] = {}
+        if last_value is not None:
+            inputs = {"incremental_field": "date", "db_incremental_field_last_value": last_value}
+        with time_machine.travel(datetime(2026, 3, 10, 15, 0, tzinfo=UTC), tick=False):
+            result = self._driver().run("monitor_daily_uptime", respond, **inputs)
+
+        assert result.raised is None
+        last_day = date(2026, 3, 9)
+        expected_dates = [(last_day - timedelta(days=offset)).isoformat() for offset in range(expected_days)][::-1]
+        assert [row["date"] for row in result.rows] == expected_dates
+        assert all(row["monitor_id"] == 11 for row in result.rows)
+        day_requests = result.requests[1:]
+        assert [request.param("from") for request in day_requests] == [f"{day}T00:00:00Z" for day in expected_dates]
+        assert [request.param("to") for request in day_requests] == [
+            f"{(date.fromisoformat(day) + timedelta(days=1)).isoformat()}T00:00:00Z" for day in expected_dates
+        ]
+
+    def test_daily_uptime_resumes_from_the_saved_day(self) -> None:
+        def respond(request: Any) -> ScriptedResponse:
+            if request.path == "/v3/monitors":
+                return ScriptedResponse(json={"data": [{"id": 11}, {"id": 12}], "nextLink": None})
+            return ScriptedResponse(json={"uptime": 100})
+
+        with time_machine.travel(datetime(2026, 3, 10, 15, 0, tzinfo=UTC), tick=False):
+            result = self._driver().run(
+                "monitor_daily_uptime",
+                respond,
+                resume_state=UptimeRobotResumeConfig(parent_index=1, child_cursor="2026-03-08"),
+            )
+
+        assert [(row["monitor_id"], row["date"]) for row in result.rows] == [(12, "2026-03-08"), (12, "2026-03-09")]
