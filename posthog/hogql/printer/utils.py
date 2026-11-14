@@ -47,6 +47,7 @@ from posthog.hogql.transforms.metrics_time_bucket_bounds import add_metrics_time
 from posthog.hogql.transforms.negated_person_filters import rewrite_negated_person_filters
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
+from posthog.hogql.transforms.select_alias_references import inline_select_alias_references
 from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
@@ -502,6 +503,9 @@ def prepare_ast_for_printing(
             node = lower_property_access(node, context)
         with context.timings.measure("validate_trino_ready_ast"):
             validate_trino_ready_ast(node, context)
+
+    # Runs after every pass that reads the alias types, because a copied expression is no longer a reference to an alias.
+    node = inline_select_alias_references(node, context, dialect)
 
     # Drop argmax_select's tuple()/tupleElement() wrap for non-nullable columns; runs last so resolved nullability is final. ClickHouse-only.
     if dialect == "clickhouse":
