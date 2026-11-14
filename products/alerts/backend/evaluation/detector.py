@@ -26,6 +26,7 @@ from posthog.tasks.alerts.detector import (
     min_points_to_evaluate,
 )
 from posthog.tasks.alerts.detectors import BaseDetector, DetectionResult, get_detector
+from posthog.tasks.alerts.detectors.ensemble import EnsembleDetector
 from posthog.tasks.alerts.metric_definition import MetricDateRange, describe_metric_definition
 from posthog.tasks.alerts.trends import (
     TrendResult,
@@ -390,7 +391,7 @@ def _score_series(
         )
     detector = get_detector(detector_config)
     detection = detector.detect_batch(data) if every_point else detector.detect(data)
-    detection = _drop_smoothing_echoes(detector, detector_config, data, detection, every_point=every_point)
+    detection = _drop_smoothing_echoes(detector, data, detection, every_point=every_point)
     return _ScoredSeries(
         data=data,
         detection=detection,
@@ -399,19 +400,15 @@ def _score_series(
     )
 
 
-def _smoothing_echo_lags(detector_config: dict[str, Any]) -> set[int]:
-    lags: set[int] = set()
-    for config in (detector_config, *(detector_config.get("detectors") or [])):
-        preprocessing = config.get("preprocessing") or {}
-        smooth_n = preprocessing.get("smooth_n") or 0
-        if smooth_n > 1 and preprocessing.get("diffs_n"):
-            lags.add(smooth_n)
-    return lags
+def _smoothing_echo_lags(detector: BaseDetector) -> set[int]:
+    if isinstance(detector, EnsembleDetector):
+        return set().union(*(_smoothing_echo_lags(sub) for sub in detector.sub_detectors))
+    smooth_n = detector.preprocessing_config.get("smooth_n") or 0
+    return {smooth_n} if smooth_n > 1 and detector.preprocessing_config.get("diffs_n") else set()
 
 
 def _drop_smoothing_echoes(
     detector: BaseDetector,
-    detector_config: dict[str, Any],
     data: np.ndarray,
     detection: DetectionResult,
     *,
@@ -426,8 +423,8 @@ def _drop_smoothing_echoes(
     median of the n buckets before it. The scores stay as the detector gave them, because the
     detectors are shared with signals and only the flag is this consumer's decision.
     """
-    lags = _smoothing_echo_lags(detector_config)
-    if not lags or not detection.triggered_indices:
+    lags = _smoothing_echo_lags(detector)
+    if not lags:
         return detection
     flagged = set(detection.triggered_indices)
 
