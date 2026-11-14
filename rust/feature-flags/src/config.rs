@@ -421,10 +421,11 @@ pub struct Config {
     // entirely, even if the behavioral cohorts DB is configured and cohorts with
     // CohortType::Realtime exist. "none" (default), "all", specific team IDs, or ranges.
     //
-    // Routing also requires `condition_type`, which was never backfilled, so every team listed
-    // here or granted `serving` needs `python manage.py resave_cohorts --team-id <id>` first.
-    // Without it behavioral cohorts read as condition_type = NULL and fall back to dynamic
-    // evaluation, which resolves every person as a non-member rather than just evaluating slower.
+    // Routing also requires `condition_type`, which Django derives from `filters` on every save.
+    // Migration `cohorts.0024_backfill_cohort_condition_type` classified the cohorts saved before
+    // the column existed. A cohort that reads as condition_type = NULL falls back to dynamic
+    // evaluation, where a behavioral condition resolves every person as a non-member rather than
+    // just evaluating slower.
     //
     // A team listed here must also be in Django's REALTIME_COHORT_TEAM_ALLOWLIST: the stamps
     // this predicate trusts are only invalidated on edit for allowlisted teams, so without it
