@@ -117,6 +117,12 @@ class TopicSums:
 
 
 @dataclass(frozen=True)
+class IntentText:
+    intent_hash: str
+    text: str
+
+
+@dataclass(frozen=True)
 class IntentUsage:
     """One intent called in the window, with its latest assignment."""
 
@@ -350,12 +356,12 @@ class _IntentTopicsBase:
         for key, x, y, topic_uuid, is_outlier, distance, calls, row_tool, total_points in rows:
             if key not in texts:
                 continue
-            intent_hash, intent_text = texts[key]
+            intent_text = texts[key]
             topic_id = str(topic_uuid) if topic_uuid is not None else NO_TOPIC_UUID
             usage.append(
                 IntentUsage(
-                    intent_hash=intent_hash,
-                    intent_text=intent_text,
+                    intent_hash=intent_text.intent_hash,
+                    intent_text=intent_text.text,
                     x=float(x),
                     y=float(y),
                     topic_id=UNASSIGNED if topic_id == NO_TOPIC_UUID else topic_id,
@@ -368,7 +374,7 @@ class _IntentTopicsBase:
             )
         return usage
 
-    def _intent_texts(self, keys: list[int]) -> dict[int, tuple[str, str]]:
+    def _intent_texts(self, keys: list[int]) -> dict[int, IntentText]:
         if not keys:
             return {}
         rows = self._execute(
@@ -381,7 +387,11 @@ class _IntentTopicsBase:
             ),
             "mcp_intent_usage_texts",
         )
-        return {key: (intent_hash, text or "") for key, intent_hash, text in rows if intent_hash is not None}
+        return {
+            key: IntentText(intent_hash=intent_hash, text=text or "")
+            for key, intent_hash, text in rows
+            if intent_hash is not None
+        }
 
     def _intent_usage_query(
         self, *, tool: str | None, filters: list[ast.Expr], assigned_since: datetime | None = None
