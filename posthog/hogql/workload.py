@@ -44,8 +44,9 @@ class WorkloadCollector(TraversingVisitor):
         # SQL editor users and owners of auto-disabled SQL alerts read this verbatim, so name the fix.
         if {Workload.LOGS, Workload.METRICS} <= self.workloads:
             message += (
-                " posthog.metrics is stored apart from logs and posthog.trace_spans, so one query can't read both."
-                " Split it into two queries: query posthog.metrics first, then copy the value you need,"
-                " such as a trace_id, into a second query over logs or posthog.trace_spans."
+                " Metrics tables are stored separately from logs and traces."
+                " Run a separate query for each cluster, then use values from one result in the next query."
+                " SQL alerts must use a query that reads from a single cluster."
+                " Rewrite the insight query before re-enabling the alert."
             )
         raise QueryError(message)

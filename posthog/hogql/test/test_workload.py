@@ -60,21 +60,33 @@ class TestWorkloadCollector:
         assert len(collector.workloads) == 1
         assert collector.get_workload() == Workload.DEFAULT
 
-    def test_collector_raises_error_for_multiple_workloads(self):
-        """WorkloadCollector should raise error when multiple workloads detected."""
+    @parameterized.expand(
+        [
+            ("logs_endpoints", (Workload.ENDPOINTS,), False),
+            ("logs_metrics", (Workload.METRICS,), True),
+            ("logs_metrics_events", (Workload.METRICS, Workload.DEFAULT), True),
+        ]
+    )
+    def test_collector_raises_error_for_multiple_workloads(
+        self, _name: str, additional_workloads: tuple[Workload, ...], has_metrics_guidance: bool
+    ) -> None:
         collector = WorkloadCollector()
 
         # Add logs table
         logs_type = ast.TableType(table=LogsTable())
         collector.visit(logs_type)
 
-        # Manually add a different workload to simulate cross-cluster query
-        collector.workloads.add(Workload.ENDPOINTS)
+        collector.workloads.update(additional_workloads)
 
         with pytest.raises(QueryError) as exc_info:
             collector.get_workload()
 
-        assert "Cannot query tables from different clusters" in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "Cannot query tables from different clusters" in message
+        assert ("Run a separate query for each cluster" in message) == has_metrics_guidance
+        assert ("SQL alerts must use a query that reads from a single cluster" in message) == has_metrics_guidance
+        assert "posthog.metrics first" not in message
+        assert "two queries" not in message
 
     def test_collector_handles_table_alias_type(self):
         """WorkloadCollector should detect workload through TableAliasType."""
@@ -131,5 +143,4 @@ class TestExecuteHogQLQueryWorkload(BaseTest):
 
         message = str(exc_info.value)
         assert message.startswith("Cannot query tables from different clusters in the same query.")
-        assert "Split it into two queries" in message
-        assert "posthog.metrics" in message
+        assert "SQL alerts must use a query that reads from a single cluster" in message
