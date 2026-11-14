@@ -1,7 +1,8 @@
-"""Route new evidence after a fixed verdict or a rejected repository choice.
+"""Route new evidence after a fixed verdict, a rejected repository choice, or a failed report.
 
 A resolved report and a report dismissed as fixed make the same factual claim: the issue is gone.
-A wrong-repo dismissal leaves the issue unresolved. Both need a fresh report for later matching
+A wrong-repo dismissal leaves the issue unresolved. A failed report never promotes again, so a
+signal that joins it starts no research. All of them need a fresh report for later matching
 signals, but only fixed verdicts supply prior-fix context to research.
 """
 
@@ -14,7 +15,7 @@ from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REP
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.repo_corrections import sanitized_repository
-from products.signals.backend.typed_report_links import incoming_links, outgoing_links
+from products.signals.backend.typed_report_links import has_open_or_merged_pull_request, incoming_links, outgoing_links
 
 
 def _latest_dismissal(*, team_id: int, report_id: str) -> SignalReportArtefact | None:
@@ -94,19 +95,30 @@ def reports_fork_recurrence(*, team_id: int, reports: Collection[SignalReport]) 
         if report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
         or (report.status == SignalReport.Status.MONITORING and not monitoring_enabled)
     }
+    failed_ids = {str(report.id) for report in reports if report.status == SignalReport.Status.FAILED}
+    failed_ids -= has_open_or_merged_pull_request(team_id=team_id, report_ids=failed_ids)
     suppressed_ids = {str(report.id) for report in reports if report.status == SignalReport.Status.SUPPRESSED}
     reasons_by_report = dismissal_reasons_by_report(team_id=team_id, report_ids=suppressed_ids)
-    return terminal_ids | {
-        report_id
-        for report_id in suppressed_ids
-        if reasons_by_report.get(report_id, [None])[0] in (FIXED_DISMISSAL_REASONS | {DISMISSAL_REASON_WRONG_REPO})
-    }
+    return (
+        terminal_ids
+        | failed_ids
+        | {
+            report_id
+            for report_id in suppressed_ids
+            if reasons_by_report.get(report_id, [None])[0] in (FIXED_DISMISSAL_REASONS | {DISMISSAL_REASON_WRONG_REPO})
+        }
+    )
 
 
 def forks_recurrence(report: SignalReport) -> bool:
     """Whether a new signal on `report` starts a fresh recurrence report instead of joining it."""
-    if report.effective_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}:
+    status = report.effective_status
+    if status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}:
         return True
+    if status == SignalReport.Status.FAILED:
+        # A pull request on a failed report is work that already exists, so new evidence joins it
+        # rather than starting a second implementation.
+        return not has_open_or_merged_pull_request(team_id=report.team_id, report_ids=[str(report.id)])
     return report.status == SignalReport.Status.SUPPRESSED and recurrence_dismissal_at(report) is not None
 
 

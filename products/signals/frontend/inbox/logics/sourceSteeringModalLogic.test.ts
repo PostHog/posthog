@@ -83,6 +83,22 @@ describe('sourceSteeringModalLogic', () => {
         expect(onClose).toHaveBeenCalled()
     })
 
+    it.each([
+        [SignalSourceProduct.Conversations, 'from the next sync', 'Skip chores'],
+        [SignalSourceProduct.ErrorTracking, 'to new signals from now on', 'Skip noise'],
+        [SignalSourceProduct.Analytics, 'to new signals from now on', 'Skip small changes'],
+    ])('fits the timing and starting points to %s', (sourceProduct, appliesFrom, firstExample) => {
+        logic.unmount()
+        logic = sourceSteeringModalLogic({
+            sourceConfigs: [{ ...sourceConfig, source_product: sourceProduct }],
+            onClose,
+        })
+        logic.mount()
+
+        expect(logic.values.steeringAppliesFrom).toEqual(appliesFrom)
+        expect(logic.values.steeringExamples[0].label).toEqual(firstExample)
+    })
+
     it('saves one card of guidance to every row behind it', async () => {
         // Error tracking is one card over three config rows. Writing only the first would leave
         // reopened and spiking issues unfiltered, so the rules would look ignored half the time.

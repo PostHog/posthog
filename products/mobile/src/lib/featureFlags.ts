@@ -8,6 +8,7 @@ export const FEATURE_FLAGS = {
     modelScoreSort: 'mobile-inbox-model-score-sort',
     sessionReplay: 'mobile-session-replay',
     errorTracking: 'mobile-error-tracking',
+    replayVideo: 'mobile-replay-video',
 } as const
 
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -33,6 +34,7 @@ const FORCED_FLAGS: ReadonlySet<string> = new Set(
 const LOCAL_DEVELOPMENT_FLAGS: ReadonlySet<FeatureFlagKey> = new Set([
     FEATURE_FLAGS.errorTracking,
     FEATURE_FLAGS.sessionReplay,
+    FEATURE_FLAGS.replayVideo,
 ])
 
 export function setFeatureFlags(flags: Record<string, boolean | string>): void {

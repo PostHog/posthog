@@ -252,7 +252,8 @@ def _rows_from_response(
     if config.single_row:
         rows = [data] if isinstance(data, dict) else []
     elif config.data_key is not None:
-        rows = data.get(config.data_key, []) if isinstance(data, dict) else []
+        # Awin can send the list key as null on an empty page, not only as an empty list.
+        rows = (data.get(config.data_key) or []) if isinstance(data, dict) else []
     else:
         rows = data if isinstance(data, list) else []
 

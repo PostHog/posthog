@@ -9,7 +9,7 @@ use crate::{
         Task,
     },
     invocation_context::context,
-    utils::raise_for_err,
+    utils::{raise_for_err, redact_request_error},
 };
 
 use super::{TaskListResponse, TaskWorkflow, WorkflowStage};
@@ -59,6 +59,7 @@ impl TaskIterator {
             .client
             .get(Url::parse(&url)?)
             .send()
+            .map_err(redact_request_error)
             .context("Failed to send request")?;
 
         let response = raise_for_err(response)?;

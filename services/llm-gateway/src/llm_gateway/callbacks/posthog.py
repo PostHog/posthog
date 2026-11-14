@@ -88,6 +88,7 @@ def _apply_owned_event_properties(
     can attribute usage to a customer team.
     """
     properties["ai_product"] = product
+    properties["$update_person_last_seen_at"] = False
     properties["$ai_billable"] = _is_product_billable(product)
     # Unique per event: one request can emit several (a provider fallback, a retry) and
     # consumers key on this, so a shared value collapses them.

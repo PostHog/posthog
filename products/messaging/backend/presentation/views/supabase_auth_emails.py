@@ -1,5 +1,5 @@
 import time
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.urls import reverse
@@ -19,8 +19,8 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_team_action, report_user_action
-from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
+from posthog.models import Team, User
+from posthog.permissions import get_authenticator_client, posthog_feature_flag_enabled
 
 from products.messaging.backend.facade.contracts import TransactionalEmailError
 from products.messaging.backend.facade.supabase_auth_emails import (
@@ -64,13 +64,16 @@ HOOK_DURATION = Histogram(
 HIDDEN_EMAIL_TYPES = frozenset({SupabaseEmailActionType.EMAIL})
 
 
-def supabase_auth_emails_enabled(team: Team) -> bool:
-    return feature_enabled_or_false(
+def supabase_auth_emails_enabled(team: Team, distinct_id: str, caller_properties: dict[str, str]) -> bool:
+    # Per person so an early access opt-in counts. The person's stored organization_id is the one they
+    # last used, so pass this team's.
+    return posthog_feature_flag_enabled(
         SUPABASE_AUTH_EMAILS_FLAG,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.id,
+        person_properties={"organization_id": str(team.organization_id)},
+        caller_properties=caller_properties,
     )
 
 
@@ -141,7 +144,11 @@ class SupabaseAuthEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     serializer_class = _FallbackSerializer
 
     def _require_flag(self) -> None:
-        if not supabase_auth_emails_enabled(self.team):
+        if not supabase_auth_emails_enabled(
+            self.team,
+            str(cast(User, self.request.user).distinct_id),
+            get_authenticator_client(getattr(self.request, "successful_authenticator", None)),
+        ):
             raise NotFound()
 
     def _require_editor(self) -> None:

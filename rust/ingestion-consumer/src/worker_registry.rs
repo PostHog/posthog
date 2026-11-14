@@ -318,6 +318,16 @@ impl WorkerRegistry {
         self.workers.iter().map(|e| e.key().clone()).collect()
     }
 
+    /// Snapshot of the workers that discovery lists, so not draining, in any
+    /// health state. Every consumer of the same Service sees the same set.
+    pub fn members(&self) -> Vec<WorkerId> {
+        self.workers
+            .iter()
+            .filter(|e| !e.value().is_draining())
+            .map(|e| e.key().clone())
+            .collect()
+    }
+
     /// Snapshot of worker ids currently eligible for routing: Healthy or
     /// Degraded, and not draining. Returned in arbitrary order.
     pub fn healthy_workers(&self) -> Vec<WorkerId> {
@@ -807,6 +817,19 @@ mod tests {
         let healthy = registry.healthy_workers();
         assert_eq!(healthy.len(), 2);
         assert!(!healthy.iter().any(|w| w.as_ref() == W2));
+    }
+
+    #[test]
+    fn test_members_keep_unhealthy_workers_and_drop_draining_ones() {
+        let registry = WorkerRegistry::new(&three_workers(), no_cooldown_config());
+        for _ in 0..4 {
+            registry.record_outcome(W2, true);
+        }
+        registry.start_draining(W3);
+
+        let mut members: Vec<String> = registry.members().iter().map(|w| w.to_string()).collect();
+        members.sort();
+        assert_eq!(members, vec![W1.to_string(), W2.to_string()]);
     }
 
     // --- Draining lifecycle ---

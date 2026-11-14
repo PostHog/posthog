@@ -71,11 +71,11 @@ pub struct Inspected {
     /// Remote image URLs the block's DOM referenced, for the image fetcher.
     pub image_urls: Vec<String>,
     pub font_urls: Vec<String>,
-    /// Set when the inspector could not read the block in full, so that the block must not be stored.
+    /// Set when the inspector could not read the block in full, so that a URL in the unread part stays as it arrived.
     pub url_limit: Option<UrlLimit>,
     /// Where the writer changes the block's events, in event order.
     pub edits: Vec<EventEdits>,
-    /// The inspector read a slot that the writer could not find again, so the block must not be stored.
+    /// The inspector read a slot that the writer could not find again, so that slot stays as it arrived.
     pub unplaced: bool,
 }
 
@@ -210,15 +210,20 @@ impl SessionInspector {
         );
         block.image_urls.extend(self.dom.take_image_urls());
         block.font_urls.extend(self.dom.take_font_urls());
-        block.url_limit = block.url_limit.or(self.dom.take_url_limit());
+        // The edit budget outranks a limit from earlier in the block, because only this limit leaves the block no edits.
+        let limit = self.dom.take_url_limit();
+        block.url_limit = if limit == Some(UrlLimit::Edits) {
+            limit
+        } else {
+            block.url_limit.or(limit)
+        };
         let (edits, unplaced, edit_bytes) = self.dom.take_edits();
         block.edit_bytes_taken += edit_bytes;
         block.unplaced |= unplaced;
-        if block.url_limit.is_none() && !edits.is_empty() {
-            block.edits.push(EventEdits::new(index, edits));
-        }
-        if block.url_limit.is_some() {
+        if block.url_limit == Some(UrlLimit::Edits) {
             block.release_edits();
+        } else if !edits.is_empty() {
+            block.edits.push(EventEdits::new(index, edits));
         }
         if observed.full_snapshot {
             self.cold = false;
@@ -411,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn drops_a_block_whose_edits_the_flush_cannot_hold() {
+    fn clears_the_edits_of_a_block_the_flush_cannot_hold() {
         let styled = |sheet: String| {
             message(
                 json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [
@@ -445,8 +450,23 @@ mod tests {
             (blocks[1].url_limit, blocks[1].edits.len()),
             (Some(UrlLimit::Edits), 0)
         );
-        // The dropped block stopped part way through its style sheet and gave back what it took.
+        // The second block stopped part way through its style sheet and gave back what it took.
         assert_eq!(edit_budget.load(Ordering::Relaxed), held / 2);
+        // The edit budget replaces a limit that an earlier message of the block set.
+        let deep = styled(format!(
+            "{}.a{{color:red}}{}",
+            "@media all{".repeat(80),
+            "}".repeat(80)
+        ));
+        let mut block = BlockInspection::with_flush_budgets(
+            Arc::new(AtomicUsize::new(usize::MAX)),
+            Arc::new(AtomicUsize::new(0)),
+        );
+        let mut session = SessionInspector::default();
+        session.observe_message(&mut block, &deep);
+        assert_eq!(block.url_limit, Some(UrlLimit::NestedBlocks));
+        session.observe_message(&mut block, &remote);
+        assert_eq!(block.finish().url_limit, Some(UrlLimit::Edits));
         // The writer leaves relative URLs as they are, so a sheet of them takes nothing.
         let relative = styled(
             (0..100)

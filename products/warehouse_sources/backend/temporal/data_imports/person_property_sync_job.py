@@ -34,9 +34,13 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertyFailedRunInputs,
     PersonPropertySyncActivityInputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_run_log import (
+    PersonPropertyRunLog,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     failed_run_error,
     is_worker_interruption,
+    progress_recorder,
     record_completed_runs,
     record_failed_runs,
     record_started_runs,
@@ -78,7 +82,8 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
     log = logger.bind(**inputs.properties_to_log)
     log.info(f"Starting person-property sync for {inputs.source_type}/{inputs.schema_name}")
     start = time.monotonic()
-    started_at = datetime.now(UTC).isoformat()
+    # A retry keeps the time the run was first scheduled, so the run row shows its whole duration.
+    started_at = activity.info().scheduled_time.isoformat()
     binding = inputs.binding
     await record_started_runs(
         team_id=inputs.team_id,
@@ -89,7 +94,14 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
     )
     try:
         async with Heartbeater():
-            result = await run_person_property_sync(team_id=inputs.team_id, binding=binding, job_id=inputs.job_id)
+            result = await run_person_property_sync(
+                team_id=inputs.team_id,
+                binding=binding,
+                job_id=inputs.job_id,
+                on_progress=progress_recorder(
+                    team_id=inputs.team_id, binding=binding, job_id=inputs.job_id, trigger="scheduled"
+                ),
+            )
     except Exception as e:
         # Re-raised so Temporal retries; captured so a terminal failure is visible in error
         # tracking rather than dying silently in an abandoned child workflow. The failed outcome is
@@ -142,6 +154,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
 
 @activity.defn
 async def record_failed_person_property_sync_runs_activity(inputs: PersonPropertyFailedRunInputs) -> None:
+    PersonPropertyRunLog(inputs.team_id, inputs.binding).failed(inputs.error)
     await record_failed_runs(
         team_id=inputs.team_id,
         binding=inputs.binding,

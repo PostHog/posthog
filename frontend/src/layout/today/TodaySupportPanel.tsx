@@ -1,7 +1,18 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconExternal, IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
-import { Button, Heading, Skeleton, Text, cn } from '@posthog/quill'
+import { IconExternal, IconFeatures, IconHelmet, IconInfo, IconMap } from '@posthog/icons'
+import {
+    Button,
+    Heading,
+    Item,
+    ItemContent,
+    ItemDescription,
+    ItemMedia,
+    ItemTitle,
+    Skeleton,
+    Text,
+    cn,
+} from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -14,16 +25,29 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingPlan, SidePanelTab } from '~/types'
 
 import { QuillSupportTickets } from 'products/conversations/frontend/components/QuillSidePanel/QuillSupportTickets'
-import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
+import {
+    liveTicketsLogic,
+    sidepanelTicketsLogic,
+} from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
 
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 import { TodaySupportResponseTimes } from './TodaySupportResponseTimes'
 import { TodaySupportStatusAlert } from './TodaySupportStatusAlert'
 
 // Set through the `support-message-override` feature flag, for times like an offsite or the holidays.
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
+    "Many of our support engineers are attending an offsite (from 16th to 20th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries may experience a slight delay. We'll be catching up from the 23rd and back to full speed shortly after!"
+
+//Support post-offsite catch-up messaging
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
+//const SUPPORT_MESSAGE_OVERRIDE_BODY =
+//    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
+
+//Support Christmas messaging
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
+//const SUPPORT_MESSAGE_OVERRIDE_BODY =
+//    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
 
 const FEEDBACK_LINKS = [
     { label: "See what we're building", href: 'https://posthog.com/wip', Icon: IconHelmet },
@@ -43,14 +67,14 @@ function ExternalLinkButton({ href, children }: { href: string; children: React.
 export function TodaySupportPanel(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
-    const { tickets, canCreateTicket, view } = useValues(sidepanelTicketsLogic)
+    useMountedLogic(liveTicketsLogic)
+    const { canAccessTickets, canCreateTicket, view } = useValues(sidepanelTicketsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { togglePanelTab } = useActions(todayContextPanelLogic)
 
     const isCloudOrDev = preflight?.cloud || process.env.NODE_ENV === 'development'
     const billingLoaded = !billingLoading && billing !== undefined
-    // Free plans can't open new tickets, but tickets they already have stay readable and repliable.
-    const showTickets = isCloudOrDev && (canCreateTicket || tickets.length > 0)
+    const showTickets = isCloudOrDev && canAccessTickets
 
     // An open ticket, a new ticket or recovery fills the panel on its own, so the thread and composer get the room.
     // An open ticket scrolls its own thread. The forms scroll as a whole, so Submit stays reachable in a short panel.
@@ -98,14 +122,17 @@ export function TodaySupportPanel(): JSX.Element {
                                 </Heading>
                                 <TodaySupportStatusAlert />
                                 {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] && (
-                                    <div className="flex flex-col gap-1 rounded-md border border-border p-3">
-                                        <Text size="xs" weight="semibold">
-                                            {SUPPORT_MESSAGE_OVERRIDE_TITLE}
-                                        </Text>
-                                        <Text size="xs" variant="muted">
-                                            {SUPPORT_MESSAGE_OVERRIDE_BODY}
-                                        </Text>
-                                    </div>
+                                    <Item variant="outline" tone="info">
+                                        <ItemMedia variant="icon">
+                                            <IconInfo />
+                                        </ItemMedia>
+                                        <ItemContent>
+                                            <ItemTitle>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</ItemTitle>
+                                            <ItemDescription className="line-clamp-none">
+                                                {SUPPORT_MESSAGE_OVERRIDE_BODY}
+                                            </ItemDescription>
+                                        </ItemContent>
+                                    </Item>
                                 )}
                                 <Text size="xs" variant="muted">
                                     {canCreateTicket

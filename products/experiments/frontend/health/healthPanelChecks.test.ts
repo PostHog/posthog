@@ -4,10 +4,8 @@ import type { ExperimentHealthApi, ExperimentHealthCheckResultApi } from '../gen
 import {
     type ExposureChecksState,
     type HealthChipState,
-    type HealthPanelCheck,
     exposureChecksState,
     healthChipState,
-    healthMeasurementText,
     healthPanelChecks,
 } from './healthPanelChecks'
 import type { HealthPanelFinding } from './healthPanelFindings'
@@ -15,7 +13,16 @@ import type { HealthPanelFinding } from './healthPanelFindings'
 const check = (
     key: ExperimentHealthCheckResultApi['key'],
     status: ExperimentHealthCheckResultApi['status']
-): ExperimentHealthCheckResultApi => ({ key, name: key, description: '', status, reason: null, measurement: null })
+): ExperimentHealthCheckResultApi => ({
+    key,
+    name: key,
+    description: '',
+    status,
+    reason: null,
+    values: {},
+    rule: null,
+    rows: [],
+})
 
 const finding = (severity: HealthPanelFinding['severity']): HealthPanelFinding => ({
     code: 'no_metric',
@@ -121,72 +128,16 @@ describe('healthPanelChecks', () => {
     test.each<{
         name: string
         findings: HealthPanelFinding[] | null
-        checks: HealthPanelCheck[] | null
-        exposureChecks: ExposureChecksState
-        expected: Partial<HealthChipState>
+        expected: HealthChipState
     }>([
-        {
-            name: 'no chip without server findings',
-            findings: null,
-            checks: null,
-            exposureChecks: 'ready',
-            expected: { kind: 'hidden' },
-        },
+        { name: 'no chip without server findings', findings: null, expected: { kind: 'hidden' } },
         {
             name: 'issues count no info finding',
             findings: [finding('critical'), finding('warning'), finding('info')],
-            checks: [],
-            exposureChecks: 'ready',
             expected: { kind: 'issues', count: 2, hasCritical: true },
         },
-        {
-            name: 'an issue shows while the exposure checks run',
-            findings: [finding('warning')],
-            checks: [],
-            exposureChecks: 'pending',
-            expected: { kind: 'issues', count: 1, hasCritical: false },
-        },
-        {
-            name: 'no verdict while the exposure checks run',
-            findings: [],
-            checks: [check('no_metric', 'passed')],
-            exposureChecks: 'pending',
-            expected: { kind: 'pending' },
-        },
-        {
-            name: 'the label counts the passed checks and the notes',
-            findings: [finding('info')],
-            checks: [check('no_metric', 'passed'), check('flag_state', 'passed'), check('srm', 'not_applicable')],
-            exposureChecks: 'ready',
-            expected: { kind: 'checks', label: 'No problems found (2\u00a0checks) · 1\u00a0note' },
-        },
-        {
-            name: 'the label says so when no check applies',
-            findings: [],
-            checks: [check('no_metric', 'not_applicable')],
-            exposureChecks: 'not_launched',
-            expected: { kind: 'checks', label: 'No checks apply yet' },
-        },
-    ])('$name', ({ findings, checks, exposureChecks, expected }) => {
-        expect(healthChipState(findings, checks, exposureChecks)).toMatchObject(expected)
-    })
-    it.each([
-        {
-            name: 'a share against its threshold',
-            measurement: { value: 4.23, threshold: 5, unit: 'percentage', warns: 'above' },
-            expected: 'Measured 4.2%. Warns above 5%.',
-        },
-        {
-            name: 'a share too small for one decimal',
-            measurement: { value: 0.04, threshold: 5, unit: 'percentage', warns: 'above' },
-            expected: 'Measured less than 0.1%. Warns above 5%.',
-        },
-        {
-            name: 'a small p-value',
-            measurement: { value: 0.003456, threshold: 0.001, unit: 'p_value', warns: 'below' },
-            expected: 'Measured p = 0.0035. Warns below 0.001.',
-        },
-    ] as const)('healthMeasurementText states $name', ({ measurement, expected }) => {
-        expect(healthMeasurementText(measurement)).toEqual(expected)
+        { name: 'no chip for notes alone', findings: [finding('info')], expected: { kind: 'hidden' } },
+    ])('$name', ({ findings, expected }) => {
+        expect(healthChipState(findings)).toEqual(expected)
     })
 })

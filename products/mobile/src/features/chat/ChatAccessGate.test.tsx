@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
-import { Linking, Text } from 'react-native'
+import { type ReactElement, useState } from 'react'
+import { ActivityIndicator, AppState, Linking, TextInput } from 'react-native'
 
 import { fetchOrganization } from '@/api/users'
 import { useAuthStore } from '@/auth/authStore'
@@ -43,10 +44,15 @@ function signIn(approved: boolean, membershipLevel: number | null = 8): void {
     })
 }
 
+function DraftComposer(): ReactElement {
+    const [text, setText] = useState('')
+    return <TextInput testID="composer" value={text} onChangeText={setText} />
+}
+
 async function renderGate(onDecline: () => void = jest.fn()): Promise<void> {
     render(
         <ChatAccessGate onDecline={onDecline}>
-            <Text testID="composer">Composer</Text>
+            <DraftComposer />
         </ChatAccessGate>,
         { wrapper: OverlayHost }
     )
@@ -66,6 +72,57 @@ afterEach(() => {
 })
 
 describe('ChatAccessGate', () => {
+    test.each([true, false])('keeps a draft editable during an access check (cached approval: %s)', async (cached) => {
+        signIn(true)
+        useAiConsentStore.getState().accept(aiConsentKey(HOST, USER_UUID))
+        if (!cached) useAuthStore.setState({ organizations: [] })
+        let finish!: (value: Awaited<ReturnType<typeof fetchOrganization>>) => void
+        jest.mocked(fetchOrganization).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve
+                })
+        )
+        await renderGate()
+        fireEvent.changeText(screen.getByTestId('composer'), 'Keep this question')
+        expect(screen.UNSAFE_queryByType(ActivityIndicator)).toBeNull()
+        await act(async () =>
+            finish({
+                id: 'org-1',
+                name: 'Hedgebox',
+                teams: [{ id: 7, name: 'Hedgebox' }],
+                is_ai_data_processing_approved: true,
+                membership_level: 8,
+            })
+        )
+        expect(screen.getByDisplayValue('Keep this question')).toBeTruthy()
+    })
+
+    test('keeps the composer mounted during a foreground recheck and shows a confirmed failure', async () => {
+        let foreground!: (state: 'active') => void
+        jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
+            foreground = listener
+            return { remove: jest.fn() }
+        })
+        signIn(true)
+        useAiConsentStore.getState().accept(aiConsentKey(HOST, USER_UUID))
+        await renderGate()
+        fireEvent.changeText(screen.getByTestId('composer'), 'Unsent question')
+        let fail!: (error: Error) => void
+        jest.mocked(fetchOrganization).mockImplementation(
+            () =>
+                new Promise((_resolve, reject) => {
+                    fail = reject
+                })
+        )
+        await act(async () => foreground('active'))
+        expect(screen.getByDisplayValue('Unsent question')).toBeTruthy()
+        expect(screen.UNSAFE_queryByType(ActivityIndicator)).toBeNull()
+        await act(async () => fail(new TypeError('Network request failed')))
+        expect(screen.getByTestId('chat-ai-org-notice')).toBeTruthy()
+        jest.restoreAllMocks()
+    })
+
     test.each<[string, { approved: boolean; consented: boolean; demo: boolean }, string, string[]]>([
         [
             'an organization that has not approved AI shows the notice instead of the composer',

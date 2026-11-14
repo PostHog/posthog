@@ -148,8 +148,9 @@ describe('HogInvocationResultsService', () => {
             content: { subject: 'Your login code', html: '<p>Your code is 482913</p>' },
             tracking: { captureEngagement: false },
         }
-        const messageData = { variables: { code: '482913' }, send }
-        const noMessageData = { variables: undefined, send: undefined }
+        const idempotencyKey = { hash: 'key-hash', fingerprint: 'request-fingerprint' }
+        const messageData = { variables: { code: '482913' }, send, idempotencyKey }
+        const noMessageData = { variables: undefined, send: undefined, idempotencyKey: undefined }
 
         it.each([
             ['an ordinary email', false, {}, messageData],
@@ -164,6 +165,7 @@ describe('HogInvocationResultsService', () => {
                 noMessageData,
             ],
             ['a recovery stub of an ordinary run', undefined, {}, messageData],
+            ['an email its send marks sensitive', false, { send: { ...send, sensitive: true } }, noMessageData],
         ])(
             'keeps the message data in a workflow snapshot only for %s',
             async (_name, sensitive, state, expected, stepType = 'function_email') => {
@@ -188,7 +190,11 @@ describe('HogInvocationResultsService', () => {
                                   edges: [],
                               })
                               .build()
-                const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' }, send })
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    variables: { code: '482913' },
+                    send,
+                    idempotencyKey,
+                })
                 // A step paused for a provider retry keeps the rendered message on its VM stack.
                 const vmState = { stack: [{ title: 'Your code is 482913' }] }
                 const person = { id: 'person-1', properties: { code: '482913' } }
@@ -205,7 +211,11 @@ describe('HogInvocationResultsService', () => {
                 const globals = (await decodeInvocationGlobals(
                     parseProducedRows(outputs)[0].invocation_globals
                 )) as Record<string, any>
-                expect({ variables: globals.variables, send: globals.send }).toEqual(expected)
+                expect({
+                    variables: globals.variables,
+                    send: globals.send,
+                    idempotencyKey: globals.idempotencyKey,
+                }).toEqual(expected)
                 expect(globals.currentAction.hogFunctionState.vmState).toEqual(expected.variables && vmState)
                 expect(globals.currentAction.hogFunctionState.globals.person).toEqual(expected.variables && person)
             }
@@ -310,13 +320,18 @@ describe('HogInvocationResultsService', () => {
             expect(rows[0].error_kind).toBe('')
         })
 
-        it('writes status=failed and classifies the error kind', async () => {
+        it.each([
+            ['Request timed out after 30s', 'timeout'],
+            ['JavaScript heap out of memory', 'oom'],
+            ['Container OOM killed', 'oom'],
+            ['this email waited 6 days for an email worker with room for its files', 'hog_error'],
+        ])('writes status=failed and classifies %j as %s', async (message, kind) => {
             const invocation = createExampleInvocation()
             service.queueInvocationResults([
                 {
                     invocation,
                     finished: true,
-                    error: new Error('Request timed out after 30s'),
+                    error: new Error(message),
                     logs: [],
                     metrics: [],
                     capturedPostHogEvents: [],
@@ -329,9 +344,9 @@ describe('HogInvocationResultsService', () => {
             const rows = parseProducedRows(outputs)
             expect(rows).toHaveLength(1)
             expect(rows[0].status).toBe('failed')
-            expect(rows[0].error_kind).toBe('timeout')
+            expect(rows[0].error_kind).toBe(kind)
             // Exact match: the message only, never the stack trace.
-            expect(rows[0].error_message).toBe('Request timed out after 30s')
+            expect(rows[0].error_message).toBe(message)
         })
 
         it('writes status=canceled on a finished result flagged canceled, with no error fields', async () => {

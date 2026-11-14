@@ -9,11 +9,6 @@ logger = structlog.get_logger(__name__)
 
 TODAY_RAIL_NAV_FLAG = "today-rail-nav"
 TODAY_REPORT_JEV_FLAG = "today-report-jev"
-TODAY_PROGRESSIVE_PULSE_FLAG = "today-progressive-pulse"
-
-
-def progressive_pulse_enabled(user: User, team: Team) -> bool:
-    return _flag_on(TODAY_PROGRESSIVE_PULSE_FLAG, user, team)
 
 
 def is_enabled_for(user: User, team: Team) -> bool:

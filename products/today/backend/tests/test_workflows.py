@@ -48,7 +48,6 @@ PINS = [PinnedNumber("insight:a"), PinnedNumber("insight:b", dashboard_id=7)]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("progressive", [False, True])
 @pytest.mark.parametrize(
     "pins,pins_fail,asked,pinned",
     [
@@ -59,7 +58,6 @@ PINS = [PinnedNumber("insight:a"), PinnedNumber("insight:b", dashboard_id=7)]
 )
 async def test_sources_and_pins_are_resolved_once_and_finalized_together(
     environment: WorkflowEnvironment,
-    progressive: bool,
     pins: list[PinnedNumber],
     pins_fail: bool,
     asked: list[list[str]],
@@ -70,7 +68,7 @@ async def test_sources_and_pins_are_resolved_once_and_finalized_together(
 
     @activity.defn(name="run_highlight_source_activity")
     async def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
-        assert inputs.highlights_id == ("h-1" if progressive else None)
+        assert inputs.highlights_id == "h-1"
         if inputs.source_name == "broken":
             raise ApplicationError("The source query failed.")
         return HighlightSourceResult(source_name=inputs.source_name, found="{}", failed=False)
@@ -103,13 +101,12 @@ async def test_sources_and_pins_are_resolved_once_and_finalized_together(
                 scopes=None,
                 source_names=["alerts", "broken"],
                 pins=pins,
-                progressive=progressive,
             ),
             id=str(uuid.uuid4()),
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         )
 
-    assert (resolved, [(inputs.results, inputs.pins, inputs.pinned) for inputs in finalized]) == (
+    assert (resolved, [(inputs.results, inputs.pins, inputs.pinned, inputs.pins_failed) for inputs in finalized]) == (
         asked,
         [
             (
@@ -119,6 +116,7 @@ async def test_sources_and_pins_are_resolved_once_and_finalized_together(
                 ],
                 pins,
                 pinned,
+                pins_fail,
             )
         ],
     )
@@ -168,7 +166,6 @@ async def test_real_activity_publishes_before_the_workflow_finishes(
                     local_day=day.isoformat(),
                     scopes=None,
                     source_names=["routine"],
-                    progressive=True,
                 ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,

@@ -14,21 +14,23 @@ import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/Dialo
 import { cn } from 'lib/utils/css-classes'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
-import { DashboardTileIdOrNew, DashboardType } from '~/types'
+import { DashboardTileIdOrNew, DashboardType, NewDashboardTile } from '~/types'
 
 export function TextCardModal({
     isOpen,
     onClose,
     dashboard,
     textTileId,
+    onCreateTile,
 }: {
     isOpen: boolean
     onClose: () => void
     dashboard: DashboardType
     textTileId: DashboardTileIdOrNew
+    onCreateTile?: (tile: NewDashboardTile) => void
 }): JSX.Element {
     const isNewTile = textTileId === null
-    const modalLogicProps: TextCardModalProps = { dashboard, textTileId, onClose, tileType: 'text' }
+    const modalLogicProps: TextCardModalProps = { dashboard, textTileId, onClose, tileType: 'text', onCreateTile }
     const modalLogic = textCardModalLogic(modalLogicProps)
     // Form `body` + validation drive updates while typing; splitting useValues does not reduce rerenders.
     const { isTextTileSubmitting, textTileValidationErrors, textTileChanged } = useValues(modalLogic)

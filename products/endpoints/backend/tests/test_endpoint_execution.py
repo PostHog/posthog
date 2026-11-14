@@ -1,6 +1,12 @@
 from datetime import timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    NonAtomicBaseTest,
+    _create_event,
+    flush_persons_and_events,
+)
 from unittest import mock
 
 from django.core.cache import cache
@@ -2594,7 +2600,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             query=query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=24),
             last_run_at=timezone.now(),
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -2733,7 +2738,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         version = endpoint.versions.first()
         saved_query = version.saved_query
-        saved_query.sync_frequency_interval = None  # migration cleanup nulls this on v2 teams
         saved_query.last_run_at = timezone.now() - timedelta(days=3)
         saved_query.status = None
         saved_query.save()
@@ -2766,7 +2770,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             "v2-transform-now", {"kind": "HogQLQuery", "query": "select 1 as n"}
         )
         saved_query = endpoint.versions.first().saved_query
-        saved_query.sync_frequency_interval = None
         saved_query.last_run_at = None
         saved_query.status = None
         saved_query.save()
@@ -2876,6 +2879,31 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(inline_after - inline_before, 1.0)
 
+    def test_exhausted_inline_budget_refuses_the_fallback_run(self):
+        from rest_framework.exceptions import Throttled
+
+        endpoint = self._make_fresh_materialized_endpoint(
+            "mat-fallback-throttled", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        )
+
+        with (
+            mock.patch.object(
+                EndpointExecutionService,
+                "_execute_query_and_respond",
+                side_effect=RuntimeError("materialized table exploded"),
+            ) as mock_exec,
+            mock.patch(
+                "products.endpoints.backend.presentation.views.api.charge_inline_rate",
+                side_effect=Throttled(wait=5),
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(mock_exec.call_count, 1, "the inline retry must not run once the inline budget is spent")
+
     def test_paginating_union_query_counts_as_user_error(self):
         from prometheus_client import REGISTRY
 
@@ -2910,6 +2938,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(error_after - error_before, 0.0)
         mock_capture.assert_not_called()
 
+
+class TestEndpointFailureSignal(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def test_emit_failure_signal_reaches_workflow_boundary(self):
         """The failure-signal plumbing must make it to the Temporal boundary when the
         org/source gates allow it — anything raising before that is a plumbing bug."""
@@ -2926,15 +2958,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.ENDPOINTS,
+            source_type=SignalSourceConfig.SourceType.ENDPOINT_EXECUTION_FAILED,
+            enabled=True,
+        )
         mock_client = mock.AsyncMock()
-        with (
-            mock.patch(
-                "products.signals.backend.facade.api.async_connect",
-                new=mock.AsyncMock(return_value=mock_client),
-            ),
-            # The gate runs on a separate DB connection (thread_sensitive=False) and can't see
-            # rows from the test transaction, so patch it rather than creating a config row.
-            mock.patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        with mock.patch(
+            "products.signals.backend.facade.api.async_connect", new=mock.AsyncMock(return_value=mock_client)
         ):
             _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("boom"), materialized=False, version=1)
 

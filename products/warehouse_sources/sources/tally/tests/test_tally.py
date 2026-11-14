@@ -12,6 +12,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     SourceDriver,
     UnexpectedRequest,
     always,
+    scripted_network,
 )
 from products.warehouse_sources.sources.tally._config import TallySourceConfig
 from products.warehouse_sources.sources.tally.settings import (
@@ -20,7 +21,7 @@ from products.warehouse_sources.sources.tally.settings import (
     SUBMISSION_FILTER_COMPLETED,
     SUBMISSIONS_PAGE_SIZE,
     TALLY_API_VERSION_2025_02_01,
-    TALLY_API_VERSION_2026_10_27,
+    TALLY_API_VERSION_2026_08_04,
     TALLY_BASE_URL,
     TALLY_VERSION_HEADER,
     WEBHOOKS_PAGE_SIZE,
@@ -29,6 +30,20 @@ from products.warehouse_sources.sources.tally.source import TallySource
 from products.warehouse_sources.sources.tally.tally import TallyResumeConfig
 
 BASE = TALLY_BASE_URL
+
+# The `tally-version` values the API accepted when last checked. Its 400 for any other value lists
+# them, and the changelog can name dates that are not accepted yet.
+TALLY_ACCEPTED_VERSIONS = {
+    "2025-01-15",
+    "2025-02-01",
+    "2025-05-30",
+    "2026-02-09",
+    "2026-05-07",
+    "2026-06-02",
+    "2026-06-19",
+    "2026-06-23",
+    "2026-08-04",
+}
 FORMS_PAGE_1 = f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=1"
 
 
@@ -142,9 +157,9 @@ class TestFanOut:
 
     @parameterized.expand(
         [
-            ("unpinned", None, TALLY_API_VERSION_2026_10_27),
+            ("unpinned", None, TALLY_API_VERSION_2026_08_04),
             ("pinned_2025_02_01", TALLY_API_VERSION_2025_02_01, TALLY_API_VERSION_2025_02_01),
-            ("pinned_2026_10_27", TALLY_API_VERSION_2026_10_27, TALLY_API_VERSION_2026_10_27),
+            ("pinned_2026_08_04", TALLY_API_VERSION_2026_08_04, TALLY_API_VERSION_2026_08_04),
         ]
     )
     def test_every_request_sends_the_pinned_version(
@@ -239,3 +254,23 @@ class TestRetryClassification:
         responses = {FORMS_PAGE_1: [_resp({"error": "nope"}, status=status)]}
         result = _driver().run("forms", _by_url(responses))
         assert isinstance(result.raised, requests.HTTPError)
+
+
+class TestVersionPin:
+    @parameterized.expand([(version,) for version in TallySource.supported_versions])
+    def test_supported_version_is_accepted_by_tally(self, version: str) -> None:
+        assert version in TALLY_ACCEPTED_VERSIONS
+
+    @parameterized.expand(
+        [
+            ("unpinned", None, TallySource.default_version),
+            ("pinned_2025_02_01", TALLY_API_VERSION_2025_02_01, TALLY_API_VERSION_2025_02_01),
+        ]
+    )
+    def test_credential_probe_sends_the_resolved_version(
+        self, _name: str, api_version: str | None, expected_header: str
+    ) -> None:
+        with scripted_network([_page([])]) as network:
+            ok, error = TallySource().validate_credentials(TallySourceConfig(api_key="key"), 1, api_version=api_version)
+        assert (ok, error) == (True, None)
+        assert [request.headers.get(TALLY_VERSION_HEADER) for request in network.requests_log] == [expected_header]

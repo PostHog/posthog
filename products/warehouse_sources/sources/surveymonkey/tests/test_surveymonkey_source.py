@@ -40,3 +40,16 @@ class TestSurveyMonkeySourceForPipeline:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["date_created"]
         assert response.sort_mode == "asc"
+
+
+class TestResumeCoversRun:
+    @parameterized.expand(
+        [
+            ("surveys", True),
+            ("survey_trends", True),
+            ("collector_messages", False),
+            ("collector_message_stats", False),
+        ]
+    )
+    def test_only_chained_tables_opt_out(self, schema_name: str, expected: bool) -> None:
+        assert SurveyMonkeySource().resume_covers_run(incremental_or_append=False, schema_name=schema_name) is expected

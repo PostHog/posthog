@@ -312,7 +312,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
                 where += ", sessions.session_id IN {filtered_sessions}"
             return self._build(select, "sessions", where, grouped, placeholders)
 
-        return None
+        return None  # type: ignore[unreachable]
 
     def _filtered_sessions(self) -> ast.SelectQuery:
         query = parse_select(

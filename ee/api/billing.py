@@ -1019,7 +1019,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         organization_in_query = self._organization_in_query(request)
-        if self.action in self.payment_actions or organization_in_query:
+        scoped_startup_application = self.action == "apply_startup_program" and bool(
+            request.data.get("organization_id")
+        )
+        if self.action in self.payment_actions or scoped_startup_application or organization_in_query:
             serializer = BillingPaymentOrganizationSerializer(
                 data=request.query_params if organization_in_query else request.data
             )

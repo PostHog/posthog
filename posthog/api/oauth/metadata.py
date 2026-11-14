@@ -11,6 +11,7 @@ from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
 from posthog.scopes import get_oauth_scopes_supported, get_scope_descriptions
+from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 
 type Document = dict[str, object]
 
@@ -18,6 +19,7 @@ SUPPORTED_GRANT_TYPES = [
     "authorization_code",
     "refresh_token",
     id_jag.JWT_BEARER_GRANT_TYPE,
+    TOKEN_EXCHANGE_GRANT_TYPE,
     AbstractApplication.GRANT_DEVICE_CODE,
 ]
 

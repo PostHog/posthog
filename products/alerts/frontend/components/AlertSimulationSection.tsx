@@ -45,7 +45,7 @@ export function AlertSimulationSection({
                     loading={simulationResultLoading}
                     tooltip={
                         alertForm.detector_config?.type === DetectorType.LLM
-                            ? 'Ask the AI detector about the latest point, the same way a scheduled check does'
+                            ? "Ask the AI detector about the latest point, the same way a scheduled check does. This uses your organization's AI credits."
                             : 'Run the detector on historical data to preview which points would be flagged as anomalies'
                     }
                 >

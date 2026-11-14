@@ -65,6 +65,7 @@ services:
 
                     @capture-logs {
                         path /i/v1/logs
+                        path /i/v1/logs/*
                         path /i/v1/traces
                     }
 
@@ -541,6 +542,7 @@ services:
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
             - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
+            - ./docker/clickhouse/config.d/dev-system-logs.xml:/etc/clickhouse-server/config.d/dev-system-logs.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
@@ -949,6 +951,30 @@ services:
             test: ['CMD', 'etcdctl', 'endpoint', 'health']
             interval: 5s
             timeout: 5s
+            retries: 10
+
+    # A second, empty Kafka cluster for personhog's cross-cluster changelog
+    # tests; only the PersonHog e2e gate CI job starts it.
+    kafka-secondary:
+        image: docker.io/redpandadata/redpanda:v25.1.9
+        profiles: [personhog-secondary]
+        restart: on-failure
+        command:
+            - redpanda
+            - start
+            - --kafka-addr 0.0.0.0:29092
+            - --advertise-kafka-addr 127.0.0.1:29092
+            - --mode dev-container
+            - --smp 1
+            - --memory 1G
+            - --overprovisioned
+            - --set redpanda.auto_create_topics_enabled=true
+        ports:
+            - '127.0.0.1:29092:29092'
+        healthcheck:
+            test: curl -f http://localhost:9644/v1/status/ready || exit 1
+            interval: 3s
+            timeout: 10s
             retries: 10
 
 networks:

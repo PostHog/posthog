@@ -23,6 +23,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ObservationStatus
@@ -177,6 +178,7 @@ class ReplayScannerBackfillViewSet(
     """Historical backfills of a scanner over a closed time window (nested under a scanner)."""
 
     scope_object = "replay_scanner"
+    permission_classes = [ReplayVisionCloudOnly]
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "estimate", "cancel", "resume"]
     serializer_class = ReplayScannerBackfillSerializer

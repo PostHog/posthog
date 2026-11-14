@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -15,8 +15,7 @@ import { WizardOnboardingCloudRun } from 'products/wizard/frontend/views/onboard
 import { OnboardingStep } from '../../../OnboardingStep'
 import { useWizardCommand } from '../../../shared/useWizardCommand'
 import { WizardCommandBlock } from '../../../shared/wizard-command/WizardCommandBlock'
-import { WizardFrameworkIcons } from '../../../shared/wizard-command/WizardFrameworkIcons'
-import { WizardFrameworkBadges, WizardModeShell } from '../../../shared/wizard-command/WizardModeShell'
+import { WizardFrameworkBadges } from '../../../shared/wizard-command/WizardModeShell'
 import { AdblockWarning, RealtimeCheckIndicator } from '../../RealtimeCheckIndicator'
 import { SDKGrid } from '../SDKGrid'
 import { SDKInstructionsModal } from '../SDKInstructionsModal'
@@ -25,34 +24,16 @@ import { wizardInstallStepLogic } from '../wizardInstallStepLogic'
 import { WizardInstallIntro } from './WizardInstallIntro'
 
 // Onboarding's command block with the framework badges. Self-hosted gets no Wizard, so no badges either.
-function OnboardingInstallOptions({
-    wizardOverrides,
-    compact = false,
-}: {
-    wizardOverrides?: WizardOverrides
-    compact?: boolean
-}): JSX.Element {
+function OnboardingInstallOptions({ wizardOverrides }: { wizardOverrides?: WizardOverrides }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
     const { cloudRunProps } = useValues(wizardInstallStepLogic)
     const { subcommand, description, supports } = wizardOverrides ?? {}
-    const localBlock = (
-        <WizardCommandBlock
-            subcommand={subcommand}
-            description={description ?? (compact ? 'Run this in your project folder. No API key needed.' : undefined)}
-            hog={compact ? null : undefined}
-        />
-    )
+    const localBlock = <WizardCommandBlock subcommand={subcommand} description={description} />
     return (
         <div className="flex flex-col gap-4">
             {isCloudOrDev && (
                 <div className="pb-2">
-                    {supports ? (
-                        <WizardFrameworkBadges items={supports} />
-                    ) : compact ? (
-                        <WizardFrameworkIcons />
-                    ) : (
-                        <WizardFrameworkBadges />
-                    )}
+                    <WizardFrameworkBadges items={supports} />
                 </div>
             )}
             {!subcommand && cloudRunProps ? (
@@ -87,43 +68,24 @@ export function WizardInstallStep(props: VariantProps): JSX.Element {
             showSkip={!canContinue}
             props={props}
         >
-            {props.compact ? (
-                <WizardInstallSync projectId={projectId}>
-                    <WizardModeShell data-attr="wizard-install-compact">
-                        <p className="text-muted mb-0">
-                            {props.wizardOverrides?.intro ??
-                                'Wizard is a setup agent. It detects your framework, installs the SDK, and adds your project token to your environment variables.'}
-                        </p>
-                        <OnboardingInstallOptions wizardOverrides={props.wizardOverrides} compact />
-                        <Link
-                            className="self-start text-sm"
+            <WizardInstallSync projectId={projectId}>
+                <>
+                    <WizardInstallIntro description={props.wizardOverrides?.intro} />
+                    <div className="max-w-xl mx-auto">
+                        <OnboardingInstallOptions wizardOverrides={props.wizardOverrides} />
+                    </div>
+                    <div>
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
                             data-attr="sdk-continue"
                             onClick={() => setManualModalOpen(true)}
                         >
-                            Want to set up manually?
-                        </Link>
-                    </WizardModeShell>
-                </WizardInstallSync>
-            ) : (
-                <WizardInstallSync projectId={projectId}>
-                    <>
-                        <WizardInstallIntro description={props.wizardOverrides?.intro} />
-                        <div className="max-w-xl mx-auto">
-                            <OnboardingInstallOptions wizardOverrides={props.wizardOverrides} />
-                        </div>
-                        <div>
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                data-attr="sdk-continue"
-                                onClick={() => setManualModalOpen(true)}
-                            >
-                                Need to set up manually?
-                            </LemonButton>
-                        </div>
-                    </>
-                </WizardInstallSync>
-            )}
+                            Need to set up manually?
+                        </LemonButton>
+                    </div>
+                </>
+            </WizardInstallSync>
         </WizardInstallShell>
     )
 }

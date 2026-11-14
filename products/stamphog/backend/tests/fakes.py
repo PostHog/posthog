@@ -204,6 +204,7 @@ class GitHubRecorder:
         self.reviewer_request_failures = 0
         # How many label requests answer 500 before GitHub takes them again.
         self.label_request_failures = 0
+        self.labels_refused = False
         # How many times the ownership reader looked up the default branch head.
         self.head_lookups = 0
         self.github_writes: list[dict[str, Any]] = []
@@ -296,6 +297,8 @@ class GitHubRecorder:
             if self.label_request_failures > 0:
                 self.label_request_failures -= 1
                 return FakeResponse(500, text="server error")
+            if self.labels_refused:
+                return FakeResponse(403, text="forbidden")
             self._record_write("add_labels", m.group("repo"), int(m.group("number")), json_body)
             return FakeResponse(200, json_data=[])
         if method == "PUT" and (m := _DISMISS_RE.match(path)):

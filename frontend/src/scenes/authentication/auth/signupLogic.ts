@@ -7,10 +7,11 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { splitFullName } from 'lib/utils/strings'
@@ -297,6 +298,19 @@ export function maintenanceSignupRedirectUrl(
     return `https://${CLOUD_HOSTNAMES[region.toUpperCase() as keyof typeof CLOUD_HOSTNAMES]}${urls.signup()}?${params}`
 }
 
+function getRetryAfterSeconds(error: unknown): number | null {
+    const header = error instanceof ApiError ? error.headers?.get('Retry-After') : null
+    const seconds = header ? Number(header) : NaN
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null
+}
+
+function throttledSignupMessage(retryAfterSeconds: number | null, googleAvailable: boolean): string {
+    const retryAfter =
+        retryAfterSeconds !== null ? dayjs.duration(retryAfterSeconds, 'seconds').humanize(true) : 'later'
+    const googleSuggestion = googleAvailable ? ', or sign up with Google instead' : ''
+    return `Too many signup attempts from your network. Try again ${retryAfter}${googleSuggestion}.`
+}
+
 export const signupLogic = kea<signupLogicType>([
     path(['scenes', 'authentication', 'auth', 'signupLogic']),
     connect(() => ({
@@ -561,6 +575,10 @@ export const signupLogic = kea<signupLogicType>([
                     // never scored can reach the server and be refused there. Send the user back to the
                     // password step.
                     if (error.attr === 'password') {
+                        // The session lost the passkey, so a submit without a password would fail the same way
+                        if (values.passkeyRegistered) {
+                            actions.setPasskeyRegistered(false)
+                        }
                         actions.setSignupPanelAuthManualErrors({
                             password: String(error.detail || 'Please choose a stronger password'),
                         })
@@ -580,10 +598,16 @@ export const signupLogic = kea<signupLogicType>([
                     }
 
                     if (error.code === 'throttled') {
+                        const retryAfterSeconds = getRetryAfterSeconds(e)
+                        posthog.capture('signup throttled', {
+                            retry_after_seconds: retryAfterSeconds,
+                            with_passkey: values.passkeyRegistered,
+                        })
+                        const googleAvailable = !!values.preflight?.available_social_auth_providers?.['google-oauth2']
                         actions.setSignupPanelOnboardingManualErrors({
                             generic: {
                                 code: error.code,
-                                detail: 'Too many signup attempts. Please try again later.',
+                                detail: throttledSignupMessage(retryAfterSeconds, googleAvailable),
                             },
                         })
                     } else {

@@ -2523,6 +2523,86 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         ]
 
 
+class TestCustomSourceLiteralQueryBraces(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "field_expansion",
+                "/page/posts?limit=100&fields=id,attachments{media_type},insights.metric(a,b)",
+                None,
+                "fields",
+                "id,attachments{media_type},insights.metric(a,b)",
+            ),
+            (
+                "nested_field_expansion",
+                "/page/posts?fields=insights{values{value}}",
+                None,
+                "fields",
+                "insights{values{value}}",
+            ),
+            ("already_escaped", "/page/posts?fields=a{{b}}", None, "fields", "a{b}"),
+            ("unbalanced_brace", "/page/posts?q=a}", None, "q", "a}"),
+            ("declared_param_still_binds", "/page/posts?since={since}&fields=a{b}", {"since": "2024"}, "since", "2024"),
+        ]
+    )
+    def test_query_braces_reach_request(self, _name, path, params, query_param, expected):
+        manifest = _minimal_manifest()
+        endpoint = manifest["resources"][0]["endpoint"]
+        endpoint.update({"path": path, "paginator": {"type": "single_page"}})
+        if params:
+            endpoint["params"] = params
+
+        result = SourceDriver(CustomSource(), CustomSourceConfig(manifest_json=json.dumps(manifest))).run(
+            "users", [ScriptedResponse(json={"data": [{"id": 1}]})], team_id=999
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/page/posts"]
+        assert result.requests[0].param(query_param) == expected
+
+    def test_fanout_child_query_braces_reach_request(self):
+        manifest = _fanout_manifest()
+        for resource in manifest["resources"]:
+            resource["endpoint"]["paginator"] = {"type": "single_page"}
+        manifest["resources"][1]["endpoint"]["path"] = "/forms/{form_id}/responses?fields=answers{value}"
+
+        result = SourceDriver(CustomSource(), CustomSourceConfig(manifest_json=json.dumps(manifest))).run(
+            "responses",
+            [ScriptedResponse(json={"items": [{"id": "f1"}]}), ScriptedResponse(json={"items": []})],
+            team_id=999,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/forms", "/forms/f1/responses"]
+        assert result.requests[1].param("fields") == "answers{value}"
+
+    def test_validate_credentials_accepts_query_braces(self):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = "/page/posts?fields=attachments{media_type}"
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        with scripted_network([ScriptedResponse(json={})]):
+            ok, err = CustomSource().validate_credentials(config, team_id=999)
+        assert ok, err
+
+    @parameterized.expand(
+        [
+            ("path_segment", "/accounts/{account_id}/users"),
+            ("path_segment_with_query_braces", "/accounts/{account_id}/users?fields=a{b}"),
+        ]
+    )
+    def test_unbound_path_placeholder_names_table_not_path(self, _name, path):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = path
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+
+        ok, err = CustomSource().validate_credentials(config, team_id=999)
+
+        assert ok is False
+        assert err is not None
+        assert "'users'" in err and "{account_id}" in err
+        assert "/accounts/" not in err
+
+
 class TestCustomSourceFanoutSchemasAndProbe(SimpleTestCase):
     def test_child_resource_is_its_own_schema(self):
         manifest = _fanout_manifest()

@@ -69,7 +69,6 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
     const { billingProductLoading } = useValues(billingProductLogic({ product }))
 
     const [isHovering, setIsHovering] = useState<boolean | undefined>(undefined)
-    const { flowVariant } = useValues(onboardingLogic)
     const { goToNextStep } = useActions(onboardingLogic)
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
@@ -108,7 +107,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
         if (planData.ctaAction === 'billing') {
             startPaymentEntryFlow(product, window.location.pathname + window.location.search)
         } else if (planData.ctaAction === 'next') {
-            reportOnboardingStepCompleted(OnboardingStepKey.PLANS, flowVariant)
+            reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
             goToNextStep()
         }
     }
@@ -217,7 +216,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                             status={highlight ? 'alt' : undefined}
                             onClick={(event) => {
                                 event.stopPropagation()
-                                reportOnboardingStepCompleted(OnboardingStepKey.PLANS, flowVariant)
+                                reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
                                 goToNextStep()
                             }}
                             tabIndex={-1}

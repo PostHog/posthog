@@ -27,7 +27,7 @@ import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool,
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -70,6 +70,9 @@ export interface ResolvedState {
     analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
+    /** The client-carried handle before the SDK can mint one for this call. */
+    carriedContextSessionKey?: string | undefined
+    isTaskBound?: boolean | undefined
     /** The organization's AI data processing consent; undefined when the org could not be read. */
     aiConsentGiven?: boolean | undefined
     /** Read only when a business knowledge search tool is advertised; undefined when unread. */
@@ -203,7 +206,7 @@ export class RequestStateResolver {
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
-        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands the same way.
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, and MCP_INBOX_FIRST_FLAG a prompt section.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
@@ -211,6 +214,7 @@ export class RequestStateResolver {
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
+                MCP_INBOX_FIRST_FLAG,
                 ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
@@ -384,6 +388,7 @@ export class RequestStateResolver {
             heldTools,
             sandboxTaskId: _apiKey?.sandbox_task_id,
             supportsStepUp: _apiKey?.supports_step_up === true,
+            isTaskBound: Boolean(props.taskId || props.taskOriginProduct),
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&
@@ -514,7 +519,7 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment, intent and guidance experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent, guidance and Inbox-first experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
@@ -522,6 +527,7 @@ export class RequestStateResolver {
                         key,
                         key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
                             key !== MCP_INTENT_PROMPT_FLAG &&
+                            key !== MCP_INBOX_FIRST_FLAG &&
                             !GUIDANCE_RULE_FLAGS.includes(key),
                     ])
                 ),

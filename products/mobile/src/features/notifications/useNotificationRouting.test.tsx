@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 import * as Notifications from 'expo-notifications'
-import { router, usePathname } from 'expo-router'
+import { router, useGlobalSearchParams, usePathname } from 'expo-router'
 import { AppState } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
@@ -22,8 +22,12 @@ jest.mock('expo-router', () => ({
     useRootNavigationState: () => ({ key: 'root' }),
     useNavigationContainerRef: () => mockNavigation,
     usePathname: jest.fn(() => '/inbox'),
+    useGlobalSearchParams: jest.fn(() => ({})),
 }))
-jest.mock('@/demo/demoMode', () => ({ useDemoMode: { getState: () => ({ enabled: false }) } }))
+jest.mock('@/demo/demoMode', () => ({
+    useDemoMode: { getState: () => ({ enabled: false }) },
+    useDataMode: () => 'live',
+}))
 jest.mock('./notificationIntents', () => ({
     getPendingNotificationTap: jest.fn(),
     acknowledgeNotificationTap: jest.fn(),
@@ -45,6 +49,7 @@ function notification(identifier: string): Notifications.Notification {
                 body: 'Report update',
                 data: reportData,
                 categoryIdentifier: null,
+                threadIdentifier: null,
                 sound: null,
             },
         },
@@ -56,11 +61,13 @@ beforeEach(() => {
     jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(null)
     jest.mocked(getPendingNotificationTap).mockReturnValue(undefined)
     jest.mocked(usePathname).mockReturnValue('/inbox')
+    jest.mocked(useGlobalSearchParams).mockReturnValue({})
     mockNavigation.getCurrentRoute.mockReturnValue({ name: 'inbox' })
     setViewedNotificationTask(null)
     AppState.currentState = 'active'
     useAuthStore.setState({
         status: 'signed_in',
+        signedIn: true,
         host: 'https://app.example.com',
         projectId: 2,
         user: { uuid: 'routing-user' } as NonNullable<ReturnType<typeof useAuthStore.getState>['user']>,
@@ -102,6 +109,38 @@ test.each(['expo', 'persisted'] as const)(
     }
 )
 
+const REPORT_PUSH = 'push /report/report-1?from=push'
+
+test.each([
+    {
+        name: 'a cold-start tap opens the report above the inbox',
+        coldStart: true,
+        calls: ['navigate /inbox', REPORT_PUSH],
+    },
+    { name: 'a tap while the app runs opens the report above the screen', coldStart: false, calls: [REPORT_PUSH] },
+])('$name', async ({ coldStart, calls }) => {
+    const response = { notification: notification(`report-cold-${coldStart}`), actionIdentifier: 'default' }
+    jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(coldStart ? response : null)
+    renderHook(useNotificationRouting)
+    const listener = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0]?.[0]
+    if (!listener) {
+        throw new Error('Notification tap listener was not registered')
+    }
+    act(() => listener(response))
+
+    await waitFor(() => expect(router.push).toHaveBeenCalled())
+    const routed = [
+        { kind: 'navigate', mock: jest.mocked(router.navigate).mock },
+        { kind: 'push', mock: jest.mocked(router.push).mock },
+    ].flatMap(({ kind, mock }) =>
+        mock.calls.map((call, index) => ({
+            call: `${kind} ${String(call[0])}`,
+            order: mock.invocationCallOrder[index],
+        }))
+    )
+    expect(routed.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(({ call }) => call)).toEqual(calls)
+})
+
 test('suppresses the viewed report only while that route is on screen', () => {
     jest.mocked(usePathname).mockReturnValue('/report/report-1')
     const hook = renderHook(useNotificationRouting)
@@ -115,6 +154,16 @@ test('suppresses the viewed report only while that route is on screen', () => {
     hook.rerender({})
     hook.unmount()
     expect(foregroundNotificationBehavior(notification('unmounted')).shouldShowBanner).toBe(true)
+})
+
+test('suppresses the viewed report in the project its link named, not the session project', () => {
+    jest.mocked(usePathname).mockReturnValue('/report/report-1')
+    jest.mocked(useGlobalSearchParams).mockReturnValue({ project: '9' })
+    renderHook(useNotificationRouting)
+    const linked = notification('linked')
+    linked.request.content.data = { ...reportData, project_id: 9 }
+    expect(foregroundNotificationBehavior(linked).shouldShowBanner).toBe(false)
+    expect(foregroundNotificationBehavior(notification('session-project')).shouldShowBanner).toBe(true)
 })
 
 test('opens a standalone task chat from a notification', async () => {

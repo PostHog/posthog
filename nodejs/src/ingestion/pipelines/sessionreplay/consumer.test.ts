@@ -38,6 +38,7 @@ jest.mock('~/common/kafka/consumer/consumer-v2', () => {
         public stopConsuming = jest.fn().mockResolvedValue(undefined)
         public disconnect = jest.fn().mockResolvedValue(undefined)
         public offsetsStore = jest.fn()
+        public hasFailed = jest.fn().mockReturnValue(false)
         public assignments = jest.fn().mockReturnValue([])
         public isHealthy = jest.fn()
     }
@@ -237,6 +238,68 @@ describe('SessionRecordingIngester', () => {
         // The shutdown contract: the batch's produce must be durable before its offset is stored,
         // and the offset must be stored before disconnect commits it to the broker.
         expect(events).toEqual(['side_effect_settled', 'offsets_stored', 'disconnected'])
+    })
+
+    it('stop() disconnects and stops the key store when the final flush cannot store its offsets', async () => {
+        jest.mocked(ingester.kafkaConsumer).offsetsStore.mockImplementation(() => {
+            throw new Error('offset store refused')
+        })
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]])))
+        await ingester.handleEachBatch([kafkaMessage(0, 42)])
+
+        await expect(ingester.stop()).rejects.toThrow('offset store refused')
+
+        expect(events).toEqual(['disconnected'])
+        expect(ingester['keyStore'].stop).toHaveBeenCalled()
+    })
+
+    it('stop() skips the final flush once a background task has failed', async () => {
+        jest.mocked(ingester.kafkaConsumer).hasFailed.mockReturnValue(true)
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]])))
+        await ingester.handleEachBatch([kafkaMessage(0, 42)])
+        const flush = jest.spyOn(ingester['currentBatch'], 'flush')
+
+        await ingester.stop()
+
+        expect(flush).not.toHaveBeenCalled()
+        expect(events).toEqual(['disconnected'])
+    })
+
+    it('revoke skips the flush once a background task has failed', async () => {
+        jest.mocked(ingester.kafkaConsumer).hasFailed.mockReturnValue(true)
+        jest.mocked(ingester.kafkaConsumer).assignments.mockReturnValue([{ topic: consumeTopic, partition: 0 }])
+        await ingester.start()
+        const onPartitionsRevoked = jest.mocked(ingester.kafkaConsumer).connect.mock.calls[0][1]!
+        const flush = jest.spyOn(ingester['currentBatch'], 'flush')
+
+        await onPartitionsRevoked([{ topic: consumeTopic, partition: 0 }])
+
+        expect(flush).not.toHaveBeenCalled()
+        expect(events).not.toContain('offsets_stored')
+    })
+
+    it('stop() runs the remaining cleanup and rejects when disconnect fails after a clean flush', async () => {
+        jest.mocked(ingester.kafkaConsumer).disconnect.mockRejectedValue(new Error('disconnect refused'))
+        const stopRestrictions = jest.fn()
+        ingester['stopEventIngestionRestrictionManager'] = stopRestrictions
+
+        await expect(ingester.stop()).rejects.toThrow('disconnect refused')
+
+        expect(ingester['keyStore'].stop).toHaveBeenCalled()
+        expect(stopRestrictions).toHaveBeenCalled()
+    })
+
+    it('stop() rejects with the flush error and still runs cleanup when disconnect also fails', async () => {
+        jest.mocked(ingester.kafkaConsumer).offsetsStore.mockImplementation(() => {
+            throw new Error('offset store refused')
+        })
+        jest.mocked(ingester.kafkaConsumer).disconnect.mockRejectedValue(new Error('disconnect refused'))
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]])))
+        await ingester.handleEachBatch([kafkaMessage(0, 42)])
+
+        await expect(ingester.stop()).rejects.toThrow('offset store refused')
+
+        expect(ingester['keyStore'].stop).toHaveBeenCalled()
     })
 
     it('flushes on the age trigger: side effects drain before the batch offsets are stored, at exactly highest+1', async () => {

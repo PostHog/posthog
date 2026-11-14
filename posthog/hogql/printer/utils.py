@@ -54,7 +54,7 @@ from posthog.hogql.transforms.type_aware_simplification import (
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS, Workload
 from posthog.week_start_day import WeekStartDay
 
 PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
@@ -324,14 +324,17 @@ def prepare_ast_for_printing(
         collector.visit(node)
         context.workload = collector.get_workload()
 
-    # LOGS-cluster tables (logs, spans, metrics) split attributes across typed `*_map_str/_float/_datetime` Map columns.
+    # Logs, spans and metrics tables split attributes across typed `*_map_str/_float/_datetime` Map columns.
     # A type-suffixed attribute key (e.g. `host__str`) only resolves to its physical column via property groups, which
     # are active under OPTIMIZED. Without OPTIMIZED the read falls back to a subscript on the un-suffixed `attributes`
     # alias, where the suffixed key never matches — so `is not` filters match every row and `equals` filters match none
     # (silently wrong, not an error). OPTIMIZED is therefore required for correctness here, not merely a perf mode, so
-    # force it for every logs query regardless of any non-OPTIMIZED value a caller may have set — after workload
+    # force it for every logs or metrics query regardless of any non-OPTIMIZED value a caller may have set — after workload
     # detection, before property resolution reads the modifier.
-    if context.workload == Workload.LOGS and context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
+    if (
+        context.workload in PINNED_CLUSTER_WORKLOADS
+        and context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED
+    ):
         context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
     if context.modifiers.optimizeProjections:
@@ -395,10 +398,11 @@ def prepare_ast_for_printing(
             node = PropertySwapper(
                 timezone=context.property_swapper.timezone,
                 group_properties=context.property_swapper.group_properties,
-                event_properties={},
-                person_properties={},
+                event_properties=context.property_swapper.event_properties,
+                person_properties=context.property_swapper.person_properties,
                 context=context,
                 setTimeZones=False,
+                before_lazy_tables=True,
             ).visit(node)
 
         with context.timings.measure("resolve_lazy_tables"):

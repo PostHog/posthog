@@ -1,5 +1,5 @@
 import { createContext, type ReactElement, type ReactNode, useContext, useEffect, useMemo } from 'react'
-import type { ViewToken } from 'react-native'
+import type { ListViewToken } from 'react-native'
 import { createStore, type StoreApi, useStore } from 'zustand'
 
 import type { ChartCanvasSlot } from '../types'
@@ -118,7 +118,7 @@ export function useCanvasSlot(slot: ChartCanvasSlot | undefined): boolean {
 
 export interface CanvasBudgetViewport {
     /** Pass to a `FlatList` or `SectionList`. Item keys must match the charts' `canvasSlot.key`. */
-    onViewableItemsChanged: (info: { viewableItems: ViewToken[] }) => void
+    onViewableItemsChanged: (info: { viewableItems: ListViewToken[] }) => void
     /** For lists that track visibility themselves. */
     setVisibleKeys: (keys: readonly string[]) => void
 }

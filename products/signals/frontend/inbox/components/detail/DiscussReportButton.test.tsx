@@ -14,6 +14,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
+import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import {
     FIX_CI_REQUEST,
@@ -95,6 +97,8 @@ describe('DiscussReportButton', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
         inboxTaskKickoffLogic.mount()
         discussReport = jest.fn()
         jest.spyOn(inboxTaskKickoffLogic.actions, 'discussReport').mockImplementation(discussReport)
@@ -189,6 +193,38 @@ describe('DiscussReportButton', () => {
             expect.objectContaining({ id: 'report-1' }),
             'https://app/report-1',
             'Who is affected?'
+        )
+    })
+
+    it('submits the edited check suggestion with the metric replacement intent', async () => {
+        const user = userEvent.setup()
+        const report = makeReport([SUGGESTION])
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+        })
+        await expectLogic(inboxTaskKickoffLogic, () =>
+            inboxTaskKickoffLogic.actions.openReportCheckMetricSuggestion(report, {
+                id: 'checkout-check',
+                title: 'Checkout errors stay low',
+            } as SignalReportCheckApi)
+        ).toFinishAllListeners()
+        const initialDraft = inboxTaskKickoffLogic.values.reportDiscussionDraft
+        render(<ReportDiscussionComposer report={report} reportUrl="https://app/report-1" />)
+
+        expect(screen.getByTestId('max-chat-input')).toHaveValue(initialDraft)
+        expect(screen.queryByText(SUGGESTION)).not.toBeInTheDocument()
+        fireEvent.change(screen.getByTestId('max-chat-input'), {
+            target: { value: `${initialDraft}Measure the failed checkout rate over seven days.` },
+        })
+        await user.click(screen.getByTestId('inbox-report-ask-ai-submit'))
+
+        expect(discussReport).toHaveBeenCalledWith(
+            report,
+            'https://app/report-1',
+            `${initialDraft}Measure the failed checkout rate over seven days.`,
+            undefined,
+            'check_metrics'
         )
     })
 
@@ -287,6 +323,7 @@ describe('DiscussReportButton', () => {
 
     it('sends Get it merged with the merge intent in one click from the Ask AI menu', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
         })
         const user = userEvent.setup()
@@ -321,6 +358,7 @@ describe('DiscussReportButton', () => {
         ['the flag is off', false, withPullRequest(makeReport(), 'open', 'approved')],
     ])('does not offer Get it merged when %s', async (_name, flagEnabled, report) => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: flagEnabled,
         })
         const user = userEvent.setup()
@@ -340,6 +378,7 @@ describe('DiscussReportButton', () => {
 
     it('sends Make it green with the fix CI intent when CI fails on an unapproved PR', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
         })
         const report = withPullRequest(makeReport(), 'open', 'review_required')
@@ -371,6 +410,7 @@ describe('DiscussReportButton', () => {
         ['the PR is already merged', 'failure', 'merged'],
     ] as const)('does not offer Make it green when %s', async (_name, conclusion, state) => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
         })
         const report = withPullRequest(makeReport(), state, 'review_required')

@@ -1651,22 +1651,22 @@ describe('PersonhogPersonsStore', () => {
             expect(hasProjection('1:7')).toBe(false)
         })
 
-        it('a person gone from identity fails the flush to redeliver, releasing the id', async () => {
+        it('a person gone from identity drops its ops without failing the flush, releasing the id', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { k: 'A' } }), 'd1')
             expect(edgeOf('1:d1')).toBe('1:7')
             // The person is deleted rather than merged, so the redirect's
-            // resolve answers nobody. Redelivery recreates through the
-            // normal pipeline, as Postgres does; dropping here would lose
-            // the ops.
+            // resolve answers nobody. Postgres drops the update here; a
+            // failed flush would restart the processor instead.
             repository.updatePersonProperties.mockRejectedValue(new NoRowsUpdatedError('deleted') as never)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([] as never)
 
-            await expect(bound.flush()).rejects.toThrow(/resolves to nobody/)
+            await bound.flush()
 
-            expect((store as any).entries.get('1:7').segments).toHaveLength(1)
-            // Released, so the redelivered events re-resolve rather than
-            // folding onto the deleted person again.
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+            expect((store as any).entries.get('1:7')?.segments ?? []).toHaveLength(0)
+            // Released, so later events re-resolve rather than folding onto
+            // the deleted person again.
             expect(edgeOf('1:d1')).toBeUndefined()
             expect(hasProjection('1:7')).toBe(false)
         })
@@ -2848,11 +2848,12 @@ describe('PersonhogPersonsStore', () => {
                 return [] as never
             })
 
-            await expect(bound.flush()).rejects.toThrow(/resolves to nobody/)
+            await bound.flush()
 
+            // The deleted person's owed segment drops; the fold this pass
+            // never attempted stays for the next one.
             const sets = (store as any).entries.get('1:7').segments.map((segment: EventOps) => segment.set)
-            expect(sets).toContainEqual({ later: 'fold' })
-            expect(sets).toContainEqual({ b: '2' })
+            expect(sets).toEqual([{ later: 'fold' }])
         })
 
         it('a replayed merged verdict purges again and keeps the live lane', async () => {

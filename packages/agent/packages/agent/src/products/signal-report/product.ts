@@ -8,14 +8,17 @@ export function signalReportProduct(): AgentProduct {
     id: SIGNAL_REPORT_ORIGIN,
     configureSession: ({ launch }) => {
       const threadUrl = launch.launchOptions.slack_thread_url;
-      const source =
+      const threadSource =
         typeof threadUrl === "string" && threadUrl
           ? { label: "Slack thread", url: threadUrl }
-          : launch.source;
+          : undefined;
       return {
         pullRequests: {
           autoPublish: true,
-          footer: buildPullRequestFooter(launch, { automated: true, source }),
+          footer: buildPullRequestFooter(launch, {
+            automated: true,
+            sources: [launch.source, threadSource],
+          }),
         },
       };
     },

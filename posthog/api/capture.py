@@ -44,6 +44,7 @@ from posthog.settings.ingestion import (
     CAPTURE_V1_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS,
+    CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES,
 )
 
 logger = structlog.get_logger(__name__)
@@ -560,7 +561,7 @@ def _submit_batch_chunk(
             url,
             HTTPAdapter(
                 max_retries=Retry(
-                    total=3,
+                    total=CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES,
                     backoff_factor=0.1,
                     status_forcelist=[500, 502, 503, 504],
                     allowed_methods={"POST"},

@@ -1,6 +1,14 @@
 import { useValues } from 'kea'
 
-import { MetricCard } from '@posthog/quill-charts'
+import {
+    Metric,
+    MetricDelta,
+    MetricHeader,
+    MetricSparkline,
+    MetricSubtitle,
+    MetricTitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
@@ -9,7 +17,7 @@ import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { flattenSeriesRows } from './metricsReduce'
-import { thresholdColor } from './metricsThresholds'
+import { thresholdColorToken } from './metricsThresholds'
 import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
@@ -19,16 +27,20 @@ const FALLBACK_COLOR = 'data-color-1'
 const MAX_STAT_CARDS = 12
 const GROUPED_SPARKLINE_HEIGHT = 40
 
-/** A headline number with a sparkline, colored by threshold. One card per series when the
+/** A headline number with an optional sparkline, colored by threshold. One card per series when the
  * query groups, capped at `MAX_STAT_CARDS`. */
 export function StatPanel({ series, display, fallbackName }: MetricsPanelProps): JSX.Element {
     const theme = useChartTheme()
     const { timezone } = useValues(teamLogic)
     const reducer = resolveReducer(display)
+    const showsSparkline = display.statSparkline !== false
     // A series with no non-null point has nothing to headline; drop it rather than render a "—" card.
     const rows = flattenSeriesRows(series, [reducer]).filter((row) => row.values[reducer] !== null)
     // A single card fills the tile, and the tile title already names it. Grouped cards need their labels.
     const single = rows.length === 1
+    const valueColor = display.thresholds?.length
+        ? (v: number): string => getColorVar(thresholdColorToken(v, display.thresholds, FALLBACK_COLOR))
+        : undefined
 
     if (rows.length === 0) {
         return <div className="flex h-full w-full items-center justify-center text-secondary text-sm">No data</div>
@@ -42,14 +54,13 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
                 .join(', ') ||
             row.metricName ||
             fallbackName
-        const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))
+        const color = getColorVar(thresholdColorToken(value, display.thresholds, FALLBACK_COLOR))
         const data = row.series.points.map((p) => p.value ?? 0)
         // The headline shows the hovered sparkline point, so it shares one scale with every point.
         const formatValue = metricValuesFormatter(row.series.unit ?? undefined, [...data, value ?? 0])
         return (
-            <MetricCard
+            <Metric
                 key={index}
-                title={single ? null : name}
                 value={value ?? undefined}
                 data={data}
                 labels={row.series.points.map((p) => p.time)}
@@ -60,13 +71,23 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
                 theme={theme}
                 color={color}
                 formatValue={formatValue}
-                headlineClassName="whitespace-nowrap text-2xl @min-[13rem]:text-3xl @min-[16rem]:text-4xl"
-                changeInline
+                valueColor={valueColor}
                 sparklineFill={single}
                 sparklineHeight={GROUPED_SPARKLINE_HEIGHT}
-                sparklineClassName="mt-2"
-                className={cn('@container min-w-0', single && 'h-full')}
-            />
+                className={cn('@container w-full min-w-0 px-0', !showsSparkline && single && 'justify-center')}
+            >
+                {!single && <MetricTitle>{name}</MetricTitle>}
+                <MetricHeader className={cn('flex-wrap items-center', !single && 'mt-2')}>
+                    <MetricValue className="text-2xl @min-[13rem]:text-3xl @min-[16rem]:text-4xl" />
+                    <MetricDelta />
+                </MetricHeader>
+                {showsSparkline && (
+                    <>
+                        <MetricSubtitle className="mt-1" />
+                        <MetricSparkline className="mt-2" />
+                    </>
+                )}
+            </Metric>
         )
     })
 

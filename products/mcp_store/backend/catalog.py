@@ -159,6 +159,8 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="oauth",
         category="dev",
         icon_domain="firetiger.com",
+        # As of November 2026, the MCP host does not resolve in DNS, so no install can reach the server.
+        disabled=True,
     ),
     CatalogEntry(
         name="GitLab",
@@ -322,7 +324,9 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         docs_url="https://docs.slack.dev/ai/slack-mcp-server/",
         oauth_credentials_source="slack_app",
         disabled=True,
-        # Private-channel, DM, email, and write scopes require separate security approval.
+        # Private-channel, DM, email, and write scopes require separate security approval. With the
+        # slack-app-slack-mcp flag on, a Slack account link requests exactly this list and connects the server only
+        # while its token holds exactly this list, so a scope the manifest marks user_optional does not belong here.
         oauth_scope_allowlist=(
             "channels:read",
             "channels:history",

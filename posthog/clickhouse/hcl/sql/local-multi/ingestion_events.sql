@@ -1,6 +1,12 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
 -- Full CREATE schema for the local-multi/events node. Apply to a fresh ClickHouse to build it.
 
+CREATE TABLE posthog.distributed_person_group_membership_config (
+  team_id Int64,
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = Distributed('aux', 'posthog', 'person_group_membership_config', sipHash64(team_id));
 CREATE TABLE posthog.kafka_events_json_native_json (
   uuid UUID,
   event String,
@@ -56,6 +62,13 @@ CREATE TABLE posthog.kafka_logs_avro (
   pattern Nullable(String),
   pattern_version Nullable(Int32)
 ) ENGINE = Kafka(warpstream_logs) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-logs-avro-new', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_logs';
+CREATE TABLE posthog.kafka_person_group_membership (
+  team_id Int64,
+  distinct_id String,
+  properties String,
+  timestamp DateTime64(6, 'UTC'),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_person_group_membership', kafka_max_block_size = 10000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 10000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.query_log_archive (
   initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,
@@ -188,7 +201,7 @@ CREATE TABLE posthog.query_log_archive (
 CREATE TABLE posthog.writable_events_json (
   uuid UUID,
   event String,
-  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32),
   properties_null_keys Array(LowCardinality(String)),
   temporary_properties_null_keys Array(LowCardinality(String)),
@@ -257,6 +270,14 @@ CREATE TABLE posthog.writable_logs34 (
   pattern_version UInt8,
   internal_source LowCardinality(String) DEFAULT ''
 ) ENGINE = Distributed('logs', 'posthog', 'logs34') SETTINGS background_insert_batch = 1;
+CREATE TABLE posthog.writable_person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
 CREATE MATERIALIZED VIEW posthog.events_json_table_mv TO posthog.writable_events_json (uuid UUID, event String, properties String, temporary_properties String, inserted_at DateTime64(3), timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_created_at DateTime64(3), group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, captured_at DateTime64(6, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64, consumer_breadcrumbs Array(String), total_event_size UInt32) AS SELECT
   *,
   accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
@@ -351,3 +372,34 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34
   toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
   _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
 FROM posthog.kafka_logs_avro;
+CREATE MATERIALIZED VIEW posthog.person_group_membership_mv TO posthog.writable_person_group_membership (team_id Int64, group_type_index UInt8, group_key String, distinct_id String, first_seen DateTime64(6, 'UTC'), last_seen DateTime64(6, 'UTC')) AS SELECT
+  team_id,
+  group_type_index,
+  replaceRegexpAll(
+    JSONExtractRaw(properties, concat('$group_', toString(group_type_index))),
+    '^"|"$',
+    ''
+  ) AS group_key,
+  distinct_id,
+  min(timestamp) AS first_seen,
+  max(timestamp) AS last_seen
+FROM
+  (
+    SELECT
+      team_id,
+      dictGet('posthog.person_group_membership_config_dict', 'group_type_index', tuple(team_id)) AS group_type_index,
+      distinct_id,
+      properties,
+      timestamp
+    FROM posthog.kafka_person_group_membership
+    WHERE
+      dictHas('posthog.person_group_membership_config_dict', tuple(team_id))
+    AND
+      (person_mode != 'propertyless')
+    AND
+      (JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false')
+  )
+WHERE notEmpty(group_key)
+GROUP BY
+  team_id, group_type_index, group_key, distinct_id;
+CREATE OR REPLACE DICTIONARY posthog.person_group_membership_config_dict (`team_id` Int64, `group_type_index` UInt8 DEFAULT 255, `enabled` UInt8 DEFAULT 0) PRIMARY KEY team_id SOURCE(CLICKHOUSE(USER 'default' QUERY 'SELECT team_id, config.1 AS group_type_index, config.2 AS enabled FROM (SELECT team_id, argMax(tuple(group_type_index, enabled), version) AS config FROM posthog.distributed_person_group_membership_config GROUP BY team_id) WHERE enabled = 1 AND group_type_index <= 4')) LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 60 MAX 120);
