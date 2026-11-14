@@ -227,6 +227,7 @@ export const FEATURE_FLAGS = {
     SELF_DRIVING_QUOTA_ENFORCEMENT: 'self-driving-quota-enforcement', // owner: #team-self-driving, gates self-driving PR-limit enforcement (also checked server-side)
     SELF_DRIVING_UBP: 'self-driving-ubp', // owner: #team-self-driving
     SELF_DRIVING_USAGE_DISPLAY: 'self-driving-usage-display', // owner: #team-self-driving, gates monetary usage in the Self-driving UI
+    SELF_SERVICE_DATA_DELETION: 'self-service-data-deletion', // owner: @orian, gates the data deletion settings section and new request page (also checked server-side)
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
@@ -254,8 +255,8 @@ export const FEATURE_FLAGS = {
 
     // Temporary feature flags, still WIP, should be removed eventually
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
+    AI_OBSERVABILITY_NAV_REDESIGN: 'ai-observability-nav-redesign', // owner: #team-ai-observability, gates the regrouped AI observability tabs
     AI_OBSERVABILITY_OFFLINE_EVALUATIONS: 'ai-observability-offline-evaluations', // owner: #team-ai-observability
-    AI_OBSERVABILITY_TRACE_REDESIGN: 'ai-observability-trace-redesign', // owner: #team-ai-observability, gates the redesigned trace view
     AI_OBSERVABILITY_TRACES_USERS_REDESIGN: 'ai-observability-traces-users-redesign', // owner: #team-ai-observability, gates the metric chart and simpler tables on the Traces and Users tabs
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_DESTINATION_CUSTOMIZATION: 'alerts-destination-customization', // owner: #team-logs, gates the custom message tag and edit notice on logs alert destinations
@@ -304,6 +305,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_TILE_GROUP_SECTIONS: 'dashboard-tile-group-sections', // owner: @pauldambra #team-analytics-platform, shows tile groups as bands that open and close
     DATA_CATALOG_RESTRUCTURE: 'data-catalog-restructure', // owner: #team-data-modeling, moves lineage and data quality from Models into the Data catalog
     DATA_CATALOG_REVIEW_QUEUE: 'data-catalog-review-queue', // owner: #team-data-modeling, gates the data catalog lifecycle strip and review queue
+    DATA_CATALOG_USAGE: 'data-catalog-usage', // owner: #team-data-modeling, the usage tab on the data catalog scene and the metric page
     DATA_MODELING_USAGE: 'data-modeling-usage', // owner: #team-data-modeling, gates the Models usage tab
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
@@ -321,6 +323,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_BUILT_IN_FILTERS: 'error-tracking-built-in-filters', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
+    ERROR_TRACKING_ISSUE_TAGS: 'error-tracking-issue-tags', // owner: #team-error-tracking, shows issue tags on the issue page and the tag filter on the issue list
     ERROR_TRACKING_NEW_WIZARD: 'error-tracking-new-wizard', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING: 'error-tracking-rate-limiting', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING_BYPASS: 'error-tracking-rate-limiting-bypass', // owner: @ablaszkiewicz #team-error-tracking
@@ -385,7 +388,6 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_EVAL_SETTLING_STRATEGY: 'llm-analytics-eval-settling-strategy', // owner: #team-ai-observability
     LLM_ANALYTICS_EVAL_SUGGESTIONS: 'llm-analytics-eval-suggestions', // owner: #team-ai-observability, shows suggested evaluations at the top of the evaluations page
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
-    LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTS_GROUPING: 'logs-alerts-grouping', // owner: #team-apm, shows the Group by field on logs alerts the alerts platform runs
@@ -434,7 +436,6 @@ export const FEATURE_FLAGS = {
     MAX_WEB_ANALYTICS_NUDGE: 'posthog-ai-web-analytics-nudge', // owner: @jordanm-posthog #team-web-analytics
     MCP_ANALYTICS_DASHBOARD_BATCH: 'mcp-analytics-dashboard-batch', // owner: #team-mcp-analytics, one request per MCP analytics dashboard load vs one per section, compared on `time to see data`
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
-    MCP_ANALYTICS_LEADERBOARD_HOME: 'mcp-analytics-leaderboard-home', // owner: #team-mcp-analytics, trial of the public leaderboard layout on the MCP analytics home tab
     MCP_ANALYTICS_SETUP_MODE: 'mcp-analytics-setup-mode', // owner: #team-mcp-analytics, the fullscreen setup walkthrough after a user picks an install route
     MCP_GATEWAY: 'mcp-gateway', // owner: #team-context-mcp — gates the MCP gateway UI AND backend enforcement of built-in agent MCP access (delegated-only installs + restricted sandbox token scope); roll out by organization
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS: 'member-billing-usage-spend-read-access', // owner: @pawelcebula #team-billing, grants members read-only access to billing usage/spend tabs; owner-only-billing takes precedence
@@ -496,6 +497,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_SUPPORT_AI_SUGGESTION_ORGS: 'product-support-ai-suggestion-orgs', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_INTERCOM_IMPORT: 'product-support-intercom-import', // owner: @veryayskiy #team-conversations, Intercom import in Support settings
+    PRODUCT_SUPPORT_PYLON_IMPORT: 'product-support-pylon-import', // owner: @veryayskiy #team-conversations, Pylon import in Support settings
     PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS: 'support-reply-file-attachments', // owner: #team-conversations, attach any file type to in-app ticket replies
     PRODUCT_SUPPORT_SIMPLIFIED_REPLIES: 'conversations-simplified-replies', // owner: @jonmcwest #team-conversations, composer header + one Send menu in place of draft mode
     PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS: 'product-support-slack-notify-on-members', // owner: @veryayskiy #team-conversations
@@ -637,11 +639,8 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
     WORKFLOWS_CODE_EMAIL_SOURCE_DETECTION: 'workflows-code-email-source-detection', // owner: @silthus #team-workflows, links code emails to their source file on GitHub and offers a picker
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
-    WORKFLOWS_CUSTOMERIO_IMPORT: 'workflows-customerio-import', // owner: @dmarchuk #team-workflows, import Customer.io automations as draft workflows
     WORKFLOWS_DESTINATION_SUGGESTION: 'workflows-destination-suggestion', // owner: #team-workflows, offers workflows instead of a new email tool destination
     WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS: 'workflows-email-delivery-webhooks', // owner: @silthus #team-workflows, delivery webhooks for transactional email
-    WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP: 'workflows-email-domain-agent-setup', // owner: @silthus #team-workflows
-    WORKFLOWS_EMAIL_DOMAIN_WIZARD: 'workflows-email-domain-wizard', // owner: @silthus #team-workflows
     WORKFLOWS_EMAIL_HEADER: 'workflows-email-header', // owner: @mayteio #team-workflows, one-line sender summary in workflow and broadcast email steps
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_GOAL_EVENT_ENTRIES: 'workflows-goal-event-entries', // owner: @silthus #team-workflows, shows and keeps every stored event entry in goal and wait step editors
@@ -652,6 +651,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_SUPABASE_AUTH_EMAILS: 'workflows-supabase-auth-emails', // owner: @luke-belton #team-workflows, send Supabase auth emails through transactional templates
     WORKFLOWS_SURVEY_STEP: 'workflows-survey-step', // owner: @dmarchuk #team-workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_API: 'workflows-transactional-email-api', // owner: @mayteio #team-workflows
+    WORKFLOWS_WIZARD_JOURNEY_FIRST: 'workflows-wizard-journey-first', // owner: @silthus #team-workflows multivariate=control,test, shows the onboarding wizard's journey or broadcast step before the email setup; gate on === 'test'
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS

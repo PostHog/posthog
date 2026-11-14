@@ -2551,12 +2551,20 @@ describe("AgentServer HTTP Mode", () => {
         started = resolve;
       });
       const api = {
-        prepareContextSelection: vi.fn(() => {
-          started();
-          return new Promise<ContextSelectionResponse>((resolve) => {
-            finishPreparation = resolve;
-          });
-        }),
+        prepareContextSelection: vi
+          .fn()
+          .mockImplementationOnce(() => {
+            started();
+            return new Promise<ContextSelectionResponse>((resolve) => {
+              finishPreparation = resolve;
+            });
+          })
+          .mockResolvedValue({
+            selection_id: "s",
+            context: "",
+            mode: "treatment",
+            reason: "empty",
+          }),
       };
       testServer.session.contextSelection = new ContextSelection(api, "run-1");
       const result = testServer.runStartupTurn(() =>
@@ -2573,12 +2581,27 @@ describe("AgentServer HTTP Mode", () => {
       await testServer.executeCommand("cancel", {});
       finishPreparation({
         selection_id: "s",
-        context: "definition",
+        context: [
+          '<posthog_reference_context selection_id="s">',
+          JSON.stringify({
+            id: "c",
+            kind: "business_knowledge",
+            document_id: "doc-1",
+          }),
+          "</posthog_reference_context>",
+        ].join("\n"),
         mode: "treatment",
         reason: "selected",
       });
       await expect(result).resolves.toMatchObject({ stopReason: "cancelled" });
       expect(prompt).not.toHaveBeenCalled();
+      await testServer.session.contextSelection.prepare({
+        messageId: "next",
+        text: "Define activation",
+      });
+      expect(api.prepareContextSelection.mock.lastCall?.[0].exclude).toEqual(
+        [],
+      );
     });
 
     it("continues an unattended turn after a transient upstream stream death", async () => {
@@ -3783,6 +3806,53 @@ describe("AgentServer HTTP Mode", () => {
       });
       await selector.prepare({ messageId: "third", text: "Define activation" });
       expect(requests[2].history).toBe("");
+      testServer.session = null;
+    });
+
+    it("lets selection repeat references once the agent compacts", async () => {
+      const testServer = exposeRefresh(createServer());
+      attachSession(
+        testServer,
+        vi.fn(async () => ({ refreshed: true })),
+      );
+      const excludes: string[][] = [];
+      mswServer.use(
+        http.post(
+          "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+          async ({ request }) => {
+            const body = (await request.json()) as { exclude: string[] };
+            excludes.push(body.exclude);
+            return HttpResponse.json({
+              selection_id: "s",
+              context: [
+                '<posthog_reference_context selection_id="s">',
+                JSON.stringify({
+                  id: "c",
+                  kind: "business_knowledge",
+                  document_id: "doc-1",
+                }),
+                "</posthog_reference_context>",
+              ].join("\n"),
+              mode: "treatment",
+              reason: "selected",
+            });
+          },
+        ),
+      );
+      if (!testServer.session) throw new Error("Missing test session");
+      const selector = testServer.session.contextSelection;
+      selector.recordInjected(
+        await selector.prepare({
+          messageId: "first",
+          text: "Define activation",
+        }),
+      );
+      await selector.prepare({ messageId: "second", text: "And retention?" });
+      testServer.handleAcpTransportMessage({
+        method: POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY,
+      });
+      await selector.prepare({ messageId: "third", text: "And churn?" });
+      expect(excludes).toEqual([[], ["business_knowledge:c"], []]);
       testServer.session = null;
     });
 

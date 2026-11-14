@@ -3596,7 +3596,7 @@ export class PostHogAPIClient {
         initial_permission_mode?: ExecutionMode;
         auto_publish?: boolean;
         naming_source?: string;
-      },
+      } & Pick<Schemas.TaskCreate, "warm_run_id">,
   ): Promise<Task> {
     const teamId = await this.getTeamId();
     const { origin_product: originProduct, ...taskOptions } = options;
@@ -4625,7 +4625,7 @@ export class PostHogAPIClient {
     fast_mode?: boolean | null;
     sandbox_environment_id?: string | null;
     custom_image_id?: string | null;
-  }): Promise<{ task_id: string; run_id: string } | null> {
+  }): Promise<Schemas.WarmTaskResponse | null> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/warm/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -4667,7 +4667,7 @@ export class PostHogAPIClient {
     if (!text) {
       return null;
     }
-    return JSON.parse(text) as { task_id: string; run_id: string };
+    return JSON.parse(text) as Schemas.WarmTaskResponse;
   }
 
   async prepareTaskStagedArtifactUploads(

@@ -697,6 +697,8 @@ class TestEmailIntegration:
             "reply_to": "support@posthog.com",
             "verified": False,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
         assert integration.sensitive_config == {}
         assert integration.created_by_id == self.user.id
@@ -770,6 +772,8 @@ class TestEmailIntegration:
             "reply_to": "",
             "verified": False,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -812,6 +816,8 @@ class TestEmailIntegration:
             "reply_to": "",
             "verified": True,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -8002,6 +8008,45 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
         assert integration.config["push_identity_verification"] == "required"
 
 
+@patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+@patch("posthog.rate_limit.EmailSenderCreateThrottle.rate", new="2/hour")
+@patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+@patch("products.workflows.backend.facade.api.create_ses_email_domain")
+class TestEmailSenderCreateRateLimit(APIBaseTest):
+    def _add_sender(self, team: Team, email: str) -> int:
+        response = self.client.post(
+            f"/api/environments/{team.pk}/integrations",
+            {"kind": "email", "config": {"email": email, "name": "Sender", "provider": "ses"}},
+            format="json",
+        )
+        return response.status_code
+
+    @patch("posthog.models.integration.aws.validate_aws_credentials", return_value="123456789012")
+    def test_email_sender_creation_is_limited_per_organization(self, *_mocks):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        assert self._add_sender(self.team, "a@example.com") == status.HTTP_201_CREATED
+        self.client.force_login(teammate)
+        assert self._add_sender(other_team, "b@example.com") == status.HTTP_201_CREATED
+        assert self._add_sender(self.team, "c@example.com") == status.HTTP_429_TOO_MANY_REQUESTS
+        assert not Integration.objects.filter(kind="email", integration_id="c@example.com").exists()
+
+        other_kind = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "aws-s3",
+                "config": {"name": "aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "x"},
+            },
+            format="json",
+        )
+        assert other_kind.status_code == status.HTTP_201_CREATED, other_kind.content
+
+        other_organization = Organization.objects.create(name="other organization")
+        outsider_team = Team.objects.create(organization=other_organization, name="outsider team")
+        self.client.force_login(User.objects.create_and_join(other_organization, "outsider@example.com", None))
+        assert self._add_sender(outsider_team, "d@other.example.com") == status.HTTP_201_CREATED
+
+
 class TestIntegrationMembershipPermissions(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -8710,3 +8755,68 @@ class TestOauthTokenRefreshFailedResponse(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "integration_token_refresh_failed"
+
+
+@override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+@patch("tenacity.nap.time.sleep")
+@patch("posthog.models.integration.google_ads.requests.request")
+class TestGoogleAdsConversionActions(APIBaseTest):
+    def _get_conversion_actions(self) -> Any:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            integration_id="google-ads-1",
+            config={"expires_in": 3600, "refreshed_at": int(time.time())},
+            sensitive_config={"access_token": "access", "refresh_token": "refresh"},
+        )
+        return self.client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration.id}/google_conversion_actions/",
+            {"customerId": "1234567890", "parentId": "6501924158"},
+        )
+
+    @staticmethod
+    def _search_stream() -> MagicMock:
+        stream = MagicMock(status_code=200)
+        stream.json.return_value = [
+            {
+                "results": [
+                    {
+                        "conversionAction": {
+                            "id": "111",
+                            "name": "Purchase",
+                            "resourceName": "customers/1234567890/conversionActions/111",
+                        }
+                    }
+                ]
+            }
+        ]
+        return stream
+
+    @parameterized.expand([("first_attempt", False), ("after_one_read_timeout", True)])
+    def test_lists_conversion_actions(
+        self, mock_request: MagicMock, _sleep: MagicMock, _name: str, first_attempt_times_out: bool
+    ) -> None:
+        timeouts = [requests.exceptions.ReadTimeout("read timed out")] if first_attempt_times_out else []
+        mock_request.side_effect = [*timeouts, self._search_stream()]
+
+        response = self._get_conversion_actions()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "conversionActions": [
+                {"id": "111", "name": "Purchase", "resourceName": "customers/1234567890/conversionActions/111"}
+            ]
+        }
+
+    @patch("posthog.api.integration.capture_exception")
+    def test_asks_the_user_to_try_again_when_every_attempt_times_out(
+        self, mock_capture_exception: MagicMock, mock_request: MagicMock, _sleep: MagicMock
+    ) -> None:
+        timeout = requests.exceptions.ReadTimeout("read timed out")
+        mock_request.side_effect = timeout
+
+        response = self._get_conversion_actions()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Google Ads did not respond in time. Try again."
+        mock_capture_exception.assert_called_once_with(timeout)

@@ -524,7 +524,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "via" not in mocked_email_messages[0].html_body
 
     @patch("posthog.tasks.email.ph_scoped_capture")
-    def test_send_wizard_pr_ready_email_uses_customer_io_context(
+    def test_send_wizard_pr_ready_email_uses_workflows_context(
         self, mock_ph_scoped_capture: MagicMock, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

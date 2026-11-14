@@ -7,9 +7,10 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.alerts_platform.backend.delivery import routing
+from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.routing import ROUTING_FLAG, deliver_routes
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused, RefusedEverywhere
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -43,6 +44,7 @@ class TestDeliverRoutes(APIBaseTest):
             check_interval_minutes=5,
             destinations_owner=PlatformAlertOwner.PLATFORM,
             labels={"team": "infra"},
+            annotations={"runbook": "https://example.com/runbook"},
         )
         self._route("C-infra", [{"label": "team", "op": "=", "value": "infra"}], 0)
         self._route("C-billing", [{"label": "team", "op": "=", "value": "billing"}], 1)
@@ -95,6 +97,11 @@ class TestDeliverRoutes(APIBaseTest):
 
         assert [channel for channel, _ in RecordingTransport.sends] == expected_channels
         assert sent == len(expected_channels)
+        for _, message in RecordingTransport.sends:
+            assert message.rule_details == (
+                MessageDetail(label="team", value="infra"),
+                MessageDetail(label="runbook", value="https://example.com/runbook"),
+            )
 
     @parameterized.expand(
         [
@@ -116,3 +123,15 @@ class TestDeliverRoutes(APIBaseTest):
             self._deliver()
 
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-all"]
+
+    @parameterized.expand([("every_receiver_refused", True), ("a_receiver_timed_out_too", False)])
+    def test_receivers_that_all_refused_are_not_retried(self, _name: str, permanent: bool) -> None:
+        def deliver(**kwargs: Any) -> Any:
+            if kwargs["target"]["slack_channel_id"] == "C-infra" or permanent:
+                raise DestinationRefused("Slack refused the message: not_in_channel.")
+            raise DeliveryError("Slack's answer was lost: TimeoutError")
+
+        with patch(f"{_MODULE}.deliver", side_effect=deliver), pytest.raises(DeliveryError) as raised:
+            self._deliver()
+
+        assert isinstance(raised.value, RefusedEverywhere) is permanent

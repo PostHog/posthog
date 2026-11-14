@@ -10,7 +10,6 @@ import type {
 
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotEngineMarks } from './ContentAutopilotEngineMarks'
-import { OVERVIEW_DAYS } from './contentAutopilotPromptsOverviewLogic'
 
 type SearchRow = AEOPromptSetSearchApi
 type SearchColumn = LemonTableColumn<SearchRow, keyof SearchRow | undefined>
@@ -21,10 +20,12 @@ const citedShare = (row: SearchRow): number => (row.answers ? row.cited / row.an
  *  prompts that ran it most. */
 export const ContentAutopilotPromptsSearchTable = ({
     rows,
+    days,
     branded,
     onOpenPrompt,
 }: {
     rows: SearchRow[]
+    days: number
     branded: BrandedSegmentEnumApi
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => {
@@ -34,7 +35,7 @@ export const ContentAutopilotPromptsSearchTable = ({
             key: 'query',
             render: (_, row) => (
                 <ContentAutopilotCitationsLink
-                    lookup={{ kind: 'search', value: row.query, days: OVERVIEW_DAYS, branded }}
+                    lookup={{ kind: 'search', value: row.query, days, branded }}
                     source="overview-searches"
                     className="block max-w-120 truncate font-semibold"
                     title={row.query}
@@ -100,7 +101,7 @@ export const ContentAutopilotPromptsSearchTable = ({
                     </div>
                 ),
             }}
-            emptyState={`No web searches in the last ${OVERVIEW_DAYS} days. Only some engines report the searches they run.`}
+            emptyState={`No web searches in the last ${days} days. Only some engines report the searches they run.`}
         />
     )
 }

@@ -105,14 +105,18 @@ _FINAL_TEXT = (
     _COLLECT_CALLS
     + """
 let final_text := ''
+let final_input := null
 for (let i, item in evaluation_events) {
-    if (item.event == '$ai_generation' and length(trim(item.output_text)) > 0) {
+    // A generation with no model is a logged tool call, such as an MCP query, and its output is the tool's result.
+    let from_model := length(toString(ifNull(item.properties.$ai_model, ''))) > 0
+    if (item.event == '$ai_generation' and from_model and length(trim(item.output_text)) > 0) {
         let calls_tools := false
         if (isValidJSON(item.output)) {
             calls_tools := length(collect_calls(jsonParse(item.output), [])) > 0
         }
         if (not calls_tools) {
             final_text := item.output_text
+            final_input := item.input
         }
     }
 }
@@ -256,6 +260,16 @@ return true"""
     )
 
 
+# An address starts with a letter or digit and has no letter or digit right before or after it, so punctuation of
+# any kind ends it, while `victim@acme.io` is never cut out of `victim@acme.ioévil.com`.
+_WORD_CHARS = "A-Za-z0-9\\p{L}\\p{N}"
+EMAIL_PATTERN = (
+    f"(?:^|[^{_WORD_CHARS}])"
+    f"([{_WORD_CHARS}][A-Za-z0-9._%+'\\p{{L}}\\p{{N}}-]*@[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)*[.][A-Za-z]{{2,}})"
+    f"(?:$|[^{_WORD_CHARS}])"
+)
+
+
 def sensitive_data() -> AdaptedCheck:
     source = f"""// Fail a trace whose final assistant message contains an email address, a card number or a secret key.
 // URLs and version numbers are left out on purpose: answers link to docs and name versions all the time.
@@ -270,23 +284,72 @@ if (match(final_text, '(^|[^A-Za-z0-9_-])(sk-[A-Za-z0-9_-]{{20,}}|AKIA[0-9A-Z]{{
     print('Final message contains a secret key')
     return false
 }}
-let rest := final_text
-let remaining := 20
-while (remaining > 0) {{
-    remaining := remaining - 1
-    let email := extractRegex(rest, '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)*[.][A-Za-z]{{2,}}')
-    if (empty(email)) {{
-        remaining := 0
-    }} else {{
-        let address := lower(email)
-        let domain := splitByString('@', address)[2]
-        let automated := position(address, 'noreply') > 0 or position(address, 'no-reply') > 0
-        if (not has(ignored_domains, domain) and not automated) {{
-            print(concat('Final message contains an email address on ', domain))
-            return false
+fun addresses_in(text) {{
+    let found := []
+    let rest := text
+    let remaining := 50
+    while (remaining > 0) {{
+        remaining := remaining - 1
+        let email := extractRegex(rest, {hog_string(EMAIL_PATTERN)})
+        if (empty(email)) {{
+            remaining := 0
+        }} else {{
+            found := arrayPushBack(found, lower(email))
+            rest := substring(rest, position(rest, email) + length(email), length(rest))
         }}
-        rest := substring(rest, position(rest, email) + length(email), length(rest))
     }}
+    return found
+}}
+// An address in the user's latest message is their own data repeated. Only that message counts: samples keep the
+// last message of each input, and an address from a system prompt or a tool result is not the user's to share.
+let given := []
+let latest := final_input
+if (isValidJSON(latest)) {{
+    latest := jsonParse(latest)
+}}
+if (typeof(latest) == 'array') {{
+    if (length(latest) > 0) {{
+        latest := latest[length(latest)]
+    }} else {{
+        latest := null
+    }}
+}}
+if (typeof(latest) == 'string') {{
+    given := addresses_in(latest)
+}} else if (typeof(latest) == 'object') {{
+    if (latest.role == 'user') {{
+        let user_text := ''
+        if (typeof(latest.content) == 'string') {{
+            user_text := latest.content
+        }}
+        // Text blocks only: Anthropic and OpenTelemetry inputs put tool results in a user turn too.
+        for (let i, blocks in [latest.content, latest.parts]) {{
+            if (typeof(blocks) == 'array') {{
+                for (let j, block in blocks) {{
+                    if (typeof(block) == 'object') {{
+                        if (block.type == 'text') {{
+                            user_text := concat(user_text, ' ', toString(ifNull(block.text, ifNull(block.content, ''))))
+                        }}
+                    }}
+                }}
+            }}
+        }}
+        given := addresses_in(user_text)
+    }}
+}}
+let answered := addresses_in(final_text)
+for (let i, address in answered) {{
+    let domain := splitByString('@', address)[2]
+    let automated := position(address, 'noreply') > 0 or position(address, 'no-reply') > 0
+    if (not has(ignored_domains, domain) and not automated and not has(given, address)) {{
+        print(concat('Final message contains an email address on ', domain))
+        return false
+    }}
+}}
+// The scan stops at 50 addresses, so an answer whose first 50 are all exempt cannot be cleared.
+if (length(answered) >= 50) {{
+    print('Too many email addresses in the final message to check')
+    return null
 }}
 print('No sensitive data in the final message')
 return true"""

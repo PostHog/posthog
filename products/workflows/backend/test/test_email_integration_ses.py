@@ -81,11 +81,12 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         mock_delete_identity.assert_called_once_with("partner.com")
         assert not Integration.objects.filter(pk=integration.id).exists()
 
+    @patch("products.workflows.backend.providers.SESProvider.remove_tenant_associations")
     @patch("products.workflows.backend.providers.SESProvider.delete_identity")
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
     @patch("products.workflows.backend.providers.SESProvider.get_mail_from_subdomain", return_value=None)
     def test_destroy_email_integration_skips_ses_delete_when_sibling_exists(
-        self, _mock_get_mail_from, mock_create_email_domain, mock_delete_identity
+        self, _mock_get_mail_from, mock_create_email_domain, mock_delete_identity, mock_remove_links
     ):
         mock_create_email_domain.return_value = {"status": "success"}
         sibling_team = Team.objects.create(organization=self.organization, name="sibling team")
@@ -108,6 +109,7 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             IntegrationViewSet().perform_destroy(integration)
 
         assert mock_delete_identity.call_count == 0
+        mock_remove_links.assert_called_once_with("partner.com", team_ids=[self.team.id])
 
     def test_create_email_domain_rejects_foreign_tenant_owner(self):
         provider = self._build_ses_provider(tenants_for_domain={"partner.com": ["team-1"]})

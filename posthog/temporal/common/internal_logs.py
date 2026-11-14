@@ -40,7 +40,7 @@ class InternalLogsSink:
         try:
             entry = json.loads(message)
             source = entry["log_source"]
-            # An unmapped workflow type has no source, and the producer drops a source it cannot sign.
+            # A `log_source=None` override at the call site leaves the line with no source to sign.
             if not source:
                 return
             self._producer.enqueue(

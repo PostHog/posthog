@@ -18,6 +18,7 @@ import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
     KafkaWarehouseProducerEnvConfig,
+    KafkaWarpstreamCyclotronIntakeProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
 } from './cdp/outputs/producers'
@@ -107,6 +108,7 @@ export interface PluginsServerConfig
         // Producer envs needed by the CDP producer registry the legacy big server builds.
         KafkaWarpstreamIngestionProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
+        KafkaWarpstreamCyclotronIntakeProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
 export interface HubServices {

@@ -8,6 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { HogFlow, HogFlowAction } from './hogflows/types'
+import { workflowOverviewLogic } from './overview/workflowOverviewLogic'
 import { workflowLogic } from './workflowLogic'
 import {
     type EmailMetric,
@@ -24,6 +25,8 @@ import {
     withDisplayName,
     workflowMetricsSummaryLogic,
 } from './workflowMetricsSummaryLogic'
+
+const SANDBOX_ONLY_RATE = { value: '-', tag: null, detail: 'All emails were sent from the sandbox sender' }
 
 const series = (labels: string[], ...namedValues: [string, number[]][]): AppMetricsTimeSeriesResponse => ({
     labels,
@@ -185,6 +188,11 @@ describe('detectMessagingChannels', () => {
             input: series(['d1'], ['email_delivered', [3]], ['push_skipped', [1]]),
             expected: { hasEmail: false, hasPush: false },
         },
+        {
+            name: 'sandbox email only',
+            input: series(['d1'], ['email_sandbox_sent', [3]]),
+            expected: { hasEmail: true, hasPush: false },
+        },
     ])('$name', ({ input, expected }) => {
         expect(detectMessagingChannels(input)).toEqual(expected)
     })
@@ -235,6 +243,7 @@ describe('buildEmailMetricRows', () => {
                 missingRecipient: 5,
                 frequencyCapped: 3,
                 markedAsSpam: 4,
+                sandboxBlocked: 0,
                 untracked: 7,
                 trackedSends: 93,
                 removed: false,
@@ -355,7 +364,7 @@ describe('workflowMetricsSummaryLogic', () => {
 
     type MetricRow = { instanceId: string; metricName: string; count: number }
 
-    const step = (id: string, type: 'function_email' | 'function_push'): HogFlowAction =>
+    const step = (id: string, type: 'function_email' | 'email_sandbox' | 'function_push'): HogFlowAction =>
         ({ id, type, name: id, description: '', created_at: 0, updated_at: 0, config: { inputs: {} } }) as HogFlowAction
 
     const makeWorkflow = (actions: HogFlowAction[], overrides: Partial<HogFlow> = {}): HogFlow =>
@@ -451,7 +460,12 @@ describe('workflowMetricsSummaryLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': () => [200, servedWorkflow] } })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => [200, servedWorkflow],
+                '/api/projects/:team_id/hog_flows/:id/in_flight/': () => [200, { total: 0, by_action: {} }],
+            },
+        })
     })
 
     afterEach(() => {
@@ -485,6 +499,101 @@ describe('workflowMetricsSummaryLogic', () => {
         expect(queries.filter((q) => q.includes("'email_sent'")).join()).toContain('LIMIT 10000')
         expect(queries.filter((q) => q.includes('email_link_clicked_by_link')).join()).toContain('LIMIT 1000')
     })
+
+    it.each(['constructor', '__proto__'])('totals an email step whose id is %s', async (id) => {
+        useAppMetricsMocks([
+            { instanceId: id, metricName: 'email_sent', count: 10 },
+            { instanceId: id, metricName: 'email_sandbox_sent', count: 2 },
+        ])
+        const logic = await mountMetrics(makeWorkflow([step(id, 'function_email')]))
+
+        expect(logic.values.emailMetricsRows).toEqual([expect.objectContaining({ id, sent: 12, delivered: 12 })])
+    })
+
+    const SANDBOX_EMAIL_CASES = [
+        {
+            name: 'only sandbox steps',
+            steps: [step('sandbox-1', 'email_sandbox')],
+            rows: [
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_sent', count: 20 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_delivered', count: 17 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_bounced', count: 2 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_failed', count: 1 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_complained', count: 1 },
+            ],
+            emailsSent: 20,
+            stepTotals: [{ id: 'sandbox-1', sent: 20, delivered: 17, bounced: 2, markedAsSpam: 1, sandboxBlocked: 0 }],
+            health: { bounce: SANDBOX_ONLY_RATE, complaint: SANDBOX_ONLY_RATE },
+        },
+        {
+            name: 'own and sandbox steps, and a step that moved between senders',
+            steps: [step('email-1', 'function_email'), step('sandbox-1', 'email_sandbox')],
+            rows: [
+                { instanceId: 'email-1', metricName: 'email_sent', count: 100 },
+                { instanceId: 'email-1', metricName: 'email_sandbox_sent', count: 5 },
+                { instanceId: 'email-1', metricName: 'email_sandbox_delivered', count: 5 },
+                { instanceId: 'email-1', metricName: 'email_blocked', count: 4 },
+                { instanceId: 'email-1', metricName: 'email_bounced', count: 3 },
+                { instanceId: 'email-1', metricName: 'email_bounced_hard', count: 2 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_sent', count: 20 },
+            ],
+            emailsSent: 125,
+            stepTotals: [
+                { id: 'email-1', sent: 105, delivered: 102, bounced: 3, markedAsSpam: 4, sandboxBlocked: 0 },
+                { id: 'sandbox-1', sent: 20, delivered: 20, bounced: 0, markedAsSpam: 0, sandboxBlocked: 0 },
+            ],
+            health: {
+                bounce: {
+                    value: '2.00%',
+                    tag: { label: 'Healthy', type: 'success' },
+                    detail: '2 hard, 3 bounced in total',
+                },
+                complaint: { value: '4.00%', tag: null, detail: '4 marked as spam' },
+            },
+        },
+        {
+            name: 'a sandbox block that is not a spam complaint',
+            steps: [step('sandbox-1', 'email_sandbox')],
+            rows: [
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_sent', count: 6 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_blocked', count: 3 },
+            ],
+            emailsSent: 6,
+            stepTotals: [{ id: 'sandbox-1', sent: 6, delivered: 6, bounced: 0, markedAsSpam: 0, sandboxBlocked: 3 }],
+            health: { bounce: SANDBOX_ONLY_RATE, complaint: SANDBOX_ONLY_RATE },
+        },
+    ]
+
+    it.each(SANDBOX_EMAIL_CASES)(
+        'counts sandbox sender email on the Metrics tab for $name',
+        async ({ steps, rows, emailsSent, stepTotals }) => {
+            useAppMetricsMocks(rows)
+            const logic = await mountMetrics(makeWorkflow(steps))
+
+            expect({
+                tile: logic.values.getSentSummarySeries()?.series.map(({ name, values }) => [name, values]),
+                chart: logic.values.workflowSummaryTrends?.series.find((s) => s.name === 'Emails sent')?.values,
+                steps: logic.values.emailMetricsRows,
+            }).toEqual({
+                tile: [['Emails sent', [emailsSent, 0]]],
+                chart: [emailsSent, 0],
+                steps: stepTotals.map((totals) => expect.objectContaining(totals)),
+            })
+        }
+    )
+
+    it.each(SANDBOX_EMAIL_CASES)(
+        'rates overview Health on own-sender email for $name',
+        async ({ steps, rows, health }) => {
+            useAppMetricsMocks(rows)
+            await mountMetrics(makeWorkflow(steps))
+            const overview = workflowOverviewLogic({ id: WORKFLOW_ID, logicKey: LOGIC_KEY })
+            overview.mount()
+            await expectLogic(overview).toFinishAllListeners()
+
+            expect(overview.values.emailHealth).toEqual(health)
+        }
+    )
 
     it.each([
         { name: 'divides conversions by runs started', conversions: 3, triggered: 12, rate: 0.25 },

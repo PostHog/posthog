@@ -42,7 +42,14 @@ const businessKnowledgeDocumentWindowRetrieve = (): ToolBase<
 const BusinessKnowledgeDocumentsSearchSchema = () => {
     const BusinessKnowledgeDocumentsSearchListQueryParams =
         orvalSchemas.BusinessKnowledgeDocumentsSearchListQueryParams()
-    return BusinessKnowledgeDocumentsSearchListQueryParams
+    return BusinessKnowledgeDocumentsSearchListQueryParams.extend({
+        rerank: BusinessKnowledgeDocumentsSearchListQueryParams.shape['rerank']
+            .default(true)
+            .optional()
+            .describe(
+                'Rerank results with an LLM pass for better relevance. Defaults to true. Falls back to fused rank order when the rerank fails. Pass false for a faster search.'
+            ),
+    })
 }
 
 const businessKnowledgeDocumentsSearch = (): ToolBase<

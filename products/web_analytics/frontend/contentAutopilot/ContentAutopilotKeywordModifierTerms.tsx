@@ -2,18 +2,26 @@ import { LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
 
-import type { AEOKeywordModifierApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type {
+    AEOKeywordModifierApi,
+    BrandedSegmentEnumApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
-import { KEYWORDS_DAYS, isCitationGap } from './keywordsReport'
+import { isCitationGap } from './keywordsReport'
 import { engineLabel } from './utils'
 
 /** The words of one modifier group, with gaps against the baseline cited rate highlighted. */
 export const ContentAutopilotKeywordModifierTerms = ({
     modifiers,
     baselineCitedRate,
+    days,
+    branded,
 }: {
     modifiers: AEOKeywordModifierApi[]
+    /** The window and branded split of the report, so a search opens the same answers the report counted. */
+    days: number
+    branded: BrandedSegmentEnumApi
     baselineCitedRate: number | null
 }): JSX.Element => (
     <LemonTable<AEOKeywordModifierApi>
@@ -75,7 +83,7 @@ export const ContentAutopilotKeywordModifierTerms = ({
                         {modifier.example_searches.map((search) => (
                             <li key={search} className="flex min-w-0 text-xs">
                                 <ContentAutopilotCitationsLink
-                                    lookup={{ kind: 'search', value: search, days: KEYWORDS_DAYS, branded: 'all' }}
+                                    lookup={{ kind: 'search', value: search, days, branded }}
                                     source="keyword-modifier-searches"
                                     className="block truncate"
                                     title={search}

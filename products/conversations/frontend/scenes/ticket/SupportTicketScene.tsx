@@ -523,6 +523,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <LemonTag type="highlight">#{ticket.intercom_conversation_id}</LemonTag>
                                 </div>
                             )}
+                            {ticket?.pylon_issue_id && (
+                                <div className="flex justify-between items-center gap-2">
+                                    <span className="text-muted-alt shrink-0">Pylon ID</span>
+                                    <LemonTag type="highlight" className="truncate" title={ticket.pylon_issue_id}>
+                                        {ticket.pylon_issue_id}
+                                    </LemonTag>
+                                </div>
+                            )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>

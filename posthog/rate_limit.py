@@ -2111,6 +2111,19 @@ class PushTokenImportThrottle(PersonalApiKeyOrUserRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class EmailSenderCreateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A new sender domain creates an identity at the email provider, which caps identities per region for
+    # all customers together. Keyed per organization, so new projects or keys do not add to the budget.
+    scope = "email_sender_create"
+    rate = "20/hour"
+
+    def get_cache_key(self, request, view):
+        organization_id = self.safely_get_organization_id_from_view(view)
+        if organization_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"organization_{organization_id}"}
+        return super().get_cache_key(request, view)
+
+
 class PostHogConnectionForwardThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit the synchronous PostHog-connection forward proxy. Each forward holds an API worker
     # open while it round-trips to another cell, so a burst of concurrent forwards to a slow target

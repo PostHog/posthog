@@ -12,7 +12,7 @@ from collections.abc import Collection, Mapping
 from typing import Literal, Optional
 from uuid import UUID
 
-from django.db.models.signals import pre_delete
+from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
 
 from posthog.models.activity_logging.activity_log import (
@@ -26,6 +26,7 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.cdp.backend.facade.models import HogFunction
 
 
 @dataclasses.dataclass(frozen=True)
@@ -252,3 +253,18 @@ def handle_alert_subscription_delete(sender, instance, **kwargs) -> None:
                 ),
             ),
         )
+
+
+@receiver(post_save, sender=HogFunction)
+def delete_copying_destination_rows(sender, instance: HogFunction, **kwargs) -> None:
+    # A destination deleted through the generic HogFunction API, Terraform or MCP must take its platform row
+    # with it, or the row stops being skipped and keeps sending. A bulk `.update()` does not reach here, which
+    # is how a conversion that deliberately keeps the row retires the HogFunctions.
+    if not instance.deleted:
+        return
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "deleted" not in update_fields:
+        return
+    from products.alerts_platform.backend.facade.api import delete_rows_copying
+
+    delete_rows_copying(team_id=instance.team_id, hog_function_ids=[instance.id])

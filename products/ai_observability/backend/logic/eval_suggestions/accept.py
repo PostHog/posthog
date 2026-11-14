@@ -4,6 +4,7 @@ The run is an ordinary backfill over a window shrunk with the backfill estimate,
 500 units for a Hog check and 50 for a judge, which runs on the team's own provider key.
 """
 
+import math
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -18,6 +19,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.exceptions import Conflict
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -110,25 +112,30 @@ def plan_backfill(
 
     Shrinking assumes even traffic, so a burst can leave a shrunk window empty or still too full. Then the last
     window with traffic runs, and the backfill's `max_units` stops it at `cap`. The same holds when the counts
-    use up `PLAN_BUDGET_SECONDS`.
+    use up `PLAN_BUDGET_SECONDS`, which also caps how long each count may run.
     """
     now = timezone.now()
     window = clamp_backfill_window(team, target, target_config, now - BACKFILL_LOOKBACK, now)
     last_with_traffic: BackfillWindow | None = None
     started = time.monotonic()
     for _ in range(MAX_SHRINKS):
-        if last_with_traffic and time.monotonic() - started > PLAN_BUDGET_SECONDS:
+        remaining = PLAN_BUDGET_SECONDS - (time.monotonic() - started)
+        if last_with_traffic and remaining <= 0:
             break
-        scope = count_backfill_candidates(
-            team=team,
-            evaluation_id=evaluation_id,
-            target=target,
-            settle_horizon=settle_horizon(target, target_config),
-            conditions=conditions,
-            window_start=window.start,
-            window_end=window.end,
-            rerun_existing=True,
-        )
+        try:
+            scope = count_backfill_candidates(
+                team=team,
+                evaluation_id=evaluation_id,
+                target=target,
+                settle_horizon=settle_horizon(target, target_config),
+                conditions=conditions,
+                window_start=window.start,
+                window_end=window.end,
+                rerun_existing=True,
+                max_execution_time=max(1, math.ceil(remaining)),
+            )
+        except ClickHouseQueryTimeOut:
+            return BackfillPlan(window=last_with_traffic or window, units=cap)
         if scope.to_evaluate == 0:
             return BackfillPlan(window=last_with_traffic, units=cap) if last_with_traffic else None
         if scope.to_evaluate <= cap:
