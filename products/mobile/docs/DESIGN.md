@@ -211,6 +211,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   The splash stays above the app until the session is ready and, when the app opens on the inbox, until the inbox loads, with an eight-second timeout.
 - **Tabs header** (`features/tabs/TabsHeader.tsx`): Home, Inbox, Chats and Views share one header that the
   tabs layout draws once, like the bottom bar. Home is titled "Live", after the screen it shows.
+  Home's metrics card and the Chats and Views search fields start at the same position, 4pt below the shared content offset.
   The logomark and the tab's title sit at the same spot on
   every tab. The pill on the right holds More on every tab, and a filter button left of it on a tab that
   publishes one (the Inbox), or a Pause or Resume button on Home; Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
