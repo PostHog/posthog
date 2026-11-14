@@ -150,7 +150,8 @@ def _api_file(filename: str, status: str = "added") -> dict:
     return {"filename": filename, "additions": 10, "deletions": 0, "status": status, "patch": "@@"}
 
 
-def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
+@pytest.mark.parametrize("self_driving", [False, True])
+def test_pending_migration_check_waits_instead_of_refusing(monkeypatch, self_driving: bool) -> None:
     # A migration PR whose "Migration risk" check has not reported yet matches the deny-list only
     # because the engine cannot tell a safe migration from a risky one. A REFUSED verdict would
     # start the hosted runtime's refusal path, which is a ReviewHog handoff and a trigger-label
@@ -158,11 +159,14 @@ def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
     monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
     context = _run_context([_api_file("posthog/migrations/0999_add_col.py")])
+    context["self_driving_review"] = self_driving
 
     result = review_local.run(context)
 
     assert result["final_verdict"] == "WAIT"
     assert "Migration risk" in result["reviewer"]["reasoning"]
+    # No check report queues a review of an inbox run, so its WAIT must not promise one.
+    assert ("when the check reports" in result["reviewer"]["reasoning"]) is not self_driving
 
 
 def _evidence(state: str, head_sha: str, reviewer: str = "PostHog Review") -> dict:
