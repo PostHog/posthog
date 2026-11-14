@@ -16,6 +16,7 @@ from django.utils import timezone
 import psycopg
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from posthoganalytics.contexts import get_tags
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.response import Response
@@ -27,7 +28,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.errors import (
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
@@ -2343,13 +2344,13 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # METRICS
     # =========================================================================
 
-    def _make_simple_hogql_endpoint(self, name: str):
+    def _make_simple_hogql_endpoint(self, name: str, query: str = "SELECT count() FROM events"):
         return create_endpoint_with_version(
             name=name,
             team=self.team,
             query={
                 "kind": "HogQLQuery",
-                "query": "SELECT count() FROM events",
+                "query": query,
             },
             created_by=self.user,
             is_active=True,
@@ -2539,6 +2540,63 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(args[1].name, endpoint.name)
         self.assertIs(args[2], boom)
         self.assertFalse(kwargs["materialized"])
+
+    @parameterized.expand(
+        [
+            ("inline", False),
+            ("materialized", True),
+        ]
+    )
+    def test_endpoint_failure_context_reaches_query_execution(self, _name: str, materialized: bool) -> None:
+        query_text = "SELECT 'do-not-capture-this-query' AS value"
+        endpoint = (
+            self._make_fresh_materialized_endpoint(
+                "failure_context_materialized", {"kind": "HogQLQuery", "query": query_text}
+            )
+            if materialized
+            else self._make_simple_hogql_endpoint("failure_context_inline", query=query_text)
+        )
+        outcomes: list[Response | Exception] = [RuntimeError("query failed")]
+        if materialized:
+            outcomes.append(Response({"results": [[1]], "columns": ["value"]}))
+        contexts: list[dict[str, object]] = []
+
+        def run_query(*_args: object, **_kwargs: object) -> Response:
+            contexts.append(get_tags())
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with (
+            mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", side_effect=run_query),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception"),
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK if materialized else status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+        self.assertTrue(contexts)
+        for properties in contexts:
+            self.assertEqual(properties["product"], Product.ENDPOINTS)
+            self.assertEqual(properties["team_id"], self.team.pk)
+            self.assertEqual(properties["endpoint_id"], str(endpoint.id))
+            self.assertEqual(properties["endpoint_name"], endpoint.name)
+            self.assertEqual(
+                properties["$groups"],
+                {
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.uuid),
+                },
+            )
+            self.assertNotIn("query", properties)
+            self.assertNotIn("variables", properties)
+            self.assertNotIn(query_text, repr(properties))
 
     def test_emit_failure_signal_swallows_errors(self):
         """Signal emission must never mask the original exception."""
