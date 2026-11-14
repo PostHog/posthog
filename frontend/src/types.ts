@@ -5692,6 +5692,7 @@ export const INTEGRATION_KINDS = [
     'jira',
     'pinterest-ads',
     'pardot',
+    'oura-ring',
     'customerio-app',
     'customerio-webhook',
     'customerio-track',

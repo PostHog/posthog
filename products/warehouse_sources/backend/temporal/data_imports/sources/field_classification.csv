@@ -920,7 +920,7 @@ Orbit,,,,,,orbit
 OrcaSecurity,api_token region,,,,,orca-security
 Ortto,region api_key,,,,,ortto
 OttoMarket,,,,,,otto-market
-Oura,access_token,,,,,oura
+Oura,,oura_integration_id,,,,oura
 Outbrain,username password,,,,,outbrain
 Outlook,,,,,,outlook
 Outreach,,,,,,outreach

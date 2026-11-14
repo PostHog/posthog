@@ -54,6 +54,7 @@ KINDS: Mapping[str, KindSpec] = {
     "linear": KindSpec(label="Linear", default=_OAUTH),
     "linkedin-ads": KindSpec(label="LinkedIn Ads", default=_OAUTH),
     "meta-ads": KindSpec(label="Meta Ads", default=_OAUTH),
+    "oura-ring": KindSpec(label="Oura", default=_OAUTH),
     "pardot": KindSpec(label="Pardot", default=_OAUTH, others=frozenset({_CREDENTIALS})),
     "pinterest-ads": KindSpec(label="Pinterest Ads", default=_OAUTH),
     "postgresql": KindSpec(label="PostgreSQL", default=_CREDENTIALS),

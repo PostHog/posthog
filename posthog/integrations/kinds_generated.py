@@ -50,6 +50,7 @@ class IntegrationKind(StrEnum):
     LINEAR = "linear"
     LINKEDIN_ADS = "linkedin-ads"
     META_ADS = "meta-ads"
+    OURA_RING = "oura-ring"
     PARDOT = "pardot"
     PINTEREST_ADS = "pinterest-ads"
     POSTGRESQL = "postgresql"
@@ -278,6 +279,12 @@ class MetaAdsKind(KindAccessor):
     any = IntegrationReader(kinds=frozenset({"meta-ads"}))
 
 
+class OuraRingKind(KindAccessor):
+    kind = "oura-ring"
+    oauth = OAuthAccessor(kind="oura-ring")  # the default
+    any = IntegrationReader(kinds=frozenset({"oura-ring"}))
+
+
 class PardotKind(KindAccessor):
     kind = "pardot"
     oauth = OAuthAccessor(kind="pardot")  # the default
@@ -427,6 +434,7 @@ class GeneratedIntegrationManager(IntegrationManagerBase):
     linear = LinearKind()
     linkedin_ads = LinkedinAdsKind()
     meta_ads = MetaAdsKind()
+    oura_ring = OuraRingKind()
     pardot = PardotKind()
     pinterest_ads = PinterestAdsKind()
     postgresql = PostgresqlKind()

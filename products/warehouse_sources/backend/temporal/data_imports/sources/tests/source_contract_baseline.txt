@@ -60,6 +60,7 @@ Neo4j not-checkable:schemas
 Neon not-checkable:driver:psycopg
 OpenMeteo not-checkable:no-request
 OpenWeather not-checkable:no-request
+Oura not-checkable:database
 Pardot not-checkable:database
 PinterestAds not-checkable:database
 Pipedrive not-checkable:database
