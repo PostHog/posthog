@@ -1,5 +1,6 @@
 import gc
 import os
+import logging
 import threading
 
 from unittest import TestCase
@@ -18,8 +19,10 @@ import posthog.celery
 from posthog.celery import (
     StopWorkerWhenEmbeddedSchedulerExits,
     _initialize_worker_metrics,
+    drop_task_enqueued_logs_from_pool_processes,
     freeze_objects_before_pool_forks,
     on_worker_process_shutdown,
+    receiver_setup_logging,
     write_heartbeat_when_worker_is_ready,
 )
 from posthog.celery_task_names import (
@@ -138,6 +141,30 @@ class TestWorkerStopsWhenEmbeddedSchedulerExits(TestCase):
         with self.assertRaises(WorkerShutdown) as shutdown:
             check()
         assert shutdown.exception.code == EX_FAILURE
+
+
+class TestCeleryProcessLogging(TestCase):
+    @parameterized.expand(
+        [
+            ("pool_process_drops_the_info_line", drop_task_enqueued_logs_from_pool_processes, {}, False),
+            (
+                "logging_setup_keeps_the_info_line_for_the_scheduler",
+                receiver_setup_logging,
+                {"loglevel": None, "logfile": None, "format": None, "colorize": False},
+                True,
+            ),
+        ]
+    )
+    def test_task_enqueued_level(self, _name: str, process_hook, kwargs: dict, info_line_is_logged: bool) -> None:
+        receivers_logger = logging.getLogger("django_structlog.celery.receivers")
+        self.addCleanup(receivers_logger.setLevel, receivers_logger.level)
+        receivers_logger.setLevel(logging.DEBUG)
+
+        with patch("logging.config.dictConfig"):
+            process_hook(**kwargs)
+
+        assert receivers_logger.isEnabledFor(logging.INFO) is info_line_is_logged
+        assert receivers_logger.isEnabledFor(logging.WARNING)
 
 
 class TestAnalyticsMetricsConfig(TestCase):

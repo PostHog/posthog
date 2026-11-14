@@ -2,6 +2,7 @@ import gc
 import os
 import time
 import errno
+import logging
 import threading
 from typing import TYPE_CHECKING
 
@@ -168,6 +169,17 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     logging_config.dictConfig(logs.LOGGING)
+
+
+@worker_process_init.connect
+def drop_task_enqueued_logs_from_pool_processes(**kwargs) -> None:
+    # django-structlog logs task_enqueued at INFO for each task a process publishes. Only a web
+    # request gives that line context to link to, so the pool processes, which run the tasks, drop it.
+    # The level is set here and not in LOGGING or in receiver_setup_logging, because those also apply
+    # to the scheduler. On-call runbooks read the scheduler's task_enqueued line to check that a
+    # scheduled task was queued. The level also drops task_started and task_succeeded, which this
+    # logger emits at INFO when django-structlog's worker signals are connected.
+    logging.getLogger("django_structlog.celery.receivers").setLevel(logging.WARNING)
 
 
 @celeryd_init.connect
