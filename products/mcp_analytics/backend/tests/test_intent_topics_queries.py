@@ -320,13 +320,13 @@ class TestIntentMapQuery(_Base):
 
 
 class TestIntentTopicsAccess(_Base):
-    def _restrict_intent(self) -> None:
+    def _restrict(self, property_name: str) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
         definition = PropertyDefinition.objects.create(
-            team=self.team, name="$mcp_intent", property_type="String", type=PropertyDefinition.Type.EVENT
+            team=self.team, name=property_name, property_type="String", type=PropertyDefinition.Type.EVENT
         )
         PropertyAccessControl.objects.create(
             team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
@@ -338,7 +338,7 @@ class TestIntentTopicsAccess(_Base):
         _hourly(self.team.pk, TODAY, "o1", "query-trends", 4)
         self.insights.summary = "Agents chart weekly signups."
         self.insights.save()
-        self._restrict_intent()
+        self._restrict("$mcp_intent")
 
         profile = MCPToolIntentProfileQueryRunner(
             query=MCPToolIntentProfileQuery(dateRange=WINDOW, toolName="query-trends"), team=self.team, user=self.user
@@ -358,6 +358,32 @@ class TestIntentTopicsAccess(_Base):
         ).calculate()
         assert [o.intent_text for o in admin_profile.outliers] == ["odd use"]
         assert [t.label for t in admin_profile.results] == ["Create insights"]
+
+    @parameterized.expand([("$mcp_session_id",), ("$session_id",)])
+    def test_a_member_denied_a_session_id_property_sees_no_conversation_hashes(self, property_name: str) -> None:
+        _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 10, conversations=(11, 12))
+        _hourly(self.team.pk, TODAY, "o1", "query-trends", 4)
+        self._restrict(property_name)
+
+        def run(query: str) -> list[tuple]:
+            return execute_hogql_query(query=query, team=self.team, user=self.user).results
+
+        topics = MCPIntentTopicsQueryRunner(
+            query=MCPIntentTopicsQuery(dateRange=WINDOW), team=self.team, user=self.user
+        ).calculate()
+
+        assert run("SELECT conversation_hashes FROM posthog.mcp_intent_calls_hourly") == [([],)]
+        assert run("SELECT conversation_hashes FROM posthog.mcp_intent_topic_daily") == [([],)]
+        assert run("SELECT count() FROM posthog.mcp_intent_topic_daily WHERE has(conversation_hashes, 11)") == [(0,)]
+        assert [(t.calls, t.sessions) for t in topics.results] == [(10, 0)]
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        admin_topics = MCPIntentTopicsQueryRunner(
+            query=MCPIntentTopicsQuery(dateRange=WINDOW), team=self.team, user=self.user
+        ).calculate()
+        assert run("SELECT conversation_hashes FROM posthog.mcp_intent_topic_daily") == [([11, 12],)]
+        assert [(t.calls, t.sessions) for t in admin_topics.results] == [(10, 2)]
 
     @parameterized.expand(
         [
