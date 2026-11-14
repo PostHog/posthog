@@ -33,6 +33,10 @@ const QUERY_USAGE_ORDERINGS: QueryUsageOrdering[] = ['-query_usage', 'query_usag
 export const QUERY_USAGE_COLUMN_KEY = 'query_usage'
 // Pinned: the backend `code` of the 400 for a project with too many properties to sort.
 const TOO_MANY_PROPERTIES_TO_SORT_CODE = 'too_many_properties_to_order_by_usage'
+export const LAST_SENT_POLL_INTERVAL_MS = 3000
+export const LAST_SENT_MAX_POLLS = 20
+
+export type LastSentState = 'computing' | 'ready' | 'failed'
 
 export interface Filters {
     property: string
@@ -42,12 +46,46 @@ export interface Filters {
     ordering?: QueryUsageOrdering
 }
 
-export type PropertyDefinitionWithQueryUsage = PropertyDefinition &
-    Partial<Pick<EnterprisePropertyDefinitionApi, 'query_usage_30_day'>>
+export type PropertyDefinitionWithUsage = PropertyDefinition &
+    Partial<Pick<EnterprisePropertyDefinitionApi, 'query_usage_30_day' | 'last_sent_at' | 'last_sent_status'>>
 
 export interface PropertyDefinitionsTableResponse extends PropertyDefinitionsPaginatedResponse {
-    results: PropertyDefinitionWithQueryUsage[]
+    results: PropertyDefinitionWithUsage[]
     query_usage?: PaginatedEnterprisePropertyDefinitionListApi['query_usage']
+    last_sent?: PaginatedEnterprisePropertyDefinitionListApi['last_sent']
+}
+
+/** The day a property was last sent, relative to `now`. The backend dates are precise to the day only. */
+export function formatLastSentDay(lastSentAt: string, now: dayjs.Dayjs = dayjs()): string {
+    const days = Math.max(0, now.startOf('day').diff(dayjs(lastSentAt).startOf('day'), 'day'))
+    if (days === 0) {
+        return 'Today'
+    }
+    if (days === 1) {
+        return 'Yesterday'
+    }
+    return `${days} days ago`
+}
+
+function withPolledLastSent(
+    current: PropertyDefinitionsTableResponse,
+    polled: PropertyDefinitionsTableResponse
+): PropertyDefinitionsTableResponse {
+    const polledById = new Map(polled.results.map((definition) => [definition.id, definition]))
+    return {
+        ...current,
+        last_sent: polled.last_sent,
+        results: current.results.map((definition) => {
+            const polledDefinition = polledById.get(definition.id)
+            return polledDefinition
+                ? {
+                      ...definition,
+                      last_sent_at: polledDefinition.last_sent_at,
+                      last_sent_status: polledDefinition.last_sent_status,
+                  }
+                : definition
+        }),
+    }
 }
 
 export function parseQueryUsageOrdering(value: unknown): QueryUsageOrdering | undefined {
@@ -93,6 +131,9 @@ export interface propertyDefinitionsTableLogicValues {
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     filters: Filters
     hoveredDefinition: string | null
+    lastSentFailed: boolean
+    lastSentParams: Record<string, any>
+    lastSentState: LastSentState | null
     propertyDefinitions: PropertyDefinitionsTableResponse
     propertyDefinitionsLoading: boolean
     propertyTypeOptions: LemonSelectOption<string>[]
@@ -128,6 +169,13 @@ export interface propertyDefinitionsTableLogicActions {
             url: string | null
         }
     }
+    pollLastSent: (
+        url: string,
+        attempt: number
+    ) => {
+        attempt: number
+        url: string
+    }
     setFilters: (
         filters: Partial<Filters>,
         debounce?: boolean
@@ -137,6 +185,9 @@ export interface propertyDefinitionsTableLogicActions {
     }
     setHoveredDefinition: (definitionKey: string | null) => {
         definitionKey: string | null
+    }
+    setLastSentFailed: () => {
+        value: true
     }
     setLocalPropertyDefinition: (definition: PropertyDefinition) => {
         definition: PropertyDefinition
@@ -162,6 +213,33 @@ export interface propertyDefinitionsTableLogicActions {
     setOpenedDefinition: (id: string | null) => {
         id: string | null
     }
+    setPolledLastSent: (
+        url: string,
+        response: PropertyDefinitionsTableResponse
+    ) => {
+        response: PropertyDefinitionsTableResponse
+        url: string
+    }
+    setPolledLastSentFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setPolledLastSentSuccess: (
+        propertyDefinitions: PropertyDefinitionsTableResponse,
+        payload?: {
+            response: PropertyDefinitionsTableResponse
+            url: string
+        }
+    ) => {
+        propertyDefinitions: PropertyDefinitionsTableResponse
+        payload?: {
+            response: PropertyDefinitionsTableResponse
+            url: string
+        }
+    }
     setPropertyType: (propertyType: string) => {
         propertyType: string
     }
@@ -177,6 +255,12 @@ export interface propertyDefinitionsTableLogicMeta {
         ) => LemonSelectOption<string>[]
         showQueryUsage: (featureFlags: FeatureFlagsSet) => boolean
         queryUsageParams: (showQueryUsage: boolean, filters: Filters) => Record<string, any>
+        lastSentParams: (showQueryUsage: boolean) => Record<string, any>
+        lastSentState: (
+            showQueryUsage: boolean,
+            lastSentFailed: boolean,
+            propertyDefinitions: PropertyDefinitionsTableResponse
+        ) => LastSentState | null
         queryUsageSorting: (showQueryUsage: boolean, filters: Filters) => Sorting | null
         queryUsageFreshness: (
             propertyDefinitions: PropertyDefinitionsTableResponse
@@ -213,6 +297,9 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
         setPropertyType: (propertyType: string) => ({ propertyType }),
+        pollLastSent: (url: string, attempt: number) => ({ url, attempt }),
+        setPolledLastSent: (url: string, response: PropertyDefinitionsTableResponse) => ({ url, response }),
+        setLastSentFailed: true,
     }),
     reducers({
         filters: [
@@ -231,6 +318,13 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
             null as string | null,
             {
                 setHoveredDefinition: (_, { definitionKey }) => definitionKey,
+            },
+        ],
+        lastSentFailed: [
+            false,
+            {
+                loadPropertyDefinitions: () => false,
+                setLastSentFailed: () => true,
             },
         ],
         usageSortError: [
@@ -281,7 +375,11 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                     }
 
                     if (!url) {
-                        url = normalizePropertyDefinitionEndpointUrl(null, values.queryUsageParams, true) as string
+                        url = normalizePropertyDefinitionEndpointUrl(
+                            null,
+                            { ...values.queryUsageParams, ...values.lastSentParams },
+                            true
+                        ) as string
                     }
                     cache.propertiesStartTime = performance.now()
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
@@ -320,6 +418,16 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                     }
                     return cache.apiCache[values.propertyDefinitions.current]
                 },
+                setPolledLastSent: ({ url, response }) => {
+                    if (url !== values.propertyDefinitions.current) {
+                        return values.propertyDefinitions
+                    }
+                    cache.apiCache = {
+                        ...cache.apiCache,
+                        [url]: withPolledLastSent(values.propertyDefinitions, response),
+                    }
+                    return cache.apiCache[url]
+                },
             },
         ],
     })),
@@ -332,6 +440,26 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
             (s) => [s.showQueryUsage, s.filters],
             (showQueryUsage: boolean, filters: Filters): Record<string, any> =>
                 showQueryUsage ? { include_query_usage: true, ordering: filters.ordering } : {},
+        ],
+        lastSentParams: [
+            (s) => [s.showQueryUsage],
+            (showQueryUsage: boolean): Record<string, any> => (showQueryUsage ? { include_last_sent: true } : {}),
+        ],
+        lastSentState: [
+            (s) => [s.showQueryUsage, s.lastSentFailed, s.propertyDefinitions],
+            (
+                showQueryUsage: boolean,
+                lastSentFailed: boolean,
+                propertyDefinitions: PropertyDefinitionsTableResponse
+            ): LastSentState | null => {
+                if (!showQueryUsage || !propertyDefinitions.last_sent) {
+                    return null
+                }
+                if (lastSentFailed) {
+                    return 'failed'
+                }
+                return propertyDefinitions.last_sent.status
+            },
         ],
         queryUsageSorting: [
             (s) => [s.showQueryUsage, s.filters],
@@ -376,12 +504,13 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                 group_type_index: values.filters.group_type_index,
                 verified: values.filters.verified,
                 ...values.queryUsageParams,
+                ...values.lastSentParams,
             }
             actions.loadPropertyDefinitions(
                 normalizePropertyDefinitionEndpointUrl(values.propertyDefinitions.current, params, true)
             )
         },
-        loadPropertyDefinitionsSuccess: () => {
+        loadPropertyDefinitionsSuccess: ({ propertyDefinitions }) => {
             if (cache.propertiesStartTime !== undefined) {
                 posthog.capture('event property definitions page load succeeded', {
                     load_time: performance.now() - cache.propertiesStartTime,
@@ -389,6 +518,36 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                 })
                 cache.propertiesStartTime = undefined
             }
+            if (propertyDefinitions.last_sent?.status === 'computing' && propertyDefinitions.current) {
+                actions.pollLastSent(propertyDefinitions.current, 1)
+            }
+        },
+        pollLastSent: async ({ url, attempt }, breakpoint) => {
+            await breakpoint(LAST_SENT_POLL_INTERVAL_MS)
+            let response: PropertyDefinitionsTableResponse
+            try {
+                // nosemgrep: prefer-codegen-api -- Re-requests the page URL that the list loaded, which the list builds at runtime.
+                response = await api.get(url)
+            } catch {
+                breakpoint()
+                if (url === values.propertyDefinitions.current) {
+                    actions.setLastSentFailed()
+                }
+                return
+            }
+            breakpoint()
+            if (url !== values.propertyDefinitions.current) {
+                return
+            }
+            actions.setPolledLastSent(url, response)
+            if (response.last_sent?.status !== 'computing') {
+                return
+            }
+            if (attempt >= LAST_SENT_MAX_POLLS) {
+                actions.setLastSentFailed()
+                return
+            }
+            actions.pollLastSent(url, attempt + 1)
         },
         loadPropertyDefinitionsFailure: ({ error }) => {
             if (cache.propertiesStartTime !== undefined) {

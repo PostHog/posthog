@@ -12,9 +12,10 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { PropertyDefinitionLastSent } from 'scenes/data-management/properties/PropertyDefinitionLastSent'
 import { PropertyDefinitionsQueryUsageStatus } from 'scenes/data-management/properties/PropertyDefinitionsQueryUsageStatus'
 import {
-    PropertyDefinitionWithQueryUsage,
+    PropertyDefinitionWithUsage,
     QUERY_USAGE_COLUMN_KEY,
     propertyDefinitionsTableLogic,
     queryUsageOrderingFromSorting,
@@ -37,6 +38,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
         showVerifiedFilter,
         showQueryUsage,
         queryUsageSorting,
+        lastSentState,
     } = useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
 
@@ -101,12 +103,20 @@ export function PropertyDefinitionsTable(): JSX.Element {
                       align: 'right',
                       sorter: true,
                       defaultSortOrder: -1,
-                      render: function RenderQueries(_, definition: PropertyDefinitionWithQueryUsage) {
+                      render: function RenderQueries(_, definition: PropertyDefinitionWithUsage) {
                           const count = definition.query_usage_30_day
                           if (typeof count === 'number') {
                               return <span data-attr="property-definition-query-count">{count.toLocaleString()}</span>
                           }
                           return <span className="text-secondary">—</span>
+                      },
+                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
+                  {
+                      title: 'Last sent',
+                      key: 'last_sent',
+                      tooltip: 'The day PostHog last received this property. PostHog keeps this for 30 days.',
+                      render: function RenderLastSent(_, definition: PropertyDefinitionWithUsage) {
+                          return <PropertyDefinitionLastSent definition={definition} lastSentState={lastSentState} />
                       },
                   } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
               ]

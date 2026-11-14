@@ -5484,6 +5484,20 @@ export type PaginatedEnterprisePropertyDefinitionListApiQueryUsage = {
 } | null
 
 /**
+ * State of `last_sent_at`. Present only when the request passes `include_last_sent=true`.
+ * @nullable
+ */
+export type PaginatedEnterprisePropertyDefinitionListApiLastSent = {
+    /** `computing` while the first last-sent snapshot of this property type is being built. Request the same page again a few seconds later. */
+    status: 'ready' | 'computing'
+    /**
+     * When the last-sent dates were computed. They refresh in the background about every hour.
+     * @nullable
+     */
+    computed_at: string | null
+} | null
+
+/**
  * * `DateTime` - DateTime
  * * `String` - String
  * * `Numeric` - Numeric
@@ -5508,6 +5522,15 @@ export const PropertyDefinitionTypeNameEnumApi = {
     Person: 'person',
     Group: 'group',
     Session: 'session',
+} as const
+
+export type PropertyLastSentStatusEnumApi =
+    (typeof PropertyLastSentStatusEnumApi)[keyof typeof PropertyLastSentStatusEnumApi]
+
+export const PropertyLastSentStatusEnumApi = {
+    Sent: 'sent',
+    NotSentIn30Days: 'not_sent_in_30_days',
+    NotTracked: 'not_tracked',
 } as const
 
 /**
@@ -5545,6 +5568,13 @@ export interface EnterprisePropertyDefinitionApi {
      * @nullable
      */
     readonly query_usage_30_day: number | null
+    /**
+     * When an event or group identify last sent this property, precise to the day. Set only when `last_sent_status` is `sent`, otherwise null.
+     * @nullable
+     */
+    readonly last_sent_at: string | null
+    /** `sent` when the property was sent in the last 30 days, `not_sent_in_30_days` when it was not, and `not_tracked` when PostHog does not record it for this property, such as session, virtual and data warehouse properties. Null when the list request did not pass `include_last_sent=true`, or while the response's `last_sent.status` is `computing`. */
+    readonly last_sent_status: PropertyLastSentStatusEnumApi | null
 }
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
@@ -5559,6 +5589,11 @@ export interface PaginatedEnterprisePropertyDefinitionListApi {
      * @nullable
      */
     query_usage?: PaginatedEnterprisePropertyDefinitionListApiQueryUsage
+    /**
+     * State of `last_sent_at`. Present only when the request passes `include_last_sent=true`.
+     * @nullable
+     */
+    last_sent?: PaginatedEnterprisePropertyDefinitionListApiLastSent
 }
 
 /**
@@ -5596,6 +5631,13 @@ export interface PatchedEnterprisePropertyDefinitionApi {
      * @nullable
      */
     readonly query_usage_30_day?: number | null
+    /**
+     * When an event or group identify last sent this property, precise to the day. Set only when `last_sent_status` is `sent`, otherwise null.
+     * @nullable
+     */
+    readonly last_sent_at?: string | null
+    /** `sent` when the property was sent in the last 30 days, `not_sent_in_30_days` when it was not, and `not_tracked` when PostHog does not record it for this property, such as session, virtual and data warehouse properties. Null when the list request did not pass `include_last_sent=true`, or while the response's `last_sent.status` is `computing`. */
+    readonly last_sent_status?: PropertyLastSentStatusEnumApi | null
 }
 
 /**
@@ -7722,6 +7764,10 @@ export type PropertyDefinitionsListParams = {
      * What group type is the property for. Only should be set if `type=group`
      */
     group_type_index?: number
+    /**
+     * Include `last_sent_at` and `last_sent_status` on each result and `last_sent` on the response. When `last_sent.status` is `computing`, request the same page again a few seconds later.
+     */
+    include_last_sent?: boolean
     /**
      * Include `query_usage_30_day` on each result and `query_usage` freshness on the response, without changing the order.
      */

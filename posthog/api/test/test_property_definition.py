@@ -20,6 +20,7 @@ from posthog.taxonomy.property_definition_api import (
     PropertyUsageMetricsRequestSerializer,
     QueryContext,
 )
+from posthog.taxonomy.property_last_sent import rebuild_property_last_sent_map_in_background
 
 from products.event_definitions.backend.models import EventDefinition, EventProperty, PropertyDefinition
 
@@ -1366,3 +1367,70 @@ class TestPropertyDefinitionUsageOrdering(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?ordering=name;drop")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestPropertyDefinitionLastSent(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        for name in ("$browser", "plan", "$insert_id"):
+            PropertyDefinition.objects.create(team=self.team, name=name)
+        PropertyDefinition.objects.create(
+            team=self.team, name="$session_duration", type=PropertyDefinition.Type.SESSION
+        )
+
+    def _list(self, params: str) -> dict[str, Any]:
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{params}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
+
+    @staticmethod
+    def _statuses(body: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
+        return {row["name"]: (row["last_sent_status"], row["last_sent_at"]) for row in body["results"]}
+
+    @parameterized.expand(
+        [
+            ("default_order", "include_last_sent=true"),
+            ("query_usage_order", "include_last_sent=true&ordering=-query_usage"),
+        ]
+    )
+    @patch("posthog.taxonomy.property_usage.sync_execute", return_value=[])
+    @patch("posthog.taxonomy.property_last_sent.sync_execute")
+    @patch("posthog.taxonomy.property_last_sent.refresh_property_last_sent_map.delay")
+    def test_reports_computing_until_the_snapshot_is_built(
+        self, _name: str, params: str, mock_delay, mock_last_sent_query, _mock_usage_query
+    ) -> None:
+        mock_last_sent_query.return_value = [("$browser", datetime(2026, 11, 9, 7, 30, tzinfo=UTC))]
+
+        computing = self._list(params)
+        mock_delay.assert_called_once_with(self.team.pk, "event")
+        rebuild_property_last_sent_map_in_background(self.team.pk, "event")
+        ready = self._list(params)
+
+        assert computing["last_sent"] == {"status": "computing", "computed_at": None}
+        assert self._statuses(computing)["$browser"] == (None, None)
+        assert self._statuses(computing)["$insert_id"] == ("not_tracked", None)
+        assert ready["last_sent"] == {"status": "ready", "computed_at": ANY}
+        ready_statuses = self._statuses(ready)
+        assert {name: ready_statuses[name] for name in ("$browser", "plan", "$insert_id")} == {
+            "$browser": ("sent", "2026-11-09T07:30:00Z"),
+            "plan": ("not_sent_in_30_days", None),
+            "$insert_id": ("not_tracked", None),
+        }
+        assert {value for name, value in ready_statuses.items() if name.startswith("$virt_")} == {("not_tracked", None)}
+
+    @patch("posthog.taxonomy.property_last_sent.refresh_property_last_sent_map.delay")
+    def test_session_properties_are_not_tracked_without_a_snapshot(self, mock_delay) -> None:
+        body = self._list("type=session&include_last_sent=true")
+
+        assert body["last_sent"] == {"status": "ready", "computed_at": None}
+        assert [(row["name"], row["last_sent_status"]) for row in body["results"]] == [
+            ("$session_duration", "not_tracked")
+        ]
+        mock_delay.assert_not_called()
+
+    def test_leaves_last_sent_out_unless_requested(self) -> None:
+        body = self._list("")
+
+        assert "last_sent" not in body
+        assert {row.get("last_sent_status") for row in body["results"]} == {None}
