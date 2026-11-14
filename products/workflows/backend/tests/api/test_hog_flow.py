@@ -1169,6 +1169,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("deleted_sender", "deleted", "function_email", "can't be found"),
             ("unverified_sender_in_rotation", "rotation", "function_email", "isn't verified yet"),
             ("malformed_sender_id", "malformed", "function_email", "can't be found"),
+            ("zero_padded_sender_id", "zero_padded", "function_email", "can't be found"),
             ("generic_step_running_the_email_template", "unverified", "function", "isn't verified yet"),
         ]
     )
@@ -1180,6 +1181,7 @@ class TestHogFlowAPI(APIBaseTest):
             "deleted": {"integrationId": unverified.id + 1000},
             "rotation": {"integrationId": verified.id, "integrationIds": [unverified.id]},
             "malformed": {"integrationId": {"id": unverified.id}},
+            "zero_padded": {"integrationId": f"0{verified.id}"},
         }
         hog_flow = self._email_flow(senders[case], step_type)
 
@@ -1196,10 +1198,20 @@ class TestHogFlowAPI(APIBaseTest):
             assert fragment in response.json()["detail"]
         assert HogFlow.objects.get(pk=draft.json()["id"]).status == HogFlow.State.DRAFT
 
-    def test_going_live_checks_only_the_rotation_when_one_is_set(self):
+    @parameterized.expand(
+        [
+            ("rotation_replaces_an_unverified_single_sender", "rotation"),
+            ("verified_sender_id_as_digit_string", "digit_string"),
+        ]
+    )
+    def test_going_live_accepts_a_sender_that_can_send(self, _name, case):
         verified = self._email_sender(verified=True)
         unverified = self._email_sender(verified=False)
-        hog_flow = self._email_flow({"integrationId": unverified.id, "integrationIds": [verified.id]})
+        senders: dict[str, dict[str, Any]] = {
+            "rotation": {"integrationId": unverified.id, "integrationIds": [verified.id]},
+            "digit_string": {"integrationId": str(verified.id)},
+        }
+        hog_flow = self._email_flow(senders[case])
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
 

@@ -351,6 +351,8 @@ describe('workflowLogic email step "from" validation', () => {
         ['a deleted sender', { integrationId: 99 }, "This sender can't be found"],
         ['an unverified sender in the rotation', { integrationId: 42, integrationIds: [42, 43] }, "isn't verified yet"],
         ['no unverified primary sender a rotation replaces', { integrationId: 43, integrationIds: [42] }, null],
+        ['no verified sender named by a digit string', { integrationId: '42' }, null],
+        ['a sender id with leading zeros', { integrationId: '042' }, "This sender can't be found"],
     ])('flags %s on the step before any save attempt', async (_name, fromValue, message) => {
         const senders = [
             { id: 42, kind: 'email', config: { verified: true, email: 'hi@example.com' } },
