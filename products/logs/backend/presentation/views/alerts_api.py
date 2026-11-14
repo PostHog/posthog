@@ -1,5 +1,5 @@
 import datetime as dt
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import UTC, datetime
 from functools import cached_property
 from typing import Any, Final, Literal, TypedDict, cast, overload
@@ -64,6 +64,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationValidationError,
+    AlertEventKind,
     DestinationType,
     Grouping,
     GroupingMode,
@@ -1246,8 +1247,11 @@ def _event_kinds_of(destination_type: str) -> list[EventKind]:
     ]
 
 
-def _destination_configs(alert_id: UUID, alert_name: str, data: AlertDestinationData) -> list[AlertDestinationConfig]:
-    """The HogFunctions a new destination of this type gets, one per event kind it sends."""
+def _destination_configs(
+    alert_id: UUID, alert_name: str, data: AlertDestinationData, *, hears: Collection[AlertEventKind] | None = None
+) -> list[AlertDestinationConfig]:
+    """The HogFunctions a new destination of this type gets, one per event kind it sends. With `hears`,
+    only the kinds whose row event kind is among them."""
     return [
         build_alert_destination_config(
             spec=EVENT_KIND_CONFIG[kind],
@@ -1257,6 +1261,7 @@ def _destination_configs(alert_id: UUID, alert_name: str, data: AlertDestination
             slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
         )
         for kind in _event_kinds_of(data["type"])
+        if hears is None or set(row_event_kinds([kind])) & set(hears)
     ]
 
 
@@ -2033,7 +2038,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     allowed_destination_types=LOGS_DESTINATION_TYPES,
                     destination_id=serializer.validated_data["destination_id"],
                     hog_function_ids=serializer.validated_data["hog_function_ids"],
-                    build_configs=lambda data: _destination_configs(alert.id, alert.name, data),
+                    build_configs=lambda data, event_kinds: _destination_configs(
+                        alert.id, alert.name, data, hears=event_kinds
+                    ),
                     created_by_id=cast(User, request.user).id,
                 )
             except AlertDestinationValidationError as error:

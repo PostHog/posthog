@@ -487,10 +487,12 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
                 return
             }
             actions.setChangingMessageDestinationId(destination.id, true)
+            // A person who moved on while the request ran keeps the page they went to.
+            const startedOn = router.values.location.pathname
             try {
                 const hogFunctionIds = await customize(String(values.currentTeamId), props.alertId, destination)
                 actions.loadDestinations()
-                if (messageEditorUrl && hogFunctionIds.length) {
+                if (messageEditorUrl && hogFunctionIds.length && router.values.location.pathname === startedOn) {
                     router.actions.push(messageEditorUrl(props.alertId, hogFunctionIds))
                 }
             } catch (error) {

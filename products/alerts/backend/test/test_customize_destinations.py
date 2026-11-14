@@ -1,4 +1,5 @@
 from collections.abc import Collection
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
@@ -54,13 +55,15 @@ def _spec(event_id: str, incident_action: IncidentAction | None = None) -> Event
     )
 
 
+# Each spec with the row event kind it serves: an incident manager opens on a firing and closes on a resolve.
 SPECS = (
-    _spec("$logs_alert_firing"),
-    _spec("$logs_alert_resolved"),
-    _spec("$logs_alert_incident_opened", IncidentAction.TRIGGER),
-    _spec("$logs_alert_incident_closed", IncidentAction.RESOLVE),
+    (_spec("$logs_alert_firing"), AlertEventKind.FIRING),
+    (_spec("$logs_alert_resolved"), AlertEventKind.RESOLVED),
+    (_spec("$logs_alert_incident_opened", IncidentAction.TRIGGER), AlertEventKind.FIRING),
+    (_spec("$logs_alert_incident_closed", IncidentAction.RESOLVE), AlertEventKind.RESOLVED),
 )
-EVENT_IDS = tuple(spec.event_id for spec in SPECS)
+EVENT_IDS = tuple(spec.event_id for spec, _kind in SPECS)
+FIRING_AND_RESOLVED = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
 TYPES = (
     DestinationType.SLACK,
     DestinationType.WEBHOOK,
@@ -68,8 +71,6 @@ TYPES = (
     DestinationType.TEAMS,
     DestinationType.PAGERDUTY,
 )
-# One HogFunction per message kind, and an incident manager gets the opened and closed pair.
-HOG_FUNCTION_COUNTS = {DestinationType.PAGERDUTY: 2}
 
 
 class TestCustomizeSourceDestination(BaseTest):
@@ -84,7 +85,11 @@ class TestCustomizeSourceDestination(BaseTest):
                 "name": "Webhook",
                 "code": "return event",
                 "code_language": "hog",
-                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "inputs_schema": [
+                    {"key": "url", "type": "string"},
+                    {"key": "body", "type": "json"},
+                    {"key": "headers", "type": "dictionary"},
+                ],
                 "type": "destination",
                 "status": "stable",
                 "free": True,
@@ -128,13 +133,15 @@ class TestCustomizeSourceDestination(BaseTest):
                 legacy_configuration_id=self.alert_id,
             )
 
-    def _configs(self, data: AlertDestinationData) -> list[AlertDestinationConfig]:
+    def _configs(
+        self, data: AlertDestinationData, event_kinds: Collection[AlertEventKind] = FIRING_AND_RESOLVED
+    ) -> list[AlertDestinationConfig]:
         return [
             build_alert_destination_config(
                 spec=spec, alert_id=str(self.alert_id), alert_name="API errors", data=data, slack_context_elements=()
             )
-            for spec in SPECS
-            if destination_handles_event_kind(DestinationType(data["type"]), spec)
+            for spec, kind in SPECS
+            if kind in event_kinds and destination_handles_event_kind(DestinationType(data["type"]), spec)
         ]
 
     def _hog_functions(self, destination_type: DestinationType) -> tuple[UUID, ...]:
@@ -146,12 +153,17 @@ class TestCustomizeSourceDestination(BaseTest):
             allowed_event_ids=EVENT_IDS,
         )
 
-    def _row(self, destination_type: DestinationType, copies: tuple[UUID, ...] = ()) -> UUID:
+    def _row(
+        self,
+        destination_type: DestinationType,
+        copies: tuple[UUID, ...] = (),
+        event_kinds: tuple[AlertEventKind, ...] = FIRING_AND_RESOLVED,
+    ) -> UUID:
         row = record_source_destination(
             team_id=self.team.id,
             public_id=self.alert_id,
             data=self.data[destination_type],
-            event_kinds=(AlertEventKind.FIRING,),
+            event_kinds=event_kinds,
             hog_function_ids=copies,
             hog_function_groups=self._groups(),
         )
@@ -195,7 +207,7 @@ class TestCustomizeSourceDestination(BaseTest):
             allowed_event_ids=EVENT_IDS,
             allowed_destination_types=TYPES,
             hog_function_ids=hog_function_ids,
-            row_event_kinds=lambda _type: (AlertEventKind.FIRING,),
+            row_event_kinds=lambda _type: FIRING_AND_RESOLVED,
         )
 
     @parameterized.expand([(destination_type.value, destination_type) for destination_type in TYPES])
@@ -208,7 +220,7 @@ class TestCustomizeSourceDestination(BaseTest):
         customized = self._customize(destination_id=row_id)
 
         assert customized.created is True
-        assert len(customized.hog_function_ids) == HOG_FUNCTION_COUNTS.get(destination_type, 2)
+        assert len(customized.hog_function_ids) == 2
         assert self._senders() == [f"hog_functions:{destination_type}"]
         (group,) = self._groups()
         assert group.data == {
@@ -233,6 +245,37 @@ class TestCustomizeSourceDestination(BaseTest):
         assert self._senders() == ["hog_functions:slack"]
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
         assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(hog_function_ids)
+
+    def test_customize_keeps_the_rows_event_kinds_and_stored_headers(self) -> None:
+        self.data[DestinationType.WEBHOOK]["webhook_headers"] = {"Authorization": "Bearer test-token"}
+        row_id = self._row(DestinationType.WEBHOOK, event_kinds=(AlertEventKind.FIRING,))
+
+        (hog_function_id,) = self._customize(destination_id=row_id).hog_function_ids
+
+        hog_function = HogFunction.objects.get(id=hog_function_id)
+        assert hog_function.filters["events"][0]["id"] == "$logs_alert_firing"
+        assert hog_function.inputs["headers"]["value"]["Authorization"] == "Bearer test-token"
+
+    def test_a_pagerduty_destination_does_not_move_while_its_alert_fires(self) -> None:
+        row_id = self._row(DestinationType.PAGERDUTY)
+        with team_scope(self.team.id):
+            platform_testing.start_firing(
+                self.configuration.id, team_id=self.team.id, at=datetime(2026, 1, 1, tzinfo=UTC)
+            )
+
+        with self.assertRaises(AlertDestinationValidationError):
+            self._customize(destination_id=row_id)
+
+        assert self._senders() == ["row:pagerduty"]
+
+    def test_reset_is_refused_while_some_of_the_destinations_events_are_paused(self) -> None:
+        hog_function_ids = self._hog_functions(DestinationType.SLACK)
+        HogFunction.objects.filter(id=hog_function_ids[0]).update(enabled=False)
+
+        with self.assertRaises(AlertDestinationValidationError):
+            self._reset(hog_function_ids)
+
+        assert self._senders() == ["hog_functions:slack"]
 
     def test_customize_of_a_paused_row_writes_paused_hog_functions(self) -> None:
         (paused,) = create_alert_destinations(

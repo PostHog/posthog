@@ -134,14 +134,21 @@ describe('platformAlertDestinationsLogic', () => {
     })
 
     it.each([
-        ['opens the message editor for the HogFunctions it returns', true, '/editor/hf-1'],
-        ['stays on the alert when the route refuses', false, '/alert'],
-    ])('customize %s', async (_name, succeeds, expectedPath) => {
+        ['opens the message editor for the HogFunctions it returns', 'succeeds', '/editor/hf-1'],
+        ['stays on the alert when the route refuses', 'refuses', '/alert'],
+        ['stays on the page the person moved to while it ran', 'moves', '/elsewhere'],
+    ])('customize %s', async (_name, outcome, expectedPath) => {
         router.actions.push('/alert')
         const destination = { id: 'row-1', type: PlatformAlertDestinationTypeEnumApi.Slack, enabled: true }
-        const customize = succeeds
-            ? jest.fn().mockResolvedValue(['hf-1', 'hf-2'])
-            : jest.fn().mockRejectedValue({ detail: 'This destination has changed.' })
+        const customize = jest.fn(async () => {
+            if (outcome === 'refuses') {
+                throw { detail: 'This destination has changed.' }
+            }
+            if (outcome === 'moves') {
+                router.actions.push('/elsewhere')
+            }
+            return ['hf-1', 'hf-2']
+        })
         const saved = platformAlertDestinationsLogic({
             alertId: 'alert-1',
             sourceKind: 'logs',
