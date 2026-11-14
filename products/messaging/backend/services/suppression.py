@@ -64,11 +64,10 @@ def block_transactional_for_hard_bounces(team_id: int, identifiers: list[str], r
     pending = MessageSuppression.objects.for_team(team_id, canonical=True).filter(
         Q(hard_bounced_at__isnull=True)
         | Q(source=SuppressionSource.BOUNCE, last_bounce_diagnostic=GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC),
-        identifier__in=identifiers,
         deleted=False,
     )
     now = timezone.now()
-    for row_id in list(pending.order_by("identifier").values_list("id", flat=True)):
+    for row_id in pending.filter(identifier__in=identifiers).order_by("identifier").values_list("id", flat=True):
         pending.filter(id=row_id).update(
             suppressed=True,
             suppressed_at=Case(When(suppressed=False, then=Value(now)), default=F("suppressed_at")),

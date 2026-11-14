@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 
 from django.db import connection, transaction
 from django.db.models import F
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -251,6 +252,22 @@ class TestBulkAddSuppressions(APIBaseTest):
             row.hard_bounced_at is not None,
             row.last_bounce_diagnostic,
         ) == (existing["source"], expected_reason, True, True, True, None)
+
+    def test_import_updates_each_existing_entry_without_resending_the_address_list(self):
+        identifiers = [f"user{i}@example.com" for i in range(3)]
+        for identifier in identifiers:
+            MessageSuppression.objects.for_team(self.team.id).create(
+                team=self.team, identifier=identifier, source=SuppressionSource.MANUAL, suppressed=True
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self._bulk_add([{"identifier": identifier, "reason": "bounce"} for identifier in identifiers])
+
+        assert response.status_code == 200, response.json()
+        updates = [
+            q["sql"] for q in queries.captured_queries if q["sql"].startswith('UPDATE "posthog_messagesuppression"')
+        ]
+        assert [sql.count("@example.com") for sql in updates] == [0, 0, 0]
 
     @parameterized.expand(
         [
