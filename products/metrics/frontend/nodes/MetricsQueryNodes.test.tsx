@@ -1,6 +1,10 @@
+jest.unmock('lib/utils/concurrencyController')
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, waitFor } from '@testing-library/react'
+
+import { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 
 import { useMocks } from '~/mocks/jest'
 import { Query } from '~/queries/Query/Query'
@@ -107,5 +111,47 @@ describe('metrics query nodes', () => {
         )
         await waitFor(() => expect(container.querySelector('.Spinner')).toBeNull())
         expect(queryCalls).toBe(2)
+    })
+
+    it.each([
+        ['time series', METRICS_QUERY],
+        ['heatmap', HISTOGRAM_QUERY],
+    ])('%s loads through the supplied queue without exceeding its limit', async (_name, query) => {
+        const pending: (() => void)[] = []
+        let blockResponses = true
+        let inFlight = 0
+        let maxInFlight = 0
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': async () => {
+                    queryCalls++
+                    maxInFlight = Math.max(maxInFlight, ++inFlight)
+                    if (blockResponses) {
+                        await new Promise<void>((resolve) => pending.push(resolve))
+                    }
+                    inFlight--
+                    return [200, { results: [] }]
+                },
+            },
+        })
+        const context = { loadQueue: new TaskQueue(2) }
+        const { container } = render(
+            <>
+                {['-1h', '-2h', '-3h'].map((date_from) => (
+                    <Query key={date_from} query={{ ...query, dateRange: { date_from } }} context={context} readOnly />
+                ))}
+            </>
+        )
+        try {
+            await waitFor(() => expect(queryCalls).toBe(2))
+            pending.shift()!()
+            await waitFor(() => expect(queryCalls).toBe(3))
+        } finally {
+            blockResponses = false
+            pending.forEach((resolve) => resolve())
+        }
+        await waitFor(() => expect(container.querySelector('.Spinner')).toBeNull())
+        expect(maxInFlight).toBe(2)
+        expect(queryCalls).toBe(3)
     })
 })
