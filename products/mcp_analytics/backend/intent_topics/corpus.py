@@ -168,21 +168,23 @@ def start_of_hour(moment: datetime) -> datetime:
     return moment.replace(minute=0, second=0, microsecond=0)
 
 
-def fetch_hourly_calls(
+def iter_hourly_call_pages(
     team: Team,
     *,
     since: datetime,
     until: datetime,
     page_size: int = MAX_SELECT_RETURNED_ROWS,
     conversation_cap: int = MAX_CONVERSATIONS_PER_BUCKET,
-) -> list[HourlyCalls]:
-    """Calls and conversations per (hour, intent text, tool) for the complete hours that overlap [since, until).
+) -> Iterator[list[HourlyCalls]]:
+    """Pages of calls and conversations per (hour, intent text, tool) for the complete hours that overlap [since, until).
+
+    Pages are yielded rather than collected, so the worker holds one page at a time however many tools an
+    intent is called with. Every row is a whole bucket, so each page can be written as soon as it is read.
 
     The rollup replaces a whole hourly bucket on every write, so a partial hour would overwrite a complete
     one. The window therefore widens to the start of the first hour and stops at the start of the last.
     """
     since, until = start_of_hour(since), start_of_hour(until)
-    rows: list[HourlyCalls] = []
     after: ast.Expr = ast.Constant(value=True)
     while since < until:
         query = parse_select(
@@ -207,10 +209,12 @@ def fetch_hourly_calls(
             ).results
             or []
         )
-        rows.extend(
+        rows = [
             HourlyCalls(hour=row[0], hash=row[1], tool=row[2] or "", calls=int(row[3]), conversations=tuple(row[4]))
             for row in page
-        )
+        ]
+        if rows:
+            yield rows
         if len(page) < page_size:
             break
         # Each page starts at the hour of the last row, so the hours before it are not read again.
@@ -224,4 +228,3 @@ def fetch_hourly_calls(
                 "tool": ast.Constant(value=last.tool),
             },
         )
-    return rows

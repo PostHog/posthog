@@ -142,8 +142,8 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budge
         # counts it read before. It is taken before the read so that, of two runs, the later read wins.
         # Only the hours read whole are rolled up; the next run resumes at the same boundary.
         read_at = datetime.now(tz=UTC)
-        hourly = corpus.fetch_hourly_calls(team, since=window_start, until=drained_until)
-        rollups.insert_hourly_calls(team.pk, hourly, now=read_at)
+        for hourly in corpus.iter_hourly_call_pages(team, since=window_start, until=drained_until):
+            rollups.insert_hourly_calls(team.pk, hourly, now=read_at)
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
         raise
