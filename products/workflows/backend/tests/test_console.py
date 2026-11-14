@@ -7,8 +7,10 @@ from django.contrib.messages import get_messages
 
 from parameterized import parameterized
 
+from posthog.admin.console.panels import Tone
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.workflows.backend.console import EmailSendingPanel
 from products.workflows.backend.facade.api import get_email_sending_state, suspend_email_sending
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -55,6 +57,31 @@ class TestEmailSendingConsolePanel(BaseTest):
         detail = entries[0].detail or {}
         assert detail["context"] == {"reason": "staff_set"}
         assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == expected_changes
+
+    @parameterized.expand(
+        [
+            ("enabled", "ENABLED", "", ("Sending enabled", Tone.SUCCESS), None),
+            ("aws_paused", "DISABLED", "HIGH", ("Paused by AWS SES", Tone.DESTRUCTIVE), "HIGH"),
+            ("aws_reinstated", "REINSTATED", "LOW", ("Sending enabled", Tone.SUCCESS), None),
+        ]
+    )
+    def test_status_reports_an_aws_tenant_pause(
+        self,
+        _name: str,
+        tenant_status: str,
+        impact: str,
+        expected_status: tuple[str, Tone],
+        expected_impact: str | None,
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"ses_tenant_sending_status": tenant_status, "ses_tenant_reputation_impact": impact},
+        )
+
+        facts = {fact.label: fact for fact in EmailSendingPanel().facts(self.team)}
+
+        assert (facts["Status"].value, facts["Status"].tone) == expected_status
+        assert (facts["AWS reputation impact"].value if "AWS reputation impact" in facts else None) == expected_impact
 
     def test_set_tier_form_starts_from_the_current_tier_and_pin(self) -> None:
         TeamWorkflowsConfig.objects.update_or_create(

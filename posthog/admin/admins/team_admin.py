@@ -414,6 +414,12 @@ class TeamAdmin(admin.ModelAdmin):
                 state.suspended_at.isoformat(),
                 state.suspension_reason or "no reason recorded",
             )
+        if state and state.provider_paused:
+            return format_html(
+                '<span style="color:red"><strong>Paused by AWS SES</strong></span> (reputation impact: {}). '
+                "Re-enabling sending in the console does not lift it. The tenant has to be reinstated in AWS.",
+                state.provider_reputation_impact or "unknown",
+            )
         return mark_safe("<em>Sending enabled</em>")
 
     @admin.display(description="Email sending actions")
