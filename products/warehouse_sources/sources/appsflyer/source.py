@@ -4,6 +4,7 @@ import requests
 
 from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
 from products.warehouse_sources.sources.appsflyer.appsflyer import (
+    QUOTA_EXHAUSTED_ERROR,
     AppsFlyerCredentialsError,
     AppsFlyerResumeConfig,
     AppsFlyerRetryableError,
@@ -114,6 +115,12 @@ class AppsFlyerSource(ResumableSource[AppsFlyerSourceConfig, AppsFlyerResumeConf
             # the aggregate Pull API (e.g. the account isn't authorized for this report or app id). The
             # request shape is fixed, so retrying the identical call can never satisfy it.
             "416 Client Error: Requested Range Not Satisfiable for url: https://hq1.appsflyer.com": "AppsFlyer rejected the report request. Please check that your account's subscription is authorized for this report and that the app id is correct.",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            QUOTA_EXHAUSTED_ERROR: "Your AppsFlyer account has used up its daily report API quota. "
+            "The sync runs again on schedule after the quota resets at 00:00 UTC.",
         }
 
     @property
