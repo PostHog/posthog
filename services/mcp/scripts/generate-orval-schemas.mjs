@@ -54,9 +54,11 @@ function parseToolDefinition(filePath) {
     const operationIds = new Set()
     /** @type {Map<string, string[]>} */
     const schemaExclusions = new Map()
+    /** @type {Map<string, string>} */
+    const exclusionOwners = new Map()
 
     if (parsed?.tools) {
-        for (const tool of Object.values(parsed.tools)) {
+        for (const [name, tool] of Object.entries(parsed.tools)) {
             if (!tool?.enabled || !tool?.operation) {
                 continue
             }
@@ -64,7 +66,17 @@ function parseToolDefinition(filePath) {
             operationIds.add(tool.operation)
             const excludeParams = tool.exclude_params ?? []
             if (excludeParams.length > 0) {
+                // The exclusions apply to the operation's schema, which every tool on that operation shares. Differing
+                // lists would let whichever tool is read last decide for all of them, so they must match.
+                const previous = schemaExclusions.get(tool.operation)
+                if (previous && [...previous].sort().join(',') !== [...excludeParams].sort().join(',')) {
+                    throw new Error(
+                        `${filePath}: ${exclusionOwners.get(tool.operation)} and ${name} both use ${tool.operation} ` +
+                            'with different exclude_params. The operation has one schema, so the lists must match.'
+                    )
+                }
                 schemaExclusions.set(tool.operation, excludeParams)
+                exclusionOwners.set(tool.operation, name)
             }
         }
     }
