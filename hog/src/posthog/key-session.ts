@@ -11,6 +11,8 @@ export class KeySession {
     // PostHog also answers 401 for a valid token when the account can't act. Once a renewed token
     // gets 401 too, renewing again for every request would only rotate the login for nothing.
     private renewalHelps = true
+    // One renewal at a time, so concurrent requests share it instead of each renewing.
+    private renewal: Promise<AccessKey> | undefined
 
     constructor(
         private readonly runtime: Runtime,
@@ -23,14 +25,32 @@ export class KeySession {
         return this.key
     }
 
+    private async renew(storage: AccessKeyStorage, rejectedToken?: string): Promise<AccessKey> {
+        while (this.renewal) {
+            // A failed renewal fails its waiters too, so an outage costs one exchange and not one per request.
+            await this.renewal
+        }
+        if (rejectedToken !== undefined && this.key.token !== rejectedToken) {
+            return this.key
+        }
+        this.renewal = this.key
+            .fresh(this.runtime, storage, rejectedToken)
+            .then((key) => (this.key = key))
+            .finally(() => {
+                this.renewal = undefined
+            })
+        return this.renewal
+    }
+
     async token(): Promise<BearerToken> {
         if (this.storage) {
-            this.key = await this.key.fresh(this.runtime, this.storage)
+            await this.renew(this.storage)
         }
         return this.key.token
     }
 
-    // A step-up in the same project keeps the login id. Another id means another project, so hog stops.
+    // A step-up keeps the login id. Another id means a new login replaced this one while the command
+    // ran, so hog stops instead of switching to it.
     async reload(): Promise<void> {
         const latest = await this.storage?.reread()
         if (!latest) {
@@ -39,8 +59,8 @@ export class KeySession {
         if (latest.loginKey !== this.key.loginKey) {
             throw new HogError(
                 'login_changed',
-                "You're now logged in to another project, so hog stopped instead of sending the rest of the command there.",
-                'Run the command again to use that project.'
+                'You logged in again while this command ran, so hog stopped instead of sending the rest of the command with the new login.',
+                'Run the command again to use the new login.'
             )
         }
         this.key = latest
@@ -52,12 +72,11 @@ export class KeySession {
         if (!rejected(result) || !this.storage || !this.renewalHelps) {
             return result
         }
-        const renewed = await this.key.fresh(this.runtime, this.storage, token)
+        const renewed = await this.renew(this.storage, token)
         // A personal API key can't be renewed, so its 401 stands.
         if (renewed.token === token) {
             return result
         }
-        this.key = renewed
         const retried = await attempt(renewed.token)
         this.renewalHelps = !rejected(retried)
         return retried

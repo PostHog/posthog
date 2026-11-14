@@ -130,9 +130,9 @@ class TestCheckProductAccess:
             ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, False, "npx @posthog/wizard@latest"),
             ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, False, "npx @posthog/wizard@latest"),
             # django allows API keys with any model; OAuth rejected (no app IDs configured)
-            ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
+            ("django", "personal_api_key", None, "gpt-6-luna", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
-            ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
+            ("django", "oauth_access_token", "any-app-id", "gpt-6-luna", False, "not authorized"),
             # Custom image scans accept only server-minted OAuth credentials.
             ("custom_image_scans", "personal_api_key", None, "@cf/zai-org/glm-5.2", False, "requires OAuth"),
             (
@@ -150,10 +150,10 @@ class TestCheckProductAccess:
             ("llma_summarization", "personal_api_key", None, "gpt-5-mini", True, None),
             ("llma_summarization", "personal_api_key", None, "gpt-4.1-nano", True, None),
             ("llma_summarization", "personal_api_key", None, "gpt-4o", False, "not allowed"),
-            # llma_translation allows API keys but only gpt-4.1-mini; OAuth rejected (no app IDs configured)
-            ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
+            # llma_translation allows API keys but only its listed models; OAuth rejected (no app IDs configured)
+            ("llma_translation", "personal_api_key", None, "gpt-6-luna", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
-            ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
+            ("llma_translation", "oauth_access_token", "any-app-id", "gpt-6-luna", False, "not authorized"),
             # signals allows API keys (shared gateway key) with any model, and OAuth only from
             # the dedicated Signals app — a posthog_code (Desktop) token must not reach it
             ("signals", "personal_api_key", None, "claude-haiku-4-5", True, None),
@@ -296,6 +296,7 @@ class TestCheckProductAccess:
             "claude-opus-5",
             "claude-fable-5",
             "claude-fable-5-1",
+            "claude-fable-5-2",
             "claude-sonnet-4-5",
             "claude-sonnet-5",
             "claude-haiku-4-5",

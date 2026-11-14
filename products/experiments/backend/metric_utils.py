@@ -49,7 +49,22 @@ def get_default_metric_title(metric_dict: dict) -> str:
         start = metric_dict.get("start_event", {})
         completion = metric_dict.get("completion_event", {})
         return f"{_get_source_name(start)} / {_get_source_name(completion)}"
+    elif metric_type == "quantile":
+        return get_default_quantile_metric_title(metric_dict)
     return "Metric"
+
+
+def format_quantile_level(quantile: float) -> str:
+    return f"p{round(quantile * 100, 2):g}"
+
+
+def get_default_quantile_metric_title(metric_dict: dict) -> str:
+    source = metric_dict.get("source") or {}
+    measured = source.get("math_property") or _get_source_name(source)
+    quantile = metric_dict.get("quantile")
+    if not isinstance(quantile, int | float):
+        return f"Percentile of {measured}"
+    return f"{format_quantile_level(quantile)} of {measured}"
 
 
 logger = logging.getLogger(__name__)

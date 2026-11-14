@@ -1,6 +1,6 @@
 //! The v4 index rows. The recorder sends each row as one JSON message to the index topic, and the Parquet sink writes
 //! them to `rrweb-v4/index/`. The JSON keys are the Parquet column names in `replay-data.md`. Integer values fit the
-//! signed column types parquetjs writes, and an INT64 value stays in the range a JavaScript number holds exactly,
+//! signed column types the sink writes, and an INT64 value stays in the range a JavaScript number holds exactly,
 //! which the sink checks: a value past either range saturates.
 //!
 //! A flush can store its blocks and index rows and then fail before it commits its Kafka offsets. The next attempt
@@ -429,7 +429,7 @@ mod tests {
     use super::*;
 
     /// The columns of the Parquet files the recorder wrote before the sink took them over, in file order, with their
-    /// parquetjs type and whether they are optional. The sink writes the same files, so a renamed field or a changed
+    /// Parquet type and whether they are optional. The sink writes the same files, so a renamed field or a changed
     /// type here breaks every reader.
     const BLOCK_COLUMNS: &[(&str, &str, bool)] = &[
         ("team_id", "INT64", false),

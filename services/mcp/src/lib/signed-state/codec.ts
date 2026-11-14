@@ -8,7 +8,7 @@
  * Claims:
  *   - `sub`     — user identity (mapped to JWT `sub`); binds the token to the authenticated principal
  *   - `purpose` — what the token is for, e.g. tool name (mapped to JWT `aud`); guards cross-purpose replay
- *   - `nonce`   — 128 random bits (mapped to JWT `jti`); the key for the single-use ledger
+ *   - `nonce`   — 128 random bits (mapped to JWT `jti`); the key for the stashed payload
  *   - `iat/exp` — unix seconds; expiry caps the replay window
  *   - `payload` — caller-supplied opaque data, kept as a custom claim
  *
@@ -118,19 +118,6 @@ export class SignedStateCodec {
         } catch (err) {
             throw mapJoseError(err)
         }
-    }
-
-    /**
-     * Seconds until `claims.exp` according to the codec's clock —
-     * guaranteed to be at least 1. Used by callers (e.g. the typed-confirm
-     * nonce ledger) that need to size a TTL off the same time source the
-     * codec used to stamp the token; reading the wall clock here would
-     * skew under test injections or clock drift between the signer and
-     * the consumer.
-     */
-    secondsUntilExpiry(claims: SignedStateClaims): number {
-        const nowSeconds = Math.floor(this.now() / 1000)
-        return Math.max(1, claims.exp - nowSeconds)
     }
 }
 

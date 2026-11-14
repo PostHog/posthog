@@ -3,8 +3,15 @@ from typing import Protocol, cast
 
 from django.db.models import Model, prefetch_related_objects
 
-from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader, IntegrationRecord
 from posthog.models.team import Team
+
+
+def slack_row_reader() -> IntegrationReader:
+    """Reads Slack rows of any auth type. Older thread mappings and default projects can point at a row of the legacy PostHog Code kind."""
+    # Built on call, not at import: a module-level call joins an import cycle that mypy cannot type.
+    return IntegrationManager.kinds("slack", "slack-posthog-code", auth_types="any")
+
 
 # Slack webhooks carry the workspace id and no team, so these reads scope rows by the workspace id.
 
@@ -31,6 +38,14 @@ def workspace_integrations(slack_team_id: str) -> list[WorkspaceIntegration]:
     """The Slack app rows of a workspace, one per linked project, oldest id first."""
     rows = IntegrationManager.slack.oauth.list_by_external_id(slack_team_id)
     return with_teams(sorted(rows, key=lambda row: row.id))
+
+
+def get_integration(team_id: int, integration_id: int) -> WorkspaceIntegration | None:
+    """The Slack row of this project, or None. For code that holds a row id and the project from a thread mapping."""
+    try:
+        return with_teams([slack_row_reader().get(team_id, integration_id)])[0]
+    except IntegrationNotFound:
+        return None
 
 
 def _fetch_workspace_integration(integration_id: object, slack_team_id: str) -> IntegrationRecord | None:

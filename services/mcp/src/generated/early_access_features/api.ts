@@ -17,6 +17,7 @@ export const EarlyAccessFeatureListParams = () => zod.object({
 })
 
 export const EarlyAccessFeatureListQueryParams = () => zod.object({
+    ids: zod.string().optional().describe('Comma-separated early access feature IDs, at most 200.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -34,6 +35,10 @@ export const earlyAccessFeatureCreateBodyNameMax = 200
 export const earlyAccessFeatureCreateBodyDocumentationUrlOneMax = 800
 
 export const earlyAccessFeatureCreateBodyDocumentationUrlTwoMax = 0
+
+export const earlyAccessFeatureCreateBodyImageUrlOneMax = 800
+
+export const earlyAccessFeatureCreateBodyImageUrlTwoMax = 0
 
 export const EarlyAccessFeatureCreateBody = () => zod
     .object({
@@ -57,6 +62,13 @@ export const EarlyAccessFeatureCreateBody = () => zod
             ])
             .optional()
             .describe('URL to external documentation for this feature. Shown to users in the opt-in UI.'),
+        image_url: zod
+            .union([
+                zod.url().max(earlyAccessFeatureCreateBodyImageUrlOneMax),
+                zod.string().max(earlyAccessFeatureCreateBodyImageUrlTwoMax),
+            ])
+            .optional()
+            .describe('URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI.'),
         payload: zod.unknown().optional().describe('Arbitrary JSON metadata associated with this feature.'),
         feature_flag_id: zod
             .number()
@@ -92,6 +104,10 @@ export const earlyAccessFeaturePartialUpdateBodyDocumentationUrlOneMax = 800
 
 export const earlyAccessFeaturePartialUpdateBodyDocumentationUrlTwoMax = 0
 
+export const earlyAccessFeaturePartialUpdateBodyImageUrlOneMax = 800
+
+export const earlyAccessFeaturePartialUpdateBodyImageUrlTwoMax = 0
+
 export const EarlyAccessFeaturePartialUpdateBody = () => zod
     .object({
         name: zod
@@ -119,6 +135,13 @@ export const EarlyAccessFeaturePartialUpdateBody = () => zod
             ])
             .optional()
             .describe('URL to external documentation for this feature. Shown to users in the opt-in UI.'),
+        image_url: zod
+            .union([
+                zod.url().max(earlyAccessFeaturePartialUpdateBodyImageUrlOneMax),
+                zod.string().max(earlyAccessFeaturePartialUpdateBodyImageUrlTwoMax),
+            ])
+            .optional()
+            .describe('URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI.'),
     })
     .describe('Mixin for serializers to add user access control fields')
 

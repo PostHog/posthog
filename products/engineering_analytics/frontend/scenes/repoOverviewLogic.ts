@@ -184,8 +184,8 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     }),
             },
         ],
-        // One collapsed point per default-branch commit (all its workflows folded together) for the
-        // master-health strip — the backend owns the collapse, so the UI just plots the points.
+        // The backend folds each default-branch commit's workflows into one point, so the UI only
+        // plots the points.
         repoActivity: [
             { points: [], truncated: false, limit: 0 } as WorkflowRunActivityApi,
             {
@@ -201,7 +201,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
     })),
 
     reducers({
-        // Non-400 failure only; the shared 400 "not connected" state comes from engineeringAnalyticsLogic.
+        // Set by a non-400 failure only. The 400 "not connected" state comes from engineeringAnalyticsLogic.
         attentionFailed: [
             false,
             {
@@ -218,8 +218,8 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadOverviewFailure: () => true,
             },
         ],
-        // Without this, a failed activity fetch is indistinguishable from a quiet branch — the scene
-        // would show the "no runs" empty state over a real error.
+        // Without this flag a failed activity fetch looks like a quiet branch, and the scene would
+        // show the "no runs" empty state over a real error.
         repoActivityFailed: [
             false,
             {
@@ -228,10 +228,8 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadRepoActivityFailure: () => true,
             },
         ],
-        // How many rows the hub's preview tables show. Start short (HUB_PREVIEW_ROWS), grow by a fixed
-        // step on "Show more", capped so the hub stays a preview — the full tables live on the dedicated
-        // pages. No reset on reload: slicing tolerates any list length, and keeping the user's expansion
-        // across a window change is less surprising than snapping back.
+        // The count does not reset on reload, because slicing tolerates any list length and keeping the
+        // expansion across a window change surprises less than snapping back.
         prPreviewCount: [
             HUB_PREVIEW_ROWS,
             { showMorePrs: (count) => Math.min(HUB_PREVIEW_MAX, count + HUB_PREVIEW_STEP) },
@@ -251,8 +249,6 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
             (s) => [s.overview],
             (overview: RepoOverviewApi | null): string => overview?.default_branch ?? 'master',
         ],
-        // Backend-collapsed commit points, mapped to the shared chart shape (one bar per default-branch
-        // commit: start time, wall-clock CI duration, overall verdict).
         activityRuns: [
             (s) => [s.repoActivity],
             (repoActivity: WorkflowRunActivityApi): ActivityRun[] =>

@@ -37,6 +37,8 @@ export const LimitTypeEnumApi = {
 } as const
 
 export interface TaskRunErrorResponseApi {
+    /** Message ID to reuse as the JSON-RPC id when retrying delivery */
+    id?: unknown
     /** Human-readable validation error */
     detail?: string
     /** Human-readable error message */
@@ -1307,6 +1309,65 @@ export const TaskClientProvenanceEnumApi = {
 } as const
 
 /**
+ * * `posthog_desktop` - PostHog Desktop
+ * * `posthog_mobile` - PostHog Mobile
+ * * `posthog_web` - PostHog Web
+ * * `slack` - Slack
+ */
+export type TaskClientEnumApi = (typeof TaskClientEnumApi)[keyof typeof TaskClientEnumApi]
+
+export const TaskClientEnumApi = {
+    PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
+    Slack: 'slack',
+} as const
+
+/**
+ * * `queued` - Queued
+ * * `running` - Running
+ * * `idle` - Idle
+ * * `done` - Done
+ */
+export type TaskStatusEnumApi = (typeof TaskStatusEnumApi)[keyof typeof TaskStatusEnumApi]
+
+export const TaskStatusEnumApi = {
+    Queued: 'queued',
+    Running: 'running',
+    Idle: 'idle',
+    Done: 'done',
+} as const
+
+/**
+ * * `turn_closed` - Turn closed
+ * * `user_stopped` - User stopped
+ * * `provision_failed` - Provision failed
+ * * `unexpected_failure` - Unexpected failure
+ * * `timed_out` - Timed out
+ * * `budget_spent` - Budget spent
+ * * `credit_spent` - Credit spent
+ * * `access_changed` - Access changed
+ * * `finished` - Finished
+ * * `closed` - Closed
+ * * `cancelled` - Cancelled
+ */
+export type TaskStatusReasonEnumApi = (typeof TaskStatusReasonEnumApi)[keyof typeof TaskStatusReasonEnumApi]
+
+export const TaskStatusReasonEnumApi = {
+    TurnClosed: 'turn_closed',
+    UserStopped: 'user_stopped',
+    ProvisionFailed: 'provision_failed',
+    UnexpectedFailure: 'unexpected_failure',
+    TimedOut: 'timed_out',
+    BudgetSpent: 'budget_spent',
+    CreditSpent: 'credit_spent',
+    AccessChanged: 'access_changed',
+    Finished: 'finished',
+    Closed: 'closed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -1372,6 +1433,49 @@ export interface TaskDetailDTOApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
 }
 
 /**
@@ -1442,6 +1546,49 @@ export interface TaskBasicApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
     /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
     readonly description_preview: string
 }
@@ -1692,7 +1839,7 @@ export interface TaskCreateApi {
      * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
-     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
      * @maxLength 255
      * @nullable
      */
@@ -1708,6 +1855,11 @@ export interface TaskCreateApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+     * @nullable
+     */
+    repository_integration?: number | null
     /**
      * User-scoped GitHub integration to use for user-authored cloud runs.
      * @nullable
@@ -1792,6 +1944,16 @@ export interface TaskCreateApi {
      * @nullable
      */
     scheduled_at?: string | null
+    /**
+     * Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.
+     * @nullable
+     */
+    warm_submission_id?: string | null
+    /**
+     * Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.
+     * @nullable
+     */
+    warm_run_id?: string | null
     /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
     start_run?: boolean
     /**
@@ -1898,6 +2060,49 @@ export interface TaskCreateResponseDTOApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
     /** Error returned when the task was created but its first run could not start. */
     run_error?: string
 }
@@ -1945,7 +2150,7 @@ export interface TaskWriteApi {
      * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
-     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
      * @maxLength 255
      * @nullable
      */
@@ -1961,6 +2166,11 @@ export interface TaskWriteApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+     * @nullable
+     */
+    repository_integration?: number | null
     /**
      * User-scoped GitHub integration to use for user-authored cloud runs.
      * @nullable
@@ -2085,7 +2295,7 @@ export interface PatchedTaskWriteApi {
      * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
-     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
      * @maxLength 255
      * @nullable
      */
@@ -2101,6 +2311,11 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+     * @nullable
+     */
+    repository_integration?: number | null
     /**
      * User-scoped GitHub integration to use for user-authored cloud runs.
      * @nullable
@@ -2893,6 +3108,49 @@ export interface TaskRunResponseApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
     /** Error returned when the run could not start. */
     run_error?: string
     /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -5210,6 +5468,27 @@ export interface TaskSummaryDTOApi {
     updated_at: string
     origin_product?: string
     latest_run?: TaskRunSummaryApi | null
+    /** Where the task is now: queued, running, idle or done. Null on older tasks not filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
 }
 
 export interface PaginatedTaskSummaryDTOListApi {
@@ -5327,6 +5606,8 @@ export interface WarmTaskResponseApi {
     task_id: string
     /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
     run_id: string
+    /** The server can negotiate the final permission mode before activating an explicitly targeted warm run. */
+    permission_mode_mutable?: boolean
 }
 
 export type SandboxCustomImagesListParams = {
@@ -5339,7 +5620,7 @@ export type SandboxCustomImagesListParams = {
      */
     offset?: number
     /**
-     * Return 403 unless tasks from this origin product can run on custom images. Leave it out to only check that custom images are enabled.
+     * The list is empty when tasks from this origin product cannot run on custom images. Leave it out to list every image you can see.
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
@@ -5651,6 +5932,16 @@ export type TasksListParams = {
      * @minLength 1
      */
     status?: TasksListStatus
+    /**
+     * Filter tasks by their own status: queued, running, idle or done.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done
+     * @minLength 1
+     */
+    task_status?: TasksListTaskStatus
 }
 
 export type TasksListArchived = (typeof TasksListArchived)[keyof typeof TasksListArchived]
@@ -5809,6 +6100,15 @@ export const TasksListStatus = {
     Completed: 'completed',
     Failed: 'failed',
     Cancelled: 'cancelled',
+} as const
+
+export type TasksListTaskStatus = (typeof TasksListTaskStatus)[keyof typeof TasksListTaskStatus]
+
+export const TasksListTaskStatus = {
+    Queued: 'queued',
+    Running: 'running',
+    Idle: 'idle',
+    Done: 'done',
 } as const
 
 export type TasksCommentsListParams = {

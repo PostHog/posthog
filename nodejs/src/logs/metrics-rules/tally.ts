@@ -123,7 +123,11 @@ function decodedAttr(map: Record<string, string> | null | undefined, key: string
 
 function resolveLabelValue(key: string, record: LogRecord): string {
     const value = lookupKey(key, record) ?? ''
-    return value.length > MAX_LABEL_VALUE_LENGTH ? value.slice(0, MAX_LABEL_VALUE_LENGTH) : value
+    if (value.length <= MAX_LABEL_VALUE_LENGTH) {
+        return value
+    }
+    // V8 slices keep their whole parent string alive, and the metric-rule window holds labels across batches.
+    return Buffer.from(value.slice(0, MAX_LABEL_VALUE_LENGTH), 'utf16le').toString('utf16le')
 }
 
 const SERIES_WINDOW_MS = 60 * 60 * 1000

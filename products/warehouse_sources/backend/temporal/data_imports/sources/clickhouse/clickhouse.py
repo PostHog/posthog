@@ -1112,13 +1112,16 @@ def _has_duplicate_primary_keys(
     table_name: str,
     primary_keys: list[str] | None,
     logger: FilteringBoundLogger,
+    conditions: Sequence[str] = (),
+    parameters: dict[str, Any] | None = None,
 ) -> bool | None:
     """Check whether the merge key has obvious duplicate combinations.
 
     ClickHouse enforces uniqueness on nothing, so the key an incremental merge
-    matches rows on is unproven until this probes it. We probe a
-    bounded prefix of the table (DUPLICATE_PK_CHECK_ROW_BUDGET rows) rather
-    than scanning the whole thing, because:
+    matches rows on is unproven until this probes it. `conditions` and
+    `parameters` limit the probe to the rows the sync reads. Without them we
+    probe a bounded prefix of the table (DUPLICATE_PK_CHECK_ROW_BUDGET rows)
+    rather than scanning the whole thing, because:
 
     1. A user who chose a non-unique key will virtually always show
        duplicates inside any reasonably sized prefix.
@@ -1136,10 +1139,11 @@ def _has_duplicate_primary_keys(
         return False
 
     quoted_keys = ", ".join(_quote_identifier(k) for k in primary_keys)
+    where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
     # LIMIT 1 lets ClickHouse short-circuit the moment it finds a duplicate.
-    query = f"SELECT 1 FROM {_qualified_table(database, table_name)} GROUP BY {quoted_keys} HAVING count() > 1 LIMIT 1"
+    query = f"SELECT 1 FROM {_qualified_table(database, table_name)}{where} GROUP BY {quoted_keys} HAVING count() > 1 LIMIT 1"
     try:
-        result = client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS)
+        result = client.query(query, parameters=parameters, settings=_DUPLICATE_PK_CHECK_SETTINGS)
         return len(result.result_rows) > 0
     except ClickHouseError as e:
         # An exhausted budget or a rejected setting compared no rows, so it says nothing about
@@ -1785,7 +1789,23 @@ def clickhouse_source(
             if sync_type == ExternalDataSchemaSyncType.INCREMENTAL and should_probe_for_duplicates(
                 merge_keys, primary_keys, constraints_enforced=False
             ):
-                probed = _has_duplicate_primary_keys(client, database, table_name, merge_keys, logger)
+                probe_conditions: list[str] = []
+                probe_parameters: dict[str, Any] = {}
+                # The merge can only fail on a duplicate among the rows this run reads.
+                if should_use_incremental_field and incremental_field and db_incremental_field_last_value is not None:
+                    probe_conditions, filter_params = _build_conditions(
+                        should_use_incremental_field=True,
+                        incremental_field=incremental_field,
+                        incremental_field_type=incremental_field_type,
+                        row_filters=row_filters,
+                    )
+                    probe_parameters = {
+                        **filter_params,
+                        "last_value": _last_value_param(db_incremental_field_last_value, incremental_field_type),
+                    }
+                probed = _has_duplicate_primary_keys(
+                    client, database, table_name, merge_keys, logger, probe_conditions, probe_parameters
+                )
                 # Only a probe that ran proves anything.
                 has_duplicate_primary_keys = probed is True
         finally:

@@ -879,7 +879,8 @@ def _plan_state(team: Team) -> tuple[int, date] | None:
 
 
 @pytest.mark.django_db
-def test_update_plan_deletions_passes_only_teams_deleting_past_the_default():
+@pytest.mark.parametrize("cloud", [True, False], ids=["cloud", "self_hosted"])
+def test_update_plan_deletions_passes_only_teams_deleting_past_the_default(cloud: bool):
     organization = Organization.objects.create(name="Mixed plans")
     free, paid, unenforced = (
         Team.objects.create(organization=organization, name=name, event_retention_months=months)
@@ -895,13 +896,14 @@ def test_update_plan_deletions_passes_only_teams_deleting_past_the_default():
         return person_properties == {"plan_retention_months": 12, "organization_id": str(organization.id)}
 
     with (
-        patch("posthog.models.team.event_retention.is_cloud", return_value=True),
+        patch("posthog.models.team.event_retention.is_cloud", return_value=cloud),
         patch("posthoganalytics.feature_enabled", side_effect=feature_enabled),
     ):
         passes = update_plan_deletions(build_op_context(), PlanDeletionConfig())
 
+    plan_pass = (12, _first_pass()) if cloud else None
     assert passes.due_team_ids == []
-    assert [_plan_state(team) for team in (free, paid, unenforced)] == [(12, _first_pass()), None, None]
+    assert [_plan_state(team) for team in (free, paid, unenforced)] == [plan_pass, None, plan_pass]
 
 
 def _both_plans(config: dict) -> dict:

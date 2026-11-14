@@ -3,7 +3,9 @@ import { useState } from 'react'
 
 import { IconEllipsis, IconGear, IconPalette } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonDivider, LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -58,6 +60,7 @@ export function DashboardEditBarAdvancedFilters({
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
+    const quillSurface = useQuillSurface()
     const [visible, setVisible] = useState(false)
 
     const filterTestAccounts = effectiveEditBarFilters.filterTestAccounts ?? null
@@ -103,11 +106,8 @@ export function DashboardEditBarAdvancedFilters({
                         size="small"
                         value={choice}
                         onChange={(next) => {
-                            if (!dashboardEditing?.filters) {
-                                setDashboardEditing(
-                                    { filters: true, layout: false },
-                                    DashboardEventSource.DashboardFilters
-                                )
+                            if (!dashboardEditing) {
+                                setDashboardEditing(true, DashboardEventSource.DashboardFilters)
                             }
                             setFilterTestAccounts(CHOICE_TO_FILTER[next])
                         }}
@@ -171,15 +171,30 @@ export function DashboardEditBarAdvancedFilters({
                 </div>
             }
         >
-            <LemonButton
-                size="small"
-                icon={<IconEllipsis />}
-                tooltip="Advanced options"
-                active={visible}
-                onClick={() => setVisible(!visible)}
-                sideIcon={overrideCount ? <LemonBadge.Number count={overrideCount} size="small" /> : undefined}
-                data-attr="dashboard-advanced-filters"
-            />
+            {quillSurface ? (
+                <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label={overrideCount ? `Advanced options, ${overrideCount} active` : 'Advanced options'}
+                    tooltip="Advanced options"
+                    aria-expanded={visible}
+                    indicator={overrideCount ? 'default' : undefined}
+                    onClick={() => setVisible(!visible)}
+                    data-attr="dashboard-advanced-filters"
+                >
+                    <IconEllipsis />
+                </Button>
+            ) : (
+                <LemonButton
+                    size="small"
+                    icon={<IconEllipsis />}
+                    tooltip="Advanced options"
+                    active={visible}
+                    onClick={() => setVisible(!visible)}
+                    sideIcon={overrideCount ? <LemonBadge.Number count={overrideCount} size="small" /> : undefined}
+                    data-attr="dashboard-advanced-filters"
+                />
+            )}
         </Popover>
     )
 }

@@ -119,7 +119,7 @@ export interface RerunJobState {
     progress: RerunJobProgress
 }
 
-/** Hard cap on rows fetched per rerun page (also caps a by-IDs request slice). */
+/** Hard cap on rows fetched per rerun page, and the number of IDs a by-IDs page sends to ClickHouse. */
 export const RERUN_PAGE_SIZE = 200
 
 /**

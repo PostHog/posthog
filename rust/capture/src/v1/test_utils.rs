@@ -59,6 +59,7 @@ pub fn test_context() -> RequestContext {
         capture_internal: false,
         historical_migration: false,
         gateway_signature: None,
+        legacy_property_splice: true,
     }
 }
 
@@ -563,7 +564,9 @@ use crate::config::CaptureMode;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::outputs::OutputRegistry;
-use crate::quota_limiters::CaptureQuotaLimiter;
+use crate::quota_limiters::{
+    is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
+};
 use crate::router::{self, HistoricalConfig};
 use crate::sinks::kafka::KafkaSinkBase;
 use crate::sinks::producer::MockKafkaProducer;
@@ -580,7 +583,7 @@ pub struct TestState {
 
 /// Builder for `router::State` with configurable mock services.
 pub struct TestStateBuilder {
-    quota_limited: bool,
+    quota_limited: Vec<QuotaResource>,
     overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
     overflow_preserve_locality: bool,
     overflow_forced_key: Option<String>,
@@ -594,6 +597,7 @@ pub struct TestStateBuilder {
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
     capture_mode: CaptureMode,
     ai_max_event_bytes: u64,
+    legacy_property_splice: bool,
 }
 
 impl Default for TestStateBuilder {
@@ -605,7 +609,7 @@ impl Default for TestStateBuilder {
 impl TestStateBuilder {
     pub fn new() -> Self {
         Self {
-            quota_limited: false,
+            quota_limited: Vec::new(),
             overflow_limiter: None,
             overflow_preserve_locality: false,
             overflow_forced_key: None,
@@ -618,13 +622,24 @@ impl TestStateBuilder {
             ai_gateway_signing_secret: None,
             ingestion_warning_emitter: None,
             capture_mode: CaptureMode::Events,
+            legacy_property_splice: true,
             ai_max_event_bytes: 0,
         }
     }
 
     /// Configure quota limiter to reject all events for any token.
-    pub fn with_quota_limited(mut self) -> Self {
-        self.quota_limited = true;
+    pub fn with_quota_limited(self) -> Self {
+        self.with_quota_limited_resources(&[
+            QuotaResource::Events,
+            QuotaResource::Recordings,
+            QuotaResource::Exceptions,
+            QuotaResource::Surveys,
+            QuotaResource::LLMEvents,
+        ])
+    }
+
+    pub fn with_quota_limited_resources(mut self, resources: &[QuotaResource]) -> Self {
+        self.quota_limited = resources.to_vec();
         self
     }
 
@@ -716,8 +731,13 @@ impl TestStateBuilder {
         self
     }
 
+    pub fn with_legacy_property_splice(mut self, enabled: bool) -> Self {
+        self.legacy_property_splice = enabled;
+        self
+    }
+
     pub fn build(self) -> TestState {
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = if self.quota_limited {
+        let redis: Arc<dyn common_redis::Client + Send + Sync> = if !self.quota_limited.is_empty() {
             let mut mock = MockRedisClient::new();
             for resource in &[
                 QuotaResource::Events,
@@ -728,7 +748,12 @@ impl TestStateBuilder {
             ] {
                 let key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, resource.as_str());
                 // Return a wildcard token so every token is limited
-                mock = mock.zrangebyscore_ret(&key, vec!["*".to_string()]);
+                let limited = if self.quota_limited.contains(resource) {
+                    vec!["*".to_string()]
+                } else {
+                    vec![]
+                };
+                mock = mock.zrangebyscore_ret(&key, limited);
             }
             Arc::new(mock)
         } else {
@@ -750,7 +775,11 @@ impl TestStateBuilder {
         let cfg: crate::config::Config =
             envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("failed to build test Config");
 
-        let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
+        // Same scoped limiters as `setup.rs`
+        let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+            .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
+            .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
+            .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
         let historical_cfg = match self.historical_threshold_days {
             Some(days) => HistoricalConfig::new(true, days),
@@ -809,6 +838,7 @@ impl TestStateBuilder {
             ai_byte_rate_limiter: self.ai_byte_rate_limiter,
             replay_overflow_limiter: None,
             capture_v1_scatter_gather_min_batch: 8,
+            capture_v1_legacy_property_splice: self.legacy_property_splice,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
             capture_mode: self.capture_mode,

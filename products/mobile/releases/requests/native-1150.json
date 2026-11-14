@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-1150",
+    "kind": "native",
+    "runtimeVersion": "1.15.0",
+    "previousRelease": "ota-1110-final-reply",
+    "notes": "This release adds session replay video, report links that open in the app, updated iOS icons, and a masked mobile replay prototype. Install and launch the iOS TestFlight build. In the demo, open an Inbox report, inspect a dashboard and chart in Views, and open a sample chat. In a test project, check sign-in, replay playback, session handoff, notifications, and home screen widgets."
+}

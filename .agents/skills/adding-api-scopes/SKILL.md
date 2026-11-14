@@ -34,6 +34,7 @@ Then decide two more things, separately from the kind:
 ## To add the scope
 
 1. **Declare it in Python.** Add the object to the `APIScopeObject` literal in `posthog/scopes.py`. If you chose internal, OAuth-hidden or privileged above, also add it to that set.
+   - Add the same value to `ResourceType` in `products/authorization/backend/facade/enums.py`. The shared permission check names the scope with that type, so a scope without one returns a 500 on its endpoints.
 2. **Connect it to its endpoints.** Set `scope_object = "<object>"` on each viewset the scope covers.
    - Standard actions need no extra work: `list` and `retrieve` need `:read`, and `create`, `update` and `destroy` need `:write`.
    - A custom `@action` needs `required_scopes`, for example `required_scopes=["<object>:write"]`. Use `:read` if it only reads data, and `:write` if it changes data. Without it, token requests get a 403.
@@ -59,6 +60,7 @@ The groups make a long list readable, so a person can find a product quickly.
 
 - **`posthog/test/repo_invariants/test_scope_docs.py`:** an exposed object has no `ScopeDoc`, or a `ScopeDoc` names an object that is hidden or omitted from pickers. Add the doc, or the omission reason, as in step 4. A `ValueError` at import names a `ScopeDoc` with a missing field, a long description, a dash, a docs link outside posthog.com/docs, an unknown group, or a `write_requires` that names an unknown scope.
 - **`posthog/test/test_scopes.py`:** an internal, OAuth-hidden or privileged scope leaks into a list it must stay out of, or the project secret API key list in `posthog/scopes.py` differs from the copy in `frontend/src/lib/scopes.tsx`. Fix the set, or make the two lists equal.
+- **`posthog/test/repo_invariants/test_api_scopes_have_resource_types.py`:** a scope has no `ResourceType`. Add one, as step 1 says.
 - **`services/mcp/tests/unit/tool-filtering.test.ts`, the completeness test:** an MCP tool requires a scope that OAuth does not advertise. If the scope is new, run `hogli build:projections`. If it is internal, add it to the test's server-only list. Otherwise fix the scope name in `tools.yaml`.
 
 ## What no test covers

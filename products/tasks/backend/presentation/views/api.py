@@ -2,12 +2,13 @@ import os
 import re
 import json
 import asyncio
+import dataclasses
 from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, quote, urlparse
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -386,6 +387,13 @@ SESSION_LOG_PAGE_MAX_BYTES = 16 * 1024 * 1024
 SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
 
 
+def _task_done_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": str(tasks_facade.TaskDoneError())}).data,
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
 def _is_internal_debug_team(team_id: int | None) -> bool:
     if settings.DEBUG and not settings.TEST:
         return team_id == 1
@@ -576,8 +584,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         *,
         partial: bool = False,
         serializer_class: type[TaskWriteSerializer] = TaskWriteSerializer,
+        instance=None,
     ) -> TaskWriteSerializer:
         serializer = serializer_class(
+            instance=instance,
             data=data,
             partial=partial,
             context={"team": self.team, "team_id": self.team.id, "request": self.request},
@@ -597,6 +607,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. By default, each row includes description. Pass basic=true for a summary row that omits description and includes description_preview, its first 1000 characters. Use the search parameter to match description text server-side.",
     )
     def list(self, request, *args, **kwargs):
+        basic = getattr(request, "validated_query_data", {}).get("basic", False)
         filters = {key: request.query_params.get(key) for key in request.query_params}
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
@@ -608,7 +619,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         all_team_tasks = bool(getattr(request, "validated_query_data", {}).get("all_team_tasks"))
         bypass_visibility = all_team_tasks and _can_bypass_visibility(request, self.team_id)
         tasks = tasks_facade._list_tasks_queryset(
-            self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility
+            self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility, basic=basic
         ).exclude(id__in=_hidden_scout_trial_task_ids(request, self.team_id))
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
@@ -616,7 +627,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tag_queries(is_scout_experiment=True)
         # Description bodies dominate the list payload. A summary surface asks for basic=true
         # and gets the smaller rows without them.
-        basic = getattr(request, "validated_query_data", {}).get("basic", False)
         serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
             serializer_class(
@@ -1113,9 +1123,24 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             and authenticator.access_token.sandbox_task_id is not None
         ):
             raise PermissionDenied("Task agents cannot move tasks between channels.")
-        serializer = self._write_serializer(request.data, partial=True)
+        if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
+            raise NotFound()
+        current = tasks_facade.get_task_repository_state(pk, self.team_id, self._user_id())
+        if current is None:
+            raise NotFound()
+        serializer = self._write_serializer(request.data, partial=True, instance=current)
         task = tasks_facade.update_task(
-            pk, self.team_id, self._user_id(), validated_data=dict(serializer.validated_data)
+            pk,
+            self.team_id,
+            self._user_id(),
+            validated_data=dict(serializer.validated_data),
+            expected_repository_state=(
+                current.repository,
+                current.repositories,
+                current.github_integration,
+                current.github_user_integration,
+                current.repository_integration,
+            ),
         )
         if task is None:
             raise NotFound()
@@ -1255,6 +1280,50 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task = tasks_facade.handoff_task(pk, self.team_id, user_id, target_user_id=request.validated_data["user"])
         except tasks_facade.TaskHandoffError as e:
             raise ValidationError({"user": str(e)}) from e
+        if task is None:
+            raise NotFound()
+        return Response(TaskSerializer(task).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: TaskSerializer,
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Closing is not available for this task yet."
+            ),
+            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Only a user may close a task."),
+            404: OpenApiResponse(description="Task not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is not idle."),
+        },
+        summary="Close a task",
+        description=(
+            "Mark an idle task as done. A done task refuses new runs and follow-up messages, so start a new task "
+            "to keep working on it."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="close", required_scopes=["task:write"])
+    def close(self, request, pk=None, **kwargs):
+        if is_sandbox_oauth_request(request) or is_mcp_built_in_agent_oauth_request(request):
+            raise PermissionDenied("Only a user can close a task. Sign in to continue.")
+        user_id = self._user_id()
+        if user_id is None:
+            raise NotFound()
+        outcome = tasks_facade.close_task(pk, self.team_id, user_id)
+        if outcome == "not_found":
+            raise NotFound()
+        if outcome == "not_enabled":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Closing isn't available for this task yet."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "not_idle":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "Only an idle task can be closed. Wait for the current run to finish."}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        task = tasks_facade.get_task_detail(pk, self.team_id, user_id)
         if task is None:
             raise NotFound()
         return Response(TaskSerializer(task).data)
@@ -1556,6 +1625,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ),
             ),
             404: OpenApiResponse(description="Task not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -1669,13 +1739,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result.error is not None:
             return self._task_error_response(result.error)
-        if (
-            not result.run_error
-            and result.run_id is not None
-            and request.headers.get("X-PostHog-Client-Platform") == "mobile"
-        ):
-            tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
-        response_data = TaskSerializer(result.task).data
+        task = result.task
+        if not result.run_error and result.run_id is not None:
+            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+                tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
+            if request.validated_data.get("pending_user_message") or request.validated_data.get(
+                "pending_user_artifact_ids"
+            ):
+                client = get_task_client_provenance(request)
+                recorded_at = tasks_facade.record_task_client(task_id=str(pk), team_id=self.team_id, client=client)
+                if task is not None and recorded_at is not None:
+                    task = dataclasses.replace(task, last_client=client, last_client_at=recorded_at)
+        response_data = TaskSerializer(task).data
         if result.run_error:
             response_data["run_error"] = result.run_error
         response_data["run"] = self._created_run_payload(result, response_data, task_id=pk)
@@ -1889,7 +1964,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
-        return Response(WarmTaskResponseSerializer({"task_id": result.task_id, "run_id": result.run_id}).data)
+        return Response(
+            WarmTaskResponseSerializer(
+                {
+                    "task_id": result.task_id,
+                    "run_id": result.run_id,
+                    "permission_mode_mutable": origin_product
+                    in (
+                        tasks_facade.TaskOriginProduct.USER_CREATED,
+                        tasks_facade.TaskOriginProduct.POSTHOG_AI,
+                    ),
+                }
+            ).data
+        )
 
     @extend_schema(operation_id="tasks_warm_resume_create")
     @validated_request(
@@ -1972,6 +2059,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if error.missing_artifact_ids is not None:
                 body["missing_artifact_ids"] = error.missing_artifact_ids
             return Response(body, status=status.HTTP_400_BAD_REQUEST)
+        if error.code == "task_done":
+            return _task_done_response()
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2058,6 +2147,16 @@ def is_sandbox_agent_request(request, task_id: str) -> bool:
 
 # Command methods that inject caller-authored content and drive a new model turn.
 _HUMAN_STEERING_COMMAND_METHODS = frozenset({"user_message", "side_question"})
+_PI_TURN_COMMAND_TYPES = frozenset({"prompt", "steer", "follow_up"})
+
+
+def _command_starts_a_turn(method: str, params: object) -> bool:
+    if method == "side_question":
+        return True
+    if method != "pi/rpc" or not isinstance(params, dict):
+        return False
+    command = params.get("command")
+    return isinstance(command, dict) and command.get("type") in _PI_TURN_COMMAND_TYPES
 
 
 @extend_schema(tags=["task-runs", "tasks"])
@@ -2325,6 +2424,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _validation_error_response(self, error: tasks_contracts.TaskRunValidationError) -> Response:
         if error.kind == "detail":
             return Response({"detail": error.detail}, status=status.HTTP_400_BAD_REQUEST)
+        if error.code == "task_done":
+            return _task_done_response()
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2339,6 +2440,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -2382,6 +2484,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
             404: OpenApiResponse(description="Task run not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -2471,6 +2574,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if outcome == "task_done":
+            return _task_done_response()
 
         if started_task_id is None:
             raise NotFound()
@@ -3787,6 +3892,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
 
+        if _command_starts_a_turn(method, params):
+            try:
+                tasks_facade.check_wake_by_task_id(task_id, source="command")
+            except tasks_facade.TaskDoneError:
+                return _task_done_response()
+
         # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
         # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
         if method == "side_question":
@@ -3809,6 +3920,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 return access_response
 
         if method == "user_message":
+            if request_id is None:
+                request_id = str(uuid4())
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
             if artifact_ids:
@@ -3839,10 +3952,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             except ComputeBillingLimitExceeded as error:
                 return compute_quota_limit_response(error.reason)
+            except tasks_facade.TaskDoneError:
+                return _task_done_response()
             except Exception:
                 logger.warning("Failed to queue user message for task run %s", pk)
                 return Response(
-                    TaskRunErrorResponseSerializer({"error": "Failed to queue user message for task run"}).data,
+                    TaskRunErrorResponseSerializer(
+                        {"error": "Failed to queue user message for task run", "id": request_id}
+                    ).data,
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
             if signal_result is None:
@@ -3853,8 +3970,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
-                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+            self._record_person_turn(request, task_id)
 
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
@@ -4010,12 +4126,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tasks_facade.capture_relay_command_telemetry(
                 pk, task_id, self.team_id, method=method, params=params, success=success
             )
-            if (
-                success
-                and method == "permission_response"
-                and request.headers.get("X-PostHog-Client-Platform") == "mobile"
+            if (success and method == "permission_response") or (
+                agent_response.ok and self._is_pi_person_answer(method, params, response_data)
             ):
-                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+                self._record_person_turn(request, task_id)
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(response_data)
@@ -4071,6 +4185,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+    @staticmethod
+    def _is_pi_person_answer(method: str, params: object, response_data: object) -> bool:
+        command = params.get("command") if method == "pi/rpc" and isinstance(params, dict) else None
+        if not isinstance(command, dict) or not isinstance(response_data, dict) or "error" in response_data:
+            return False
+        if command.get("type") == "mcp_permission_response":
+            return True
+        return command.get("type") == "extension_ui_response" and ("confirmed" in command or "value" in command)
+
+    def _record_person_turn(self, request: Request, task_id: str) -> None:
+        if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+            tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+        tasks_facade.record_task_client(
+            task_id=task_id, team_id=self.team_id, client=get_task_client_provenance(request)
+        )
 
     @staticmethod
     def _is_valid_sandbox_url(url: str) -> bool:
@@ -4266,6 +4396,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -4302,6 +4433,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         outcome, run, _ = tasks_facade.resume_task_run_in_cloud(pk, task_id, self.team_id, self._user_id())
         if outcome == "not_found":
             raise NotFound()
+        if outcome == "task_done":
+            return _task_done_response()
         if outcome == "already_active":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
@@ -5306,11 +5439,10 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         query = SandboxCustomImageListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         origin_product = query.validated_data.get("origin_product")
-        if origin_product and not tasks_facade.sandbox_custom_images_enabled(
+        origin_allowed = not origin_product or tasks_facade.sandbox_custom_images_enabled(
             self.team_id, request.user.id, origin_product=origin_product
-        ):
-            raise PermissionDenied("Custom sandbox images cannot run for tasks from this origin")
-        images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id)
+        )
+        images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id) if origin_allowed else []
         page = self.paginate_queryset(images)
         if page is not None:
             return self.get_paginated_response(SandboxCustomImageSerializer(page, many=True).data)

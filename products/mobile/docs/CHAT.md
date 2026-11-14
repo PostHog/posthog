@@ -83,6 +83,13 @@ Classic chat refreshes history whenever it opens, even while the cached response
 An accepted message leaves draft recovery as soon as the server accepts it, while the reply continues streaming.
 If its stream disconnects or times out, classic chat checks the saved conversation automatically without sending the message again.
 Completed replies and pending decisions load from that saved state. If recovery still needs a connection, received messages stay visible with Reconnect.
+Backgrounding classic chat detaches its stream without canceling the server's reply or clearing received messages.
+Returning to the app reloads saved messages and reattaches to a reply still in progress, without resending the prompt.
+Connection recovery makes two silent attempts, one second apart, before showing a reconnect error.
+Uncheckpointed reply text stays visible while recovery retries. A first message interrupted before acceptance remains sendable if the server has no conversation to recover.
+Disconnected readers preserve the shared server stream for reattachment; its existing expiry bounds retention.
+Backgrounding or leaving the chat cancels a pending retry. Authorization and missing-conversation errors appear immediately.
+Pending approvals and forms remain available for an answer instead of restarting the stream.
 Linked conversations stay visible when their task is absent from the list.
 Opening a linked chat checks its conversation runtime before continuing.
 If one chat history source fails, Chats keeps the loaded rows and offers a retry for the remaining history.
@@ -111,6 +118,20 @@ drafts. Demo drafts stay in the current composer; the web preview stores drafts 
 Picked files are not part of a draft. They stay in memory and go when the sheet closes (see [Attachments](#attachments)).
 
 ## Rich replies
+
+Sent messages have an icon-only copy button in both chat versions and report discussions. For AI replies, Copy appears below the last message of each turn.
+It copies the full message text, preserving Markdown and code blocks, and shows a checkmark after the clipboard confirms success.
+The button waits until an AI reply finishes streaming and stays hidden for empty messages.
+A failed copy shows an error beside the button and allows another attempt.
+`mobile_chat_message_copy_pressed`, `mobile_chat_message_copied` and `mobile_chat_message_copy_failed` record the action with `message_role`, `text_length` and the standard action context.
+
+The last message of a completed AI turn also offers **Good answer** and **Bad answer** as icon-only buttons beside Copy.
+Classic replies show ratings when the final message has a trace ID.
+A thumbs-down saves the rating and opens an optional comment sheet that moves above the keyboard.
+Skip closes the sheet, and tapping the selected thumbs-down reopens it until a comment is sent.
+Ratings persist on the device, scoped to the account and project, and clear on sign-out.
+The app uses the web's `$ai_metric` quality ratings and `$ai_feedback` comment events, with the answer's trace, task, run and turn identifiers where available, through its configured mobile analytics project.
+Demo mode keeps ratings on the device.
 
 PostHog object tags render as inline links to the selected host and project. Standalone
 `display="block"` insight tags show the saved name and description; SQL tags show a three-line

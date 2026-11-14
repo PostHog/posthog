@@ -98,7 +98,6 @@ import {
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 import { FixErrorButton } from './components/FixErrorButton'
-import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -399,7 +398,11 @@ function SplitOutputToggle({ splitView, onClick }: SplitOutputToggleProps): JSX.
             size="small"
             icon={splitView ? <IconScreen /> : <IconColumns />}
             onClick={onClick}
-            tooltip={splitView ? 'Show one output at a time' : 'Show results and visualization side by side'}
+            tooltip={
+                splitView
+                    ? 'Exit split view and show only the results'
+                    : 'Split view: show the results and the visualization side by side'
+            }
             data-attr="sql-editor-output-split-toggle"
         />
     )
@@ -635,9 +638,9 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         metadata,
         metadataLoading,
         indexReportStale,
+        fixErrorsLoading: fixWithAILoading,
     } = useValues(sqlEditorLogic)
     const { setSourceQuery, applyIndexQuickfix, fixIndexUsageWithAI } = useActions(sqlEditorLogic)
-    const { responseLoading: fixWithAILoading } = useValues(fixSQLErrorsLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -653,7 +656,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         visualizationProps: visualizationLogic.props,
         tabId: tabId || '',
     })
-    const { choosingChart, statusMessage } = useValues(chartRecommendationLogic)
+    const { choosingChart } = useValues(chartRecommendationLogic)
     const { skipRecommendation } = useActions(chartRecommendationLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
@@ -695,14 +698,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 width: 30,
                 renderCell: ({ row }: { row: any }) => (
                     <div className="hover-actions-cell flex justify-center items-center">
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconExpand45 />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedRow(row)
-                            }}
-                        />
+                        <LemonButton size="xsmall" icon={<IconExpand45 />} onClick={() => setSelectedRow(row)} />
                     </div>
                 ),
             },
@@ -997,13 +993,8 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 outputContent
             )}
             <div className="flex flex-wrap justify-between gap-x-4 px-2 border-t">
-                <div className="flex flex-wrap items-center gap-x-4">
+                <div className="flex min-h-4 flex-wrap items-center gap-x-4">
                     {response && !responseError ? <LoadPreviewText localResponse={response} /> : null}
-                    {statusMessage ? (
-                        <span className="text-xs text-muted" role="status" data-attr="sql-editor-chart-status">
-                            {statusMessage}
-                        </span>
-                    ) : null}
                 </div>
                 <div className="flex items-center gap-4">
                     <ElapsedTime />
@@ -1292,6 +1283,7 @@ const Content = ({
                 closeCopyMenu() // Not a copyable data cell — close any open menu and fall back to the native one
                 return
             }
+            args.selectCell()
             event.preventGridDefault()
             event.preventDefault()
             openCopyMenu(event.currentTarget, text)

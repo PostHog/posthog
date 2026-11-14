@@ -25,3 +25,7 @@ class FlagEvaluationsMode(LabeledIntEnum):
 
 # The activity log trigger `job_type` of a flag save that a scheduled change applies.
 SCHEDULED_CHANGE_JOB_TYPE = "scheduled_change"
+
+# The activity log trigger `job_type` of a flag save that restores a past version. Its `payload` carries
+# `restored_from_version`, the version the flag was set back to.
+VERSION_RESTORE_JOB_TYPE = "version_restore"

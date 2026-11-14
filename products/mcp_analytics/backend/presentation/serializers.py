@@ -346,6 +346,13 @@ class MCPSessionToolCallsQuerySerializer(serializers.Serializer):
             "older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
         ),
     )
+    date_to = LenientDateTimeField(
+        required=False,
+        help_text=(
+            "Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops "
+            "there instead of reading up to now. Unbounded when omitted or unparseable."
+        ),
+    )
     properties = PropertyFiltersField(
         required=False,
         allow_blank=True,
@@ -506,7 +513,9 @@ class MCPActivityStatsSerializer(serializers.Serializer):
         read_only=True, help_text="Tool calls flagged as errors ($mcp_is_error) in the window."
     )
     missing_capability_reports = serializers.IntegerField(
-        read_only=True, help_text="$mcp_missing_capability events captured in the window."
+        read_only=True,
+        help_text="Missing-capability reports captured in the window: $mcp_missing_capability events and "
+        "$mcp_feedback events of type missing_capability.",
     )
 
 

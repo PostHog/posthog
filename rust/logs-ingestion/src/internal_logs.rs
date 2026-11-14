@@ -31,23 +31,32 @@ pub struct InternalLogs {
     pub team_rules: bool,
 }
 
+/// Mirrors the Node `INTERNAL_SOURCE_POLICIES`.
 pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolicy> {
-    HashMap::from([
+    [
+        "hog_flow",
+        "hog_function",
+        "external_data_jobs",
+        "data_modeling_run",
+        "batch_exports",
+        "batch_exports_backfill",
+        "dwh_cdp_producer_job",
+        "temporal_workflow",
+        "endpoints",
+        "alert_destination",
+        "session_replay",
+    ]
+    .into_iter()
+    .map(|source| {
         (
-            "hog_flow".to_string(),
+            source.to_string(),
             InternalSourcePolicy {
                 billed: false,
                 team_rules: false,
             },
-        ),
-        (
-            "hog_function".to_string(),
-            InternalSourcePolicy {
-                billed: false,
-                team_rules: false,
-            },
-        ),
-    ])
+        )
+    })
+    .collect()
 }
 
 fn is_valid_source(source: &str) -> bool {

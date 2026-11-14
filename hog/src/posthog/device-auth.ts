@@ -7,7 +7,7 @@ import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
 
 import { hostKey, HostSchema, hostUrl, type Host } from './host'
-import { ProjectIdSchema } from './ids'
+import { ProjectIdSchema, type ProjectId } from './ids'
 import { HOG_CLIENT_ID, OAuthErrorBody, OAuthLogin, oauthPost, TokenResponse } from './oauth'
 import { stepUpCommand } from './scope-challenge'
 import { OAuthRefreshTokenSchema } from './tokens'
@@ -16,8 +16,7 @@ const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
 // What a new login asks for. hog sends this list explicitly, because a request without `scope`
 // gets every scope hog's client may hold.
-// TODO: add `ci_trust_policy_request:write` once PostHog has that scope, so `hog ci setup` works
-// without a step-up.
+// `workload_trust_policy_request` grants nothing until an admin approves a request in the browser.
 const LOGIN_WRITE_SCOPES = [
     'action',
     'alert',
@@ -50,6 +49,7 @@ const LOGIN_WRITE_SCOPES = [
     'survey',
     'task',
     'warehouse_view',
+    'workload_trust_policy_request',
 ]
 const LOGIN_READ_SCOPES = [
     'activity_log',
@@ -97,6 +97,8 @@ export const PendingLoginSchema = PendingApprovalSchema.extend({
     userCode: z.string(),
     scopes: z.array(z.string()),
     requiredScopes: z.array(z.string()).default([]),
+    // The project whose login a step-up adds scopes to, which `--wait` can run without naming.
+    projectId: ProjectIdSchema.optional(),
 })
 
 export type PendingLogin = z.output<typeof PendingLoginSchema>
@@ -109,7 +111,7 @@ function unauthorizedClient(host: Host, body: OAuthError | undefined): HogError 
     return new HogError(
         'login_unavailable',
         `${host} won't log hog in: ${escapeControls(body.error_description)}`,
-        'Set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID instead.'
+        'Set HOG_PERSONAL_API_KEY instead, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.'
     )
 }
 
@@ -145,6 +147,7 @@ export interface DeviceLoginRequest {
     scopes: readonly string[]
     requiredScopes: readonly string[]
     command: string
+    projectId?: ProjectId
 }
 
 export async function startDeviceLogin(
@@ -152,7 +155,7 @@ export async function startDeviceLogin(
     host: Host,
     request: DeviceLoginRequest
 ): Promise<PendingLogin> {
-    const { scopes, requiredScopes, command } = request
+    const { scopes, requiredScopes, command, projectId } = request
     const response = await oauthPost(runtime, host, 'oauth/device-authorization/', {
         client_id: HOG_CLIENT_ID,
         scope: scopes.join(' '),
@@ -182,7 +185,7 @@ export async function startDeviceLogin(
         throw new HogError(
             'login_unavailable',
             `${host} didn't start a login: it answered with HTTP ${response.status}.`,
-            'Check the host. A self-hosted PostHog must be able to reach posthog.com to log hog in. Otherwise set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID.'
+            'Check the host. A self-hosted PostHog must be able to reach posthog.com to log hog in. Otherwise set HOG_PERSONAL_API_KEY, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.'
         )
     }
     return {
@@ -194,6 +197,7 @@ export async function startDeviceLogin(
         intervalSeconds: body.interval ?? 5,
         scopes: [...scopes],
         requiredScopes: [...requiredScopes],
+        ...(projectId === undefined ? {} : { projectId }),
     }
 }
 

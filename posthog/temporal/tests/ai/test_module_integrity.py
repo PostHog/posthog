@@ -98,6 +98,7 @@ class TestSignalsProductModuleIntegrity:
             "BackfillErrorTrackingWorkflow",
             "TeamSignalGroupingWorkflow",
             "TeamSignalGroupingV2Workflow",
+            "SignalGroupingRecordCleanupWorkflow",
             "BufferSignalsWorkflow",
             "SignalEmitterWorkflow",
             "SignalReportSummaryWorkflow",
@@ -128,6 +129,8 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "check_signals_ai_consent_activity",
+            "discard_signal_batches_activity",
             "update_signal_spend_activity",
             "poll_monitoring_assessment_activity",
             "exhaust_monitoring_assessment_activity",
@@ -143,6 +146,8 @@ class TestSignalsProductModuleIntegrity:
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
+            "assigned_signal_ids_activity",
+            "delete_expired_grouping_records_activity",
             "complete_signal_grouping_activity",
             "capture_signal_dropped_activity",
             "check_signals_quota_limited_activity",
@@ -189,6 +194,7 @@ class TestSignalsProductModuleIntegrity:
             "wait_for_signal_in_clickhouse_activity",
             "fetch_enabled_signals_scout_runs_activity",
             "stamp_dispatched_signals_scout_runs_activity",
+            "drain_pending_workflow_triggers_activity",
             "run_due_signal_report_checks_activity",
             "evaluate_signals_scout_precheck_activity",
             "check_signals_scout_config_runnable_activity",

@@ -13,11 +13,14 @@ on:
     pull_request:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
+            - '.dockerignore'
             - '.github/actions/setup-uv/**'
             - '.github/actions/download-context-mill-skills/**'
             - 'products/tasks/backend/sandbox/images/**'
             - 'packages/agent/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
+            - 'products/signals/scripts/**'
+            - 'packages/owners-yaml/owners_yaml/**'
             # The notebook image bakes this package and stamps its content hash.
             - 'products/notebooks/backend/sandbox/kernel/**'
             - 'products/notebooks/backend/kernel_package.py'
@@ -80,12 +83,15 @@ jobs:
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
+                        - '.dockerignore'
                         - '.github/actions/setup-uv/**'
                         - '.github/actions/download-context-mill-skills/**'
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'packages/agent/agent-shadow/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
+                        - 'products/signals/scripts/**'
+                        - 'packages/owners-yaml/owners_yaml/**'
                         - 'products/notebooks/backend/sandbox/kernel/**'
                         - 'products/notebooks/backend/kernel_package.py'
                       skills_source:
@@ -130,11 +136,14 @@ jobs:
                   fi
                   inputs=(
                     .github/workflows/cd-sandbox-base-image.yml
+                    .dockerignore
                     .github/actions/setup-uv
                     .github/actions/download-context-mill-skills
                     products/tasks/backend/sandbox/images
                     packages/agent/agent-shadow
                     products/posthog_ai/scripts
+                    products/signals/scripts
+                    packages/owners-yaml/owners_yaml
                     products/notebooks/backend/sandbox/kernel
                     products/notebooks/backend/kernel_package.py
                   )
@@ -286,7 +295,7 @@ jobs:
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
-        runs-on: ubuntu-24.04
+        runs-on: ubuntu-24.04-8core
         # `Run migrations` builds the schema from scratch on ubuntu-24.04 with no schema cache and
         # takes 22-29 minutes, so a 30-minute budget left no headroom and cut the job off mid-migrate
         # on two of three recent runs. `Build skills`, the step this job exists for, takes 10 seconds.

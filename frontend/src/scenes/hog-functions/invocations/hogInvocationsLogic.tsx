@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -169,6 +169,8 @@ const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, s
     [URL_PARAMS.log_levels]: filters.log_levels?.length ? filters.log_levels.join(',') : undefined,
 })
 
+const isFlagOn = (value: string | undefined): boolean => !!value && !['0', 'false'].includes(value.toLowerCase())
+
 const searchParamsToFilters = (searchParams: Record<string, string | undefined>): Partial<HogInvocationsFilters> => {
     const next: Partial<HogInvocationsFilters> = {}
     const dateFrom = searchParams[URL_PARAMS.date_from]
@@ -199,7 +201,7 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
     if (orderBy === 'first_scheduled' || orderBy === 'latest_scheduled') {
         next.order_by = orderBy
     }
-    if (searchParams[URL_PARAMS.problem_only]) {
+    if (isFlagOn(searchParams[URL_PARAMS.problem_only])) {
         next.problem_only = true
     }
     if (searchParams[URL_PARAMS.person_uuid]) {
@@ -210,6 +212,14 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
         next.log_levels = logLevels.split(',').filter(Boolean) as LogEntryLevel[]
     }
     return next
+}
+
+const readRawSearchParams = (search: string): Record<string, string> => {
+    const params: Record<string, string> = {}
+    new URLSearchParams(search).forEach((value, key) => {
+        params[key] = /^(\[.*\]|\{.*\}) +$/.test(value) ? value.slice(0, -1) : value
+    })
+    return params
 }
 
 const DEFAULT_FILTERS: HogInvocationsFilters = {
@@ -1513,38 +1523,39 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         },
     })),
 
-    actionToUrl(({ values, props }) => {
-        // Per-job scoped tables (batch view) don't own the URL — several can mount on one
-        // scene and they'd clobber the shared `inv_*` params. Only the flat list syncs.
-        if (props.parentRunId) {
-            return {}
-        }
-        const buildUrl = (): [
-            string,
-            Record<string, string | undefined>,
-            Record<string, string>,
-            { replace: true },
-        ] => [
-            router.values.location.pathname,
-            { ...router.values.searchParams, ...filtersToSearchParams(values.filters) },
-            router.values.hashParams,
-            { replace: true },
-        ]
-        return {
-            setFilters: buildUrl,
-            resetFilters: buildUrl,
-        }
-    }),
-
-    urlToAction(({ actions, values, props }) => {
-        const handleSearch = (_: any, searchParams: Record<string, string | undefined>): void => {
+    listeners(({ values, props }) => {
+        const writeUrl = (): void => {
             // Per-job scoped tables (batch view) don't own the URL — several can mount on one
             // scene and they'd clobber the shared `inv_*` params. Only the flat list syncs.
             if (props.parentRunId) {
                 return
             }
-            const next = searchParamsToFilters(searchParams)
-            // Diff against current state to avoid looping with actionToUrl.
+            const current = readRawSearchParams(router.values.location.search)
+            const next = filtersToSearchParams(values.filters)
+            if (Object.values(URL_PARAMS).every((key) => current[key] === next[key])) {
+                return
+            }
+            router.actions.replace(
+                router.values.location.pathname,
+                { ...router.values.searchParams, ...next },
+                router.values.hashParams
+            )
+        }
+        return {
+            setFilters: writeUrl,
+            resetFilters: writeUrl,
+        }
+    }),
+
+    urlToAction(({ actions, values, props }) => {
+        const handleSearch = (): void => {
+            // Per-job scoped tables (batch view) don't own the URL — several can mount on one
+            // scene and they'd clobber the shared `inv_*` params. Only the flat list syncs.
+            if (props.parentRunId) {
+                return
+            }
+            const next = searchParamsToFilters(readRawSearchParams(router.values.location.search))
+            // Diff against current state to avoid looping with the URL write above.
             const changed = Object.entries(next).some(
                 ([key, value]) =>
                     JSON.stringify(value) !== JSON.stringify(values.filters[key as keyof HogInvocationsFilters])

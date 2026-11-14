@@ -44,9 +44,13 @@ class RestrictedPropertyNames:
 
     def is_group_property_restricted(self, name: str, group_type_index: int | None) -> bool:
         """With no group type index, a name restricted for any group type counts as restricted."""
+        return name in self.group_property_names(group_type_index)
+
+    def group_property_names(self, group_type_index: int | None) -> frozenset[str]:
+        """Restricted names for one group type. With no group type index, names restricted for any group type."""
         if group_type_index is None:
-            return any(name in names for names in self.group.values())
-        return name in self.group.get(None, frozenset()) or name in self.group.get(group_type_index, frozenset())
+            return frozenset().union(*self.group.values())
+        return self.group.get(None, frozenset()) | self.group.get(group_type_index, frozenset())
 
 
 @dataclass(frozen=True)

@@ -323,8 +323,8 @@ jobs:
               id: schema-key
               # Every run restores the schema dump ci-backend saves on
               # master push, skipping the replay of the full migration history —
-              # the migrate step in the heavy job still layers on anything newer. On a PR
-              # the migration-set key is the merge-base's; on a push or dispatch it's HEAD's.
+              # the migrate step in the heavy job still layers on anything newer. PRs use
+              # the merge-base inputs unless routing differs; other runs use HEAD's inputs.
               # ci-backend already validates the full history on every master push (it's
               # what saves the cache), so replaying it here too bought nothing. A cache
               # miss falls through to a full migrate, so an absent/wrong key is never a
@@ -337,6 +337,7 @@ jobs:
                   # so both workflows use the same schema cache keys.
                   SCHEMA_CACHE_EPOCH: v2
               run: |
+                  EXACT_SCHEMA_ONLY=false
                   if [ "$IS_PR" != "true" ]; then
                       # Pushed or dispatched commit is checked out directly: no merge commit, no base ref.
                       # The per-SHA key points at this same push's cache (saved concurrently
@@ -351,19 +352,18 @@ jobs:
                           echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                           exit 0
                       fi
-                      # The consumers replay the routed labels from the checked-out copy, so a PR
-                      # that edits any of them matches no master dump, the merge-base one included:
-                      # drop both keys and let migrations run from scratch.
+                      # Routing inherited from master can match a newer master dump, but the
+                      # merge-base dump and broad restore prefix cannot prove compatibility.
                       DB_ROUTING_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                       DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                       if [ "$DB_ROUTING_BASE" != "$DB_ROUTING_HEAD" ]; then
                           echo "key=" >> $GITHUB_OUTPUT
-                          echo "migrations_key=" >> $GITHUB_OUTPUT
-                          echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
-                          exit 0
+                          REF=HEAD
+                          EXACT_SCHEMA_ONLY=true
+                      else
+                          echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                          REF="$MERGE_BASE"
                       fi
-                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
-                      REF="$MERGE_BASE"
                   fi
                   # Last-resort restore prefix: matches the newest saved dump of any
                   # migration set, for the window where both exact keys miss. Gated on
@@ -373,7 +373,7 @@ jobs:
                   # dump that is newer than the code.
                   # Dispatches can target arbitrary revisions, so require an exact key.
                   HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
-                  if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                  if [ "$EXACT_SCHEMA_ONLY" != "true" ] && [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
                   # Match the inputs, hash, and prefix in .depot/workflows/ci-backend.yml.
@@ -425,13 +425,18 @@ jobs:
             full_run_reason_category: ${{ steps.classify.outputs.full_run_reason_category }}
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
         steps:
-            # Full checkout at PR head so the selector can glob specs on disk and read
-            # the map/script from the branch under test. The selector step fetches bounded,
-            # blobless history so the merge-base with the base branch stays reachable cheaply.
+            # Keep both complete spec roots so added and removed specs affect discovery.
+            # The selector still reads the script and map from the PR head.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  sparse-checkout-cone-mode: false
+                  sparse-checkout: |
+                      /tools/playwright_spec_selection.py
+                      /tools/playwright_area_map.json
+                      /playwright/e2e/
+                      /products/*/frontend/e2e/
 
             - name: Run spec selector
               id: select
@@ -455,6 +460,11 @@ jobs:
                       echo "::warning::git fetch of base ref failed — full run"
                       echo "reason_detail=git_fetch_failed" >> "$GITHUB_OUTPUT"
                       exit 1
+                  fi
+                  # A different PR-head selector can read files outside the sparse tree.
+                  # Restore the full tree for older branches and selector changes.
+                  if ! git diff --quiet "origin/$BASE_REF" HEAD -- tools/playwright_spec_selection.py; then
+                      git sparse-checkout disable
                   fi
                   if [ ! -f tools/playwright_spec_selection.py ] || [ ! -f tools/playwright_area_map.json ]; then
                       echo "::notice::spec selector/map absent on this checkout (unrebased branch) — full run"
@@ -560,7 +570,6 @@ jobs:
             contents: read
             pull-requests: write
         outputs:
-            vr_run_id: ${{ steps.vr-create.outputs.run_id }}
             # Wall-clock of the test step, for the CI-minutes-saved telemetry.
             test_seconds: ${{ steps.playwright-tests.outputs.test_seconds }}
         env:
@@ -984,7 +993,6 @@ jobs:
                   # Empty when select-specs was skipped (full-run events) or chose a full run.
                   SELECT_MODE: ${{ needs.select-specs.outputs.mode }}
                   SELECT_SPECS: ${{ needs.select-specs.outputs.spec_files }}
-              # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
               run: |
                   # Time the test step so the telemetry can turn "specs skipped" into
                   # minutes. set +e around the run so a test failure still records the
@@ -1036,98 +1044,6 @@ jobs:
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
-
-            # Visual Review: create run + upload snapshots directly from the test job.
-            # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
-            # Caches the built CLI, see vr-setup in ci-storybook.yml. The paths sit at the
-            # workspace root here, so this is a separate entry. No restore-keys.
-            - name: Restore VR CLI build
-              id: restore-vr-cli
-              if: always() && github.repository == 'PostHog/posthog' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: |
-                      products/visual_review/cli/dist
-                      products/visual_review/cli/node_modules
-                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'products/visual_review/cli/**', 'products/visual_review/frontend/generated/api.schemas.ts') }}
-
-            # Runs only on a miss, and retries the install for the reason given at vr-setup
-            # in ci-storybook.yml.
-            - name: Build VR CLI
-              id: build-vr-cli
-              if: always() && github.repository == 'PostHog/posthog' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') && steps.restore-vr-cli.outputs.cache-hit != 'true'
-              timeout-minutes: 8
-              shell: bash
-              working-directory: products/visual_review/cli
-              env:
-                  npm_config_fetch_retries: 0
-                  npm_config_fetch_timeout: 60000
-              run: |
-                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
-                  npm run build
-                  npm prune --omit=dev
-
-            - name: Save VR CLI build
-              # Master only, because the key is immutable once written. vr-complete reads
-              # this entry, so it runs on the same runner provider.
-              if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master' && steps.restore-vr-cli.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: |
-                      products/visual_review/cli/dist
-                      products/visual_review/cli/node_modules
-                  key: ${{ steps.restore-vr-cli.outputs.cache-primary-key }}
-
-            # A failed build must not reach this step, where it would only report a
-            # missing module. A skipped build (cache hit) is not a failure.
-            - name: Create VR run
-              id: vr-create
-              if: always() && steps.build-vr-cli.outcome != 'failure' && github.repository == 'PostHog/posthog' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
-              env:
-                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
-                  VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-                  VR_PR: ${{ github.event.pull_request.number }}
-                  # PRs are gating ("review"); master pushes are tracking-only ("observe") since
-                  # there's no PR to approve and we don't want master runs to block or prompt for approval.
-                  VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
-                  # The rerun target for recompute until the complete job records its own ID.
-                  JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
-                  # A selective run only regenerates a subset of snapshots. --partial tells VR
-                  # not to flag the un-run baseline snapshots as REMOVED and routes the run to a
-                  # non-gating status context. Empty on full runs and master pushes (the
-                  # default-branch fence forces is_partial=false there anyway).
-                  VR_PARTIAL: ${{ needs.select-specs.outputs.mode == 'selected' && '--partial' || '' }}
-              run: |
-                  RUN_ID=$(node products/visual_review/cli/dist/cli/src/index.js run create \
-                    --type playwright \
-                    --baseline playwright/snapshots.yml \
-                    --branch "$VR_BRANCH" \
-                    --commit "$VR_COMMIT" \
-                    --pr "$VR_PR" \
-                    --purpose "$VR_PURPOSE" \
-                    $VR_PARTIAL \
-                    --token "$VR_TOKEN")
-                  echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
-
-            - name: Upload snapshots to Visual Review
-              if: always() && steps.vr-create.outputs.run_id != ''
-              env:
-                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  VR_RUN_ID: ${{ steps.vr-create.outputs.run_id }}
-              run: |
-                  node products/visual_review/cli/dist/cli/src/index.js run upload \
-                    --run-id "$VR_RUN_ID" \
-                    --dir playwright/__snapshots__/ \
-                    --baseline playwright/snapshots.yml \
-                    --token "$VR_TOKEN"
-
-            # playwright/snapshots.yml carries no hashes: Playwright baselines live in Visual
-            # Review alone, so a repository without a Visual Review run has nothing to compare
-            # its screenshots against. Say so instead of failing on the empty baseline.
-            - name: Report that Visual Review did not run
-              if: ${{ !cancelled() && github.repository != 'PostHog/posthog' }}
-              run: echo "::notice title=Playwright screenshots not verified::Visual Review runs only in PostHog/posthog, and playwright/snapshots.yml holds no baseline hashes to compare against offline. The screenshots of this run are verified when the change reaches PostHog/posthog."
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Capture docker logs
@@ -1346,94 +1262,9 @@ jobs:
                         "run_id": ${{ toJSON(github.run_id) }}
                       }
 
-    vr-complete:
-        name: Complete Visual Review run
-        # Same runner provider as the playwright job, whose VR CLI cache entry this job
-        # reads: GitHub-hosted and Depot runners keep separate cache stores.
-        runs-on: depot-ubuntu-24.04
-        timeout-minutes: 15
-        needs: [playwright]
-        # !cancelled() is load-bearing. select-specs is skipped on every full-run event (push to
-        # master, PR opened/reopened/ready_for_review), and GitHub propagates a skip down the whole
-        # needs chain — only a status-check function breaks the inheritance. The playwright job has
-        # its own !cancelled() so it runs, but this job inherited the skip anyway, leaving the VR run
-        # it created stuck pending and its commit status pending forever. The explicit result check
-        # restores the implicit success() that !cancelled() drops. Mirrors ci-storybook.yml.
-        if: |
-            !cancelled()
-            && needs.playwright.result == 'success'
-            && needs.playwright.outputs.vr_run_id != ''
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-                  sparse-checkout: |
-                      .nvmrc
-                      products/visual_review/cli
-                      products/visual_review/frontend/generated/api.schemas.ts
-                      playwright/snapshots.yml
-                  sparse-checkout-cone-mode: false
-
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            # Reads the entry the playwright job writes. This job never saves it.
-            - name: Restore VR CLI build
-              id: restore-vr-cli
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: |
-                      products/visual_review/cli/dist
-                      products/visual_review/cli/node_modules
-                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'products/visual_review/cli/**', 'products/visual_review/frontend/generated/api.schemas.ts') }}
-
-            # Runs only on a miss, and retries the install for the reason given at vr-setup
-            # in ci-storybook.yml.
-            - name: Build VR CLI
-              if: steps.restore-vr-cli.outputs.cache-hit != 'true'
-              timeout-minutes: 8
-              shell: bash
-              working-directory: products/visual_review/cli
-              env:
-                  npm_config_fetch_retries: 0
-                  npm_config_fetch_timeout: 60000
-              run: |
-                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
-                  npm run build
-                  npm prune --omit=dev
-
-            - name: Complete Visual Review run
-              # On master pushes the run was created with --purpose observe (tracking-only), but
-              # `run complete` still exits 1 whenever visual changes are detected. Treat that as
-              # informational on push; PRs still gate. Mirrors ci-storybook.yml.
-              continue-on-error: ${{ github.event_name == 'push' }}
-              env:
-                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  # Recompute re-runs this job, which re-reads the verdict without re-running the E2E suite.
-                  JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
-              run: |
-                  node products/visual_review/cli/dist/cli/src/index.js run complete \
-                    --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
-                    --baseline playwright/snapshots.yml \
-                    --token "$VR_TOKEN"
-
-    # Collate test + VR completion status for the required check
+    # Collate test status for the required check
     playwright_tests:
-        needs: [changes, playwright, vr-complete]
+        needs: [changes, playwright]
         name: Playwright tests pass
         # Same runner choice as `changes`.
         runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
@@ -1452,10 +1283,5 @@ jobs:
                   fi
                   if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
                     echo "Playwright tests failed."
-                    exit 1
-                  fi
-
-                  if [[ "${{ needs.vr-complete.result }}" != "success" && "${{ needs.vr-complete.result }}" != "skipped" ]]; then
-                    echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
                   fi

@@ -29,7 +29,7 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import wraps
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, cast
 
@@ -47,9 +47,11 @@ from posthog.event_usage import groups
 from posthog.git import extract_linked_repo
 from posthog.llm.gateway_client import private_scout_gateway
 from posthog.models import Team
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_schemas import (
+    MAX_PULL_REQUESTS_PER_WRITE,
     MAX_REPORT_LINKS_PER_WRITE,
     MAX_SOURCE_ISSUES_PER_WRITE,
     ActionabilityAssessment,
@@ -93,7 +95,12 @@ from products.signals.backend.report_metrics import (
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.report_tags import normalize_report_tags
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
-from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
+from products.signals.backend.reviewer_rules import (
+    ReviewerProposal,
+    ReviewerRules,
+    StaleReviewerProposal,
+    contains_reviewer,
+)
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -107,6 +114,7 @@ from products.signals.backend.scout_harness.tools.emit import (
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
 from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT_REASON, ReportAuthor
+from products.signals.backend.scout_harness.tools.report_quality import QualityHint, apply_report_quality_checks
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
@@ -116,11 +124,13 @@ from products.signals.backend.scout_report import (
     ReviewerClearNeedsReason,
     ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
+    add_scout_report_reviewers,
     append_report_evidence,
     append_report_links,
     append_report_note,
     append_report_source_issues,
     create_scout_report,
+    decided_report_repository,
     emit_appended_report_evidence,
     find_scout_report_by_idempotency_key,
     get_content_revision_count,
@@ -129,12 +139,14 @@ from products.signals.backend.scout_report import (
     get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
+    link_scout_report_pull_requests,
     missing_link_targets,
     prepare_scout_supersession,
     record_content_revision,
     record_implementation_decision,
     record_report_edit,
     record_scout_run_task_artefact,
+    resolve_scout_report_pull_requests,
     scout_report_exists,
     scout_report_provenance,
     scout_task_run_content,
@@ -156,9 +168,13 @@ from products.signals.backend.scout_report.judge import (
     judge_scout_report,
 )
 from products.signals.backend.slack_formatting import strip_chart_references
-from products.signals.backend.source_issues import parse_source_issue_url
+from products.signals.backend.source_issues import (
+    parse_source_issue_url,
+    source_issue_author_reviewers,
+    source_issues_by_report,
+)
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
-from products.signals.backend.task_profiles import REPO_SELECTION_WITHOUT_REPORT
+from products.signals.backend.trial.direct_reports import funded_report, funded_report_sync
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
@@ -182,7 +198,8 @@ MAX_IDEMPOTENCY_KEY_LENGTH = 200
 
 # Repository modes for `emit_report`, mirroring `custom_agent`'s three-mode contract:
 #   "owner/repo" -> that repo; NO_REPO -> explicitly no repo (lands without a draft PR);
-#   omitted (None) -> free-form selection across the team's repos (`select_repository_for_team`).
+#   omitted (None) -> no repository unless the report links exactly one connected repo, never autostart
+#   eligible. The scout decides the repository; the report tools never run a selector for it.
 NO_REPO = "NO_REPO"
 
 
@@ -270,6 +287,7 @@ class EmitReportResult:
     report was dropped and how to unblock it rather than losing a full run to a silent skip.
     `idempotent_replay` means this call authored nothing because its emit key already had a report:
     the fields above describe that first report, so the caller reads its own emission back.
+    `quality_hints` lists the quality checks the title or summary matched (see `report_quality.py`).
     """
 
     report_id: str | None
@@ -279,6 +297,7 @@ class EmitReportResult:
     safety_explanation: str | None
     remediation: str | None = None
     idempotent_replay: bool = False
+    quality_hints: tuple[QualityHint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -341,10 +360,14 @@ class EditReportResult:
     # How many source issues the edit recorded that the report did not name yet. Additive like
     # `links_appended`.
     source_issues_appended: int = 0
+    # How many pull requests the edit linked that the report did not link yet. Additive like
+    # `links_appended`.
+    pull_requests_linked: int = 0
     # Which work decisions (`actionability`, `priority`) the edit replaced. Empty when the edit set
     # none, or re-sent the decisions the report already held.
     decision_fields_set: tuple[str, ...] = ()
     warnings: tuple[EditReportWarning, ...] = ()
+    quality_hints: tuple[QualityHint, ...] = ()
 
     @property
     def changed(self) -> bool:
@@ -368,6 +391,7 @@ class EditReportResult:
                 or self.evidence_appended
                 or self.links_appended
                 or self.source_issues_appended
+                or self.pull_requests_linked
                 or self.decision_fields_set
             )
             or self.charts_set is not None
@@ -422,6 +446,13 @@ def _reject_trial_source_issues(store: ScoutTrialStore | None, source_issues: Se
         raise InvalidScoutReportError("Source issues are not supported for this run.")
 
 
+def _reject_trial_pull_requests(store: ScoutTrialStore | None, pull_requests: Sequence[str] | None) -> None:
+    # A linked pull request can resolve the report when it merges, which a private trial must never do.
+    if store is not None and pull_requests:
+        store.invalidate("Pull requests are not supported by private capture; this run cannot be compared.")
+        raise InvalidScoutReportError("Pull requests are not supported for this run.")
+
+
 def _private_report_gateway(function: Callable[_Parameters, _Return]) -> Callable[_Parameters, _Return]:
     @wraps(function)
     def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _Return:
@@ -456,6 +487,84 @@ def _private_report_gateway_async(
                 await database_sync_to_async(revoke_trial_gateway_token, thread_sensitive=False)(token)
 
     return wrapped
+
+
+_ReportResult = TypeVar("_ReportResult", EmitReportResult, EditReportResult)
+
+
+def _capture_quality_hints(*, team: Team, author: ReportAuthor, tool: str, hints: Sequence[QualityHint]) -> None:
+    """One `signals_scout_report_quality_hint` event per matched check, so the rate of each defect is
+    measurable per scout and model. Best-effort, and skipped for a private trial like the other report
+    events."""
+    if not hints or _author_trial_store(author) is not None:
+        return
+    shared_properties = {**author.event_properties(), "tool": tool}
+    for hint in hints:
+        try:
+            posthoganalytics.capture(
+                event="signals_scout_report_quality_hint",
+                distinct_id=str(team.uuid),
+                properties={
+                    **shared_properties,
+                    "check_id": hint.check_id,
+                    "severity": hint.severity,
+                    "field": hint.field,
+                },
+                groups=groups(team=team),
+            )
+        except Exception:
+            logger.warning(
+                "signals_scout: failed to capture report quality hint event",
+                extra={"team_id": team.id, "check_id": hint.check_id, **author.log_extra()},
+            )
+
+
+def _repair_report_text(kwargs: dict[str, Any]) -> tuple[QualityHint, ...]:
+    result = apply_report_quality_checks(title=kwargs.get("title"), summary=kwargs.get("summary"))
+    kwargs["title"], kwargs["summary"] = result.title, result.summary
+    return result.hints
+
+
+def _report_quality_checks(
+    tool: str,
+) -> Callable[[Callable[_Parameters, _ReportResult]], Callable[_Parameters, _ReportResult]]:
+    """Repair the `title` / `summary` kwargs before the tool runs, and return the matched checks on its
+    result as `quality_hints`."""
+
+    def decorator(function: Callable[_Parameters, _ReportResult]) -> Callable[_Parameters, _ReportResult]:
+        @wraps(function)
+        def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
+            hints = _repair_report_text(cast(dict[str, Any], kwargs))
+            result = function(*args, **kwargs)
+            _capture_quality_hints(
+                team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
+            )
+            return replace(result, quality_hints=hints)
+
+        return wrapped
+
+    return decorator
+
+
+def _report_quality_checks_async(
+    tool: str,
+) -> Callable[[Callable[_Parameters, Awaitable[_ReportResult]]], Callable[_Parameters, Awaitable[_ReportResult]]]:
+    def decorator(
+        function: Callable[_Parameters, Awaitable[_ReportResult]],
+    ) -> Callable[_Parameters, Awaitable[_ReportResult]]:
+        @wraps(function)
+        async def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
+            hints = _repair_report_text(cast(dict[str, Any], kwargs))
+            result = await function(*args, **kwargs)
+            if hints:
+                await database_sync_to_async(_capture_quality_hints, thread_sensitive=False)(
+                    team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
+                )
+            return replace(result, quality_hints=hints)
+
+        return wrapped
+
+    return decorator
 
 
 def _preflight_report_emission(team: Team, run: SignalScoutRun) -> str | None:
@@ -517,7 +626,6 @@ def _capture_trial_report(
     judgement: ScoutReportJudgement,
     repo_selection: RepoSelectionResult | None,
     repository_input: str | None,
-    skipped_repository_selection: bool,
     priority: PriorityAssessment | None,
     reviewers: SuggestedReviewers | None,
     charts: list[ReportChart],
@@ -615,7 +723,6 @@ def _capture_trial_report(
             payload=payload,
             evidence=_trial_evidence(signals, store.run) if judgement.safety.choice else [],
             artefacts=artefacts,
-            operator_metadata={"skipped_automatic_repository_selection": skipped_repository_selection},
         ),
         idempotency_key=emit_key,
     )
@@ -1054,6 +1161,41 @@ def _build_source_issues(source_issues: list[str] | None) -> list[SourceIssue]:
     return built
 
 
+def _build_pull_requests(pull_requests: list[str] | None) -> list[str]:
+    """Check the caller's pull request URLs and drop repeats of one pull request, keeping the first URL.
+
+    Pure and cheap, so a malformed URL fails before the edit spends a judge call or a GitHub call.
+    """
+    if not pull_requests:
+        return []
+    if len(pull_requests) > MAX_PULL_REQUESTS_PER_WRITE:
+        raise InvalidScoutReportError(
+            f"a report write accepts at most {MAX_PULL_REQUESTS_PER_WRITE} pull requests ({len(pull_requests)})"
+        )
+    built: dict[tuple[str, int], str] = {}
+    for url in pull_requests:
+        parsed = GitHubIntegrationBase.parse_pull_request_url(url)
+        if parsed is None or parsed.number <= 0:
+            raise InvalidScoutReportError(
+                f"pull request {url!r} is not a GitHub pull request URL; use https://github.com/<owner>/<repo>/pull/<number>"
+            )
+        built.setdefault((parsed.repository.lower(), parsed.number), url)
+    return list(built.values())
+
+
+def _decided_repository_after_edit(report_id: str, repository: str | None) -> str | None:
+    """The repository a pull request link is checked against, or None when the report has none decided.
+
+    A link checked against an inferred target could resolve a report that a later rewrite repoints, so
+    only a decision counts. Naming `repository` in the same edit gives the link a target no rewrite moves.
+    """
+    if repository == NO_REPO:
+        return None
+    if repository is not None:
+        return repository
+    return decided_report_repository(report_id)
+
+
 def _build_metrics(metrics: list[ReportMetricInput] | None) -> list[ReportMetric]:
     if not metrics:
         return []
@@ -1391,6 +1533,34 @@ def _stamp_owner_provenance(team: Team, reviewers: SuggestedReviewers, *, skill_
     return SuggestedReviewers(root=entries)
 
 
+def _with_source_issue_authors(
+    reviewers: SuggestedReviewers | None, authors: Sequence[SuggestedReviewerEntry]
+) -> SuggestedReviewers | None:
+    """The scout's picks, then the source issue authors it did not pick, within the reviewer cap.
+
+    The person who filed the issue a report is about is evidence for routing, so the report reaches
+    them even when the scout leaves them out. The scout's order stays the routing order, and a scout
+    that fills the cap keeps its whole list.
+    """
+    picks = tuple(reviewers.root) if reviewers is not None else ()
+    added = [entry for entry in authors if not contains_reviewer(picks, entry)]
+    if not added:
+        return reviewers
+    return SuggestedReviewers(root=[*picks, *added][:MAX_SUGGESTED_REVIEWERS])
+
+
+def _new_source_issue_authors(
+    team: Team, report_id: str, source_issues: Sequence[SourceIssue] | None
+) -> list[SuggestedReviewerEntry]:
+    """The authors of the source issues this edit adds, skipping the issues the report already names,
+    so a retried edit makes no GitHub calls."""
+    if not source_issues:
+        return []
+    held = source_issues_by_report(team_id=team.id, report_ids=[report_id]).get(report_id, [])
+    new_issues = [issue for issue in source_issues if issue not in held]
+    return source_issue_author_reviewers(team_id=team.id, issues=new_issues) if new_issues else []
+
+
 def _reviewer_reasons(reviewers: SuggestedReviewers | None, proposal: ReviewerProposal | None = None) -> list[str]:
     """The scout-authored `reason` strings from resolved reviewer picks, for the safety judge.
 
@@ -1419,40 +1589,6 @@ def _assert_emit_link_targets_live(team: Team, links: Sequence[ReportLink]) -> N
     missing = missing_link_targets(team_id=team.id, links=links)
     if missing:
         raise InvalidScoutReportError(f"Report {missing[0]} was not found in this project.")
-
-
-def _wants_repo_selection(
-    repository: str | None, priority: PriorityAssessment | None, reviewers: SuggestedReviewers | None
-) -> bool:
-    """Whether to run repo selection at all. Resolve a repo only when the scout signalled PR intent —
-    either an explicit `repository`, or the priority + reviewers an autostart needs. An informational
-    report that supplies none of these skips selection entirely, so it never pays for the (free-form)
-    selection sandbox just to surface in the inbox.
-
-    Every reviewer here is a scout pick (nothing is injected), so any reviewer counts as intent — even
-    one who happens to be a skill owner, since the scout chose to route to them. `is_skill_owner` only
-    governs autostart identity, not intent.
-
-    So an owner-only pick now counts as intent and can reach autostart — but never as the owner:
-    `auto_start._resolve_autostart_assignee` still excludes `is_skill_owner` picks from identity, so an
-    owner-only pick resolves the runner through the reviewer-less fallback
-    (`_resolve_autostart_fallback_user`) — the team's signals-enabler or org admin, derived from
-    team/org config a skill editor can't control. A steered owner-only pick can at most trigger that
-    same trusted fallback an editor could already trigger with any non-resolving pick; it never lets the
-    editor-controlled owner become the runner."""
-    if repository is not None:
-        return True
-    scout_picked_reviewer = reviewers is not None and bool(reviewers.root)
-    return priority is not None and scout_picked_reviewer
-
-
-def _repo_request_section(title: str, summary: str, evidence: list[ReportEvidence]) -> str:
-    """Render the report into the free-text request the repo selector reasons over."""
-    lines = [title, "", summary]
-    if evidence:
-        lines += ["", "Evidence:"]
-        lines += [f"- {e.description}" for e in evidence]
-    return "\n".join(lines)
 
 
 def _connected_repositories(team_id: int) -> list[str]:
@@ -1546,80 +1682,33 @@ def _with_scout_research_context(
     return selection
 
 
-async def _resolve_report_repository(
+def _resolve_report_repository(
     *,
     team_id: int,
     repository: str | None,
     title: str,
     summary: str,
     evidence: list[ReportEvidence],
-    wants_full_selection: bool,
 ) -> RepoSelectionResult | None:
     """Resolve the scout's `repository` input into a `repo_selection` artefact (or None to write none).
 
-    Three modes mirror `custom_agent`: ``NO_REPO`` -> explicitly no repo; ``"owner/repo"`` -> that
-    repo (validated, lowercased); omitted (None) -> free-form selection across the team's repos. The
-    free-form path is the slow one — for a team with many repos it spawns a selection sandbox — so a
-    scout that knows its repo should pass it explicitly (see the report contract). The cheap
-    `NO_REPO` / `owner/repo` cases are validated by `_normalize_repository` up front (before the judge),
-    so by here an explicit repo is already well-formed; only the free-form path remains.
-
-    `wants_full_selection` is the PR-intent gate (`_wants_repo_selection`). When it is false the report
-    surfaced without the inputs the selection sandbox exists to serve, so the free-form branch scans
-    the report content for one linked connected repository instead — a cheap deterministic match that
-    seeds a `repo_selection` artefact so a person clicking Create PR has a target. That inferred
-    selection is `autostart_eligible=False`: the report never signalled PR intent, so it must not open
-    one on its own."""
+    ``NO_REPO`` -> explicitly no repo; ``"owner/repo"`` -> that repo (validated, lowercased). The scout
+    owns this decision, so an omitted repository never starts a selection agent: the report content is
+    scanned for one linked connected repository instead, a cheap deterministic match that gives a person
+    clicking Create PR a target. That inferred selection is `autostart_eligible=False`, because the scout
+    did not name it. Does a DB read, so callers on the async path must bridge it."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
         return RepoSelectionResult(repository=None, reason="No repository selected, so this report has no draft PR.")
     if repository is not None:
         return RepoSelectionResult(repository=repository, reason="Repository named in the report.")
-
-    if not wants_full_selection:
-        connected_repos = await database_sync_to_async(_connected_repositories, thread_sensitive=False)(team_id)
-        linked = _extract_linked_repository(title, summary, evidence, connected_repos)
-        if linked is None:
-            return None
-        return RepoSelectionResult(
-            repository=linked,
-            reason=INFERRED_REPOSITORY_REASON,
-            autostart_eligible=False,
-        )
-
-    # Free-form: let the shared selector pick across the team's repos. Imports are deferred to keep the
-    # temporal/agentic + sandbox stack off this harness-tool module's import path (it loads at worker boot).
-    from products.signals.backend.report_generation.select_repo import (
-        select_repository_for_team,  # noqa: PLC0415 — break worker-boot import cycle
-    )
-    from products.signals.backend.temporal.agentic import (  # noqa: PLC0415 — break worker-boot import cycle
-        SIGNALS_REPO_DISCOVERY_ENV_NAME,
-        get_or_create_signals_sandbox_env,
-        resolve_user_id_for_team,
-    )
-
-    # A team with no GitHub integration can't resolve an acting user — `resolve_user_id_for_team`
-    # raises. Repo selection / autostart is optional, so treat that as "no repo" (the report still
-    # surfaces, just without a draft PR) rather than failing the whole emit — same null-repo outcome
-    # the repo-selection activity returns for a GitHub-less team.
-    try:
-        user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(team_id)
-    except Exception as exc:
-        logger.info(
-            "signals_scout.emit_report: skipping repo selection, no acting user for team",
-            extra={"team_id": team_id, "error": str(exc)},
-        )
-        return RepoSelectionResult(repository=None, reason="No GitHub integration; report lands without a draft PR.")
-
-    sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-        team_id, SIGNALS_REPO_DISCOVERY_ENV_NAME, REPO_SELECTION_WITHOUT_REPORT
-    )
-    return await select_repository_for_team(
-        team_id=team_id,
-        user_id=user_id,
-        request_section=_repo_request_section(title, summary, evidence),
-        step_name="scout_repo_selection",
-        sandbox_environment_id=sandbox_env_id,
+    linked = _extract_linked_repository(title, summary, evidence, _connected_repositories(team_id))
+    if linked is None:
+        return None
+    return RepoSelectionResult(
+        repository=linked,
+        reason=INFERRED_REPOSITORY_REASON,
+        autostart_eligible=False,
     )
 
 
@@ -1974,6 +2063,7 @@ def _capture_report_edited(
     priority: PriorityAssessment | None = None,
     tags: list[str] | None = None,
     source_issues: list[SourceIssue] | None = None,
+    pull_requests: list[str] | None = None,
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
@@ -2012,6 +2102,7 @@ def _capture_report_edited(
         "links_appended": result.links_appended,
         "link_kinds": sorted({link.kind.value for link in links or []}),
         "source_issues_appended": result.source_issues_appended,
+        "pull_requests_linked": result.pull_requests_linked,
         "decision_fields_set": list(result.decision_fields_set),
         "actionability": actionability.actionability.value
         if "actionability" in result.decision_fields_set and actionability
@@ -2129,6 +2220,10 @@ def _capture_report_edited(
     appended_source_issues = source_issues if result.source_issues_appended and source_issues else None
     if appended_source_issues:
         parts.append(f"source_issues:{json.dumps([issue.url for issue in appended_source_issues])}")
+    # Pull requests are a valid sole input too. Field-tagged and appended only when the edit linked one.
+    linked_pull_requests = pull_requests if result.pull_requests_linked and pull_requests else None
+    if linked_pull_requests:
+        parts.append(f"pull_requests:{json.dumps(linked_pull_requests)}")
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=author.distinct_id,
@@ -2142,13 +2237,15 @@ def _capture_report_edited(
             or result.repository_set
             or bool(decision_key)
             or written_tags is not None
-            or appended_source_issues is not None,
+            or appended_source_issues is not None
+            or linked_pull_requests is not None,
         ),
         properties=properties,
     )
 
 
 @_private_report_gateway_async
+@_report_quality_checks_async("emit_report")
 async def emit_report(
     *,
     team: Team,
@@ -2210,7 +2307,7 @@ async def emit_report(
     built_source_issues = _build_source_issues(source_issues)
     built_tags = _build_tags(tags) or []
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
-    # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
+    # before the safety-judge LLM call rather than after.
     _normalize_repository(repository)
     signals = _build_signals(evidence)
     validate_scout_report(title, summary, signals)
@@ -2277,117 +2374,121 @@ async def emit_report(
 
     await database_sync_to_async(_assert_emit_link_targets_live, thread_sensitive=False)(team, built_links)
 
-    attribution = await database_sync_to_async(author.attribution, thread_sensitive=False)()
-    judgement = await judge_scout_report(
-        team_id=team.id,
-        title=title,
-        summary=summary,
-        signals=signals,
-        actionability=actionability_assessment,
-        charts=chart_contents,
-        metrics=metric_contents,
-        suggested_prompts=prompt_contents,
-        reviewer_reasons=_reviewer_reasons(reviewers),
-        link_reasons=_link_reasons(built_links),
-        tags=built_tags,
-    )
-    surfaced = _surfaced(judgement.status)
-    repo_selection = (
-        await _resolve_report_repository(
+    async with funded_report(
+        team=team, run_id=run.task_run_id if run else None, emission_key=emit_key
+    ) as funded_report_id:
+        attribution = await database_sync_to_async(author.attribution, thread_sensitive=False)()
+        judgement = await judge_scout_report(
             team_id=team.id,
-            repository=repository,
-            title=title,
-            summary=summary,
-            evidence=evidence,
-            wants_full_selection=trial_store is None
-            and author.user_id is None
-            and _wants_repo_selection(repository, priority_assessment, reviewers),
-        )
-        if surfaced
-        else None
-    )
-    if surfaced:
-        repo_selection = await database_sync_to_async(_with_scout_research_context, thread_sensitive=False)(
-            team, run, repo_selection
-        )
-    if surfaced and reviewers is not None:
-        # Re-stamp owner provenance from the live owner set after the judge wait (see
-        # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
-        reviewers = await database_sync_to_async(_stamp_owner_provenance, thread_sensitive=False)(
-            team, reviewers, skill_name=author.skill_name
-        )
-    if trial_store is not None:
-        return await database_sync_to_async(_capture_trial_report, thread_sensitive=False)(
-            store=trial_store,
             title=title,
             summary=summary,
             signals=signals,
-            judgement=judgement,
-            repo_selection=repo_selection,
-            repository_input=repository,
-            skipped_repository_selection=surfaced
-            and repository is None
-            and _wants_repo_selection(repository, priority_assessment, reviewers),
-            priority=priority_assessment,
-            reviewers=reviewers,
+            actionability=actionability_assessment,
             charts=chart_contents,
             metrics=metric_contents,
             suggested_prompts=prompt_contents,
-            emit_key=emit_key,
+            reviewer_reasons=_reviewer_reasons(reviewers),
+            link_reasons=_link_reasons(built_links),
+            tags=built_tags,
         )
-    try:
-        persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
-            team_id=team.id,
-            title=title,
-            summary=summary,
-            signals=signals,
-            attribution=attribution,
-            status=judgement.status,
-            safety=judgement.safety,
-            actionability=judgement.actionability,
-            repo_selection=repo_selection,
-            priority=priority_assessment if surfaced else None,
-            suggested_reviewers=reviewers if surfaced else None,
-            charts=chart_contents,
-            metrics=metric_contents,
-            # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
-            # is still reachable from the Dismissed view, where a click would hand the judge-rejected
-            # wording to an action-capable agent run.
-            suggested_prompts=prompt_contents if judgement.safety.choice else (),
-            # Same reason as the prompts: an unsafe report must not steer another report's autostart.
-            links=built_links if judgement.safety.choice else (),
-            # Same reason: an unsafe report must not capture the issue's signals or comment on it.
-            source_issues=built_source_issues if judgement.safety.choice else (),
-            # Same reason as the prompts: other report scouts read the team's tags in their prompts.
-            tags=built_tags if judgement.safety.choice else (),
-            # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
-            # otherwise become semantic-search / matching context despite never surfacing.
-            emit_signals=judgement.safety.choice,
-            run=author.scout_run,
-            idempotency_key=emit_key,
-            created_by_id=author.user_id,
-            proposed_reviewer_count=len(suggested_reviewers or []),
-            reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
-        )
-    except ScoutReportAlreadyEmittedError as already_emitted:
-        # The retry arrived while this call was still judging, so both reached the insert. The winner's
-        # report is the answer, and the Slack delivery and autostart below are its business, not ours.
-        return await finish(_replay_result(already_emitted.existing))
-    if surfaced:
-        if author.scout_run is not None:
-            await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
-                run_id=author.scout_run.id,
-                output_type="report",
-                output_id=persisted.report_id,
-                # A report is emitted once, so its id is the natural idempotency key (mirrors
-                # findings using the emission id); edits keep per-delivery ids since each notifies.
-                delivery_id=persisted.report_id,
+        surfaced = _surfaced(judgement.status)
+        repo_selection = (
+            await database_sync_to_async(_resolve_report_repository, thread_sensitive=False)(
+                team_id=team.id,
+                repository=repository,
+                title=title,
+                summary=summary,
+                evidence=evidence,
             )
-        await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
-    return await finish(_emit_result(persisted.report_id, judgement))
+            if surfaced
+            else None
+        )
+        if surfaced:
+            repo_selection = await database_sync_to_async(_with_scout_research_context, thread_sensitive=False)(
+                team, run, repo_selection
+            )
+        if surfaced and built_source_issues:
+            authors = await database_sync_to_async(source_issue_author_reviewers, thread_sensitive=False)(
+                team_id=team.id, issues=built_source_issues
+            )
+            reviewers = _with_source_issue_authors(reviewers, authors)
+        if surfaced and reviewers is not None:
+            # Re-stamp owner provenance from the live owner set after the judge wait (see
+            # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
+            reviewers = await database_sync_to_async(_stamp_owner_provenance, thread_sensitive=False)(
+                team, reviewers, skill_name=author.skill_name
+            )
+        if trial_store is not None:
+            return await database_sync_to_async(_capture_trial_report, thread_sensitive=False)(
+                store=trial_store,
+                title=title,
+                summary=summary,
+                signals=signals,
+                judgement=judgement,
+                repo_selection=repo_selection,
+                repository_input=repository,
+                priority=priority_assessment,
+                reviewers=reviewers,
+                charts=chart_contents,
+                metrics=metric_contents,
+                suggested_prompts=prompt_contents,
+                emit_key=emit_key,
+            )
+        try:
+            persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
+                team_id=team.id,
+                title=title,
+                summary=summary,
+                signals=signals,
+                attribution=attribution,
+                status=judgement.status,
+                safety=judgement.safety,
+                actionability=judgement.actionability,
+                repo_selection=repo_selection,
+                priority=priority_assessment if surfaced else None,
+                suggested_reviewers=reviewers if surfaced else None,
+                charts=chart_contents,
+                metrics=metric_contents,
+                # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
+                # is still reachable from the Dismissed view, where a click would hand the judge-rejected
+                # wording to an action-capable agent run.
+                suggested_prompts=prompt_contents if judgement.safety.choice else (),
+                # Same reason as the prompts: an unsafe report must not steer another report's autostart.
+                links=built_links if judgement.safety.choice else (),
+                # Same reason: an unsafe report must not capture the issue's signals or comment on it.
+                source_issues=built_source_issues if judgement.safety.choice else (),
+                # Same reason as the prompts: other report scouts read the team's tags in their prompts.
+                tags=built_tags if judgement.safety.choice else (),
+                # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
+                # otherwise become semantic-search / matching context despite never surfacing.
+                emit_signals=judgement.safety.choice,
+                run=author.scout_run,
+                idempotency_key=emit_key,
+                funded_report_id=funded_report_id,
+                created_by_id=author.user_id,
+                proposed_reviewer_count=len(suggested_reviewers or []),
+                reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
+            )
+        except ScoutReportAlreadyEmittedError as already_emitted:
+            # The retry arrived while this call was still judging, so both reached the insert. The winner's
+            # report is the answer, and the Slack delivery and autostart below are its business, not ours.
+            return await finish(_replay_result(already_emitted.existing))
+        if surfaced:
+            if author.scout_run is not None:
+                await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
+                    run_id=author.scout_run.id,
+                    output_type="report",
+                    output_id=persisted.report_id,
+                    # A report is emitted once, so its id is the natural idempotency key (mirrors
+                    # findings using the emission id); edits keep per-delivery ids since each notifies.
+                    delivery_id=persisted.report_id,
+                )
+            await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
+        return await finish(_emit_result(persisted.report_id, judgement))
 
 
 @_private_report_gateway
+@_report_quality_checks("emit_report")
 def emit_report_sync(
     *,
     team: Team,
@@ -2411,8 +2512,8 @@ def emit_report_sync(
     source_issues: list[str] | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
-    calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
-    selection, and the autostart hand-off are bridged via `async_to_sync` (each runs before/after the
+    calling thread/connection (gates, persist) — only the safety-judge LLM call and the autostart
+    hand-off are bridged via `async_to_sync` (each runs before/after the
     report transaction, so they don't share its connection). Wrapping the whole async function instead
     would run every DB op on a separate connection, which a request's transaction can't see."""
     author.assert_owned_by(team)
@@ -2428,7 +2529,7 @@ def emit_report_sync(
     built_source_issues = _build_source_issues(source_issues)
     built_tags = _build_tags(tags) or []
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
-    # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
+    # before the safety-judge LLM call rather than after.
     _normalize_repository(repository)
     signals = _build_signals(evidence)
     validate_scout_report(title, summary, signals)
@@ -2488,107 +2589,109 @@ def emit_report_sync(
 
     _assert_emit_link_targets_live(team, built_links)
 
-    attribution = author.attribution()
-    judgement = async_to_sync(judge_scout_report)(
-        team_id=team.id,
-        title=title,
-        summary=summary,
-        signals=signals,
-        actionability=actionability_assessment,
-        charts=chart_contents,
-        metrics=metric_contents,
-        suggested_prompts=prompt_contents,
-        reviewer_reasons=_reviewer_reasons(reviewers),
-        link_reasons=_link_reasons(built_links),
-        tags=built_tags,
-    )
-    surfaced = _surfaced(judgement.status)
-    repo_selection = (
-        async_to_sync(_resolve_report_repository)(
+    with funded_report_sync(
+        team=team, run_id=run.task_run_id if run else None, emission_key=emit_key
+    ) as funded_report_id:
+        attribution = author.attribution()
+        judgement = async_to_sync(judge_scout_report)(
             team_id=team.id,
-            repository=repository,
-            title=title,
-            summary=summary,
-            evidence=evidence,
-            wants_full_selection=trial_store is None
-            and author.user_id is None
-            and _wants_repo_selection(repository, priority_assessment, reviewers),
-        )
-        if surfaced
-        else None
-    )
-    if surfaced:
-        repo_selection = _with_scout_research_context(team, run, repo_selection)
-    if surfaced and reviewers is not None:
-        # Re-stamp owner provenance from the live owner set after the judge wait (see
-        # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
-        reviewers = _stamp_owner_provenance(team, reviewers, skill_name=author.skill_name)
-    if trial_store is not None:
-        return _capture_trial_report(
-            store=trial_store,
             title=title,
             summary=summary,
             signals=signals,
-            judgement=judgement,
-            repo_selection=repo_selection,
-            repository_input=repository,
-            skipped_repository_selection=surfaced
-            and repository is None
-            and _wants_repo_selection(repository, priority_assessment, reviewers),
-            priority=priority_assessment,
-            reviewers=reviewers,
+            actionability=actionability_assessment,
             charts=chart_contents,
             metrics=metric_contents,
             suggested_prompts=prompt_contents,
-            emit_key=emit_key,
+            reviewer_reasons=_reviewer_reasons(reviewers),
+            link_reasons=_link_reasons(built_links),
+            tags=built_tags,
         )
-    try:
-        persisted = create_scout_report(
-            team_id=team.id,
-            title=title,
-            summary=summary,
-            signals=signals,
-            attribution=attribution,
-            status=judgement.status,
-            safety=judgement.safety,
-            actionability=judgement.actionability,
-            repo_selection=repo_selection,
-            priority=priority_assessment if surfaced else None,
-            suggested_reviewers=reviewers if surfaced else None,
-            charts=chart_contents,
-            metrics=metric_contents,
-            # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
-            # is still reachable from the Dismissed view, where a click would hand the judge-rejected
-            # wording to an action-capable agent run.
-            suggested_prompts=prompt_contents if judgement.safety.choice else (),
-            # Same reason as the prompts: an unsafe report must not steer another report's autostart.
-            links=built_links if judgement.safety.choice else (),
-            # Same reason: an unsafe report must not capture the issue's signals or comment on it.
-            source_issues=built_source_issues if judgement.safety.choice else (),
-            # Same reason as the prompts: other report scouts read the team's tags in their prompts.
-            tags=built_tags if judgement.safety.choice else (),
-            # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
-            # otherwise become semantic-search / matching context despite never surfacing.
-            emit_signals=judgement.safety.choice,
-            run=author.scout_run,
-            idempotency_key=emit_key,
-            created_by_id=author.user_id,
-            proposed_reviewer_count=len(suggested_reviewers or []),
-            reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
-        )
-    except ScoutReportAlreadyEmittedError as already_emitted:
-        # As in `emit_report`: a concurrent retry won the insert, so hand back its report.
-        return finish(_replay_result(already_emitted.existing))
-    if surfaced:
-        if author.scout_run is not None:
-            queue_configured_scout_slack_delivery(
-                run_id=author.scout_run.id,
-                output_type="report",
-                output_id=persisted.report_id,
-                delivery_id=persisted.report_id,
+        surfaced = _surfaced(judgement.status)
+        repo_selection = (
+            _resolve_report_repository(
+                team_id=team.id,
+                repository=repository,
+                title=title,
+                summary=summary,
+                evidence=evidence,
             )
-        async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
-    return finish(_emit_result(persisted.report_id, judgement))
+            if surfaced
+            else None
+        )
+        if surfaced:
+            repo_selection = _with_scout_research_context(team, run, repo_selection)
+        if surfaced and built_source_issues:
+            reviewers = _with_source_issue_authors(
+                reviewers, source_issue_author_reviewers(team_id=team.id, issues=built_source_issues)
+            )
+        if surfaced and reviewers is not None:
+            # Re-stamp owner provenance from the live owner set after the judge wait (see
+            # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
+            reviewers = _stamp_owner_provenance(team, reviewers, skill_name=author.skill_name)
+        if trial_store is not None:
+            return _capture_trial_report(
+                store=trial_store,
+                title=title,
+                summary=summary,
+                signals=signals,
+                judgement=judgement,
+                repo_selection=repo_selection,
+                repository_input=repository,
+                priority=priority_assessment,
+                reviewers=reviewers,
+                charts=chart_contents,
+                metrics=metric_contents,
+                suggested_prompts=prompt_contents,
+                emit_key=emit_key,
+            )
+        try:
+            persisted = create_scout_report(
+                team_id=team.id,
+                title=title,
+                summary=summary,
+                signals=signals,
+                attribution=attribution,
+                status=judgement.status,
+                safety=judgement.safety,
+                actionability=judgement.actionability,
+                repo_selection=repo_selection,
+                priority=priority_assessment if surfaced else None,
+                suggested_reviewers=reviewers if surfaced else None,
+                charts=chart_contents,
+                metrics=metric_contents,
+                # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
+                # is still reachable from the Dismissed view, where a click would hand the judge-rejected
+                # wording to an action-capable agent run.
+                suggested_prompts=prompt_contents if judgement.safety.choice else (),
+                # Same reason as the prompts: an unsafe report must not steer another report's autostart.
+                links=built_links if judgement.safety.choice else (),
+                # Same reason: an unsafe report must not capture the issue's signals or comment on it.
+                source_issues=built_source_issues if judgement.safety.choice else (),
+                # Same reason as the prompts: other report scouts read the team's tags in their prompts.
+                tags=built_tags if judgement.safety.choice else (),
+                # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
+                # otherwise become semantic-search / matching context despite never surfacing.
+                emit_signals=judgement.safety.choice,
+                run=author.scout_run,
+                idempotency_key=emit_key,
+                funded_report_id=funded_report_id,
+                created_by_id=author.user_id,
+                proposed_reviewer_count=len(suggested_reviewers or []),
+                reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
+            )
+        except ScoutReportAlreadyEmittedError as already_emitted:
+            # As in `emit_report`: a concurrent retry won the insert, so hand back its report.
+            return finish(_replay_result(already_emitted.existing))
+        if surfaced:
+            if author.scout_run is not None:
+                queue_configured_scout_slack_delivery(
+                    run_id=author.scout_run.id,
+                    output_type="report",
+                    output_id=persisted.report_id,
+                    delivery_id=persisted.report_id,
+                )
+            async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
+        return finish(_emit_result(persisted.report_id, judgement))
 
 
 def _do_edit_report(
@@ -2613,6 +2716,7 @@ def _do_edit_report(
     priority: PriorityAssessment | None = None,
     tags: list[str] | None = None,
     source_issues: list[SourceIssue] | None = None,
+    pull_requests: list[str] | None = None,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
     the sync path, via `database_sync_to_async` in the async path. The autostart re-eval bridges an
@@ -2624,8 +2728,9 @@ def _do_edit_report(
     `reviewers` arrives already resolved (`_build_suggested_reviewers` in the entrypoints, before the
     safety judge): resolution is the only step that can reject caller input, so a combined edit with a
     bad reviewer fails before the judge spends an LLM call and before any write. None leaves existing
-    reviewers untouched; a supplied set replaces them verbatim (nothing injected), with owner
-    provenance stamped so a picked owner can't become the autostart identity."""
+    reviewers untouched; a supplied set replaces them, with owner provenance stamped so a picked owner
+    can't become the autostart identity. The only entries added to the scout's picks are the authors
+    of source issues this edit adds (`_with_source_issue_authors`)."""
     _assert_edit_gates(team, author, report_id)
     if corroboration_only and not append_note:
         raise InvalidScoutReportError("corroboration_only requires append_note")
@@ -2651,11 +2756,28 @@ def _do_edit_report(
         )
 
     attribution = author.attribution()
+    # Read before the transaction opens, because each pull request the report does not link yet costs a
+    # GitHub API call, and a lock held across that call would block every other write to the report.
+    pull_request_details = (
+        resolve_scout_report_pull_requests(
+            team_id=team.id,
+            report_id=report_id,
+            pull_request_urls=pull_requests,
+            report_repository=_decided_repository_after_edit(report_id, repository),
+        )
+        if pull_requests
+        else []
+    )
+    # Read before the transaction for the same reason: each issue the report does not name yet costs a
+    # GitHub call to find who filed it.
+    source_issue_authors = _new_source_issue_authors(team, report_id, source_issues)
     updated_fields: list[str] = []
     note_appended = False
     repository_set = False
     links_appended = 0
     source_issues_appended = 0
+    source_issue_authors_added = False
+    pull_requests_linked = 0
     evidence_document_ids: list[str] = []
     charts_changed = False
     metrics_changed = False
@@ -2720,6 +2842,12 @@ def _do_edit_report(
                     author=author.skill_name,
                     implementation_context=implementation_context,
                 )
+        if (
+            source_issue_authors
+            and reviewers is not None
+            and (reviewer_proposal is None or reviewer_proposal.outcome == "selected")
+        ):
+            reviewers = _with_source_issue_authors(reviewers, source_issue_authors)
         # Re-stamp owner provenance from the live owner set at the write: the safety-judge call sits
         # between resolution and this transaction, autostart trusts the stored stamp, and an owner
         # added during that wait must not remain an identity candidate.
@@ -2803,6 +2931,28 @@ def _do_edit_report(
                 source_issues=source_issues,
                 attribution=attribution,
             )
+            # An edit that sets no reviewers keeps the report's list and adds the new issues' authors to it.
+            if source_issues_appended and source_issue_authors and reviewers is None:
+                source_issue_authors_added = add_scout_report_reviewers(
+                    team_id=team.id,
+                    report_id=report_id,
+                    additions=_stamp_owner_provenance(
+                        team, SuggestedReviewers(root=source_issue_authors), skill_name=author.skill_name
+                    ).root,
+                    max_reviewers=MAX_SUGGESTED_REVIEWERS,
+                    attribution=attribution,
+                    author=author.skill_name,
+                    service=assignment,
+                )
+        # Additive like the source issues above. A linked pull request makes the report resolve when it
+        # merges, so a scout that found the fix records it here instead of only naming it in the summary.
+        if pull_request_details:
+            pull_requests_linked = link_scout_report_pull_requests(
+                team_id=team.id,
+                report_id=report_id,
+                pull_requests=pull_request_details,
+                attribution=attribution,
+            )
         # Replace the report's charts, the way a summary rewrite replaces the summary. Omitting the
         # field leaves the existing ones alone, so an edit that only appends a note keeps them; an
         # explicit empty list takes them down.
@@ -2862,6 +3012,7 @@ def _do_edit_report(
             or evidence_appended
             or links_appended
             or source_issues_appended
+            or pull_requests_linked
             or decision_fields_set
         )
         or charts_set is not None
@@ -2906,6 +3057,7 @@ def _do_edit_report(
             or repository_set
             or links_appended
             or source_issues_appended
+            or pull_requests_linked
             or decision_fields_set
         ) and not (updated_fields or note_appended or reviewers_set or evidence_appended or charts_set is not None)
         if report_status is not None and _surfaced(report_status) and not inbox_only:
@@ -3002,7 +3154,7 @@ def _do_edit_report(
     is_content_revision = bool(updated_fields)
     # Routing changes, a new work decision, and a new replacement decision each need an autostart
     # evaluation. Run it after the commit because it spawns a task.
-    if reviewers_set or repository_set or decision_fields_set or supersede_recorded:
+    if reviewers_set or source_issue_authors_added or repository_set or decision_fields_set or supersede_recorded:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
     logger.info(
         "signals_scout.edit_report: edited",
@@ -3023,6 +3175,7 @@ def _do_edit_report(
             "decision_fields_set": decision_fields_set,
             "corroboration_collapsed": corroboration_collapsed,
             "source_issues_appended": source_issues_appended,
+            "pull_requests_linked": pull_requests_linked,
         },
     )
     # Resolve the report's effective title for the edited event's classification — the rewritten title
@@ -3058,6 +3211,7 @@ def _do_edit_report(
         corroboration_collapsed=corroboration_collapsed,
         links_appended=links_appended,
         source_issues_appended=source_issues_appended,
+        pull_requests_linked=pull_requests_linked,
         decision_fields_set=tuple(decision_fields_set),
         warnings=reviewer_warnings
         + (
@@ -3160,11 +3314,13 @@ def _validate_edit_inputs(
     priority_explanation=None,
     tags=None,
     source_issues=None,
+    pull_requests=None,
 ) -> None:
     author.assert_owned_by(team)
     trial_store = _author_trial_store(author)
     _reject_trial_report_links(trial_store, links)
     _reject_trial_source_issues(trial_store, source_issues)
+    _reject_trial_pull_requests(trial_store, pull_requests)
     if trial_store is not None:
         validate_scout_report_text("title", title)
         validate_scout_report_text("summary", summary)
@@ -3205,15 +3361,17 @@ def _validate_edit_inputs(
         and priority_explanation is None
         and tags is None
         and not source_issues
+        and not pull_requests
     ):
         raise InvalidScoutReportError(
             "edit_report needs at least one of title, summary, append_note, append_evidence, "
             "suggested_reviewers, repository, charts, metrics, suggested_prompts, links, actionability, priority, "
-            "tags, source_issues"
+            "tags, source_issues, pull_requests"
         )
 
 
 @_private_report_gateway_async
+@_report_quality_checks_async("edit_report")
 async def edit_report(
     *,
     team: Team,
@@ -3239,6 +3397,7 @@ async def edit_report(
     priority_explanation: str | None = None,
     tags: list[str] | None = None,
     source_issues: list[str] | None = None,
+    pull_requests: list[str] | None = None,
 ) -> EditReportResult:
     """Edit an existing inbox report: rewrite title/summary, append a note or fresh evidence, set
     suggested reviewers, and/or repoint it at another repository (both re-run autostart, so a report
@@ -3270,6 +3429,7 @@ async def edit_report(
         priority_explanation,
         tags,
         source_issues,
+        pull_requests,
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
@@ -3282,6 +3442,7 @@ async def edit_report(
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
     built_links = _build_links(links)
     built_source_issues = _build_source_issues(source_issues)
+    built_pull_requests = _build_pull_requests(pull_requests)
     built_tags = _build_tags(tags)
     # Off the loop because the gate reads a feature flag, which can block on the flag service.
     allowed_metrics = await database_sync_to_async(_allowed_metrics, thread_sensitive=False)(team, metrics)
@@ -3334,6 +3495,7 @@ async def edit_report(
         priority=built_priority,
         tags=built_tags,
         source_issues=built_source_issues,
+        pull_requests=built_pull_requests,
     )
     if _author_trial_store(author) is not None:
         return result
@@ -3356,12 +3518,14 @@ async def edit_report(
         priority=built_priority,
         tags=built_tags,
         source_issues=built_source_issues,
+        pull_requests=built_pull_requests,
     )
     await _forward_report_event_async(team, forward)
     return result
 
 
 @_private_report_gateway
+@_report_quality_checks("edit_report")
 def edit_report_sync(
     *,
     team: Team,
@@ -3387,6 +3551,7 @@ def edit_report_sync(
     priority_explanation: str | None = None,
     tags: list[str] | None = None,
     source_issues: list[str] | None = None,
+    pull_requests: list[str] | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     if reviewer_proposal is not None and reviewer_proposal.outcome != "selected" and suggested_reviewers is None:
@@ -3411,6 +3576,7 @@ def edit_report_sync(
         priority_explanation,
         tags,
         source_issues,
+        pull_requests,
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
@@ -3423,6 +3589,7 @@ def edit_report_sync(
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
     built_links = _build_links(links)
     built_source_issues = _build_source_issues(source_issues)
+    built_pull_requests = _build_pull_requests(pull_requests)
     built_tags = _build_tags(tags)
     allowed_metrics = _allowed_metrics(team, metrics)
     built_metrics = _build_edit_metrics(allowed_metrics)
@@ -3470,6 +3637,7 @@ def edit_report_sync(
         priority=built_priority,
         tags=built_tags,
         source_issues=built_source_issues,
+        pull_requests=built_pull_requests,
     )
     if _author_trial_store(author) is not None:
         return result
@@ -3492,6 +3660,7 @@ def edit_report_sync(
         priority=built_priority,
         tags=built_tags,
         source_issues=built_source_issues,
+        pull_requests=built_pull_requests,
     )
     if forward is not None:
         _forward_report_event_to_team(team=team, forward=forward)

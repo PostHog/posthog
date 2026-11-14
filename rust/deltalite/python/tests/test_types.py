@@ -9,7 +9,8 @@ Two axes:
     (src/pkset.rs) as in MERGE's join, including the float -0.0/NaN sharp edges.
 
 Any case where the two paths disagree, or where deltalite errors and MERGE succeeds,
-is a NO-GO finding, not a skip.
+is a NO-GO finding, not a skip. The one recorded divergence is a -0.0 primary key,
+pinned per path in test_float_pk_negative_zero_absolute.
 """
 
 from __future__ import annotations
@@ -308,10 +309,11 @@ def test_composite_pk_mixed_types_parity(tmp_path):
 
 # --------------------------------------------------------------------------------------
 # Float PK sharp edges, pinned ABSOLUTELY on both paths (cross-path equality alone
-# cannot catch both being wrong the same way). The design flagged these as a risk;
-# measured behavior is that the two paths agree:
-#   * -0.0 does NOT match 0.0 (both treat them as distinct keys -> insert);
-#   * NaN DOES match NaN (both treat NaN as equal to itself -> update).
+# cannot catch both being wrong the same way). The design flagged these as a risk.
+# Measured behavior:
+#   * -0.0 is the known divergence: deltalake 1.6.3 MERGE matches -0.0 to 0.0 (update),
+#     and deltalite upsert treats them as distinct keys (insert);
+#   * NaN DOES match NaN on both paths (both treat NaN as equal to itself -> update).
 # --------------------------------------------------------------------------------------
 
 
@@ -321,16 +323,21 @@ def _float_content(uri):
     return sorted(zip(ks, tbl["v"].to_pylist()))
 
 
-@pytest.mark.parametrize("path_name", ["merge", "upsert"])
-def test_float_pk_negative_zero_absolute(tmp_path, path_name):
+@pytest.mark.parametrize(
+    "path_name, expected",
+    [
+        ("merge", [("-0.0", 2), ("1.5", 1)]),
+        ("upsert", [("-0.0", 2), ("0.0", 1), ("1.5", 1)]),
+    ],
+)
+def test_float_pk_negative_zero_absolute(tmp_path, path_name, expected):
     path = merge_path if path_name == "merge" else upsert_path
     uri = str(tmp_path / f"negzero_{path_name}")
     create_table(uri, _pk_table([0.0, 1.5], pa.float64(), 1), True)
 
     path(uri, _pk_table([-0.0], pa.float64(), 2), ["k"], PARTITION_KEY)
 
-    # -0.0 is a DISTINCT key: it inserts, and the 0.0 row is untouched
-    assert _float_content(uri) == [("-0.0", 2), ("0.0", 1), ("1.5", 1)]
+    assert _float_content(uri) == expected
 
 
 @pytest.mark.parametrize("path_name", ["merge", "upsert"])

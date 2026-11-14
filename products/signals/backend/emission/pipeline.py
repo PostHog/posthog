@@ -12,14 +12,15 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from anthropic import AsyncAnthropic
-from anthropic.types import MessageParam
+from anthropic.types import Message, MessageParam
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import groups
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 from posthog.models import Organization, Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.signals.backend.emission._prompts import COMMON_ACTIONABILITY_PROMPT_NAMES
 from products.signals.backend.emission.registry import (
@@ -30,7 +31,7 @@ from products.signals.backend.emission.registry import (
 )
 from products.signals.backend.emission.steering import SourceSteering, apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
-from products.signals.backend.llm_spend import generate_with_spend
+from products.signals.backend.llm_spend import accounted_message, generate_with_spend
 from products.signals.backend.models import SignalEmissionRecord, SignalReport
 from products.signals.backend.recurrence import reports_fork_recurrence
 from products.signals.backend.report_merge import signal_target_reports
@@ -42,6 +43,9 @@ from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 from products.signals.backend.temporal.llm import effort_kwargs
 from products.signals.backend.temporal.signal_queries import fetch_source_signal_matches
+from products.signals.backend.trial.policy import TrialRefused
+from products.signals.backend.trial.reports import requires_trial_accounting
+from products.signals.backend.trial.signals import admit_signal
 
 logger = structlog.get_logger(__name__)
 
@@ -50,7 +54,7 @@ LLM_MODEL = os.getenv("SIGNAL_EMISSION_LLM_MODEL", "claude-sonnet-5")
 EMISSION_AI_PRODUCT = "signals_emission"
 # Concurrent LLM calls limit for actionability/summarization checks
 LLM_CONCURRENCY_LIMIT = 20
-# Concurrent workflow spawns for signal emission
+# Concurrent admission checks and workflow spawns for signal emission
 EMIT_CONCURRENCY_LIMIT = 50
 # Temporal gRPC payload size limit (2 MB)
 TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
@@ -197,6 +201,30 @@ def build_emitter_outputs(
     return outputs, error_count
 
 
+async def _create_message(
+    client: AsyncAnthropic,
+    *,
+    team_id: int,
+    signal_id: str | None,
+    messages: list[MessageParam],
+    extra_headers: dict[str, str],
+) -> Message:
+    # Keep the timeout inside the coroutine that admission can close before generation starts.
+    async with asyncio.timeout(LLM_CALL_TIMEOUT_SECONDS):
+        trial = await database_sync_to_async_pool(requires_trial_accounting)(team_id, signal_id)
+        if trial:
+            client = client.with_options(max_retries=0)
+        return await accounted_message(
+            client,
+            model=LLM_MODEL,
+            messages=messages,
+            max_tokens=LLM_MAX_OUTPUT_TOKENS,
+            metadata={"user_id": f"team-{team_id}"},
+            extra_headers=extra_headers,
+            **effort_kwargs(LLM_MODEL),
+        )
+
+
 async def _summarize_description(
     client: AsyncAnthropic,
     team_id: int,
@@ -218,19 +246,16 @@ async def _summarize_description(
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
         summary = ""
         try:
-            generation = asyncio.wait_for(
-                client.messages.create(
-                    model=LLM_MODEL,
-                    messages=messages,
-                    max_tokens=LLM_MAX_OUTPUT_TOKENS,
-                    metadata={"user_id": f"team-{team_id}"},
-                    extra_headers=extra_headers,
-                    **effort_kwargs(LLM_MODEL),
-                ),
-                timeout=LLM_CALL_TIMEOUT_SECONDS,
+            generation = _create_message(
+                client, team_id=team_id, signal_id=output.signal_id, messages=messages, extra_headers=extra_headers
             )
             priced = await generate_with_spend(
-                generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="summarization"
+                generation,
+                gateway=gateway,
+                team_id=team_id,
+                signal_id=output.signal_id,
+                stage="summarization",
+                billing_exempt=system_source_exempt(output.source_product),
             )
             response = priced.response
             summary = _extract_text(response).strip()
@@ -241,6 +266,8 @@ async def _summarize_description(
             if len(summary) > threshold:
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
+        except (QuotaLimitExceeded, TrialRefused):
+            raise
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -291,6 +318,8 @@ async def summarize_long_descriptions(
                 result = await _summarize_description(
                     client, team.id, output, summarization_prompt, threshold, gateway_mode=gateway_mode
                 )
+            except (QuotaLimitExceeded, TrialRefused):
+                return None
             except Exception:
                 logger.exception(
                     "Summarization failed, skipping signal",
@@ -388,23 +417,26 @@ async def check_actionability(
             if attempt > 0:
                 await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
             try:
-                generation = asyncio.wait_for(
-                    client.messages.create(
-                        model=LLM_MODEL,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=LLM_MAX_OUTPUT_TOKENS,
-                        metadata={"user_id": f"team-{team_id}"},
-                        extra_headers=extra_headers,
-                        **effort_kwargs(LLM_MODEL),
-                    ),
-                    timeout=LLM_CALL_TIMEOUT_SECONDS,
+                generation = _create_message(
+                    client,
+                    team_id=team_id,
+                    signal_id=output.signal_id,
+                    messages=[{"role": "user", "content": prompt}],
+                    extra_headers=extra_headers,
                 )
                 priced = await generate_with_spend(
-                    generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="actionability"
+                    generation,
+                    gateway=gateway,
+                    team_id=team_id,
+                    signal_id=output.signal_id,
+                    stage="actionability",
+                    billing_exempt=system_source_exempt(output.source_product),
                 )
                 response = priced.response
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
+            except (QuotaLimitExceeded, TrialRefused):
+                raise
             except Exception as e:
                 posthoganalytics.capture_exception(
                     e,
@@ -472,6 +504,8 @@ async def filter_actionable(
                     context_fields=context_fields,
                     system_one_prompt=system_one_prompt,
                 )
+            except (QuotaLimitExceeded, TrialRefused):
+                return False
             except Exception:
                 logger.exception(
                     "Actionability check failed, assuming actionable",
@@ -525,7 +559,9 @@ def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
     )
 
 
-async def _record_processed_outputs(team: Team, outputs: list[SignalEmitterOutput]) -> None:
+async def _record_processed_outputs(
+    team: Team, outputs: list[SignalEmitterOutput], snapshot_at: datetime | None = None
+) -> None:
     await SignalEmissionRecord.objects.abulk_create(
         [
             SignalEmissionRecord(
@@ -533,11 +569,13 @@ async def _record_processed_outputs(team: Team, outputs: list[SignalEmitterOutpu
                 source_product=output.source_product,
                 source_type=output.source_type,
                 source_id=output.source_id,
-                emitted_at=timezone.now(),
+                emitted_at=snapshot_at or timezone.now(),
             )
             for output in outputs
         ],
-        ignore_conflicts=True,
+        update_conflicts=True,
+        update_fields=["emitted_at"],
+        unique_fields=["team", "source_product", "source_type", "source_id"],
     )
 
 
@@ -548,6 +586,7 @@ async def _emit_signals(
     extra: dict[str, Any],
     record_processed_outputs: bool = False,
     sync_with_source: bool = False,
+    snapshot_at: datetime | None = None,
 ) -> int:
     semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
     _safe_heartbeat()
@@ -597,7 +636,7 @@ async def _emit_signals(
                     source_match_report_id=output.source_match_report_id,
                 )
                 if record_processed_outputs:
-                    await _record_processed_outputs(team, [output])
+                    await _record_processed_outputs(team, [output], snapshot_at)
                 return True
             except Exception as e:
                 # Sources that record at fetch time cannot retry a record lost here.
@@ -640,12 +679,40 @@ def _reports_closed_to_source_state(team_id: int, report_ids: set[str]) -> set[s
     return {report_id for report_id, target in targets.items() if str(target.id) in closed_targets}
 
 
+async def filter_admitted(
+    team: Team, organization: Organization, outputs: list[SignalEmitterOutput]
+) -> list[SignalEmitterOutput]:
+    semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
+
+    async def _bounded_admit(output: SignalEmitterOutput) -> bool:
+        async with semaphore:
+            assert output.signal_id is not None
+            try:
+                await database_sync_to_async_pool(admit_signal)(
+                    team=team, signal_id=output.signal_id, billing_exempt=system_source_exempt(output.source_product)
+                )
+            except (QuotaLimitExceeded, TrialRefused) as error:
+                reason = error.reason if isinstance(error, TrialRefused) else "quota_limited"
+                capture_pipeline_stage(
+                    "signal_data_source_filtered", team, organization, output, {"filter_reason": reason}
+                )
+                return False
+            finally:
+                _safe_heartbeat()
+            return True
+
+    async with asyncio.TaskGroup() as tg:
+        tasks = [tg.create_task(_bounded_admit(output)) for output in outputs]
+    return [output for output, task in zip(outputs, tasks) if task.result()]
+
+
 async def run_signal_pipeline(
     team: Team,
     config: SignalSourceTableConfig,
     records: list[dict[str, Any]],
     extra: dict[str, Any],
     source_config: dict[str, Any] | None = None,
+    snapshot_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Run records through the shared emission pipeline (emit, summarize, gate, emit signals).
 
@@ -700,7 +767,9 @@ async def run_signal_pipeline(
     )
     if config.record_processed_outputs and finished:
         # Dispatch may have succeeded before the emission ledger write failed.
-        await _record_processed_outputs(team, [output for output in outputs if output.signal_id in finished])
+        await _record_processed_outputs(
+            team, [output for output in outputs if output.signal_id in finished], snapshot_at
+        )
     outputs = [output for output in outputs if output.signal_id not in finished]
 
     organization = await database_sync_to_async(lambda: team.organization)()
@@ -758,6 +827,8 @@ async def run_signal_pipeline(
                 kept_outputs.append(output)
         outputs = kept_outputs
 
+    outputs = await filter_admitted(team, organization, outputs)
+
     if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
         threshold = config.description_summarization_threshold_chars
         pre_summary_by_id = {o.source_id: o for o in outputs}
@@ -803,7 +874,9 @@ async def run_signal_pipeline(
         ]
         if config.record_processed_outputs:
             await _record_processed_outputs(
-                team, [output for source_id, output in pre_filter_by_id.items() if source_id not in post_filter_ids]
+                team,
+                [output for source_id, output in pre_filter_by_id.items() if source_id not in post_filter_ids],
+                snapshot_at,
             )
         for source_id, output in pre_filter_by_id.items():
             if source_id not in post_filter_ids:
@@ -828,6 +901,7 @@ async def run_signal_pipeline(
         extra=extra,
         record_processed_outputs=config.record_processed_outputs,
         sync_with_source=config.sync_with_source,
+        snapshot_at=snapshot_at,
     )
     logger.info(f"Emitted {signals_emitted} signals for {source_label}", **extra)
     return {"status": "success", "signals_emitted": signals_emitted}

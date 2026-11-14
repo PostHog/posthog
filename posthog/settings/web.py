@@ -54,6 +54,7 @@ PRODUCTS_APPS = [
     "products.stamphog.backend.apps.StamphogConfig",
     "products.knowledge_writer.backend.apps.KnowledgeWriterConfig",
     "products.today.backend.apps.TodayConfig",
+    "products.ui_customization.backend.apps.UiCustomizationConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.aeo.backend.apps.AEOConfig",
@@ -83,6 +84,7 @@ PRODUCTS_APPS = [
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
     "products.visual_review.backend.apps.VisualReviewConfig",
+    "products.release.backend.apps.ReleaseConfig",
     "products.replay_vision.backend.apps.ReplayVisionConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
@@ -184,6 +186,9 @@ MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     # Outside every middleware that can swap the response, so the deferred work rides on the one sent.
     "posthog.after_response.AfterResponseMiddleware",
+    # Outside every middleware that can answer early (IP allowlist, CSRF, auth, IP restrictions),
+    # so the build skew counter sees the status of each API response the client receives.
+    "posthog.client_build_middleware.ClientBuildSkewMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
@@ -317,7 +322,7 @@ LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS + ("x-posthog-client-provenance",)
-CORS_EXPOSE_HEADERS = ["X-PostHog-Events-Default-After"]
+CORS_EXPOSE_HEADERS = ["X-PostHog-Events-Default-After", "X-Request-ID"]
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
@@ -460,7 +465,13 @@ TWO_FACTOR_REMEMBER_COOKIE_AGE = 60 * 60 * 24 * 30
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "posthog.auth.ZxcvbnValidator"},
+    {"NAME": "posthog.breached_password_validator.BreachedPasswordValidator"},
 ]
+
+# The breached-password check calls api.pwnedpasswords.com, so an instance without outbound access turns it off.
+PWNED_PASSWORDS_CHECK_ENABLED = get_from_env("PWNED_PASSWORDS_CHECK_ENABLED", not TEST, type_cast=str_to_bool)
+# pwned-passwords-django reads this. A short timeout stops a slow API from holding up signup.
+PWNED_PASSWORDS = {"API_TIMEOUT": 1.0}
 
 if TEST:
     # PBKDF2 is deliberately slow (~150ms per hash), which adds up because every
@@ -675,6 +686,8 @@ SPECTACULAR_SETTINGS = {
             # The anomaly and explain bodies keep this name; the metrics query clause's own
             # aggregation adds 'none' and is named by its MetricQueryAggregation class.
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+            # The AEO prompt and keyword suggestion jobs share this status class, and another class has the same pairs.
+            "AEOSuggestionJobStatusEnum": "products.aeo.backend.facade.contracts.SuggestionJobStatus.choices",
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             # Matches the workflows WorkflowImportSource (customerio), the source of an automation import.
@@ -1033,6 +1046,9 @@ TYPESAFE_EGRESS_HOURLY_BUDGET = get_from_env("TYPESAFE_EGRESS_HOURLY_BUDGET", 20
 # way clients fetched feature flags before the Rust feature flags service.
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
+# Self-hosted installs turn this off: only the cloud billing task reads and deletes the request
+# counters, so elsewhere they grow in Redis forever. The Rust feature flags service reads the same variable.
+FLAGS_BILLING_COUNTERS_ENABLED = get_from_env("FLAGS_BILLING_COUNTERS_ENABLED", True, type_cast=str_to_bool)
 
 ####
 # /remote_config
@@ -1195,6 +1211,13 @@ WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS: list[int] = [
         get_from_env("WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS", "100,1000,3000,10000,30000,100000,300000,1000000")
     )
 ]
+# A batch email with a sending rate limit may go to more people than its tier's batch cap, because the
+# rate limit spreads the send over several days. The rate may use at most this share of the daily cap,
+# so the project's other workflows keep the rest of it, and the send may last at most this many days.
+WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE = float(get_from_env("WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE", 0.5))
+if not 0 <= WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE <= 1:
+    raise ImproperlyConfigured("WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE must be between 0 and 1")
+WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS = int(get_from_env("WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS", 7))
 
 # Promotion bar. A team must sit at its tier for this long, actually use the tier, and keep its
 # rates under the thresholds below before it moves up one step. Indexed by the tier the team is
@@ -1286,6 +1309,7 @@ OIDC_RSA_PRIVATE_KEYS_INACTIVE = [
 ]
 
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
+OAUTH_STALE_APPLICATION_GRACE_PERIOD = 60 * 60 * 24 * 30  # 30 days
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
@@ -1473,8 +1497,8 @@ DEV_GATEWAY_MINT_KEY = get_from_env("DEV_GATEWAY_MINT_KEY", "")
 DEV_GATEWAY_TEAM_ID = get_from_env("DEV_GATEWAY_TEAM_ID", 0, type_cast=int)
 DEV_GATEWAY_TOKEN_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_CAP_USD", "25")
 DEV_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_TTL_SECONDS", 8 * 60 * 60, type_cast=int)
-# Caps minted in the trailing 24 hours count against this, so the gateway's reserved cap per token
-# makes it a hard ceiling on what one user can spend in a day.
+# Caps minted in the trailing 24 hours count against this until revoked, then only what the token
+# spent. The limit is approximate, because cost that settles after a revoke is not counted.
 DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "50")
 DEV_GATEWAY_MINTS_PER_HOUR = get_from_env("DEV_GATEWAY_MINTS_PER_HOUR", 20, type_cast=int)
 
@@ -1503,11 +1527,9 @@ MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DE
 # AEO citation-tracking POC (products/aeo). The scheduled runner only covers
 # teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
 AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
-AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
-# Scores brand sentiment on the evals Temporal queue after each run. Off until that worker carries the model.
-AEO_BRAND_SENTIMENT_ENABLED = get_from_env("AEO_BRAND_SENTIMENT_ENABLED", False, type_cast=str_to_bool)
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.
 AEO_MAX_PROMPTS_PER_RUN = get_from_env("AEO_MAX_PROMPTS_PER_RUN", 2000, type_cast=int)
 AEO_RUN_CONCURRENCY = get_from_env("AEO_RUN_CONCURRENCY", 16, type_cast=int)
@@ -1516,6 +1538,9 @@ AEO_RUN_CONCURRENCY = get_from_env("AEO_RUN_CONCURRENCY", 16, type_cast=int)
 # killed run only pick up the prompts it missed, however late the previous day's run finished.
 AEO_RUN_DAY_START_UTC_HOUR = get_from_env("AEO_RUN_DAY_START_UTC_HOUR", 7, type_cast=int)
 EXA_API_KEY = get_from_env("EXA_API_KEY", "")
+# The Perplexity engine also needs the AI gateway. It stays off until legal confirms which
+# Perplexity terms cover the stored web_search output.
+AEO_PERPLEXITY_ENABLED = get_from_env("AEO_PERPLEXITY_ENABLED", False, type_cast=str_to_bool)
 CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 CONTENT_AUTOPILOT_SAFETY_MODEL = get_from_env("CONTENT_AUTOPILOT_SAFETY_MODEL", "claude-haiku-4-5")
 

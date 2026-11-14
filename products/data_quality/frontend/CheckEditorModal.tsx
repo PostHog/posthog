@@ -18,18 +18,15 @@ import {
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import type { CodeEditorProps } from 'lib/monaco/CodeEditor'
-import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
 import type { DataQualitySubjectRef } from './checksApi'
 import { checkTypeLabel, subjectTypeLabel } from './checksConstants'
+import { CustomSqlCodeEditor } from './CustomSqlCodeEditor'
+import { CodeEditorInstance, insertOutputColumn } from './customSqlEditor'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi } from './generated/api.schemas'
 import { formatPreviewCell } from './previewCell'
-
-type CodeEditorInstance = Parameters<NonNullable<CodeEditorProps['onMount']>>[0]
 
 export function CheckEditorModal(): JSX.Element {
     const {
@@ -55,7 +52,7 @@ export function CheckEditorModal(): JSX.Element {
     const awaitingSubject = openedWithoutSubject && !subject
     const checkTypesFailedEmpty = checkTypesError && !checkTypesLoading && !checkTypes.length
     const catalogFailed = !!checkSubjectsError && !checkSubjectsLoading
-    const { loadCheckTypes, loadCheckSubjects, requestClose, setCheckFormValues, setSubject, submitCheckForm } =
+    const { loadCheckTypes, loadCheckSubjects, requestClose, setCheckType, setSubject, submitCheckForm } =
         useActions(dataQualityCheckEditorLogic)
 
     return (
@@ -189,20 +186,7 @@ export function CheckEditorModal(): JSX.Element {
                                 </div>
                             ),
                         }))}
-                        onChange={(checkType) =>
-                            // The config fields belong to the type that was selected, so they can't carry over.
-                            setCheckFormValues({
-                                checkType,
-                                columnName: '',
-                                acceptedValues: [],
-                                toSubjectUuid: '',
-                                toColumn: '',
-                                rowCountMin: null,
-                                rowCountMax: null,
-                                maxAgeMinutes: null,
-                                customSql: '',
-                            })
-                        }
+                        onChange={setCheckType}
                     />
                 </LemonField>
 
@@ -237,7 +221,11 @@ export function CheckEditorModal(): JSX.Element {
                     <LemonTextArea placeholder="Every order has to belong to a customer" minRows={2} />
                 </LemonField>
 
-                <LemonField name="severity" label="Severity">
+                <LemonField
+                    name="severity"
+                    label="Severity"
+                    help="Errors notify you when the check starts failing. On a view, they also block materialization when 'Block materialization on failing checks' is on. Warnings show in the status but never notify or block."
+                >
                     <LemonSegmentedButton
                         options={[
                             { value: DataQualityCheckSeverityEnumApi.Error, label: 'Error' },
@@ -300,32 +288,13 @@ function CustomSqlField(): JSX.Element {
         customSqlPreviewLoading,
         customSqlPreviewStale,
         customSqlPreviewVerdict,
-        customSqlQueryKey,
-        customSqlSourceQuery,
         isMetricSubject,
         availableOutputSchema,
         metricOutputSchemaError,
         metricOutputSchemaLoading,
     } = useValues(dataQualityCheckEditorLogic)
-    const { loadMetricOutputSchema, runCustomSqlPreview, setCustomSqlEditorError, setCustomSqlValidationLoading } =
-        useActions(dataQualityCheckEditorLogic)
+    const { loadMetricOutputSchema, runCustomSqlPreview } = useActions(dataQualityCheckEditorLogic)
     const editorRef = useRef<CodeEditorInstance | null>(null)
-
-    const insertOutputColumn = (columnName: string): void => {
-        const editor = editorRef.current
-        const selection = editor?.getSelection()
-        if (!editor || !selection) {
-            return
-        }
-        editor.executeEdits('data-quality-output-schema', [
-            {
-                range: selection,
-                text: escapePropertyAsHogQLIdentifier(columnName),
-                forceMoveMarkers: true,
-            },
-        ])
-        editor.focus()
-    }
 
     const previewRows = customSqlPreview?.rows ?? []
     // Key and index by position, not by column name: HogQL can return two columns with the same name
@@ -351,23 +320,7 @@ function CustomSqlField(): JSX.Element {
         >
             {({ value, onChange }) => (
                 <div className="flex flex-col gap-2">
-                    <CodeEditorResizeable
-                        language="hogQL"
-                        value={value ?? ''}
-                        onChange={(query) => onChange(query ?? '')}
-                        queryKey={customSqlQueryKey}
-                        sourceQuery={customSqlSourceQuery}
-                        metadataQuery={isMetricSubject ? '' : undefined}
-                        onError={isMetricSubject ? undefined : setCustomSqlEditorError}
-                        onMetadataLoading={isMetricSubject ? undefined : setCustomSqlValidationLoading}
-                        onPressCmdEnter={isMetricSubject ? undefined : () => runCustomSqlPreview(undefined)}
-                        onMount={(editor) => {
-                            editorRef.current = editor
-                        }}
-                        autoFocus
-                        minHeight="8rem"
-                        maxHeight="40vh"
-                    />
+                    <CustomSqlCodeEditor value={value} onChange={onChange} editorRef={editorRef} />
                     <div className="rounded border bg-surface-primary overflow-hidden">
                         <div className="flex items-center justify-between gap-2 px-3 py-2 border-b">
                             <div>
@@ -403,7 +356,7 @@ function CustomSqlField(): JSX.Element {
                                         type="tertiary"
                                         size="small"
                                         fullWidth
-                                        onClick={() => insertOutputColumn(column.name)}
+                                        onClick={() => insertOutputColumn(editorRef.current, column.name)}
                                         data-attr="data-quality-check-output-column"
                                     >
                                         <span className="flex items-center justify-between gap-2 w-full">

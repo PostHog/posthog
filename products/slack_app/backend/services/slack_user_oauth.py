@@ -21,6 +21,7 @@ resulting credential on a ``UserIntegration(kind="slack")`` row in symmetry
 with the GitHub personal integration.
 """
 
+from dataclasses import field
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
@@ -36,10 +37,11 @@ from slack_sdk.errors import SlackApiError, SlackClientError
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.instance_settings import get_many_or_instance_settings
+from posthog.dataclasses import frozen
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import UserIntegration, slack_link_scopes
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +54,31 @@ def _slack_links(*, slack_user_id: str, slack_team_id: str) -> QuerySet[UserInte
         config__slack_team_id=slack_team_id,
         user__is_active=True,
     ).order_by("-created_at")
+
+
+def granted_user_scopes(user_scopes: str) -> frozenset[str]:
+    return frozenset(user_scopes.replace(",", " ").split())
+
+
+@frozen
+class LinkedUserToken:
+    access_token: str = field(repr=False)
+    scopes: frozenset[str]
+
+
+def linked_user_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:
+    """The user token of the most recent link, with the scopes Slack granted it."""
+    link = _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).first()
+    token = (link.sensitive_config or {}).get("user_access_token") if link else None
+    if link is None or not token:
+        return None
+    return LinkedUserToken(access_token=token, scopes=slack_link_scopes(link))
+
+
+def linked_search_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:
+    """The link's token when it can search public channels, which the work focus needs. Otherwise None."""
+    token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=slack_team_id)
+    return token if token is not None and "search:read.public" in token.scopes else None
 
 
 def linked_posthog_user_ids(*, slack_user_id: str, slack_team_id: str) -> list[int]:
@@ -310,7 +337,14 @@ def _credentials() -> tuple[str, str]:
     return client_id, client_secret
 
 
-def build_authorize_url(*, redirect_uri: str, state: str, slack_team_id: str, search_scopes: bool = False) -> str:
+def build_authorize_url(
+    *,
+    redirect_uri: str,
+    state: str,
+    slack_team_id: str,
+    search_scopes: bool = False,
+    mcp_user_scopes: tuple[str, ...] = (),
+) -> str:
     """The full Slack OIDC URL the user is redirected to. Only identity
     scopes are requested — bot scopes belong to the separate workspace
     install flow, so the user doesn't see a permissions prompt for things
@@ -318,12 +352,16 @@ def build_authorize_url(*, redirect_uri: str, state: str, slack_team_id: str, se
 
     With ``search_scopes``, the URL asks for user scopes at ``oauth.v2.authorize`` instead, because Sign in with
     Slack cannot grant the search scopes. ``team`` keeps the consent screen on the invite's workspace.
+    ``mcp_user_scopes``, the Slack MCP's allowlist, replaces them: the MCP store sends the link's token upstream, so
+    the link must hold exactly what the server may read. The work focus needs nothing outside that list.
     """
     client_id, _ = _credentials()
     if search_scopes:
         search_params = {
             "client_id": client_id,
-            "user_scope": ",".join((*SEARCH_USER_SCOPES, *OPTIONAL_SEARCH_USER_SCOPES)),
+            "user_scope": ",".join(
+                dict.fromkeys(mcp_user_scopes or (*SEARCH_USER_SCOPES, *OPTIONAL_SEARCH_USER_SCOPES))
+            ),
             "redirect_uri": redirect_uri,
             "state": state,
             "team": slack_team_id,
@@ -448,10 +486,6 @@ def _exchange_user_scopes_code(*, code: str, redirect_uri: str, client_id: str, 
         # oauth.v2 lists scopes with commas. The OIDC link stores them with spaces, so one parser reads both.
         user_scopes=" ".join(scope for scope in str(authed_user.get("scope") or "").split(",") if scope),
     )
-
-
-def granted_user_scopes(user_scopes: str) -> frozenset[str]:
-    return frozenset(user_scopes.replace(",", " ").split())
 
 
 # ---------------------------------------------------------------------------

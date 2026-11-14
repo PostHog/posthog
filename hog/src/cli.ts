@@ -3,7 +3,9 @@ import { parseArgs, type ParseArgsOptionsConfig } from 'node:util'
 import { z } from 'zod'
 
 import { COMMANDS } from '@/commands'
+import feedback from '@/commands/feedback'
 import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
+import { inCIWithoutAPerson } from '@/core/approval'
 import {
     argumentSyntax,
     longFlag,
@@ -17,22 +19,38 @@ import {
 } from '@/core/command'
 import { findConfig, loadConfig } from '@/core/config'
 import { Context } from '@/core/context'
-import { EXIT_FAILURE, EXIT_USAGE, HogError } from '@/core/errors'
+import {
+    EXIT_CANCELLED,
+    EXIT_CODES,
+    EXIT_FAILURE,
+    EXIT_SUCCESS,
+    EXIT_USAGE,
+    HogError,
+    NO_FAIL_CODES,
+} from '@/core/errors'
 import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resolveGlobals } from '@/core/globals'
 import { parseJsonOrUndefined } from '@/core/json'
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
-import { kebabCase } from '@/core/text'
+import { joinList, kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
-import { canStepUp, stepUpCommand } from '@/posthog/scope-challenge'
+import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
 import { VERSION } from '@/version'
+
+const CODE_WIDTH = Math.max(...EXIT_CODES.map(({ code }) => String(code).length))
 
 const ROOT_HELP = `
 hog prints JSON when an agent such as Claude Code or Codex runs it, or when stdout is not a terminal.
 Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every command, its arguments and its options.
-HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.`
+HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.
+
+Exit codes:
+${EXIT_CODES.map(({ code, meaning }) => `  ${String(code).padEnd(CODE_WIDTH)}  ${meaning}`).join('\n')}
+--no-fail turns ${joinList(NO_FAIL_CODES.map(String), 'and')} into ${EXIT_SUCCESS}.`
+
+const UNFINISHED_CODES: ReadonlySet<number> = new Set(NO_FAIL_CODES)
 
 const LEGACY_HELP_GROUP = 'Not ported yet (each one prints the posthog-cli command to run):'
 
@@ -107,6 +125,9 @@ async function withScopeHint(error: unknown, scopes: readonly string[] | undefin
         return error
     }
     const credentials = await ctx.requestedCredentials?.catch(() => undefined)
+    if (credentials?.source === 'workload') {
+        return error.withHint(workloadScopesHint(scopes))
+    }
     if (!canStepUp(credentials)) {
         return error.withHint(
             `Check that the personal API key has the ${scopes.join(', ')} scope and access to this project.`
@@ -196,7 +217,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             let ctx: Context | undefined
             telemetry.credentials = () =>
                 ctx?.requestedCredentials ??
-                resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, skipStore: true })
+                resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, envOnly: true })
             const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
             // An empty value, often an unset shell variable, fails here instead of falling back to a
@@ -224,6 +245,13 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             }
 
             ctx = new Context(commandRuntime, globals, mode, COMMANDS, config, telemetry)
+            if (node.refusesCI && inCIWithoutAPerson(ctx)) {
+                throw new HogError(
+                    'not_in_ci',
+                    `\`hog ${path}\` ${node.refusesCI.reason}, so it does not run in CI.`,
+                    node.refusesCI.hint
+                )
+            }
             let result: unknown
             try {
                 result = await node.run({ args, options, ctx })
@@ -237,7 +265,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             } else if (result !== undefined) {
                 out.json(globals.raw && node.raw ? node.raw(result) : result)
             }
-            state.exitCode = node.exitCode?.(result) ?? 0
+            state.exitCode = node.exitCode?.(result) ?? EXIT_SUCCESS
             state.properties = {
                 dry_run: options.dryRun === true,
                 ...node.telemetry?.({ result, args, options } as never),
@@ -253,6 +281,9 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 command.aliases(node.aliases ?? [])
                 for (const [childName, child] of Object.entries(node.commands)) {
                     addNode(command, childName, child, path)
+                }
+                if (node.guide) {
+                    addRunnable(command, node.guide, path)
                 }
                 return
             case 'legacy':
@@ -299,6 +330,7 @@ type Token = ReturnType<typeof parseArgs>['tokens'] extends (infer T)[] | undefi
 
 interface PreParsed {
     format: OutputFormat | undefined
+    debug: boolean
     noFail: boolean
     noTelemetry: boolean
     tokens: Token[]
@@ -323,32 +355,52 @@ function preParse(argv: readonly string[]): PreParsed {
     })
     const output = values.output
     const format = GLOBAL_OPTIONS.output.choices.find((choice) => choice === output)
-    return { format, noFail: values['no-fail'] === true, noTelemetry: values['no-telemetry'] === true, tokens }
+    return {
+        format,
+        debug: values.debug === true,
+        noFail: values['no-fail'] === true,
+        noTelemetry: values['no-telemetry'] === true,
+        tokens,
+    }
 }
 
-function findLegacy(tokens: Token[]): LegacyRoute | undefined {
+interface ResolvedRoute {
+    // Names from the tree only, so arguments never reach the feedback hint.
+    names: string[]
+    indices: number[]
+    node: Command | Group | Legacy | undefined
+}
+
+function resolveRoute(tokens: Token[]): ResolvedRoute {
     let tree: CommandTree = COMMANDS
-    const names: string[] = []
-    const pathIndices: number[] = []
+    const route: ResolvedRoute = { names: [], indices: [], node: undefined }
     for (const token of tokens) {
         if (token.kind !== 'positional') {
             continue
         }
-        const node: CommandTree[string] | undefined = Object.hasOwn(tree, token.value) ? tree[token.value] : undefined
-        if (!node) {
-            return undefined
+        const entry = Object.entries(tree).find(
+            ([name, node]) => name === token.value || (node.kind === 'group' && node.aliases?.includes(token.value))
+        )
+        if (!entry) {
+            break
         }
-        names.push(token.value)
-        pathIndices.push(token.index)
-        if (node.kind === 'legacy') {
-            return { legacy: node, path: names.join(' '), pathIndices, tokens }
-        }
-        if (node.kind === 'command') {
-            return undefined
+
+        const [name, node] = entry
+        route.names.push(name)
+        route.indices.push(token.index)
+        route.node = node
+        if (node.kind !== 'group') {
+            break
         }
         tree = node.commands
     }
-    return undefined
+    return route
+}
+
+function findLegacy(route: ResolvedRoute, tokens: Token[]): LegacyRoute | undefined {
+    return route.node?.kind === 'legacy'
+        ? { legacy: route.node, path: route.names.join(' '), pathIndices: route.indices, tokens }
+        : undefined
 }
 
 // Full names of commands in groups whose last word is `name`, so `hog login` can point to `hog auth login`.
@@ -360,6 +412,14 @@ function nestedMatches(tree: CommandTree, name: string, prefix = ''): string[] {
         }
         return prefix && key === name ? [path] : []
     })
+}
+
+function feedbackCommand(route: ResolvedRoute, failure: HogError): string | undefined {
+    if (route.node === feedback || failure.exitCode === EXIT_CANCELLED) {
+        return undefined
+    }
+    const area = route.names.length > 0 ? `--area "hog ${route.names.join(' ')}" ` : ''
+    return `hog feedback ${area}"<what happened>"`
 }
 
 // posthog-cli commands that hog groups under a new name, with the flags that changed.
@@ -393,6 +453,10 @@ const RENAMED: Record<string, { to: string; hint: string }> = {
         hint: 'The experimental commands are top level in hog, as in `hog endpoints pull` for `posthog-cli exp endpoints pull`.',
     },
     update: { to: 'upgrade', hint: 'Run `hog upgrade`.' },
+    skill: {
+        to: 'skills list|add',
+        hint: '`hog skills list` lists the skills, and `hog skills add <skill...>` replaces `posthog-cli api skill install`.',
+    },
 }
 
 function toHogError(caught: unknown): HogError {
@@ -419,6 +483,15 @@ function toHogError(caught: unknown): HogError {
                 'unknown_command',
                 message,
                 'Run `hog --help` to see the available commands.',
+                EXIT_USAGE
+            )
+        }
+        const form = /option '(?:-\w, )?([^']+)' argument missing/.exec(caught.message)?.[1]
+        if (caught.code === 'commander.optionMissingArgument' && form) {
+            return new HogError(
+                'usage_error',
+                sentence,
+                `Pass a value after the option, as in \`${form}\`.`,
                 EXIT_USAGE
             )
         }
@@ -495,11 +568,11 @@ function captureFailure(telemetry: Telemetry, command: string | undefined, error
 }
 
 export async function run(argv: readonly string[], runtime: Runtime): Promise<number> {
-    const { format, noFail, noTelemetry, tokens } = preParse(argv)
+    const { format, debug, noFail, noTelemetry, tokens } = preParse(argv)
     const terminal = { isTTY: runtime.stdoutIsTTY, hasColors: runtime.stdoutHasColors, columns: runtime.stdoutColumns }
     const envFormat = GLOBAL_OPTIONS.output.choices.find((choice) => choice === runtime.env.HOG_OUTPUT)
     const mode = resolveMode(runtime.env, terminal, format ?? envFormat)
-    const state: RunState = { exitCode: 0 }
+    const state: RunState = { exitCode: EXIT_SUCCESS }
     const telemetry = new Telemetry(
         runtime,
         mode,
@@ -512,48 +585,52 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     const program = createProgram(runtime, mode, state, telemetry)
     if (argv.length === 0) {
         program.outputHelp()
-        return 0
+        return EXIT_SUCCESS
     }
     const started = runtime.now()
     const commandIndex = tokens.find((token) => token.kind === 'positional')?.index
     const isHelp = commandIndex !== undefined && argv[commandIndex] === 'help'
     const args = isHelp ? [...argv.slice(0, commandIndex), ...argv.slice(commandIndex + 1), '--help'] : [...argv]
 
+    const routeTokens = isHelp ? preParse(args).tokens : tokens
+    const route = resolveRoute(routeTokens)
     let exitCode: number
     let failure: HogError | undefined
     try {
-        const legacy = findLegacy(isHelp ? preParse(args).tokens : tokens)
+        const legacy = findLegacy(route, routeTokens)
         if (legacy) {
             state.command = legacy.path
             throw notPorted(args, legacy)
         }
         await program.parseAsync(args, { from: 'user' })
         // --no-fail also covers a result that reports a problem, like a failed push or a stale SDK.
-        exitCode = state.noFail && state.exitCode === EXIT_FAILURE ? 0 : state.exitCode
+        exitCode = state.noFail && UNFINISHED_CODES.has(state.exitCode) ? EXIT_SUCCESS : state.exitCode
     } catch (caught) {
-        if (caught instanceof CommanderError && caught.exitCode === 0) {
-            return 0
+        if (caught instanceof CommanderError && caught.exitCode === EXIT_SUCCESS) {
+            return EXIT_SUCCESS
         }
         failure = toHogError(caught)
-        new Output(runtime, mode).error(failure)
-        if (failure.exitCode === EXIT_FAILURE && failure.code !== 'not_ported') {
+        new Output(runtime, mode).error(failure, feedbackCommand(route, failure))
+        if (UNFINISHED_CODES.has(failure.exitCode) && failure.code !== 'not_ported') {
             captureFailure(telemetry, state.command, failure, caught)
         }
         const ignore = state.noFail ?? (noFail || safeEnvFlag(runtime.env, GLOBAL_OPTIONS.noFail.env))
-        exitCode = ignore && failure.exitCode === EXIT_FAILURE ? 0 : failure.exitCode
+        exitCode = ignore && UNFINISHED_CODES.has(failure.exitCode) ? EXIT_SUCCESS : failure.exitCode
     }
 
     // posthog-cli's usage event, so one dashboard covers both CLIs. Option names only, never values.
     telemetry.capture('posthog cli command run', {
         command_path: state.command ?? null,
         exit_code: exitCode,
-        // Before --no-fail, so a push that reports failures still counts as one.
-        success: failure === undefined && state.exitCode === 0,
+        // Before --no-fail, so a push that reports failures still counts as one. A result that stops for
+        // a person or leaves work running did what was asked, so it counts as a success.
+        success: failure === undefined && state.exitCode !== EXIT_FAILURE,
         error_code: failure?.code ?? null,
         duration_ms: runtime.now() - started,
         options: state.options ?? [],
         ...state.properties,
     })
-    await telemetry.flush(state.debug)
+    // A run that failed before its command started has no state.debug, but --debug still applies.
+    await telemetry.flush(state.debug ?? (debug || safeEnvFlag(runtime.env, GLOBAL_OPTIONS.debug.env)))
     return exitCode
 }

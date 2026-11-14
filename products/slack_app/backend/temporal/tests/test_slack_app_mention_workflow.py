@@ -93,6 +93,8 @@ class _Recorder:
         self.thread_messages: dict[str, list[SlackThreadMessage]] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
         self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed"]] = {}
+        # ts whose `agent_needed` cascade outcome already judged the ask to need code.
+        self.cascade_classified: set[str] = set()
         # ts per personal-GitHub gate call, in execution order.
         self.github_gate_calls: list[str] = []
         # event text per needs-repo classifier call, in execution order.
@@ -102,6 +104,10 @@ class _Recorder:
         self.create_reached: dict[str, asyncio.Event] = {}
         self.picker_posted = asyncio.Event()
         self.picker_workflow_id: str | None = None
+        # ts -> whether a connect offer goes out; missing means none.
+        self.tool_offers: dict[str, bool] = {}
+        self.tool_offer_posted = asyncio.Event()
+        self.tool_offer_workflow_id: str | None = None
         # True holds untagged replies back on the thread creator's `ask` mode.
         self.awaiting_confirmation = False
         # True makes discovery report that the team is out of AI credits.
@@ -205,7 +211,12 @@ def _fake_activities(rec: _Recorder) -> list:
         rec.cascade_integration_ids[inputs.event["ts"]] = inputs.integration_id
         mode = rec.cascade_modes.get(inputs.event["ts"], "auto")
         repository = "org/auto-repo" if mode == "auto" else None
-        return PostHogCodeRepoCascadeOutcome(mode=mode, repository=repository, reason="test")
+        return PostHogCodeRepoCascadeOutcome(
+            mode=mode,
+            repository=repository,
+            reason="test",
+            needs_repo_classified=inputs.event["ts"] in rec.cascade_classified,
+        )
 
     @activity.defn(name="classify_posthog_code_task_needs_repo_activity")
     async def needs_repo(
@@ -297,6 +308,21 @@ def _fake_activities(rec: _Recorder) -> list:
         rec.created.append((ts, repository))
         return rec.creation_succeeds if inputs.report_implementation_message_ts else None
 
+    @activity.defn(name="offer_slack_app_tool_connections_activity")
+    async def offer_tools(
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        channel: str,
+        thread_ts: str,
+        slack_user_id: str,
+        user_id: int,
+        workflow_id: str,
+    ) -> bool:
+        offered = rec.tool_offers.get(inputs.event["ts"], False)
+        if offered:
+            rec.tool_offer_workflow_id = workflow_id
+            rec.tool_offer_posted.set()
+        return offered
+
     @activity.defn(name="post_posthog_code_picker_timeout_activity")
     async def picker_timeout(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
         return None
@@ -334,6 +360,7 @@ def _fake_activities(rec: _Recorder) -> list:
         classify_model_override,
         classify_project_route,
         route_model,
+        offer_tools,
         create_task,
         picker_timeout,
         internal_error,
@@ -658,9 +685,30 @@ async def test_repo_picker_signal_resolves_and_queue_continues():
 
 
 @pytest.mark.asyncio
-async def test_usage_limited_discovery_ends_without_a_picker_or_a_task():
+@pytest.mark.parametrize("connects", [True, False])
+async def test_a_connect_offer_holds_the_task_until_the_tool_is_connected_or_the_wait_ends(connects: bool):
+    rec = _Recorder()
+    rec.tool_offers["1.1"] = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(rec.tool_offer_posted.wait(), timeout=30)
+        assert rec.created == []
+        if connects:
+            assert rec.tool_offer_workflow_id is not None
+            await h.env.client.get_workflow_handle(rec.tool_offer_workflow_id).signal("tool_connection_resolved")
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == [("1.1", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cascade_classified", [True, False])
+async def test_usage_limited_discovery_ends_without_a_picker_or_a_task(cascade_classified: bool):
     rec = _Recorder()
     rec.cascade_modes["1.1"] = "agent_needed"
+    if cascade_classified:
+        rec.cascade_classified.add("1.1")
     rec.discover_usage_limited = True
 
     async with _Harness(rec) as h:
@@ -670,6 +718,8 @@ async def test_usage_limited_discovery_ends_without_a_picker_or_a_task():
     assert not rec.picker_posted.is_set()
     assert rec.created == []
     assert rec.internal_errors == []
+    # A cascade that already asked whether the ask needs code is not asked again.
+    assert rec.needs_repo_calls == ([] if cascade_classified else ["fix the bug"])
 
 
 @pytest.mark.asyncio

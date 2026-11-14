@@ -186,9 +186,8 @@ export const PostgresDestinationConfigApiType = {
 /**
  * Typed configuration for a PostgreSQL batch-export destination.
  *
- * Connection credentials may live in a linked Integration (when one is provided) or
- * inline in this config (legacy). Mirrors the non-credential fields of
- * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ * Connection credentials live in the linked Integration, never here. Mirrors the
+ * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
  */
 export interface PostgresDestinationConfigApi {
     /** PostgreSQL database name to connect to. */
@@ -356,27 +355,6 @@ export const RedshiftExportModeEnumApi = {
 } as const
 
 /**
- * Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
- */
-export type RedshiftCopyInputsApiAuthorization =
-    | number
-    | string
-    | {
-          aws_access_key_id: string
-          aws_secret_access_key: string
-      }
-
-/**
- * AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
- */
-export type RedshiftCopyInputsApiBucketCredentials =
-    | number
-    | {
-          aws_access_key_id: string
-          aws_secret_access_key: string
-      }
-
-/**
  * S3 staging configuration for a Redshift batch export running in COPY mode.
  */
 export interface RedshiftCopyInputsApi {
@@ -386,10 +364,10 @@ export interface RedshiftCopyInputsApi {
     region_name: string
     /** Key prefix for staged files in the S3 bucket. */
     s3_key_prefix: string
-    /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
-    authorization: RedshiftCopyInputsApiAuthorization
-    /** AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
-    bucket_credentials: RedshiftCopyInputsApiBucketCredentials
+    /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. */
+    authorization: number | string
+    /** AWS S3 integration ID used to stage files in the S3 bucket. */
+    bucket_credentials: number
 }
 
 export type RedshiftDestinationConfigApiType =
@@ -402,8 +380,7 @@ export const RedshiftDestinationConfigApiType = {
 /**
  * Typed configuration for a Redshift batch-export destination.
  *
- * Connection credentials may live in a linked Integration (when one is provided) or inline in
- * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+ * Connection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
  * `products/batch_exports/backend/service.py`.
  */
 export interface RedshiftDestinationConfigApi {
@@ -843,7 +820,7 @@ export interface HogQLQueryModifiersApi {
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
-    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
     personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
@@ -2010,6 +1987,8 @@ export interface ListOutputApi {
      * * `Running` - Running
      * * `Starting` - Starting */
     status: BatchExportRunStatusEnumApi
+    /** When the file download batch export run was created. */
+    created_at: string
 }
 
 export interface PaginatedListOutputListApi {

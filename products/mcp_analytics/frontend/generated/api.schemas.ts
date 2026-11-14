@@ -629,7 +629,7 @@ export interface MCPActivityStatsApi {
     readonly calls_with_intent: number
     /** Tool calls flagged as errors ($mcp_is_error) in the window. */
     readonly error_calls: number
-    /** $mcp_missing_capability events captured in the window. */
+    /** Missing-capability reports captured in the window: $mcp_missing_capability events and $mcp_feedback events of type missing_capability. */
     readonly missing_capability_reports: number
 }
 
@@ -800,6 +800,10 @@ export type McpAnalyticsSessionsToolCallsParams = {
      * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
      */
     date_from?: string
+    /**
+     * Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops there instead of reading up to now. Unbounded when omitted or unparseable.
+     */
+    date_to?: string
     /**
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */

@@ -253,6 +253,7 @@ mod tests {
             dlq_timestamp: None,
             dlq_step: None,
             content_encoding: None,
+            legacy_property_splice: None,
         }
     }
 

@@ -22,7 +22,7 @@ import * as localTools from "@posthog/harness/extensions/local-tools";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
-import { type SetupServerApi, setupServer } from "msw/node";
+import { type SetupServer, setupServer } from "msw/node";
 import {
   afterAll,
   afterEach,
@@ -664,7 +664,7 @@ it.each([
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
-  let mswServer: SetupServerApi;
+  let mswServer: SetupServer;
   let appendLogCalls: unknown[][];
   let updateTaskRunCalls: unknown[];
   let port: number;
@@ -2551,12 +2551,20 @@ describe("AgentServer HTTP Mode", () => {
         started = resolve;
       });
       const api = {
-        prepareContextSelection: vi.fn(() => {
-          started();
-          return new Promise<ContextSelectionResponse>((resolve) => {
-            finishPreparation = resolve;
-          });
-        }),
+        prepareContextSelection: vi
+          .fn()
+          .mockImplementationOnce(() => {
+            started();
+            return new Promise<ContextSelectionResponse>((resolve) => {
+              finishPreparation = resolve;
+            });
+          })
+          .mockResolvedValue({
+            selection_id: "s",
+            context: "",
+            mode: "treatment",
+            reason: "empty",
+          }),
       };
       testServer.session.contextSelection = new ContextSelection(api, "run-1");
       const result = testServer.runStartupTurn(() =>
@@ -2573,12 +2581,27 @@ describe("AgentServer HTTP Mode", () => {
       await testServer.executeCommand("cancel", {});
       finishPreparation({
         selection_id: "s",
-        context: "definition",
+        context: [
+          '<posthog_reference_context selection_id="s">',
+          JSON.stringify({
+            id: "c",
+            kind: "business_knowledge",
+            document_id: "doc-1",
+          }),
+          "</posthog_reference_context>",
+        ].join("\n"),
         mode: "treatment",
         reason: "selected",
       });
       await expect(result).resolves.toMatchObject({ stopReason: "cancelled" });
       expect(prompt).not.toHaveBeenCalled();
+      await testServer.session.contextSelection.prepare({
+        messageId: "next",
+        text: "Define activation",
+      });
+      expect(api.prepareContextSelection.mock.lastCall?.[0].exclude).toEqual(
+        [],
+      );
     });
 
     it("continues an unattended turn after a transient upstream stream death", async () => {
@@ -3783,6 +3806,53 @@ describe("AgentServer HTTP Mode", () => {
       });
       await selector.prepare({ messageId: "third", text: "Define activation" });
       expect(requests[2].history).toBe("");
+      testServer.session = null;
+    });
+
+    it("lets selection repeat references once the agent compacts", async () => {
+      const testServer = exposeRefresh(createServer());
+      attachSession(
+        testServer,
+        vi.fn(async () => ({ refreshed: true })),
+      );
+      const excludes: string[][] = [];
+      mswServer.use(
+        http.post(
+          "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+          async ({ request }) => {
+            const body = (await request.json()) as { exclude: string[] };
+            excludes.push(body.exclude);
+            return HttpResponse.json({
+              selection_id: "s",
+              context: [
+                '<posthog_reference_context selection_id="s">',
+                JSON.stringify({
+                  id: "c",
+                  kind: "business_knowledge",
+                  document_id: "doc-1",
+                }),
+                "</posthog_reference_context>",
+              ].join("\n"),
+              mode: "treatment",
+              reason: "selected",
+            });
+          },
+        ),
+      );
+      if (!testServer.session) throw new Error("Missing test session");
+      const selector = testServer.session.contextSelection;
+      selector.recordInjected(
+        await selector.prepare({
+          messageId: "first",
+          text: "Define activation",
+        }),
+      );
+      await selector.prepare({ messageId: "second", text: "And retention?" });
+      testServer.handleAcpTransportMessage({
+        method: POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY,
+      });
+      await selector.prepare({ messageId: "third", text: "And churn?" });
+      expect(excludes).toEqual([[], ["business_knowledge:c"], []]);
       testServer.session = null;
     });
 
@@ -7779,6 +7849,45 @@ describe("AgentServer HTTP Mode", () => {
         }
         for (const text of shouldNotContain) {
           expect(prompt).not.toContain(text);
+        }
+      },
+    );
+
+    it.each([
+      {
+        mrUrl: undefined,
+        expected: [
+          "git push -u origin <branch>",
+          ".gitlab/merge_request_templates/",
+        ],
+      },
+      {
+        mrUrl: "https://gitlab.com/acme/platform/api/-/merge_requests/7",
+        expected: [
+          'operation "view"',
+          "git remote set-branches --add origin <branch>",
+          "git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>",
+          "git checkout -b <branch> --track origin/<branch>",
+        ],
+      },
+    ])(
+      "gives GitLab instructions instead of GitHub ones for a GitLab auto-publish run (mr=$mrUrl)",
+      async ({ mrUrl, expected }) => {
+        vi.stubEnv("POSTHOG_GIT_PROVIDER", "gitlab");
+        vi.stubEnv("POSTHOG_CODE_INTERACTION_ORIGIN", "slack");
+        const s = createServer();
+        await openProduct(s, "slack");
+
+        const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt(
+          mrUrl,
+        );
+
+        expect(prompt).toContain("gitlab_merge_request");
+        for (const text of expected) {
+          expect(prompt).toContain(text);
+        }
+        for (const githubOnly of ["git_signed_commit", "gh pr", "gh_stack"]) {
+          expect(prompt).not.toContain(githubOnly);
         }
       },
     );
