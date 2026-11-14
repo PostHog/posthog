@@ -1151,7 +1151,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             entered = entry.get(STAGED_SECRET_ENTERED)
             if entered is True:
                 staged[key] = True
-            elif value != live:
+            elif _secret_json({"value": value}) != _secret_json({"value": live}):
                 staged[key] = False if entered is False else replaces_stored_value(value, live)
         return staged
 
