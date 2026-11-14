@@ -27,10 +27,12 @@ describe('convertOtelEvent', () => {
             ['no library markers', {}],
             ['only gen_ai.system', { 'gen_ai.system': 'openai' }],
             ['only gen_ai.provider.name', { 'gen_ai.provider.name': 'anthropic' }],
+            ['only standard tool attributes', { 'gen_ai.tool.call.arguments': '{}', 'gen_ai.tool.call.result': '0' }],
         ])('runs general mapping directly when %s', (_label, properties) => {
             const event = createEvent('$ai_generation', properties)
             convertOtelEvent(event)
             expect(mockedMapOtelAttributes).toHaveBeenCalledWith(event)
+            expect(mockedMiddlewareCounter.labels).toHaveBeenCalledWith({ library: 'none' })
         })
 
         it.each([
