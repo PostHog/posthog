@@ -796,6 +796,7 @@ _REF_TOOLS = {
     "experiment-ship-variant",
     "feature-flag-get-all",
     "external-data-schemas-partial-update",
+    "logs-services-create",
     "read-data-schema",
     "scout-runs-list",
     "scout-emit-signal",
@@ -826,6 +827,12 @@ _REF_SKILLS = {"finding-experiments", "creating-experiments"}
         ("resolve the reference via `creating-experiments`", []),
         ('check `get_feature_flag("key", distinct_id)` in the SDK', []),
         ('then `emit_signal("anomaly", ...)` from the SDK', []),
+        ("Call `posthog:logs-services` for the last 24h", ["logs-services"]),
+        ("Call `posthog:logs-services-create` for the last 24h", []),
+        ("load `posthog:finding-experiments` first", []),
+        ("prefer the typed `posthog:feature-flag-*` tools", []),
+        ("route the call through `posthog:exec`", []),
+        ("render it with `posthog:render-ui`", []),
     ],
     ids=[
         "renamed-tool-near-miss",
@@ -848,6 +855,12 @@ _REF_SKILLS = {"finding-experiments", "creating-experiments"}
         "skill-name-in-invocation-context",
         "sdk-call-distinct-name",
         "sdk-call-colliding-with-tool-suffix",
+        "qualified-tool-renamed-with-suffix",
+        "qualified-exact-tool",
+        "qualified-exact-skill",
+        "qualified-family-glob",
+        "qualified-single-word-name",
+        "qualified-no-resemblance",
     ],
 )
 def test_check_tool_references(text: str, expected_names: list[str]) -> None:
@@ -860,6 +873,7 @@ def test_check_tool_references(text: str, expected_names: list[str]) -> None:
     [
         ("use the launch or ship_variant tools instead", "did you mean experiment-ship-variant"),
         ("search flags with the feature-flags-get-all tool first", "did you mean feature-flag-get-all"),
+        ("Call `posthog:logs-services` for the last 24h", "did you mean logs-services-create"),
     ],
 )
 def test_check_tool_references_suggests_real_tool(text: str, expected_suggestion: str) -> None:
