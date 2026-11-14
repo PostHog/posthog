@@ -96,6 +96,14 @@ def _is_cancellation(error: BaseException) -> bool:
     ) and isinstance(error.cause, temporalio.exceptions.CancelledError)
 
 
+def _last_error_type(error: BaseException) -> str:
+    if isinstance(error, temporalio.exceptions.ActivityError | temporalio.exceptions.ChildWorkflowError):
+        error = error.cause or error
+    if isinstance(error, temporalio.exceptions.ApplicationError) and error.type:
+        return error.type
+    return type(error).__name__
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class MaterializeViewWorkflowInputs:
     """Inputs for the MaterializeViewWorkflow.
@@ -315,7 +323,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     start_to_close_timeout=dt.timedelta(minutes=20),
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=temporalio.common.RetryPolicy(
-                        maximum_attempts=3,
+                        maximum_attempts=5,
                         initial_interval=dt.timedelta(seconds=10),
                         maximum_interval=dt.timedelta(minutes=5),
                         non_retryable_error_types=NON_RETRYABLE_ERRORS,
@@ -490,6 +498,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                             dag_id=inputs.dag_id,
                             job_id=job_id,
                             error=error_message,
+                            error_type=_last_error_type(e),
                             cancelled=cancelled,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=5),
@@ -876,6 +885,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     job_id=managed_warehouse_job_id,
                     error=f"Managed warehouse shadow activity did not finalize: {error}",
+                    error_type=_last_error_type(error),
                     cancelled=_is_cancellation(error),
                     update_node=False,
                 ),
