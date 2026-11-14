@@ -175,7 +175,6 @@ export function readProfile(file: string): { profile: Profile } | { problems: st
 }
 
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
-    const definitions = DEFINITIONS
     const read = readYaml(cardPath, 'card')
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
@@ -189,11 +188,11 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
     const defaults = getDefaultConfig() as unknown as Settings
 
     const problems = [
-        ...checkNames(card, definitions),
+        ...checkNames(card, DEFINITIONS),
         ...checkSchedules(card),
         ...checkSuppression(card),
         ...checkIntakeVerdict(card),
-        ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults) : loaded.problems),
+        ...('profile' in loaded ? checkProfile(card, loaded.profile, DEFINITIONS, defaults) : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {
         throw new CardError(cardPath, problems)
