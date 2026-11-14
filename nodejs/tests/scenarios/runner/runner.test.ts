@@ -51,7 +51,7 @@ import { _fetch, fetch } from '~/common/utils/request'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
-import { LoadedCard, Profile, ValveEntry, load } from '../cards'
+import { CdpRole, LoadedCard, Profile, ValveEntry, load } from '../cards'
 import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
@@ -112,7 +112,14 @@ describe('runner', () => {
         up: () => Promise.resolve(),
         reset: () => Promise.resolve(duringReset()),
         edgeUrl: () => 'http://127.0.0.1:1',
-        role: (name) => ({ name, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
+        role: (name) => ({ name, replica: 0, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
+        roles: () =>
+            CdpRole.options.map((name) => ({
+                name,
+                replica: 0,
+                url: 'http://127.0.0.1:1',
+                metricsUrl: processMetrics.url,
+            })),
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
@@ -602,10 +609,11 @@ describe('runner through seed, drive and judge', () => {
     let results: RunResult[]
     let cdp: Cdp
 
+    let handles: RoleSpec[] = []
     let exits: RoleExit[]
     let killExits: (role: Role) => RoleExit[]
     const exitOfTheKill = (role: Role): RoleExit[] => [
-        { role, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
+        { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
 
     const environmentOf = (
@@ -613,7 +621,8 @@ describe('runner through seed, drive and judge', () => {
         roleUrl = 'http://127.0.0.1:1'
     ): Environment => ({
         up: () => Promise.resolve(),
-        async reset(settings: Profile['settings']) {
+        async reset(settings: Profile['settings'], replicas: Profile['replicas'] = {}) {
+            handles = roleSpecs(env, { url: edge.url }, secretsOf(env), defaultStateDir(env), {}, undefined, replicas)
             await roles?.stop()
             roles =
                 delivering === 'none'
@@ -625,7 +634,14 @@ describe('runner through seed, drive and judge', () => {
                       )
         },
         edgeUrl: () => edge.url,
-        role: (name) => ({ name, url: roleUrl, metricsUrl: processMetrics.url }),
+        role: (name) => ({ name, replica: 0, url: roleUrl, metricsUrl: processMetrics.url }),
+        roles: () =>
+            handles.map(({ role, replica }) => ({
+                name: role,
+                replica,
+                url: roleUrl,
+                metricsUrl: `${processMetrics.url}?replica=${replica}`,
+            })),
         actuate(action) {
             exits.push(...(action.kind === 'kill' ? killExits(action.role) : []))
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
@@ -639,7 +655,11 @@ describe('runner through seed, drive and judge', () => {
         },
     })
 
-    const shortSmoke = (valves: ValveEntry[] = [], traffic = 'event_email'): LoadedCard => {
+    const shortSmoke = (
+        valves: ValveEntry[] = [],
+        traffic = 'event_email',
+        { replicas = {}, parks = 0 }: { replicas?: Profile['replicas']; parks?: number } = {}
+    ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
         const profile = path.join(cacheHome, 'profile.yaml')
         writeFileSync(
@@ -655,7 +675,8 @@ describe('runner through seed, drive and judge', () => {
             profile,
             stringify({
                 name: SMOKE.profile.name,
-                traffic: { [traffic]: { ratePerSecond: 2 } },
+                traffic: { [traffic]: { ratePerSecond: 2, parks } },
+                replicas,
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
@@ -882,6 +903,37 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
+    it('samples every replica the profile starts and seeds flows that park as often as it asks', async () => {
+        const result = await createRunner(environmentOf('none'), env).run(
+            shortSmoke([], 'event_email', { replicas: { 'cdp-cyclotron-worker-email': 2 }, parks: 1 }),
+            NEVER_ABORTED
+        )
+        results.push(result)
+
+        const teams = (evidenceOf(result, 'journal.json') as JournalEntry[]).map(({ teamId }) => teamId)
+        const flows = await withPostgres(
+            async (client) =>
+                (
+                    await client.query<{ actions: { type: string }[] }>(
+                        'SELECT actions FROM posthog_hogflow WHERE team_id = ANY($1)',
+                        [teams]
+                    )
+                ).rows,
+            defaultConfig.DATABASE_URL
+        )
+        const { samples } = evidenceOf(result, 'metrics.json') as { samples: { role: string; replica: number }[] }
+        expect({
+            parksPerFlow: [
+                ...new Set(flows.map(({ actions }) => actions.filter(({ type }) => type === 'delay').length)),
+            ],
+            emailReplicas: [
+                ...new Set(
+                    samples.filter(({ role }) => role === 'cdp-cyclotron-worker-email').map(({ replica }) => replica)
+                ),
+            ].sort(),
+        }).toEqual({ parksPerFlow: [1], emailReplicas: [0, 1] })
+    }, 30_000)
+
     const KILL_EMAIL_WORKER: ValveEntry = {
         valve: 'role.kill',
         target: 'cdp-cyclotron-worker-email',
@@ -897,6 +949,7 @@ describe('runner through seed, drive and judge', () => {
             () => [
                 {
                     role: 'cdp-cyclotron-worker-hogflow',
+                    replica: 0,
                     at: new Date().toISOString(),
                     code: 1,
                     signal: null,

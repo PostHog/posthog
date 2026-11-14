@@ -5,12 +5,20 @@ import { internalFetch } from '~/common/utils/request'
 
 import type { Named } from '../cards'
 import type { Definition } from '../cards/definitions'
+import { ReplicaOf, nameOf } from '../environment/identity'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
 
-export type MetricSample = { role: string; at: number; startedAt: number; cpuSeconds: number; rssBytes: number }
+export type MetricSample = {
+    role: string
+    replica: number
+    at: number
+    startedAt: number
+    cpuSeconds: number
+    rssBytes: number
+}
 
-export type MissedScrape = { role: string; at: number }
+export type MissedScrape = { role: string; replica: number; at: number }
 
 export type Sampled = { samples: MetricSample[]; missed: MissedScrape[] }
 
@@ -39,23 +47,32 @@ const byRole = (samples: readonly MetricSample[]): Map<string, MetricSample[]> =
 const completeness = (role: string, missed: readonly MissedScrape[]): { incomplete?: true } =>
     missed.some((miss) => miss.role === role) ? { incomplete: true } : {}
 
-const lostCpu = (role: string, ofRole: readonly MetricSample[], missed: readonly MissedScrape[]): boolean =>
-    new Set(ofRole.map(({ startedAt }) => startedAt)).size > 1 ||
-    missed.some((miss) => miss.role === role && miss.at > ofRole.at(-1)!.at)
+const lostCpu = (ofReplica: readonly MetricSample[], missed: readonly MissedScrape[]): boolean =>
+    new Set(ofReplica.map(({ startedAt }) => startedAt)).size > 1 ||
+    missed.some(
+        (miss) =>
+            miss.role === ofReplica[0].role && miss.replica === ofReplica[0].replica && miss.at > ofReplica.at(-1)!.at
+    )
+
+const cpuSecondsOf = (ofReplica: readonly MetricSample[], sampledFrom: number): number =>
+    [...Map.groupBy(ofReplica, ({ startedAt }) => startedAt)].reduce((sum, [startedAt, lifetime]) => {
+        const startedWhileSampled = startedAt * 1000 >= sampledFrom
+        return sum + lifetime.at(-1)!.cpuSeconds - (startedWhileSampled ? 0 : lifetime[0].cpuSeconds)
+    }, 0)
 
 export const roleCpuSeconds: MeasurementDefinition = {
     name: 'role_cpu_seconds',
     params: z.object({}).strict(),
     unit: 's',
     measure: ({ samples, missed, sampledFrom }) =>
-        [...byRole(samples)].map(([role, ofRole]) => ({
-            key: role,
-            value: [...Map.groupBy(ofRole, ({ startedAt }) => startedAt)].reduce((sum, [startedAt, lifetime]) => {
-                const startedWhileSampled = startedAt * 1000 >= sampledFrom
-                return sum + lifetime.at(-1)!.cpuSeconds - (startedWhileSampled ? 0 : lifetime[0].cpuSeconds)
-            }, 0),
-            ...(lostCpu(role, ofRole, missed) ? { incomplete: true as const } : {}),
-        })),
+        [...byRole(samples)].map(([role, ofRole]) => {
+            const replicas = [...Map.groupBy(ofRole, ({ replica }) => replica).values()]
+            return {
+                key: role,
+                value: replicas.reduce((sum, ofReplica) => sum + cpuSecondsOf(ofReplica, sampledFrom), 0),
+                ...(replicas.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}),
+            }
+        }),
 }
 
 export const roleRssMaxBytes: MeasurementDefinition = {
@@ -121,18 +138,18 @@ function gauge(text: string, name: string): number | undefined {
     return Number.isFinite(value) ? value : undefined
 }
 
-export function sampleOf(role: string, at: number, text: string): MetricSample | undefined {
+export function sampleOf({ role, replica }: Target, at: number, text: string): MetricSample | undefined {
     const startedAt = gauge(text, 'process_start_time_seconds')
     const cpuSeconds = gauge(text, 'process_cpu_seconds_total')
     const rssBytes = gauge(text, 'process_resident_memory_bytes')
     return startedAt === undefined || cpuSeconds === undefined || rssBytes === undefined
         ? undefined
-        : { role, at, startedAt, cpuSeconds, rssBytes }
+        : { role, replica, at, startedAt, cpuSeconds, rssBytes }
 }
 
 export type Sampler = { sampledFrom: number; stop(): Promise<Sampled> }
 
-type Target = { role: string; metricsUrl: string }
+type Target = ReplicaOf & { metricsUrl: string }
 
 export async function startSampler(
     targets: Target[],
@@ -144,16 +161,16 @@ export async function startSampler(
     const scrape = async (some: Target[], timeoutMs = SCRAPE_TIMEOUT_MS): Promise<MissedScrape[]> => {
         const failed: MissedScrape[] = []
         await Promise.all(
-            some.map(async ({ role, metricsUrl }) => {
+            some.map(async (target) => {
                 const at = Date.now()
-                const text = await internalFetch(metricsUrl, { timeoutMs })
+                const text = await internalFetch(target.metricsUrl, { timeoutMs })
                     .then((response) => (response.status === 200 ? response.text() : ''))
                     .catch(() => '')
-                const sample = sampleOf(role, at, text)
+                const sample = sampleOf(target, at, text)
                 if (sample) {
                     samples.push(sample)
                 } else {
-                    failed.push({ role, at })
+                    failed.push({ role: target.role, replica: target.replica, at })
                 }
             })
         )
@@ -167,14 +184,14 @@ export async function startSampler(
     let missing = targets
     for (;;) {
         await scrape(missing, Math.min(SCRAPE_TIMEOUT_MS, Math.max(deadline - Date.now(), 1)))
-        missing = targets.filter(({ role }) => !samples.some((sample) => sample.role === role))
+        missing = targets.filter(
+            (target) => !samples.some((sample) => sample.role === target.role && sample.replica === target.replica)
+        )
         if (missing.length === 0) {
             break
         }
         if (Date.now() + BASELINE_RETRY_MS > deadline) {
-            throw new Error(
-                `No metrics baseline from ${missing.map(({ role }) => role).join(', ')} within ${baselineWithinMs} ms`
-            )
+            throw new Error(`No metrics baseline from ${missing.map(nameOf).join(', ')} within ${baselineWithinMs} ms`)
         }
         await sleep(BASELINE_RETRY_MS)
     }

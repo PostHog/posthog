@@ -29,8 +29,9 @@ const killed = (role: string, applied: number, released?: number): ValveTimeline
     releasedAt: released === undefined ? undefined : at(released),
 })
 
-const exited = (role: Role, second: number, byValve = false): RoleExit => ({
+const exited = (role: Role, second: number, byValve = false, replica = 0): RoleExit => ({
     role,
+    replica,
     at: at(second),
     code: null,
     signal: 'SIGKILL',
@@ -73,6 +74,15 @@ describe('statusOf', () => {
             },
             'failed',
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while role.freeze on ${HOGFLOW_WORKER} was applied`,
+        ],
+        [
+            'a second replica exited while its role was killed on replica 0',
+            {
+                timeline: [killed(EMAIL_WORKER, 10, 11)],
+                exits: [exited(EMAIL_WORKER, 10, true), exited(EMAIL_WORKER, 10, false, 1)],
+            },
+            'failed',
+            `${EMAIL_WORKER}-1 exited (SIGKILL) without a valve causing it, while role.kill on ${EMAIL_WORKER} was applied`,
         ],
         [
             "a role exited while the roles' Postgres connections were dropped",

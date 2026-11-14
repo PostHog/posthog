@@ -10,8 +10,9 @@ const FROM = Date.parse('2026-01-05T10:00:00.000Z')
 const ROLE = 'cdp-cyclotron-worker-email'
 const METRICS = 'process_start_time_seconds 1\nprocess_cpu_seconds_total 1\nprocess_resident_memory_bytes 1'
 
-const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 100): MetricSample => ({
+const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 100, replica = 0): MetricSample => ({
     role: ROLE,
+    replica,
     at: FROM + atS * 1000,
     startedAt: FROM / 1000 + startedAtS,
     cpuSeconds,
@@ -48,7 +49,7 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
 })
 
 describe('measurements', () => {
-    const missedAt = (atS: number): MissedScrape => ({ role: ROLE, at: FROM + atS * 1000 })
+    const missedAt = (atS: number, replica = 0): MissedScrape => ({ role: ROLE, replica, at: FROM + atS * 1000 })
 
     it.each<[string, MetricSample[], MissedScrape[], Pick<Measurement, 'value' | 'incomplete'>]>([
         ['one process across the run', [sample(0, -60, 10), sample(5, -60, 12), sample(10, -60, 15)], [], { value: 5 }],
@@ -67,7 +68,7 @@ describe('measurements', () => {
         [
             'one process, while another role missed its last scrape',
             [sample(0, -60, 10), sample(5, -60, 12), sample(10, -60, 15)],
-            [{ role: 'cdp-api', at: FROM + 15_000 }],
+            [{ role: 'cdp-api', replica: 0, at: FROM + 15_000 }],
             { value: 5 },
         ],
         [
@@ -76,14 +77,26 @@ describe('measurements', () => {
             [missedAt(10)],
             { value: 3.5, incomplete: true },
         ],
+        [
+            'two replicas that started at the same instant, summed',
+            [sample(0, -60, 10), sample(10, -60, 15), sample(0, -60, 20, 100, 1), sample(10, -60, 22, 100, 1)],
+            [],
+            { value: 7 },
+        ],
+        [
+            'two replicas, one of which missed its last scrape, marked incomplete',
+            [sample(0, -60, 10), sample(10, -60, 15), sample(0, -60, 20, 100, 1), sample(5, -60, 22, 100, 1)],
+            [missedAt(10, 1)],
+            { value: 7, incomplete: true },
+        ],
     ])('counts role_cpu_seconds per process lifetime for %s', (_story, samples, missed, measured) => {
         expect(measure([{ name: 'role_cpu_seconds', params: {} }], evidence({ samples, missed }))).toEqual([
             { name: 'role_cpu_seconds', key: ROLE, unit: 's', ...measured },
         ])
     })
 
-    it('keeps the largest resident set of each role', () => {
-        const samples = [sample(0, -60, 1, 300), sample(5, -60, 1, 900), sample(10, 7, 1, 200)]
+    it('keeps the largest resident set of each role across its replicas', () => {
+        const samples = [sample(0, -60, 1, 300), sample(5, -60, 1, 900, 1), sample(10, 7, 1, 200)]
 
         expect(measure([{ name: 'role_rss_max_bytes', params: {} }], evidence({ samples }))).toEqual([
             { name: 'role_rss_max_bytes', key: ROLE, value: 900, unit: 'bytes' },
@@ -118,12 +131,15 @@ describe('measurements', () => {
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const { port } = server.address() as AddressInfo
         try {
-            const sampler = await startSampler([{ role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` }])
+            const sampler = await startSampler([
+                { role: ROLE, replica: 0, metricsUrl: `http://127.0.0.1:${port}/_metrics` },
+            ])
             const { samples } = await sampler.stop()
 
             expect(samples.map(({ role }) => role)).toEqual([ROLE, ROLE])
             expect(samples.at(-1)).toEqual({
                 role: ROLE,
+                replica: 0,
                 at: expect.any(Number),
                 startedAt: expect.any(Number),
                 cpuSeconds: expect.any(Number),
@@ -159,7 +175,9 @@ describe('measurements', () => {
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const { port } = server.address() as AddressInfo
         try {
-            const sampler = await startSampler([{ role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` }])
+            const sampler = await startSampler([
+                { role: ROLE, replica: 0, metricsUrl: `http://127.0.0.1:${port}/_metrics` },
+            ])
             cpuSeconds = 15
             const sampled = await sampler.stop()
 
@@ -197,12 +215,12 @@ describe('measurements', () => {
             await expect(
                 startSampler(
                     [
-                        { role: ROLE, metricsUrl: `${url}/answering` },
-                        { role: 'cdp-api', metricsUrl: `${url}/silent` },
+                        { role: ROLE, replica: 0, metricsUrl: `${url}/answering` },
+                        { role: ROLE, replica: 1, metricsUrl: `${url}/silent` },
                     ],
                     { baselineWithinMs: 1000 }
                 )
-            ).rejects.toThrow(/^No metrics baseline from cdp-api within 1000 ms$/)
+            ).rejects.toThrow(new RegExp(`^No metrics baseline from ${ROLE}-1 within 1000 ms$`))
         } finally {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
