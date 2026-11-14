@@ -1,7 +1,7 @@
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import { Badge, Button, Card, DataTable, Text } from '@posthog/quill'
@@ -123,11 +123,35 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
     },
 ]
 
+function sortValue(row: ReleaseRow, columnId: string): string {
+    const column = COLUMNS.find((item) => item.id === columnId)
+    if (column && 'accessorFn' in column && column.accessorFn) {
+        return String(column.accessorFn(row, 0) ?? '')
+    }
+    if (column && 'accessorKey' in column && column.accessorKey) {
+        return String(row[column.accessorKey as keyof ReleaseRow] ?? '')
+    }
+    return ''
+}
+
+function sortRows(rows: ReleaseRow[], sorting: SortingState): ReleaseRow[] {
+    const [sort] = sorting
+    if (!sort) {
+        return rows
+    }
+    const direction = sort.desc ? -1 : 1
+    return [...rows].sort(
+        (a, b) => direction * sortValue(a, sort.id).localeCompare(sortValue(b, sort.id), undefined, { numeric: true })
+    )
+}
+
 function ReleaseListContent(): JSX.Element {
     const { filteredRows, dataLoading, loadFailed, releases } = useValues(releaseLogic)
     const { showAutoImport } = useValues(releaseImportLogic)
-    const { visible, sentinel } = useInfiniteRows(filteredRows.length)
-    const shownRows = useMemo(() => filteredRows.slice(0, visible), [filteredRows, visible])
+    const [sorting, setSorting] = useState<SortingState>([])
+    const sortedRows = useMemo(() => sortRows(filteredRows, sorting), [filteredRows, sorting])
+    const { visible, sentinel } = useInfiniteRows(sortedRows.length)
+    const shownRows = useMemo(() => sortedRows.slice(0, visible), [sortedRows, visible])
 
     return (
         <SceneContent>
@@ -156,6 +180,8 @@ function ReleaseListContent(): JSX.Element {
                         <DataTable
                             columns={COLUMNS}
                             data={shownRows}
+                            sorting={sorting}
+                            onSortingChange={setSorting}
                             fullWidth
                             size="sm"
                             onRowClick={(row) => router.actions.push(urls.release(row.id))}
