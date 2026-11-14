@@ -17,7 +17,7 @@ from products.logs.backend.context_query_runner import (
     normalize_trace_id,
     parse_padding,
 )
-from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.logs_query_runner import LogsQueryRunner, validate_nested_filter_groups
 from products.logs.backend.saved_view_query import build_logs_query_for_saved_view
 
 __all__ = [
@@ -30,4 +30,5 @@ __all__ = [
     "build_logs_query_for_saved_view",
     "normalize_trace_id",
     "parse_padding",
+    "validate_nested_filter_groups",
 ]
