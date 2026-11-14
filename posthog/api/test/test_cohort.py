@@ -6176,6 +6176,44 @@ email@example.org,
         assert response.status_code == 200, response.json()
         assert _cohort_member_uuids(self.team.pk, static_cohort) == {str(person.uuid)}
 
+    @patch("posthog.tasks.calculate_cohort.schedule_static_cohort_count_refresh")
+    def test_add_persons_during_a_replace_keeps_the_replace_running(self, mock_schedule_refresh: MagicMock) -> None:
+        # An add during a replace writes a fresh ClickHouse row so the prune keeps the person. If one add-persons call
+        # released is_calculating, a later call that re-adds an existing member would write no fresh row, and the
+        # replace would prune that member.
+        from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+
+        static_cohort = Cohort.objects.create(team=self.team, name="Replacing", is_static=True)
+        existing = _create_person(team_id=self.team.pk, distinct_ids=["existing-member"])
+        added = _create_person(team_id=self.team.pk, distinct_ids=["added-member"])
+        flush_persons_and_events()
+        static_cohort.insert_users_list_by_uuid([str(existing.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=static_cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=timezone.now().replace(microsecond=0),
+        )
+
+        for person in (added, existing):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(person.uuid)]},
+                format="json",
+            )
+            assert response.status_code == 200, response.json()
+
+        static_cohort.refresh_from_db()
+        assert (static_cohort.is_calculating, static_cohort.pending_population_mode) == (
+            True,
+            CohortPopulationMode.REPLACE,
+        )
+        existing_rows = sync_execute(
+            f"SELECT count() FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id = %(person_id)s",
+            {"team_id": self.team.pk, "cohort_id": static_cohort.pk, "person_id": str(existing.uuid)},
+        )[0][0]
+        assert existing_rows == 2
+        assert mock_schedule_refresh.call_count == 2
+
     @parameterized.expand(
         [
             (

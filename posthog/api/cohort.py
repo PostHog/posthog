@@ -3125,7 +3125,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "Distinct IDs do not match, even when they look like UUIDs.",
                 code="no_matching_persons",
             )
-        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
+        from posthog.tasks.calculate_cohort import schedule_static_cohort_count_refresh
+
+        # save_state=False, as the workflow add does: saving the cohort's state would release is_calculating, and a
+        # replace in flight would then stop writing fresh rows for later adds and prune them. The scheduled refresh
+        # updates the count instead.
+        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id, save_state=False)
+        schedule_static_cohort_count_refresh(team_id=self.team_id, cohort_id=cohort.id)
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
