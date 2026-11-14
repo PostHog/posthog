@@ -674,6 +674,18 @@ describe('Hono MCP analytics contexts', () => {
             ],
             ['the presigned upload tool through exec', 'exec', { command: 'call media-image-upload-start {}' }, false],
             [
+                'a publish with secrets typed again',
+                'cdp-functions-publish',
+                { id: '1', confirm: true, inputs: { auth: { value: 'fake-secret' } } },
+                false,
+            ],
+            [
+                'a publish with secrets typed again through exec',
+                'exec',
+                { command: 'call cdp-functions-publish {"id":"1","inputs":{"auth":{"value":"fake-secret"}}}' },
+                false,
+            ],
+            [
                 'execute-sql wrapped in a connection call',
                 'posthog-connection-call',
                 { connection_id: '1', tool: 'execute-sql', arguments: { query: 'SELECT count() FROM events' } },
