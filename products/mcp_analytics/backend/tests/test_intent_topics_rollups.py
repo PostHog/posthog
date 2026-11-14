@@ -12,7 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from products.mcp_analytics.backend.hogql_queries.intent_topics import MCPIntentTopicsQueryRunner
 from products.mcp_analytics.backend.intent_hash import intent_hash
-from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls, fetch_hourly_calls
+from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls, iter_hourly_call_pages
 from products.mcp_analytics.backend.intent_topics.rollups import insert_hourly_calls, rebuild_topic_daily
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 from products.mcp_analytics.backend.tests.intent_topics_helpers import recent_hour
@@ -53,9 +53,17 @@ class TestFetchHourlyCalls(ClickhouseTestMixin, APIBaseTest):
         # The window starts and ends inside an hour: the first hour is read whole, the last one is left
         # for the next run, so a later run never replaces a complete bucket with a partial one.
         for page_size in (1, 50_000):
-            rows = fetch_hourly_calls(
-                self.team, since=DAY + timedelta(minutes=45), until=DAY + timedelta(minutes=150), page_size=page_size
+            pages = list(
+                iter_hourly_call_pages(
+                    self.team,
+                    since=DAY + timedelta(minutes=45),
+                    until=DAY + timedelta(minutes=150),
+                    page_size=page_size,
+                )
             )
+            # A page size of 1 yields every bucket as its own page, so the worker never holds the whole window.
+            assert len(pages) == (3 if page_size == 1 else 1)
+            rows = [row for page in pages for row in page]
 
             assert [
                 ((r.hour.astimezone(UTC) - DAY).total_seconds() / 3600, r.hash, r.tool, r.calls, len(r.conversations))
@@ -67,7 +75,11 @@ class TestFetchHourlyCalls(ClickhouseTestMixin, APIBaseTest):
             ]
 
         # One intent sent from many sessions must not grow a bucket without bound; the call count stays exact.
-        capped = fetch_hourly_calls(self.team, since=DAY, until=DAY + timedelta(hours=1), conversation_cap=1)
+        capped = [
+            row
+            for page in iter_hourly_call_pages(self.team, since=DAY, until=DAY + timedelta(hours=1), conversation_cap=1)
+            for row in page
+        ]
         assert [(r.tool, r.calls, len(r.conversations)) for r in capped] == [
             ("query-funnel", 1, 1),
             ("query-trends", 3, 1),
@@ -78,7 +90,7 @@ class TestFetchHourlyCalls(ClickhouseTestMixin, APIBaseTest):
         with patch(
             "products.mcp_analytics.backend.intent_topics.corpus.execute_hogql_query", wraps=execute_hogql_query
         ) as execute:
-            fetch_hourly_calls(self.team, since=DAY, until=DAY + timedelta(hours=1))
+            list(iter_hourly_call_pages(self.team, since=DAY, until=DAY + timedelta(hours=1)))
 
         settings = execute.call_args.kwargs["settings"]
         assert (settings.timeout_overflow_mode, settings.read_overflow_mode) == ("throw", "throw")
