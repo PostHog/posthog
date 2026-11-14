@@ -21,12 +21,14 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.event_definitions.backend.models import PropertyDefinition
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.surveys.backend.models import Survey
+from products.surveys.backend.models import Survey, SurveyMatchType
 from products.surveys.backend.site_snapshot import (
     PAINT_DELAY_SECONDS,
     SiteSnapshot,
+    SiteStyle,
     SnapshotDevice,
     SnapshotStatus,
+    UrlTarget,
     find_snapshot_moment,
     get_site_snapshot,
 )
@@ -37,6 +39,14 @@ MOBILE_HOME = "https://m.example.org/home"
 EARLY_START = "https://example.com/early-start"
 TWO_TABS = "https://example.com/two-tabs"
 SESSION_OFFSET_SECONDS = 10
+READ_STYLE: dict[str, Any] = {
+    "background_color": "#fdf6e3",
+    "text_color": "#2a2633",
+    "button_color": "#7b3fe4",
+    "button_text_color": "#ffffff",
+    "button_border_radius": 6,
+}
+NO_BUTTON: dict[str, Any] = {"button_color": None, "button_text_color": None, "button_border_radius": None}
 
 
 @time_machine.travel("2026-11-06 12:00:00", tick=False)
@@ -134,7 +144,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
     def test_picks_the_newest_matching_page_with_a_replay(
         self, _name: str, conditions: dict[str, Any] | None, expected_url: str | None
     ) -> None:
-        moment = find_snapshot_moment(self.team, self._survey(conditions), SnapshotDevice.DESKTOP)
+        moment = find_snapshot_moment(self.team, UrlTarget.of(self._survey(conditions)), SnapshotDevice.DESKTOP)
 
         assert (moment.page_url if moment else None) == expected_url
 
@@ -147,7 +157,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
     def test_filters_by_viewport_and_offsets_into_the_replay(
         self, device: SnapshotDevice, expected_session: str, expected_url: str
     ) -> None:
-        moment = find_snapshot_moment(self.team, self._survey(None), device)
+        moment = find_snapshot_moment(self.team, UrlTarget.of(self._survey(None)), device)
 
         assert moment is not None
         assert (moment.session_id, moment.page_url) == (expected_session, expected_url)
@@ -180,6 +190,135 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
 
         assert (second.status, second.exported_asset_id, second.page_url) == (SnapshotStatus.READY, asset.id, DOCS)
         assert ExportedAsset.objects.count() == 1
+
+    def _rendered_snapshot(self, survey: Survey, site_style: object) -> ExportedAsset:
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        asset = ExportedAsset.objects.get()
+        assert asset.export_context is not None
+        asset.export_context = {**asset.export_context, "site_style": site_style}
+        asset.content = b"png"
+        asset.save()
+        return asset
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_asks_the_exporter_to_read_the_site_style(self, _async_connect: AsyncMock) -> None:
+        snapshot = get_site_snapshot(self.team, self._survey(None), SnapshotDevice.DESKTOP, self.user)
+
+        export_context = ExportedAsset.objects.get().export_context
+        assert export_context is not None
+        assert export_context["read_site_style"] is True
+        assert snapshot.site_style is None
+
+    @parameterized.expand(
+        [
+            ("read_in_full", READ_STYLE, SiteStyle(**READ_STYLE)),
+            ("page_without_a_button", {**READ_STYLE, **NO_BUTTON}, SiteStyle(**{**READ_STYLE, **NO_BUTTON})),
+            (
+                "button_missing_its_text_color",
+                {**READ_STYLE, "button_text_color": None},
+                SiteStyle(**{**READ_STYLE, **NO_BUTTON}),
+            ),
+            (
+                "radius_that_is_not_a_number",
+                {**READ_STYLE, "button_border_radius": "6px"},
+                SiteStyle(**{**READ_STYLE, **NO_BUTTON}),
+            ),
+            ("export_from_before_style_reading", None, None),
+            ("css_instead_of_hex", {**READ_STYLE, "background_color": "url(https://example.com/x.png)"}, None),
+            ("not_a_dict", ["#ffffff"], None),
+        ]
+    )
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_returns_only_well_formed_site_style(
+        self, _name: str, stored: object, expected: SiteStyle | None, _async_connect: AsyncMock
+    ) -> None:
+        survey = self._survey(None)
+        self._rendered_snapshot(survey, stored)
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert (snapshot.status, snapshot.site_style) == (SnapshotStatus.READY, expected)
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_site_style_needs_access_to_the_recording(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        self._rendered_snapshot(survey, READ_STYLE)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_site_style_needs_access_to_page_urls(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        self._rendered_snapshot(survey, READ_STYLE)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        current_url = PropertyDefinition.objects.create(
+            team=self.team, name="$current_url", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=current_url, access_level=PropertyAccessLevel.NONE.value
+        )
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
+
+    @parameterized.expand(
+        [
+            ("saved_targeting", "", PRICING),
+            ("unsaved_targeting", "&url=docs", DOCS),
+            ("unsaved_targeting_with_match_type", "&url=/docs/.%2B&url_match_type=regex", DOCS),
+            ("unsaved_targeting_of_every_page", "&url=", DOCS),
+        ]
+    )
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_uses_the_editor_url_targeting_when_given(
+        self, _name: str, query: str, expected_url: str, _async_connect: AsyncMock
+    ) -> None:
+        survey = self._survey({"url": "pricing"})
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/site_snapshot/?device=desktop{query}"
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["page_url"] == expected_url
+
+    @patch("products.surveys.backend.site_snapshot.COLD_SNAPSHOTS_PER_TEAM_PER_HOUR", 2)
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_cold_snapshots_share_a_team_budget_across_url_targets(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+
+        statuses = [
+            get_site_snapshot(
+                self.team,
+                survey,
+                SnapshotDevice.DESKTOP,
+                self.user,
+                UrlTarget(url=url, match_type=SurveyMatchType.ICONTAINS),
+            ).status
+            for url in ["docs", "pricing", "example.com"]
+        ]
+        cached = get_site_snapshot(
+            self.team,
+            survey,
+            SnapshotDevice.DESKTOP,
+            self.user,
+            UrlTarget(url="docs", match_type=SurveyMatchType.ICONTAINS),
+        )
+
+        assert statuses == [SnapshotStatus.RENDERING, SnapshotStatus.RENDERING, SnapshotStatus.UNAVAILABLE]
+        assert ExportedAsset.objects.count() == 2
+        assert cached.status == SnapshotStatus.RENDERING
 
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_a_changed_url_condition_renders_a_new_snapshot(self, _async_connect: AsyncMock) -> None:
@@ -230,6 +369,19 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         survey = self._survey(None)
         get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
         ExportedAsset.objects.update(is_system=False, content=b"planted")
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot.status == SnapshotStatus.RENDERING
+        assert ExportedAsset.objects.count() == 2
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_renders_again_when_the_cached_one_did_not_read_the_site_style(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        asset = self._rendered_snapshot(survey, None)
+        assert asset.export_context is not None
+        asset.export_context = {k: v for k, v in asset.export_context.items() if k != "read_site_style"}
+        asset.save()
 
         snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
 
