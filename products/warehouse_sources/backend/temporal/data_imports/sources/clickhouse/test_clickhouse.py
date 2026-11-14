@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     GENERIC_CONNECTION_ERROR,
     ClickHouseSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
@@ -476,6 +477,29 @@ class TestClickHouseSourceRetryableErrors:
         error_msg = "HTTP driver received HTTP status 500, server response: An unexpected error occurred: EOF (for url https://host:8443)"
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
+
+
+class TestClickHouseSourceNonRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return ClickHouseSource()
+
+    def test_cloudflare_tunnel_down_is_non_retryable(self, source):
+        # A ClickHouse host proxied through a Cloudflare Tunnel whose tunnel has dropped answers
+        # with a Cloudflare error page, not a ClickHouse one — clickhouse-connect surfaces it as a
+        # bare HTTP 530 carrying Cloudflare's own "error code: 1033". Without this entry, the sync
+        # retries to Temporal's full budget and reports every attempt as tracked exception noise
+        # instead of failing fast with guidance the customer can act on.
+        error_msg = (
+            "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://example.com:443)"
+        )
+        assert error_message_matches(error_msg, source.get_non_retryable_errors())
+
+    def test_cloudflare_tunnel_down_is_not_classified_as_retryable(self, source):
+        error_msg = (
+            "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://example.com:443)"
+        )
+        assert not error_message_matches(error_msg, source.get_retryable_errors())
 
 
 class TestGetClientTransientRetry:
