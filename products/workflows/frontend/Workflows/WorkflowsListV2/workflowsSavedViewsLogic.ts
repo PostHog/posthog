@@ -19,9 +19,8 @@ import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
+import { withTimeout } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
-import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +28,7 @@ import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import * as api from '../../generated/api'
-import type { WorkflowViewApi, WorkflowViewCreateApi } from '../../generated/api.schemas'
+import type { WorkflowViewApi } from '../../generated/api.schemas'
 import {
     FacetFilter,
     FacetSearchValue,
@@ -285,10 +284,10 @@ interface EditsWhileViewsLoad {
     columns?: OptionalColumn[]
 }
 
-type SavedViewMutation = (stillCurrent: () => boolean, signal: AbortSignal) => Promise<void>
+type SavedViewMutation = (stillCurrent: () => boolean) => Promise<void>
 
-// A stalled request would hide every workflow row behind the loading state, or hold every later save in the queue,
-// with no way to retry, so each request fails after this long.
+// A stalled request would hide every workflow row behind the loading state with no way to retry, so loading the views
+// fails after this long.
 export const SAVED_VIEWS_REQUEST_TIMEOUT_MS = 10_000
 
 export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
@@ -403,9 +402,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                             const nextOffset = Number(
                                 new URL(page.next, window.location.origin).searchParams.get('offset')
                             )
-                            if (nextOffset <= offset || !page.results.length) {
-                                throw new Error('Saved views pagination did not advance')
-                            }
                             offset = nextOffset
                         }
                         throw new Error('Too many saved views pages')
@@ -709,12 +705,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             }
             actions.setPendingAction(action)
             try {
-                // A request past its deadline is aborted, so its answer never lands and the queue moves on.
-                await withTimeout(
-                    (signal) => run(stillCurrent, signal),
-                    SAVED_VIEWS_REQUEST_TIMEOUT_MS,
-                    `workflowsSavedViewsLogic: ${action} timed out`
-                )
+                await run(stillCurrent)
             } catch (error) {
                 if (stillCurrent()) {
                     const failure = handleFailure(action, error, target)
@@ -762,29 +753,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             const queued = keys.size === 1 ? execute() : (cache.mutationQueue as Promise<void>).then(execute)
             cache.mutationQueue = queued
             return queued
-        }
-        const findCreatedView = async (
-            sent: WorkflowViewCreateApi,
-            signal: AbortSignal
-        ): Promise<WorkflowViewApi | undefined> => {
-            for (let offset = 0, pages = 0; pages < 40; pages++) {
-                const page = await api.workflowViewsList(
-                    String(values.currentTeamId),
-                    { limit: 100, offset },
-                    { signal }
-                )
-                const created = page.results.find(
-                    (view) =>
-                        objectsEqual({ name: view.name, state: view.state }, sent) &&
-                        !view.deleted &&
-                        !values.views.some((known) => known.id === view.id)
-                )
-                if (created || !page.next || !page.results.length) {
-                    return created
-                }
-                offset += page.results.length
-            }
-            return undefined
         }
         const latestVersion = (view: WorkflowSavedView): number =>
             values.views.find((candidate) => candidate.id === view.id)?.version ?? view.version
@@ -870,12 +838,11 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     await runMutation(
                         'reset',
                         currentViewId,
-                        async (stillCurrent, signal) => {
+                        async (stillCurrent) => {
                             try {
                                 const latest = await api.workflowViewsRetrieve(
                                     String(values.currentTeamId),
-                                    currentViewId,
-                                    { signal }
+                                    currentViewId
                                 )
                                 if (!stillCurrent()) {
                                     return
@@ -1036,25 +1003,11 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     await runMutation(
                         'save-as',
                         name.trim(),
-                        async (stillCurrent, signal) => {
-                            const unconfirmed: WorkflowViewCreateApi | undefined = cache.unconfirmedSaveAs
-                            cache.unconfirmedSaveAs = undefined
-                            // A create past its deadline can still land, so a retry first looks for a new view with the
-                            // same name and state. Names are not unique, so the name alone could match a teammate's view.
-                            const landed =
-                                unconfirmed?.name === name.trim()
-                                    ? await findCreatedView(unconfirmed, signal)
-                                    : undefined
-                            if (!stillCurrent()) {
-                                return
-                            }
-                            const view =
-                                landed ??
-                                (await api.workflowViewsCreate(
-                                    String(values.currentTeamId),
-                                    { name: name.trim(), state },
-                                    { signal }
-                                ))
+                        async (stillCurrent) => {
+                            const view = await api.workflowViewsCreate(String(values.currentTeamId), {
+                                name: name.trim(),
+                                state,
+                            })
                             if (!stillCurrent()) {
                                 return
                             }
@@ -1066,12 +1019,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                             lemonToast.success(`Saved ${view.name} as a new view`)
                         },
                         undefined,
-                        (failure) => {
-                            if (failure instanceof PromiseTimeoutError) {
-                                cache.unconfirmedSaveAs = { name: name.trim(), state }
-                            }
-                            onFailure?.(failure)
-                        }
+                        onFailure
                     )
                 } finally {
                     additionTrackers().delete(added)
@@ -1088,12 +1036,11 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     await runMutation(
                         'update',
                         current.id,
-                        async (stillCurrent, signal) => {
+                        async (stillCurrent) => {
                             const view = await api.workflowViewsPartialUpdate(
                                 String(values.currentTeamId),
                                 current.id,
-                                { version: latestVersion(current), state },
-                                { signal }
+                                { version: latestVersion(current), state }
                             )
                             if (!stillCurrent()) {
                                 return
@@ -1119,13 +1066,11 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 await runMutation(
                     'rename',
                     `${id}:${name.trim()}`,
-                    async (stillCurrent, signal) => {
-                        const updated = await api.workflowViewsPartialUpdate(
-                            String(values.currentTeamId),
-                            id,
-                            { version: latestVersion(current), name: name.trim() },
-                            { signal }
-                        )
+                    async (stillCurrent) => {
+                        const updated = await api.workflowViewsPartialUpdate(String(values.currentTeamId), id, {
+                            version: latestVersion(current),
+                            name: name.trim(),
+                        })
                         if (!stillCurrent()) {
                             return
                         }
@@ -1143,14 +1088,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 await runMutation(
                     'delete',
                     id,
-                    async (stillCurrent, signal) => {
+                    async (stillCurrent) => {
                         await api
-                            .workflowViewsDestroy(
-                                String(values.currentTeamId),
-                                id,
-                                { version: latestVersion(current) },
-                                { signal }
-                            )
+                            .workflowViewsDestroy(String(values.currentTeamId), id, { version: latestVersion(current) })
                             .catch(ignoreMissingView)
                         if (!stillCurrent()) {
                             return
@@ -1171,8 +1111,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 )
             },
             restoreMyWorkflows: async () =>
-                await runMutation('restore', '', async (stillCurrent, signal) => {
-                    const view = await api.workflowViewsRestoreDefaultCreate(String(values.currentTeamId), { signal })
+                await runMutation('restore', '', async (stillCurrent) => {
+                    const view = await api.workflowViewsRestoreDefaultCreate(String(values.currentTeamId))
                     if (!stillCurrent()) {
                         return
                     }
