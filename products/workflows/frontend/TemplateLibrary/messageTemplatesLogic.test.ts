@@ -15,13 +15,15 @@ describe('messageTemplatesLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/messaging_templates/': {
-                    results: [
-                        template('a', 'Welcome', ['growth', 'onboarding']),
-                        template('b', 'Invoice', ['billing']),
-                        template('c', 'Plain', []),
-                    ],
-                },
+                '/api/projects/:team_id/messaging_templates/': ({ request }) => [
+                    200,
+                    new URL(request.url).searchParams.get('offset')
+                        ? { results: [template('b', 'Invoice', ['billing']), template('c', 'Plain', [])], next: null }
+                        : {
+                              results: [template('a', 'Welcome', ['growth', 'onboarding'])],
+                              next: '/api/projects/997/messaging_templates/?limit=1&offset=1',
+                          },
+                ],
             },
         })
         initKeaTests()

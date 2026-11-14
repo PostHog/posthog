@@ -6395,6 +6395,10 @@ const api = {
         async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
             return await new ApiRequest().messagingTemplates().get()
         },
+        async getAllTemplates(): Promise<MessageTemplate[]> {
+            const url = new ApiRequest().messagingTemplates().assembleFullUrl()
+            return await api.loadPaginatedResults<MessageTemplate>(url)
+        },
         async getTemplate(templateId: MessageTemplate['id']): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).get()
         },
