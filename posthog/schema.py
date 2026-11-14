@@ -149,9 +149,6 @@ from posthog.schema_enums import (
     ExternalQueryStatus as ExternalQueryStatus,
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
-    ForecastDetectorBand as ForecastDetectorBand,
-    ForecastDetectorDirection as ForecastDetectorDirection,
-    ForecastDetectorMode as ForecastDetectorMode,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
     FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
@@ -2030,6 +2027,27 @@ class FlagPropertyFilter(BaseModel):
     )
     type: Literal["flag"] = Field(default="flag", description="Feature flag dependency")
     value: bool | str = Field(..., description="The value can be true, false, or a variant name")
+
+
+class ForecastSideRule(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    min_absolute_change: float | None = Field(
+        default=None,
+        description=("The value is at least this far from the expected value, in the series' units"),
+    )
+    min_relative_change: float | None = Field(
+        default=None,
+        description=("The value is at least this fraction away from the expected value. 1 = 100%"),
+    )
+    quantile: float | None = Field(
+        default=None,
+        description=(
+            "The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps"
+            " of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05."
+        ),
+    )
 
 
 class FormDismissPayload(BaseModel):
@@ -6511,24 +6529,13 @@ class ForecastDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    absolute_threshold: float | None = Field(
+    above: ForecastSideRule | None = Field(
         default=None,
-        description=("Absolute mode: distance from the expected value, in the series' units"),
+        description="Rule for a value higher than expected. Omit to ignore that side.",
     )
-    band: ForecastDetectorBand | None = Field(
+    below: ForecastSideRule | None = Field(
         default=None,
-        description=("Forecast interval for band mode, and the range shown in every mode (default: 0.9)"),
-    )
-    direction: ForecastDetectorDirection | None = Field(
-        default=None, description="Which side of the forecast can fire (default: both)"
-    )
-    mode: ForecastDetectorMode | None = Field(
-        default=None,
-        description=("How the actual value is compared with the forecast (default: band)"),
-    )
-    relative_threshold: float | None = Field(
-        default=None,
-        description=("Relative mode: fraction of the expected value. 1 = 100% away from expected"),
+        description="Rule for a value lower than expected. Omit to ignore that side.",
     )
     type: Literal["forecast"] = "forecast"
 

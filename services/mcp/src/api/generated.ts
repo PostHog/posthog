@@ -14881,32 +14881,14 @@ export namespace Schemas {
       type: LLMDetectorConfigType;
     }
 
-    export type ForecastDetectorBand = typeof ForecastDetectorBand[keyof typeof ForecastDetectorBand];
-
-
-    export const ForecastDetectorBand = {
-      '08': 0.8,
-      '09': 0.9,
-      '098': 0.98,
-    } as const;
-
-    export type ForecastDetectorDirection = typeof ForecastDetectorDirection[keyof typeof ForecastDetectorDirection];
-
-
-    export const ForecastDetectorDirection = {
-      Above: 'above',
-      Below: 'below',
-      Both: 'both',
-    } as const;
-
-    export type ForecastDetectorMode = typeof ForecastDetectorMode[keyof typeof ForecastDetectorMode];
-
-
-    export const ForecastDetectorMode = {
-      Band: 'band',
-      Relative: 'relative',
-      Absolute: 'absolute',
-    } as const;
+    export interface ForecastSideRule {
+      /** The value is at least this far from the expected value, in the series' units */
+      min_absolute_change?: number | null;
+      /** The value is at least this fraction away from the expected value. 1 = 100% */
+      min_relative_change?: number | null;
+      /** The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05. */
+      quantile?: number | null;
+    }
 
     export type ForecastDetectorConfigType = typeof ForecastDetectorConfigType[keyof typeof ForecastDetectorConfigType];
 
@@ -14916,16 +14898,10 @@ export namespace Schemas {
     } as const;
 
     export interface ForecastDetectorConfig {
-      /** Absolute mode: distance from the expected value, in the series' units */
-      absolute_threshold?: number | null;
-      /** Forecast interval for band mode, and the range shown in every mode (default: 0.9) */
-      band?: ForecastDetectorBand | null;
-      /** Which side of the forecast can fire (default: both) */
-      direction?: ForecastDetectorDirection | null;
-      /** How the actual value is compared with the forecast (default: band) */
-      mode?: ForecastDetectorMode | null;
-      /** Relative mode: fraction of the expected value. 1 = 100% away from expected */
-      relative_threshold?: number | null;
+      /** Rule for a value higher than expected. Omit to ignore that side. */
+      above?: ForecastSideRule | null;
+      /** Rule for a value lower than expected. Omit to ignore that side. */
+      below?: ForecastSideRule | null;
       type: ForecastDetectorConfigType;
     }
 

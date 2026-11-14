@@ -7918,26 +7918,32 @@ export interface LLMDetectorConfig {
     instructions?: string
 }
 
-export type ForecastDetectorMode = 'band' | 'relative' | 'absolute'
-export type ForecastDetectorBand = 0.8 | 0.9 | 0.98
-export type ForecastDetectorDirection = 'above' | 'below' | 'both'
+/**
+ * One side of a forecast detector. The side fires when every condition it sets is true.
+ */
+export interface ForecastSideRule {
+    /**
+     * The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99.
+     * Below: 0.01, or 0.05 to 0.45 in steps of 0.05.
+     */
+    quantile?: number
+    /** The value is at least this fraction away from the expected value. 1 = 100% */
+    min_relative_change?: number
+    /** The value is at least this far from the expected value, in the series' units */
+    min_absolute_change?: number
+}
 
 /**
  * Forecasts the next point from the points before it, then compares the actual value with the
- * forecast. Carries no preprocessing block: the forecast reads the series as it is.
+ * forecast. Carries no preprocessing block: the forecast reads the series as it is. With neither
+ * side set, it fires outside the 0.05 to 0.95 forecast range on either side.
  */
 export interface ForecastDetectorConfig {
     type: 'forecast'
-    /** How the actual value is compared with the forecast (default: band) */
-    mode?: ForecastDetectorMode
-    /** Forecast interval for band mode, and the range shown in every mode (default: 0.9) */
-    band?: ForecastDetectorBand
-    /** Relative mode: fraction of the expected value. 1 = 100% away from expected */
-    relative_threshold?: number
-    /** Absolute mode: distance from the expected value, in the series' units */
-    absolute_threshold?: number
-    /** Which side of the forecast can fire (default: both) */
-    direction?: ForecastDetectorDirection
+    /** Rule for a value higher than expected. Omit to ignore that side. */
+    above?: ForecastSideRule
+    /** Rule for a value lower than expected. Omit to ignore that side. */
+    below?: ForecastSideRule
 }
 
 export enum EnsembleOperator {

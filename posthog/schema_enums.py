@@ -1730,24 +1730,6 @@ class FilterLogicalOperator(StrEnum):
     OR_ = "OR"
 
 
-class ForecastDetectorBand(float, Enum):
-    NUMBER_0_8 = 0.8
-    NUMBER_0_9 = 0.9
-    NUMBER_0_98 = 0.98
-
-
-class ForecastDetectorDirection(StrEnum):
-    ABOVE = "above"
-    BELOW = "below"
-    BOTH = "both"
-
-
-class ForecastDetectorMode(StrEnum):
-    BAND = "band"
-    RELATIVE = "relative"
-    ABSOLUTE = "absolute"
-
-
 class FunnelConversionMetric(StrEnum):
     CONVERSION_FROM_START = "conversion_from_start"
     CONVERSION_FROM_PREVIOUS = "conversion_from_previous"
