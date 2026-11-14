@@ -32,6 +32,7 @@ export function ReleaseTrackLane({
                     top={(height - 18) / 2}
                     height={18}
                     stickyOffset={stickyOffset}
+                    lane={lane}
                 />
             ) : lane.kind === 'flag' ? (
                 <ReleaseRolloutBar
@@ -41,6 +42,7 @@ export function ReleaseTrackLane({
                     top={(height - 18) / 2}
                     height={18}
                     stickyOffset={stickyOffset}
+                    lane={lane}
                 />
             ) : null}
             {lane.kind === 'flag' && (
@@ -68,6 +70,7 @@ export function ReleaseTrackLane({
                     top={(height - 18) / 2}
                     height={18}
                     stickyOffset={stickyOffset}
+                    lane={lane}
                 />
             ) : null}
         </div>

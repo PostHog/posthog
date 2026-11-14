@@ -1,9 +1,10 @@
-import { cn } from '@posthog/quill'
+import { Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { SPAN_LOOK, Scale, TONE_COLOR, x } from './releaseTracks'
+import { LANE_CARD_CLASS, ReleaseLaneCard } from './ReleaseLaneCard'
+import { Lane, SPAN_LOOK, Scale, TONE_COLOR, x } from './releaseTracks'
 import { ReleaseSpan } from './releaseUtils'
 
 const NARROW = 72
@@ -15,6 +16,7 @@ export function ReleaseTrackSpan({
     height,
     thin,
     stickyOffset = 0,
+    lane,
 }: {
     span: ReleaseSpan
     scale: Scale
@@ -22,6 +24,7 @@ export function ReleaseTrackSpan({
     height: number
     thin?: boolean
     stickyOffset?: number
+    lane?: Lane
 }): JSX.Element | null {
     const left = x(span.from, scale)
     const width = Math.max(x(span.to, scale) + scale.day / 2 - left, scale.day)
@@ -33,36 +36,41 @@ export function ReleaseTrackSpan({
     const cutLeft = dayjs(span.from).isBefore(scale.start, 'day')
     const cutRight = left + width >= scale.days * scale.day
     return (
-        <div className="absolute flex" style={{ left, width, top, height }}>
-            <div
-                className={cn(
-                    'flex w-full rounded-full',
-                    compact ? 'my-auto h-1.5' : 'h-full',
-                    cutLeft && 'rounded-l-none',
-                    cutRight && 'rounded-r-none'
-                )}
-                style={{
-                    clipPath: `inset(0 round ${cutLeft ? 0 : 9999}px ${cutRight ? 0 : 9999}px ${cutRight ? 0 : 9999}px ${cutLeft ? 0 : 9999}px)`,
-                    backgroundColor: `color-mix(in oklab, ${color} ${compact ? 70 : 18}%, transparent)`,
-                }}
-            >
-                <LinkPrimitive
-                    to={span.href}
-                    title={span.label}
-                    className="flex w-full items-center px-2 text-[10px] font-medium text-foreground"
-                >
-                    {!compact && (
-                        <span className="sticky truncate" style={{ left: stickyOffset + 8, maxWidth: width - 16 }}>
-                            {span.label}
-                        </span>
+        <Tooltip trackCursorAxis="x">
+            <TooltipTrigger render={<div className="absolute flex" style={{ left, width, top, height }} />}>
+                <div
+                    className={cn(
+                        'flex w-full rounded-full',
+                        compact ? 'my-auto h-1.5' : 'h-full',
+                        cutLeft && 'rounded-l-none',
+                        cutRight && 'rounded-r-none'
                     )}
-                </LinkPrimitive>
-            </div>
-            {compact && !thin && span.label && (
-                <span className="pointer-events-none absolute left-full top-1/2 ml-1.5 -translate-y-1/2 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
-                    {span.label}
-                </span>
-            )}
-        </div>
+                    style={{
+                        clipPath: `inset(0 round ${cutLeft ? 0 : 9999}px ${cutRight ? 0 : 9999}px ${cutRight ? 0 : 9999}px ${cutLeft ? 0 : 9999}px)`,
+                        backgroundColor: `color-mix(in oklab, ${color} ${compact ? 70 : 18}%, transparent)`,
+                    }}
+                >
+                    <LinkPrimitive
+                        to={span.href}
+                        aria-label={span.label}
+                        className="flex w-full items-center px-2 text-[10px] font-medium text-foreground"
+                    >
+                        {!compact && (
+                            <span className="sticky truncate" style={{ left: stickyOffset + 8, maxWidth: width - 16 }}>
+                                {span.label}
+                            </span>
+                        )}
+                    </LinkPrimitive>
+                </div>
+                {compact && !thin && span.label && (
+                    <span className="pointer-events-none absolute left-full top-1/2 ml-1.5 -translate-y-1/2 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
+                        {span.label}
+                    </span>
+                )}
+            </TooltipTrigger>
+            <TooltipContent sideOffset={8} className={LANE_CARD_CLASS}>
+                <ReleaseLaneCard lane={lane} span={span} />
+            </TooltipContent>
+        </Tooltip>
     )
 }
