@@ -104,10 +104,12 @@ export function GoogleAdsConversionActionPicker({
 
 export function GoogleAdsCustomerIdPicker({
     onChange,
-    value,
+    value: savedValue,
     integration,
     disabled,
 }: GoogleAdsPickerProps): JSX.Element {
+    // integration_field inputs are not type-checked on save, so an API or MCP client can store this ID as a number.
+    const value = savedValue == null ? savedValue : String(savedValue)
     const { googleAdsAccessibleAccounts, googleAdsAccessibleAccountsLoading } = useValues(
         googleAdsIntegrationLogic({ id: integration.id })
     )
