@@ -708,6 +708,18 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             "insight alert destination reset",
             "insight alert destination customized",
         ]
+        changes = [
+            (change["action"], (change["before"] or change["after"])["id"])
+            for row in ActivityLog.objects.filter(
+                team_id=self.team.id, item_id=str(self.alert.id), detail__type="alert_destination_change"
+            ).order_by("created_at")
+            for change in (row.detail or {})["changes"]
+        ]
+        assert changes[-3:] == [
+            ("deleted", hog_function_ids[0]),
+            ("created", reset.json()["id"]),
+            ("created", hog_function_id),
+        ]
 
     @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
     def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:

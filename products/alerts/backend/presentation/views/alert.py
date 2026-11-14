@@ -3038,6 +3038,15 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
+        if customized.created:
+            log_destination_changes(
+                team_id=alert.team_id,
+                alert_id=alert.id,
+                actor_id=request.user.id,
+                was_impersonated=is_impersonated(request),
+                action="created",
+                destination_types=dict.fromkeys(customized.hog_function_ids, customized.destination_type),
+            )
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
             event="insight alert destination customized",
@@ -3081,6 +3090,23 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
+        # The HogFunctions and their edits are gone, and a row sends in their place.
+        log_destination_changes(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            actor_id=request.user.id,
+            was_impersonated=is_impersonated(request),
+            action="deleted",
+            destination_types=dict.fromkeys(reset.retired_hog_function_ids, reset.destination_type),
+        )
+        log_destination_changes(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            actor_id=request.user.id,
+            was_impersonated=is_impersonated(request),
+            action="created",
+            destination_types={reset.destination_id: reset.destination_type},
+        )
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
             event="insight alert destination reset",
