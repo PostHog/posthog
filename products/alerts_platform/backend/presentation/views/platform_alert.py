@@ -418,15 +418,26 @@ def _typed_edit_serializer(
     source_config_field = extend_schema_field(spec.model)(  # type: ignore[arg-type]
         type(f"{prefix}PlatformAlertSourceConfigField", (serializers.JSONField,), {})
     )
+    fields: dict[str, serializers.Field] = {
+        "source_config": source_config_field(
+            help_text=f"Settings for a {source.value} alert. The bound the alert is evaluated against "
+            "is under condition."
+        )
+    }
+    native = spec.native
+    if native is not None and native.check_intervals and source.value not in UNSERVED_SOURCE_KINDS:
+        allowed = ", ".join(str(minutes) for minutes in sorted(native.check_intervals))
+        fields["check_interval_minutes"] = serializers.IntegerField(
+            min_value=1,
+            required=False,
+            help_text=f"Minutes between scheduled checks. One of: {allowed}. "
+            f"Defaults to {native.check_interval_minutes} on a create. An edit that leaves it out keeps "
+            "the stored value.",
+        )
     return type(
         f"{prefix}PlatformAlertConfigurationEditSerializer",
         (PlatformAlertConfigurationEditSerializer,),
-        {
-            "source_config": source_config_field(
-                help_text=f"Settings for a {source.value} alert. The bound the alert is evaluated against "
-                "is under condition."
-            )
-        },
+        fields,
     )
 
 
@@ -754,6 +765,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         fields = dict(serializer.validated_data)
         if fields.pop("source_kind", current.source_kind) != current.source_kind:
             raise ValidationError({"source_kind": "The source kind of an alert cannot change."})
+        # The schedule is written apart from the settings, so it is not part of the edit.
+        check_interval_minutes = fields.pop("check_interval_minutes", None)
 
         try:
             updated = platform_api.update_configuration(
@@ -762,6 +775,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                 configuration_id=configuration_id,
                 # A partial update names only the fields it changes. The rest keep what is stored.
                 change=lambda stored: replace(stored, **fields),
+                check_interval_minutes=check_interval_minutes,
             )
         except PlatformAlertNotEditable as error:
             raise Conflict(str(error)) from error

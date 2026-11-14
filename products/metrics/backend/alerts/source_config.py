@@ -16,8 +16,11 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION
 from products.metrics.backend.alerts.wording import alert_url
 
-# A metrics alert checks the latest value of each series, so it runs as often as the platform allows.
+# A metrics alert checks the latest value of each series, so by default it runs as often as the platform allows.
 CHECK_INTERVAL_MINUTES: Final = 1
+# The scheduler floors due times onto a grid that restarts each midnight UTC, so only an interval that
+# divides an hour keeps every gap between checks the same length.
+CHECK_INTERVALS: Final = (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60)
 MAX_ALERTS_PER_TEAM: Final = 20
 MAX_QUERY_LENGTH: Final = 10_000
 
@@ -71,7 +74,11 @@ METRICS_ALERT_CONFIG: Final = SourceConfigSpec(
     model=MetricsPlatformAlertConfig,
     validate=_validate_edit,
     # No `remove_destinations`, so the alert's destinations are `AlertDestination` rows from the start.
-    native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES, max_per_team=MAX_ALERTS_PER_TEAM),
+    native=NativeAlertLifecycle(
+        check_interval_minutes=CHECK_INTERVAL_MINUTES,
+        check_intervals=dict.fromkeys(CHECK_INTERVALS),
+        max_per_team=MAX_ALERTS_PER_TEAM,
+    ),
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=alert_url,
     rollout_flag="platform-alerts-source-metrics",
