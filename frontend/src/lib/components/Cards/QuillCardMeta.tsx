@@ -2,6 +2,8 @@ import './CardMeta.scss'
 
 import clsx from 'clsx'
 
+import { CardAction, CardHeader, Text } from '@posthog/quill'
+
 import { InsightColor } from '~/types'
 
 import { QuillCardMoreMenu } from './QuillCardMoreMenu'
@@ -9,6 +11,7 @@ import { QuillCardMoreMenu } from './QuillCardMoreMenu'
 export interface QuillCardMetaProps {
     ribbonColor?: InsightColor | null
     topHeading?: JSX.Element | null
+    /** A `CardTitle`, optionally followed by a `CardDescription`. */
     content: JSX.Element
     refreshControl?: JSX.Element | null
     headerStatus?: JSX.Element | null
@@ -28,35 +31,40 @@ export function QuillCardMeta({
     menuTooltip = 'More',
     onMouseDown,
 }: QuillCardMetaProps): JSX.Element {
-    const controls = (
-        <div className="CardMeta__controls">
-            {refreshControl}
-            {headerStatus}
-            {menuItems ? <QuillCardMoreMenu items={menuItems} tooltip={menuTooltip} /> : null}
-        </div>
-    )
-
     return (
         <div
             className={clsx(
-                'CardMeta CardMeta--compact',
+                'CardMeta CardMeta--compact CardMeta--quill',
                 headerStatus && 'CardMeta--header-status',
                 onMouseDown && 'cursor-grab'
             )}
             onMouseDown={onMouseDown}
         >
-            <div className="CardMeta__primary">
+            <div className="flex">
                 {ribbonColor && ribbonColor !== InsightColor.White && (
                     <div className={clsx('CardMeta__ribbon', ribbonColor)} />
                 )}
-                <div className="CardMeta__main">
-                    <div className="CardMeta__top">
-                        <div className="CardMeta__heading">{topHeading}</div>
-                        {!headerStatus && controls}
+                <CardHeader className="min-w-0 flex-1 gap-y-0 py-2">
+                    <div className="flex min-w-0 flex-col">
+                        {topHeading && (
+                            <Text
+                                size="xxs"
+                                variant="muted"
+                                weight="semibold"
+                                className="uppercase tracking-wider empty:hidden"
+                                render={<div />}
+                            >
+                                {topHeading}
+                            </Text>
+                        )}
+                        {content}
                     </div>
-                    {content}
-                </div>
-                {headerStatus && controls}
+                    <CardAction className="row-1 flex items-center gap-1">
+                        {refreshControl}
+                        {headerStatus}
+                        {menuItems ? <QuillCardMoreMenu items={menuItems} tooltip={menuTooltip} /> : null}
+                    </CardAction>
+                </CardHeader>
             </div>
             <div className="CardMeta__divider" />
         </div>

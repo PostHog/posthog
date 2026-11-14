@@ -486,19 +486,25 @@ describe('messageTemplateLogic', () => {
             },
         })
 
+        let storedName: string
+
         beforeEach(async () => {
+            storedName = 'Existing'
             useMocks({
                 get: {
                     '/api/environments/:team_id/file_system/': ({ request }) =>
                         new URL(request.url).searchParams.get('ref') === 'existing-id'
-                            ? [200, { results: [treeEntry('Renamed')], count: 1 }]
+                            ? [200, { results: [treeEntry(storedName)], count: 1 }]
                             : [200, { results: [], count: 0 }],
                     '/api/projects/:team_id/messaging_templates/:id/placement/': {
                         path: 'Unfiled/Email templates/Existing',
                     },
                 },
                 patch: {
-                    '/api/environments/:team_id/messaging_templates/:id/': { id: 'existing-id', name: 'Renamed' },
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        storedName = ((await request.json()) as { name: string }).name
+                        return [200, { id: 'existing-id', name: storedName }]
+                    },
                 },
             })
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
@@ -547,7 +553,6 @@ describe('messageTemplateLogic', () => {
 
         it('shows the name from the last save when two saves overlap one tree refresh', async () => {
             projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
-            let storedName = 'Existing'
             let holdNextRead = true
             let releaseFirstRead: () => void = () => {}
             const firstReadHeld = new Promise<void>((resolve) => {
@@ -562,12 +567,6 @@ describe('messageTemplateLogic', () => {
                             await firstReadHeld
                         }
                         return [200, { results: [treeEntry(nameWhenRead)], count: 1 }]
-                    },
-                },
-                patch: {
-                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
-                        storedName = ((await request.json()) as { name: string }).name
-                        return [200, { id: 'existing-id', name: storedName }]
                     },
                 },
             })
@@ -650,7 +649,7 @@ describe('messageTemplateLogic', () => {
                     get: {
                         '/api/environments/:team_id/file_system/': async () => {
                             await treeHeld
-                            return [200, { results: [treeEntry('Renamed')], count: 1 }]
+                            return [200, { results: [treeEntry(storedName)], count: 1 }]
                         },
                     },
                     ...treeDeleteBoundary(deletedFileIds),
@@ -704,7 +703,7 @@ describe('messageTemplateLogic', () => {
                 get: {
                     '/api/environments/:team_id/file_system/': async () => {
                         await treeHeld
-                        return [200, { results: [treeEntry('Renamed'), sharedEntry('Renamed')], count: 2 }]
+                        return [200, { results: [treeEntry(storedName), sharedEntry(storedName)], count: 2 }]
                     },
                 },
                 ...treeDeleteBoundary(deletedFileIds),

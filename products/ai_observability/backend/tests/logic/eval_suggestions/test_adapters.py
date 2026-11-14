@@ -34,7 +34,11 @@ def _verdict(check: adapters.AdaptedCheck, events: list[tuple[str, dict[str, Any
 
 
 def _answer(text: str, **properties: Any) -> tuple[str, dict[str, Any]]:
-    return "$ai_generation", {"$ai_output_choices": [{"role": "assistant", "content": text}], **properties}
+    return "$ai_generation", {
+        "$ai_model": "gpt-5-mini",
+        "$ai_output_choices": [{"role": "assistant", "content": text}],
+        **properties,
+    }
 
 
 def _calls(*calls: tuple[str, dict[str, Any], str]) -> tuple[str, dict[str, Any]]:
@@ -182,14 +186,193 @@ class TestAdaptedChecks:
                     (
                         "$ai_generation",
                         {
+                            "$ai_model": "gpt-5-mini",
                             "$ai_output_choices": [
                                 {"role": "assistant", "content": "Ask jane.doe@acme.io", "tool_calls": []}
+                            ],
+                        },
+                    )
+                ],
+                False,
+            ),
+            (
+                "tool_result_logged_without_a_model_does_not_apply",
+                adapters.sensitive_data(),
+                [("$ai_generation", {"$ai_output_choices": [{"role": "assistant", "content": "jane.doe@acme.io"}]})],
+                None,
+            ),
+            (
+                "email_repeated_from_the_input",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Jane is jane.doe@acme.io",
+                        **{"$ai_input": [{"role": "user", "content": "Find Jane.Doe@acme.io"}]},
+                    )
+                ],
+                True,
+            ),
+            (
+                "email_other_than_the_one_in_the_input",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Ask john@acme.io instead",
+                        **{"$ai_input": [{"role": "user", "content": "Find jane.doe@acme.io"}]},
+                    )
+                ],
+                False,
+            ),
+            (
+                "email_from_a_tool_result_still_counts",
+                adapters.sensitive_data(),
+                [
+                    ("$ai_span", {"$ai_span_name": "query", "$ai_output_state": {"rows": ["jane.doe@acme.io"]}}),
+                    _answer("The user is jane.doe@acme.io"),
+                ],
+                False,
+            ),
+            (
+                "email_from_the_system_prompt_still_counts",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Write to ops@acme.io",
+                        **{"$ai_input": [{"role": "system", "content": "Escalations go to ops@acme.io"}]},
+                    )
+                ],
+                False,
+            ),
+            (
+                "address_inside_a_longer_given_address",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Write to support@acme.io",
+                        **{"$ai_input": [{"role": "user", "content": "Is techsupport@acme.io right?"}]},
+                    )
+                ],
+                False,
+            ),
+            (
+                "email_from_a_tool_result_in_a_user_turn_still_counts",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Jane is jane.doe@acme.io",
+                        **{
+                            "$ai_input": [
+                                {
+                                    "role": "user",
+                                    "content": [{"type": "tool_result", "content": "jane.doe@acme.io"}],
+                                }
                             ]
                         },
                     )
                 ],
                 False,
             ),
+            (
+                "email_from_a_user_text_block",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Jane is jane.doe@acme.io",
+                        **{
+                            "$ai_input": [
+                                {"role": "user", "content": [{"type": "text", "text": "Find jane.doe@acme.io"}]}
+                            ]
+                        },
+                    )
+                ],
+                True,
+            ),
+            (
+                "email_from_otel_user_parts",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Jane is jane.doe@acme.io",
+                        **{
+                            "$ai_input": [
+                                {"role": "user", "parts": [{"type": "text", "content": "Find jane.doe@acme.io"}]}
+                            ]
+                        },
+                    )
+                ],
+                True,
+            ),
+            (
+                "too_many_addresses_to_check",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        " ".join(["jane.doe@acme.io"] * 50) + " leak@acme.io",
+                        **{"$ai_input": [{"role": "user", "content": "Find jane.doe@acme.io"}]},
+                    )
+                ],
+                None,
+            ),
+            (
+                "bulk_dump_of_addresses_nobody_gave",
+                adapters.sensitive_data(),
+                [_answer(" ".join(f"user{i}@acme.io" for i in range(60)))],
+                False,
+            ),
+            (
+                "fragment_of_a_given_address",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Write to connor@acme.io",
+                        **{"$ai_input": [{"role": "user", "content": "Is o'connor@acme.io right?"}]},
+                    )
+                ],
+                False,
+            ),
+            (
+                "address_cut_from_a_longer_domain",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Write to victim@acme.io",
+                        **{"$ai_input": [{"role": "user", "content": "Is victim@acme.ioévil.com right?"}]},
+                    )
+                ],
+                False,
+            ),
+            (
+                "quoted_given_address_repeated",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Jane is jane@acme.io.",
+                        **{"$ai_input": [{"role": "user", "content": "Find 'jane@acme.io'"}]},
+                    )
+                ],
+                True,
+            ),
+            (
+                "address_in_a_markdown_link",
+                adapters.sensitive_data(),
+                [_answer("Write to [jane@acme.io](mailto:jane@acme.io)")],
+                False,
+            ),
+            ("address_in_braces", adapters.sensitive_data(), [_answer("Contact {jane@acme.io}")], False),
+            ("address_in_typographic_quotes", adapters.sensitive_data(), [_answer("Contact “jane@acme.io”")], False),
+            ("address_in_guillemets", adapters.sensitive_data(), [_answer("Contact «jane@acme.io»")], False),
+            ("address_with_a_non_ascii_name", adapters.sensitive_data(), [_answer("Ask jöhn@acme.io")], False),
+            (
+                "address_before_a_closing_quote",
+                adapters.sensitive_data(),
+                [_answer('She said "write to jane@acme.io."')],
+                False,
+            ),
+            ("address_before_an_ellipsis", adapters.sensitive_data(), [_answer("Write to jane@acme.io...")], False),
+            ("address_in_underscores", adapters.sensitive_data(), [_answer("Contact _jane@acme.io_")], False),
+            ("address_before_an_em_dash", adapters.sensitive_data(), [_answer("Write to jane@acme.io—today")], False),
+            ("number_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": 42})], False),
+            ("empty_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": []})], False),
             (
                 "otel_tool_call_parts_repeat",
                 REPEATS,

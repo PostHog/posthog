@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-chat-reconnect",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-country-map-scroll",
+    "notes": "AI conversations reconnect automatically when you return to the app. The first two recovery attempts stay silent, and partial replies remain visible. Verify returning during a reply, after completion, and with a pending decision on iOS and Android."
+}

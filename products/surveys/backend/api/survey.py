@@ -12,7 +12,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.http.request import split_domain_port
 from django.shortcuts import render
 from django.utils.text import slugify
@@ -98,6 +98,11 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.api.site_snapshot_serializers import SiteSnapshotQuerySerializer, SiteSnapshotSerializer
+from products.surveys.backend.internal_targeting import (
+    WAIT_PERIOD_DAYS_CONDITION,
+    build_internal_targeting_groups,
+    is_valid_wait_period,
+)
 from products.surveys.backend.llm import gemini_configured
 from products.surveys.backend.models import (
     MAX_ITERATION_COUNT,
@@ -122,7 +127,7 @@ from products.surveys.backend.responses import (
 from products.surveys.backend.site_snapshot import SnapshotDevice, get_site_snapshot
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation
-from products.surveys.backend.util import SurveyEventProperties, get_archived_response_uuids
+from products.surveys.backend.util import get_archived_response_uuids
 
 from ee.surveys.summaries.headline_summary import generate_survey_headline
 
@@ -1375,8 +1380,16 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
 
+        self._require_numeric_wait_period(value)
         self._require_viewer_access_to_added_actions(value)
         return value
+
+    def _require_numeric_wait_period(self, conditions: dict) -> None:
+        # The flag the survey targets on reads this value, and the API documents it as a number
+        # of days, so a value of another type leaves a survey that cannot be saved again.
+        wait_period_days = conditions.get(WAIT_PERIOD_DAYS_CONDITION)
+        if wait_period_days is not None and not is_valid_wait_period(wait_period_days):
+            raise serializers.ValidationError(f"{WAIT_PERIOD_DAYS_CONDITION} must be a number of days")
 
     def _require_viewer_access_to_added_actions(self, conditions: dict) -> None:
         actions_condition = conditions.get("actions")
@@ -2333,66 +2346,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if (instance.iteration_count or 0) > 0 or instance.repeats_on_schedule:
             survey_key = f"{instance.id}/{instance.current_iteration or 1}"
 
-        base_properties = [
-            {
-                "key": f"{SurveyEventProperties.SURVEY_DISMISSED}/{survey_key}",
-                "value": "is_not_set",
-                "operator": "is_not_set",
-                "type": "person",
-            },
-            {
-                "key": f"{SurveyEventProperties.SURVEY_RESPONDED}/{survey_key}",
-                "value": "is_not_set",
-                "operator": "is_not_set",
-                "type": "person",
-            },
-        ]
-
-        wait_period_days = None
-        if instance.conditions and isinstance(instance.conditions, dict):
-            wait_period_days = instance.conditions.get("seenSurveyWaitPeriodInDays")
-
-        if wait_period_days is not None and wait_period_days > 0:
-            user_submitted_dismissed_filter = {
-                "groups": [
-                    {
-                        "variant": "",
-                        "rollout_percentage": 100,
-                        "properties": [
-                            *base_properties,
-                            {
-                                "key": SurveyEventProperties.SURVEY_LAST_SEEN_DATE,
-                                "value": "is_not_set",
-                                "operator": "is_not_set",
-                                "type": "person",
-                            },
-                        ],
-                    },
-                    {
-                        "variant": "",
-                        "rollout_percentage": 100,
-                        "properties": [
-                            *base_properties,
-                            {
-                                "key": SurveyEventProperties.SURVEY_LAST_SEEN_DATE,
-                                "value": f"{int(wait_period_days)}d",
-                                "operator": "is_date_before",
-                                "type": "person",
-                            },
-                        ],
-                    },
-                ]
-            }
-        else:
-            user_submitted_dismissed_filter = {
-                "groups": [
-                    {
-                        "variant": "",
-                        "rollout_percentage": 100,
-                        "properties": base_properties,
-                    }
-                ]
-            }
+        user_submitted_dismissed_filter = {"groups": build_internal_targeting_groups(survey_key, instance.conditions)}
 
         if instance.internal_targeting_flag:
             existing_targeting_flag = instance.internal_targeting_flag
@@ -4081,20 +4035,6 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
     return {"surveys": surveys}
 
 
-def _survey_page_site_url() -> str:
-    """
-    Origin for the hosted survey page's static assets. Assets must load from the app
-    origin even when the page is served through a reverse-proxy domain, which doesn't
-    serve Django staticfiles. A localhost SITE_URL (the unset default) would emit asset
-    URLs no external browser can reach, so fall back to host-relative paths — those at
-    least keep direct app-origin access working.
-    """
-    hostname = urlparse(settings.SITE_URL).hostname
-    if hostname in (None, "localhost", "127.0.0.1", "::1"):
-        return ""
-    return settings.SITE_URL
-
-
 def _public_survey_csp(request: HttpRequest) -> str:
     nonce = getattr(request, "csp_nonce", "")
     script_sources = ["'self'", f"'nonce-{nonce}'", "'strict-dynamic'"]
@@ -4134,7 +4074,6 @@ def _survey_error_response(
     context: dict[str, Any] = {
         "error_title": error_title,
         "error_message": error_message,
-        "site_url": _survey_page_site_url(),
     }
     if appearance is not None:
         context["appearance"] = appearance
@@ -4151,9 +4090,31 @@ def _survey_not_available_response(request: HttpRequest) -> HttpResponse:
     )
 
 
-def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey) -> bool:
+_POSTHOG_SURVEY_DOMAIN = "posthogsurveys.com"
+# US serves the bare domain, so a survey US doesn't have can only be in EU.
+_SURVEY_DOMAIN_FOR_MISSING_SURVEY = {_POSTHOG_SURVEY_DOMAIN: f"eu.{_POSTHOG_SURVEY_DOMAIN}"}
+
+
+def _request_domain(request: HttpRequest) -> str:
     # get_host() prefers X-Forwarded-Host, which a client can set. The managed proxy keeps the visitor's Host header.
     domain, _ = split_domain_port(request.META.get("HTTP_HOST", ""))
+    return domain
+
+
+def _redirect_to_survey_domain(request: HttpRequest, domain: str, survey_id: str) -> HttpResponse:
+    query = request.META.get("QUERY_STRING")
+    return HttpResponseRedirect(f"https://{domain}/{survey_id}" + (f"?{query}" if query else ""))
+
+
+def _is_posthog_survey_domain(domain: str) -> bool:
+    return domain == _POSTHOG_SURVEY_DOMAIN or domain.endswith(f".{_POSTHOG_SURVEY_DOMAIN}")
+
+
+def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey) -> bool:
+    domain = _request_domain(request)
+    # Every organization's surveys live on PostHog's survey domain. A row registered before it was reserved can't own it.
+    if _is_posthog_survey_domain(domain):
+        return False
     return (
         ProxyRecord.objects.filter(domain__iexact=domain).exclude(organization_id=survey.team.organization_id).exists()
     )
@@ -4185,6 +4146,8 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
         survey = Survey.objects.select_related("team").get(id=survey_id)
         is_another_organizations_proxy_domain = _is_another_organizations_proxy_domain(request, survey)
     except Survey.DoesNotExist:
+        if survey_domain := _SURVEY_DOMAIN_FOR_MISSING_SURVEY.get(_request_domain(request)):
+            return _redirect_to_survey_domain(request, survey_domain, survey_id)
         logger.info("survey_page_not_found", survey_id=survey_id)
         return _survey_not_available_response(request)
     except Exception as e:
@@ -4240,7 +4203,6 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
         "survey_id": survey_id,
         "survey_data": survey_data,
         "project_config": project_config,
-        "site_url": _survey_page_site_url(),
         "display_language": get_hosted_survey_display_language(request),
         "debug": settings.DEBUG,
         "embed_mode": request.GET.get("embed") == "true",

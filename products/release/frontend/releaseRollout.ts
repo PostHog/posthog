@@ -117,25 +117,23 @@ export function rolloutSteps(
                 (entry.activity === 'updated' && (changeOf(entry, 'filters') || changeOf(entry, 'active')))
         )
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
-    const firstFilters = updates.map((entry) => changeOf(entry, 'filters')).find(Boolean)
-    const firstActive = updates.map((entry) => changeOf(entry, 'active')).find(Boolean)
-    let state: RolloutState = {
-        active: firstActive ? asBoolean(firstActive.before) : !!flag.active,
-        deleted: updates[0]?.activity === 'restored',
-        filters: filtersOf(firstFilters ? firstFilters.before : flag.filters),
-    }
-    const points: { at: string; state: RolloutState; upcoming?: boolean }[] = [{ at: flag.created_at, state }]
-    for (const entry of updates) {
+    const current: RolloutState = { active: !!flag.active, deleted: false, filters: filtersOf(flag.filters) }
+    let state: RolloutState = current
+    const changes: { at: string; state: RolloutState }[] = []
+    for (const entry of [...updates].reverse()) {
+        changes.push({ at: entry.created_at, state })
         const filters = changeOf(entry, 'filters')
         const active = changeOf(entry, 'active')
         state = {
-            active: active ? asBoolean(active.after) : state.active,
-            deleted: entry.activity === 'deleted' ? true : entry.activity === 'restored' ? false : state.deleted,
-            filters: filters ? filtersOf(filters.after) : state.filters,
+            active: active ? asBoolean(active.before) : state.active,
+            deleted: entry.activity === 'deleted' ? false : entry.activity === 'restored' ? true : state.deleted,
+            filters: filters ? filtersOf(filters.before) : state.filters,
         }
-        points.push({ at: entry.created_at, state })
     }
-    const current: RolloutState = { active: !!flag.active, deleted: false, filters: filtersOf(flag.filters) }
+    const points: { at: string; state: RolloutState; upcoming?: boolean }[] = [
+        { at: flag.created_at, state },
+        ...changes.reverse(),
+    ]
     points.push({ at: today.toISOString(), state: current })
     const pending = scheduled
         .filter(
