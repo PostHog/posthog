@@ -26,6 +26,8 @@ from products.warehouse_sources.sources.sdk import (
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
 QUOTA_EXHAUSTED_MARKER = "limit reached"
+# Leads the retryable error a used-up quota raises, so the source can name that case once retries run out.
+QUOTA_EXHAUSTED_ERROR = "AppsFlyer daily report API quota is used up"
 # Aggregate pull requests cap the date range at ~1000 days.
 MAX_WINDOW_DAYS = 999
 # AppsFlyer doesn't finalize data until ~48h after the UTC day; re-fetch the
@@ -291,7 +293,11 @@ def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Itera
 def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogger) -> requests.Response:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
-    if response.status_code == 429 or response.status_code >= 500 or _is_quota_exhausted(response):
+    if _is_quota_exhausted(response):
+        response.close()
+        raise AppsFlyerRetryableError(f"{QUOTA_EXHAUSTED_ERROR} (retryable): status={response.status_code}, url={url}")
+
+    if response.status_code == 429 or response.status_code >= 500:
         response.close()
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}, url={url}")
 
@@ -320,7 +326,8 @@ def _iter_report_rows(session: requests.Session, url: str, logger: FilteringBoun
 def validate_credentials(api_token: str, app_id: str) -> bool:
     """Confirm the token and app id are valid with a one-day report probe.
 
-    Returns ``True`` when the probe succeeds. Raises ``AppsFlyerCredentialsError`` with a
+    Returns ``True`` when the probe succeeds, or when AppsFlyer refuses it only because the daily
+    report quota is used up. Raises ``AppsFlyerCredentialsError`` with a
     user-facing message when AppsFlyer rejects the token or app id (the status code tells the
     two apart) or returns any other unexpected status, ``AppsFlyerRetryableError`` on
     rate-limit / 5xx responses, and lets transport errors propagate so the caller can tell a
@@ -347,10 +354,11 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         timeout=30,
     )
     if _is_quota_exhausted(response):
-        raise AppsFlyerCredentialsError(
-            "Your AppsFlyer account has used up its daily report API quota. "
-            "Try connecting again after your daily quota resets."
-        )
+        # A used-up quota says nothing against the token or app id (those answer 401, 403 or 404).
+        # The wizard probes again when the source is created, often after the credentials step spent
+        # the last call, so refusing here threw away a finished setup until the next day. The sync
+        # retries the quota error and runs once the quota resets, like Microsoft Clarity's.
+        return True
     if response.status_code == 429 or response.status_code >= 500:
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
     if response.status_code == 200:
