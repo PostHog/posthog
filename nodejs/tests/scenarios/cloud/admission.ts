@@ -85,6 +85,7 @@ type Session = { endsAt: Date } | { refreshable: true } | { unknown: true } | { 
 type SsoToken = {
     expiresAt?: string
     refreshToken?: string
+    clientId?: string
     clientSecret?: string
     registrationExpiresAt?: string
 }
@@ -127,7 +128,7 @@ async function sessionOf({ aws, env }: Controller, needed: Date): Promise<Sessio
         return { problem: `No SSO token is cached for ${ssoSession}. Run aws sso login --sso-session ${ssoSession}.` }
     }
     const registrationEnds = Date.parse(token.registrationExpiresAt ?? '')
-    if (token.refreshToken && token.clientSecret && registrationEnds >= needed.getTime()) {
+    if (token.refreshToken && token.clientId && token.clientSecret && registrationEnds >= needed.getTime()) {
         return { refreshable: true }
     }
     return endOf(token.expiresAt)

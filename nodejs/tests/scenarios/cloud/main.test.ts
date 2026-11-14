@@ -201,6 +201,7 @@ describe('cloud controller', () => {
             ssoToken: {
                 expiresAt: new Date(T.getTime() + HOUR_MS),
                 refreshToken: 'example-refresh',
+                clientId: 'example-client',
                 clientSecret: 'example-secret',
                 registrationExpiresAt: new Date(T.getTime() + 90 * 24 * HOUR_MS),
             },
@@ -209,6 +210,23 @@ describe('cloud controller', () => {
         await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
 
         expect(err.join('\n')).toContain('stack-delete schedules')
+    })
+
+    it('runs on the profile the account pin checked, even when the file changes during the identity check', async () => {
+        const { controller } = prepare()
+        const call = cloud.call.bind(cloud)
+        cloud.call = async (args) => {
+            const result = await call(args)
+            if (args.join(' ') === 'sts get-caller-identity') {
+                writeFileSync(profilePath(), stringify({ ...PROFILE, account: OTHER_ACCOUNT }))
+            }
+            return result
+        }
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+
+        const manifest = parseJSON(cloud.objects.get(`runs/${leasedRunId()}/input/manifest.json`)!)
+        expect(manifest.account).toEqual(PROFILE.account)
     })
 
     it('reads the profile inputs once, so the uploads match the admitted hashes', async () => {
@@ -266,6 +284,7 @@ describe('cloud controller', () => {
                 ssoToken: {
                     expiresAt: new Date(T.getTime() + HOUR_MS),
                     refreshToken: 'example-refresh',
+                    clientId: 'example-client',
                     clientSecret: 'example-secret',
                     registrationExpiresAt: new Date(T.getTime() + 2 * HOUR_MS),
                 },
@@ -273,12 +292,26 @@ describe('cloud controller', () => {
             'expire',
         ],
         [
-            'an SSO refresh token without its client credentials',
+            'an SSO refresh token without its client id',
             {
                 cloud: { ssoSession: 'test-sso' },
                 ssoToken: {
                     expiresAt: new Date(T.getTime() + HOUR_MS),
                     refreshToken: 'example-refresh',
+                    clientSecret: 'example-secret',
+                    registrationExpiresAt: new Date(T.getTime() + 90 * 24 * HOUR_MS),
+                },
+            },
+            'expire',
+        ],
+        [
+            'an SSO refresh token without its client secret',
+            {
+                cloud: { ssoSession: 'test-sso' },
+                ssoToken: {
+                    expiresAt: new Date(T.getTime() + HOUR_MS),
+                    refreshToken: 'example-refresh',
+                    clientId: 'example-client',
                     registrationExpiresAt: new Date(T.getTime() + 90 * 24 * HOUR_MS),
                 },
             },

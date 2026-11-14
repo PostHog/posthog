@@ -64,10 +64,10 @@ export async function main(argv: string[], controller: Controller = defaultContr
         return EXIT_CODE.invalid
     }
     try {
-        await refuseOutsideDev(controller, loadCloudProfile(file).account)
-        return command === 'run'
-            ? await run(controller, loadRunInputs(file))
-            : await cleanup(controller, loadCloudProfile(file), target)
+        const loaded = command === 'run' ? loadRunInputs(file) : undefined
+        const profile = loaded?.profile ?? loadCloudProfile(file)
+        await refuseOutsideDev(controller, profile.account)
+        return loaded ? await run(controller, loaded) : await cleanup(controller, profile, target)
     } catch (error) {
         controller.warn((error as Error).message)
         return EXIT_CODE.invalid
