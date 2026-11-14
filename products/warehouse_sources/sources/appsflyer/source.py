@@ -4,6 +4,7 @@ import requests
 
 from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
 from products.warehouse_sources.sources.appsflyer.appsflyer import (
+    RAW_DATA_NOT_IN_PLAN_ERROR,
     AppsFlyerCredentialsError,
     AppsFlyerResumeConfig,
     AppsFlyerRetryableError,
@@ -100,6 +101,7 @@ class AppsFlyerSource(ResumableSource[AppsFlyerSourceConfig, AppsFlyerResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            RAW_DATA_NOT_IN_PLAN_ERROR: "Your AppsFlyer subscription doesn't include raw data reports, so this table can't sync. Turn off this table, or ask AppsFlyer to add raw data to your subscription.",
             "401 Client Error: Unauthorized for url: https://hq1.appsflyer.com": "AppsFlyer authentication failed. Please check your API token (V2).",
             "403 Client Error: Forbidden for url: https://hq1.appsflyer.com": "AppsFlyer denied access. Please check that your account's subscription includes the report being synced and the app id is correct.",
             "404 Client Error: Not Found for url: https://hq1.appsflyer.com": "AppsFlyer app not found. Please check the app id.",
