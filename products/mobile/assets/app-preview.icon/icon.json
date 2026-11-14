@@ -32,7 +32,11 @@
                             "value": 0
                         }
                     ]
-                },
+                }
+            ]
+        },
+        {
+            "layers": [
                 {
                     "glass-specializations": [
                         {
@@ -58,7 +62,11 @@
                             "value": 1
                         }
                     ]
-                },
+                }
+            ]
+        },
+        {
+            "layers": [
                 {
                     "glass": false,
                     "image-name": "logo-dark.png",
