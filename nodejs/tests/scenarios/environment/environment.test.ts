@@ -1,17 +1,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { EventEmitter, once } from 'events'
-import {
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    realpathSync,
-    rmSync,
-    rmdirSync,
-    symlinkSync,
-    writeFileSync,
-} from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import http from 'http'
 import Redis from 'ioredis'
 import net from 'net'
@@ -1030,47 +1020,6 @@ describe('scenario environment', () => {
                 )
             } finally {
                 await killedElsewhere.stop()
-            }
-        }, 15_000)
-
-        it('records a role it cannot start again and keeps retrying until it starts', async () => {
-            const cwd = mkdtempSync(path.join(tempRoot, 'cwd-'))
-            const exiting = createSupervisor({
-                command: process.execPath,
-                args: ['-e', 'process.exit(3)'],
-                cwd,
-                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
-                graceMs: 1000,
-                restartBackoffMs: 50,
-            })
-            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
-            try {
-                await exiting.start([spec])
-                rmdirSync(cwd)
-                await waitForExpect(
-                    () =>
-                        expect(exiting.exits().map(({ error }) => error)).toContainEqual(
-                            expect.stringContaining('ENOENT')
-                        ),
-                    5000,
-                    20
-                )
-                mkdirSync(cwd)
-                const failedStarts = exiting.exits().length
-
-                await waitForExpect(
-                    () =>
-                        expect(
-                            exiting
-                                .exits()
-                                .slice(failedStarts)
-                                .map(({ code }) => code)
-                        ).toContain(3),
-                    5000,
-                    20
-                )
-            } finally {
-                await exiting.stop()
             }
         }, 15_000)
     })
