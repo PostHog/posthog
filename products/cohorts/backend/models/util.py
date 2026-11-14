@@ -79,6 +79,8 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 # Cohort query timeout settings
 COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort calculation queries
 STATIC_COHORT_READ_BACK_WAITS_SECONDS = (0.25, 0.5, 1, 2, 4, 8)
+# REPLICA_IS_NOT_IN_QUORUM: a sequentially consistent read reached a replica without the latest quorum part.
+CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE = 289
 COHORT_QUERY_TIMEOUT_SETTINGS = {
     "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
     "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
@@ -1470,9 +1472,22 @@ def insert_cohort_people_into_pg(
     replace attempt makes this raise ``PopulationSuperseded`` before it writes another page.
     """
     for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
-        new_rows_read = _copy_static_cohort_rows_to_pg(
-            cohort, team_id=team_id, written_since=written_since, replace_marker=replace_marker
-        )
+        try:
+            new_rows_read = _copy_static_cohort_rows_to_pg(
+                cohort, team_id=team_id, written_since=written_since, replace_marker=replace_marker
+            )
+        except Exception as err:
+            # A replace reads with sequential consistency, so a replica that hasn't fetched the replace's quorum part
+            # fails the read instead of returning a partial set. It's a short read: wait for the part like any other,
+            # rather than rerunning the whole population. Copying again is safe, since membership inserts are idempotent.
+            if (
+                replace_marker is None
+                or wait_seconds is None
+                or getattr(err, "code", None) != CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE
+            ):
+                raise
+            time.sleep(wait_seconds)
+            continue
         if new_rows_read >= min_rows:
             return
         if wait_seconds is None:

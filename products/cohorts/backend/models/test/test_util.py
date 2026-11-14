@@ -621,6 +621,24 @@ class TestCohortUtils(BaseTest):
 
         self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], list(STATIC_COHORT_READ_BACK_WAITS_SECONDS))
 
+    def test_a_replace_copy_waits_for_a_replica_that_has_not_fetched_its_part(self):
+        # Code 289 on the read right after the quorum insert is a lagging replica, not a failed run.
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+        lagging = InternalCHQueryError("replica is not in quorum", code=289)
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util._copy_static_cohort_rows_to_pg", side_effect=[lagging, 1]
+            ) as mock_copy,
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+        ):
+            insert_cohort_people_into_pg(
+                cohort, team_id=self.team.id, min_rows=1, replace_marker=timezone.now().replace(microsecond=0)
+            )
+
+        self.assertEqual(mock_copy.call_count, 2)
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [STATIC_COHORT_READ_BACK_WAITS_SECONDS[0]])
+
     def test_copy_to_postgres_does_not_count_existing_members_as_the_rows_it_wrote(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
         existing = _create_person(team_id=self.team.id, distinct_ids=["existing"], uuid=uuid.uuid4())
