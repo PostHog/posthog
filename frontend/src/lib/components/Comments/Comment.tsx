@@ -126,14 +126,9 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element | 
 }
 
 const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, isSavingEditedComment, editingCommentRichContentEditor, isEditingCommentEmpty } =
-        useValues(commentsLogic)
-    const {
-        setEditingComment,
-        persistEditedComment,
-        setEditingCommentRichContentEditor,
-        onEditingCommentRichContentEditorUpdate,
-    } = useActions(commentsLogic)
+    const { editingComment, isSavingEditedComment, isEditingCommentEmpty } = useValues(commentsLogic)
+    const { setEditingComment, persistEditedComment, setEditingCommentRichContentEditor, syncEditingCommentDraft } =
+        useActions(commentsLogic)
 
     return (
         <div className="deprecated-space-y-2">
@@ -142,15 +137,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                 // Seed from the in-progress edit so collapsing/expanding the thread mid-edit loses nothing
                 initialContent={editingComment?.rich_content ?? comment.rich_content}
                 onCreate={setEditingCommentRichContentEditor}
-                onUpdate={(isEmpty) => {
-                    if (editingCommentRichContentEditor && editingComment) {
-                        setEditingComment({
-                            ...editingComment,
-                            rich_content: editingCommentRichContentEditor.getJSON(),
-                        })
-                        onEditingCommentRichContentEditorUpdate(isEmpty)
-                    }
-                }}
+                onUpdate={syncEditingCommentDraft}
                 onPressCmdEnter={persistEditedComment}
                 disabled={isSavingEditedComment}
             />
@@ -347,7 +334,9 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                                 <CommentEditingForm comment={comment} />
                             ) : (
                                 <div className={clsx(comment.completed_at && 'line-through text-secondary')}>
-                                    <LemonMarkdown lowKeyHeadings>{text}</LemonMarkdown>
+                                    <LemonMarkdown lowKeyHeadings disableImages>
+                                        {text}
+                                    </LemonMarkdown>
                                 </div>
                             )}
                         </div>
