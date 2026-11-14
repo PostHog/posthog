@@ -10,8 +10,8 @@ use axum::Json;
 use bytes::Bytes;
 use capture_logs::authorizer::Signal;
 use capture_logs::endpoints::prometheus::{
-    decode_write_request, estimate_expanded_bytes, write_timeseries_to_kafka_rows,
-    RemoteWriteEncoding,
+    decode_write_request, estimate_expanded_bytes, write_timeseries_to_kafka_rows_with_options,
+    RemoteWriteEncoding, RemoteWriteOptions,
 };
 use metrics::counter;
 use serde::Deserialize;
@@ -144,8 +144,13 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
-    let (mut rows, timestamps_overridden) =
-        write_timeseries_to_kafka_rows(write_request.timeseries, &write_request.metadata);
+    let (mut rows, timestamps_overridden) = write_timeseries_to_kafka_rows_with_options(
+        write_request.timeseries,
+        &write_request.metadata,
+        RemoteWriteOptions {
+            keep_stale_markers: service.keep_stale_markers,
+        },
+    );
     // Before the histogram fold, so folded histograms carry the attributes and
     // fingerprint them.
     service.k8s_resource_attributes.apply(&token, &mut rows);

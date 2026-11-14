@@ -21,6 +21,8 @@ export interface FakeRuntimeOptions {
     env?: Env
     platform?: NodeJS.Platform
     stdoutIsTTY?: boolean
+    // Defaults to `stdoutIsTTY`.
+    stdinIsTTY?: boolean
     columns?: number
     cwd?: string
     files?: Record<string, string>
@@ -42,6 +44,7 @@ export interface FakeRuntimeOptions {
         headers: Headers
     ) => { status: number; body: unknown; headers?: Record<string, string> }
     telemetryToken?: string
+    sendTelemetryInBackground?: (body: string) => Promise<boolean>
     // The MCP tool catalog `hog api` loads, or a function that builds it from the catalog hog downloaded.
     // Without it, loading the catalog fails the test.
     apiTools?: ApiToolLibrary | ((options: ApiToolLibraryOptions) => ApiToolLibrary)
@@ -166,7 +169,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         env: options.env ?? {},
         platform: options.platform ?? 'linux',
         isDevelopment: false,
-        stdinIsTTY: options.stdoutIsTTY ?? false,
+        stdinIsTTY: options.stdinIsTTY ?? options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,
         stdoutHasColors: options.stdoutIsTTY ?? false,
         stdoutColumns: options.columns,
@@ -261,6 +264,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         prompts: fakePrompts([...(options.answers ?? [])]),
         secrets: memorySecrets(keychain),
         telemetryToken: options.telemetryToken,
+        sendTelemetryInBackground: options.sendTelemetryInBackground,
         skipTlsVerification: () => {
             tls.verify = false
         },
