@@ -3,6 +3,7 @@ import { isRecord } from '@/lib/records'
 import {
     type LiveActivity,
     type LiveBreakdown,
+    type LiveBreakdownDataKind,
     type LiveBreakdownKind,
     type LiveBreakdownRow,
     type LiveEventKind,
@@ -50,25 +51,36 @@ export function liveMinuteStarts(now: number): number[] {
     return Array.from({ length: LIVE_MINUTES }, (_, index) => current - (LIVE_MINUTES - 1 - index) * MINUTE_MS)
 }
 
-/** Chart rows are [epoch milliseconds, visitors, first-time-in-window visitors, pageviews]. */
+/** Chart rows are [epoch milliseconds, visitors, first-time-in-window visitors, pageviews, screenviews]. */
 export function liveActivity(response: unknown, now: number): LiveActivity {
     const byMinute = new Map(rowsOf(response).map((row) => [numberOf(row[0]), row]))
     let uniqueVisitors = 0
     let pageviews = 0
+    let screenviews = 0
     const minutes = liveMinuteStarts(now).map((at): LiveMinute => {
-        const [, userCount, newCount, pageviewCount] = byMinute.get(at) ?? []
+        const [, userCount, newCount, pageviewCount, screenviewCount] = byMinute.get(at) ?? []
         const users = numberOf(userCount)
         const newUsers = numberOf(newCount)
         const views = numberOf(pageviewCount)
+        const screens = numberOf(screenviewCount)
+        screenviews += screens
         uniqueVisitors += newUsers
         pageviews += views
-        return { at, users, newUsers, returningUsers: users - newUsers, pageviews: views }
+        return { at, users, newUsers, returningUsers: users - newUsers, pageviews: views, screenviews: screens }
     })
-    return { minutes, uniqueVisitors, pageviews }
+    return { minutes, uniqueVisitors, pageviews, screenviews }
 }
 
 export function livePathCounts(response: unknown): Map<string, number> {
     const counts = new Map<string, number>()
+    const hogqlRows = rowsOf(response)
+    if (hogqlRows.length > 0) {
+        for (const row of hogqlRows) {
+            const name = textOf(row[0])
+            if (name) counts.set(name, numberOf(row[1]))
+        }
+        return counts
+    }
     const results = isRecord(response) ? (response as LivePathsResponseApi).results : undefined
     for (const result of Array.isArray(results) ? results : []) {
         const path = textOf(result?.breakdown_value)
@@ -122,10 +134,11 @@ export function liveRankedRows(
         })
 }
 
-const STAT_LABELS: Record<LiveBreakdownKind, string> = {
+const STAT_LABELS: Record<LiveBreakdownDataKind, string> = {
     devices: 'unique devices',
     browsers: 'unique browsers',
     countries: 'unique visitors',
+    platforms: 'unique users',
 }
 
 interface Counted {
@@ -154,7 +167,7 @@ function countryRow({ key, count }: Counted, total: number): LiveBreakdownRow {
 }
 
 /** Browsers and countries keep their top six and add the rest up as "Other", which always comes last. */
-export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveBreakdown {
+export function liveBreakdown(response: unknown, kind: LiveBreakdownDataKind): LiveBreakdown {
     const counted = breakdownCounts(response)
     const total = counted.reduce((sum, entry) => sum + entry.count, 0)
     const limited =
@@ -248,9 +261,8 @@ export function livePathsMode(activity: LiveActivity | null): LivePathsMode {
 }
 
 /**
- * What the project sends, from the project read and the last snapshot. The window is quiet only when every part has
- * answered with nothing, so a read that is still missing parts keeps the usual cards. App only needs screens, listed or
- * in the events, because a web project can send server-side events and no pageviews for a while.
+ * Mobile and mixed profiles keep their daily and weekly metrics visible when the live window is empty.
+ * Without that profile evidence, screen events distinguish an app from a temporarily quiet website.
  */
 export function liveProjectState(
     snapshot: LiveSnapshot,
@@ -258,6 +270,12 @@ export function liveProjectState(
 ): LiveProjectState {
     if (project?.ingestedEvent === false) {
         return 'not_set_up'
+    }
+    if (snapshot.profile?.kind === 'mobile') {
+        return 'app_only'
+    }
+    if (snapshot.profile?.kind === 'mixed') {
+        return 'web'
     }
     const { activity, events, topPages } = snapshot
     if (!activity) {
