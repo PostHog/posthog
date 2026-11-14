@@ -7123,6 +7123,59 @@ export namespace Schemas {
       snippet: string | null;
     }
 
+    /**
+     * * `owned` - Owned
+     * * `watched` - Watched
+     */
+    export type SummaryObjectRelationEnum = typeof SummaryObjectRelationEnum[keyof typeof SummaryObjectRelationEnum];
+
+
+    export const SummaryObjectRelationEnum = {
+      Owned: 'owned',
+      Watched: 'watched',
+    } as const;
+
+    export interface ActivitySummarySearchObject {
+      /** `owned` when the member changed the object, `watched` when they opened it on many days.
+       *
+       * * `owned` - Owned
+       * * `watched` - Watched */
+      relation: SummaryObjectRelationEnum;
+      /** The object type, such as `insight` or `dashboard`. */
+      type: string;
+      /** The short id for an insight, a notebook or a replay playlist, else the primary key. */
+      id: string;
+      /** The object name. */
+      name: string;
+      /**
+         * Days the member changed the object. Set on an owned object only.
+         * @nullable
+         */
+      edit_days: number | null;
+      /**
+         * Days the member opened the object. Set on a watched object only.
+         * @nullable
+         */
+      open_days: number | null;
+      /**
+         * The last day of the change or the view, as YYYY-MM-DD.
+         * @nullable
+         */
+      last_at: string | null;
+      /**
+         * True when someone else created the watched object. Null on an owned object.
+         * @nullable
+         */
+      not_theirs: boolean | null;
+    }
+
+    export interface ActivitySummarySearchProducts {
+      /** Products the member changed something in, the most active first. */
+      works_in: ActivitySummaryProductEnum[];
+      /** Products the member only opened, the most opened first. */
+      visits: ActivitySummaryProductEnum[];
+    }
+
     export interface ActivitySummarySearchHit {
       /** The member. Use it in `suggested_reviewers`. */
       user_uuid: string;
@@ -7142,6 +7195,8 @@ export namespace Schemas {
       score: number | null;
       /** Why this member matched. */
       matched_on: ActivitySummarySearchMatch[];
+      /** The member's owned and watched objects that matched the object filter, or whose name matched a query term. */
+      objects: ActivitySummarySearchObject[];
       /**
          * One or two sentences about what the member works on in this project.
          * @nullable
@@ -7151,6 +7206,8 @@ export namespace Schemas {
       themes: ActivitySummaryTheme[];
       /** How the member works in this project overall, the main mode first. */
       modes: ActivitySummaryModeEnum[];
+      /** The products the member works in or visits. */
+      products: ActivitySummarySearchProducts;
       /**
          * When this summary was written.
          * @nullable
@@ -7168,6 +7225,8 @@ export namespace Schemas {
     export interface ActivitySummarySearchResult {
       /** The matching members, best match first. */
       results: ActivitySummarySearchHit[];
+      /** All the members that matched, before `offset` and `limit`. */
+      total: number;
       /** False when the search used keywords only: a `keyword` search, a request with no query, or a `hybrid` search whose vector search failed. */
       semantic_used: boolean;
       /** Members with access to the project and no summary yet. The search cannot find them. */
@@ -144079,6 +144138,12 @@ export namespace Schemas {
 
     export type SignalsActivitySummaryMembersSearchParams = {
     /**
+     * Only members with a theme or an object seen in this many days.
+     * @minimum 1
+     * @maximum 365
+     */
+    active_since_days?: number;
+    /**
      * Members to leave out, such as people you already checked.
      */
     exclude_user_uuids?: string[];
@@ -144092,6 +144157,45 @@ export namespace Schemas {
      * @maximum 25
      */
     limit?: number;
+    /**
+     * Only members who work in this mode, overall or on one of their themes.
+     *
+     * * `building` - Building
+     * * `analyzing` - Analyzing
+     * * `monitoring` - Monitoring
+     * * `investigating` - Investigating
+     * * `operating` - Operating
+     * * `experimenting` - Experimenting
+     * @minLength 1
+     */
+    mode?: SignalsActivitySummaryMembersSearchMode;
+    /**
+     * Only members who changed or often open this object. Requires `object_type`. Use the short id for an insight, a notebook or a replay playlist (the id in its URL, such as `aBc123Xy`), and the numeric or UUID primary key for every other type.
+     * @minLength 1
+     * @maxLength 64
+     */
+    object_id?: string;
+    /**
+     * With `object_type` or `object_id`: `owned` matches members who changed the object, `watched` members who opened it on many days, and `any` both.
+     *
+     * * `any` - Any
+     * * `owned` - Owned
+     * * `watched` - Watched
+     * @minLength 1
+     */
+    object_relation?: SignalsActivitySummaryMembersSearchObjectRelation;
+    /**
+     * Only members who changed or often open an object of this type, such as `insight`, `dashboard`, `feature_flag`, `experiment`, `notebook` or `hog_function`. Combine with `object_id` for one object.
+     * @minLength 1
+     * @maxLength 64
+     */
+    object_type?: string;
+    /**
+     * The number of results to skip, for the next page. Compare with `total`.
+     * @minimum 0
+     * @maximum 500
+     */
+    offset?: number;
     /**
      * Only members who work in or visit this product.
      *
@@ -144140,7 +144244,33 @@ export namespace Schemas {
      * @minLength 1
      */
     search_mode?: SignalsActivitySummaryMembersSearchSearchMode;
+    /**
+     * Only these members. With no query, this reads their summaries directly.
+     * @maxItems 25
+     */
+    user_uuids?: string[];
     };
+
+    export type SignalsActivitySummaryMembersSearchMode = typeof SignalsActivitySummaryMembersSearchMode[keyof typeof SignalsActivitySummaryMembersSearchMode];
+
+
+    export const SignalsActivitySummaryMembersSearchMode = {
+      Building: 'building',
+      Analyzing: 'analyzing',
+      Monitoring: 'monitoring',
+      Investigating: 'investigating',
+      Operating: 'operating',
+      Experimenting: 'experimenting',
+    } as const;
+
+    export type SignalsActivitySummaryMembersSearchObjectRelation = typeof SignalsActivitySummaryMembersSearchObjectRelation[keyof typeof SignalsActivitySummaryMembersSearchObjectRelation];
+
+
+    export const SignalsActivitySummaryMembersSearchObjectRelation = {
+      Any: 'any',
+      Owned: 'owned',
+      Watched: 'watched',
+    } as const;
 
     export type SignalsActivitySummaryMembersSearchProduct = typeof SignalsActivitySummaryMembersSearchProduct[keyof typeof SignalsActivitySummaryMembersSearchProduct];
 

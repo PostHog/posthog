@@ -57,15 +57,33 @@ export const SignalsActivitySummaryMembersSearchParams = () => zod.object({
         ),
 })
 
+export const signalsActivitySummaryMembersSearchQueryActiveSinceDaysMax = 365
+
 export const signalsActivitySummaryMembersSearchQueryIncludeProfileDefault = false
 export const signalsActivitySummaryMembersSearchQueryLimitDefault = 10
 export const signalsActivitySummaryMembersSearchQueryLimitMax = 25
 
+export const signalsActivitySummaryMembersSearchQueryObjectIdMax = 64
+
+export const signalsActivitySummaryMembersSearchQueryObjectRelationDefault = `any`
+export const signalsActivitySummaryMembersSearchQueryObjectTypeMax = 64
+
+export const signalsActivitySummaryMembersSearchQueryOffsetDefault = 0
+export const signalsActivitySummaryMembersSearchQueryOffsetMin = 0
+export const signalsActivitySummaryMembersSearchQueryOffsetMax = 500
+
 export const signalsActivitySummaryMembersSearchQueryQueryMax = 500
 
 export const signalsActivitySummaryMembersSearchQuerySearchModeDefault = `hybrid`
+export const signalsActivitySummaryMembersSearchQueryUserUuidsMax = 25
 
 export const SignalsActivitySummaryMembersSearchQueryParams = () => zod.object({
+    active_since_days: zod
+        .number()
+        .min(1)
+        .max(signalsActivitySummaryMembersSearchQueryActiveSinceDaysMax)
+        .optional()
+        .describe('Only members with a theme or an object seen in this many days.'),
     exclude_user_uuids: zod
         .array(zod.string())
         .optional()
@@ -80,6 +98,40 @@ export const SignalsActivitySummaryMembersSearchQueryParams = () => zod.object({
         .max(signalsActivitySummaryMembersSearchQueryLimitMax)
         .default(signalsActivitySummaryMembersSearchQueryLimitDefault)
         .describe('The most results to return, best match first.'),
+    mode: zod
+        .enum(['building', 'analyzing', 'monitoring', 'investigating', 'operating', 'experimenting'])
+        .optional()
+        .describe(
+            'Only members who work in this mode, overall or on one of their themes.\n\n\* `building` - Building\n\* `analyzing` - Analyzing\n\* `monitoring` - Monitoring\n\* `investigating` - Investigating\n\* `operating` - Operating\n\* `experimenting` - Experimenting'
+        ),
+    object_id: zod
+        .string()
+        .min(1)
+        .max(signalsActivitySummaryMembersSearchQueryObjectIdMax)
+        .optional()
+        .describe(
+            'Only members who changed or often open this object. Requires `object_type`. Use the short id for an insight, a notebook or a replay playlist (the id in its URL, such as `aBc123Xy`), and the numeric or UUID primary key for every other type.'
+        ),
+    object_relation: zod
+        .enum(['any', 'owned', 'watched'])
+        .default(signalsActivitySummaryMembersSearchQueryObjectRelationDefault)
+        .describe(
+            'With `object_type` or `object_id`: `owned` matches members who changed the object, `watched` members who opened it on many days, and `any` both.\n\n\* `any` - Any\n\* `owned` - Owned\n\* `watched` - Watched'
+        ),
+    object_type: zod
+        .string()
+        .min(1)
+        .max(signalsActivitySummaryMembersSearchQueryObjectTypeMax)
+        .optional()
+        .describe(
+            'Only members who changed or often open an object of this type, such as `insight`, `dashboard`, `feature_flag`, `experiment`, `notebook` or `hog_function`. Combine with `object_id` for one object.'
+        ),
+    offset: zod
+        .number()
+        .min(signalsActivitySummaryMembersSearchQueryOffsetMin)
+        .max(signalsActivitySummaryMembersSearchQueryOffsetMax)
+        .default(signalsActivitySummaryMembersSearchQueryOffsetDefault)
+        .describe('The number of results to skip, for the next page. Compare with `total`.'),
     product: zod
         .enum([
             'product_analytics',
@@ -128,6 +180,11 @@ export const SignalsActivitySummaryMembersSearchQueryParams = () => zod.object({
         .describe(
             '`hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the vector search fails. `keyword` matches query terms in the profile, the headline, the theme labels and the names of owned and watched objects.\n\n\* `hybrid` - Hybrid\n\* `semantic` - Semantic\n\* `keyword` - Keyword'
         ),
+    user_uuids: zod
+        .array(zod.string())
+        .max(signalsActivitySummaryMembersSearchQueryUserUuidsMax)
+        .optional()
+        .describe('Only these members. With no query, this reads their summaries directly.'),
 })
 
 /**

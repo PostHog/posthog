@@ -27,9 +27,14 @@ from posthog.permissions import APIScopePermission, is_service_auth
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.facade.api import (
     ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT,
+    ACTIVITY_SUMMARY_SEARCH_MAX_ACTIVE_SINCE_DAYS,
     ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT,
+    ACTIVITY_SUMMARY_SEARCH_MAX_OFFSET,
     ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT,
     ActivitySummaryMode,
+    ActivitySummaryObjectFilter,
+    ActivitySummaryObjectRelation,
+    ActivitySummaryObjectSource,
     ActivitySummaryProductKey,
     ActivitySummaryStatus,
     MatchKind,
@@ -307,10 +312,47 @@ class ActivitySummarySearchQuerySerializer(serializers.Serializer):
         "returns 503 when the vector search fails. `keyword` matches query terms in the profile, the headline, "
         "the theme labels and the names of owned and watched objects.",
     )
+    object_type = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Only members who changed or often open an object of this type, such as `insight`, `dashboard`, "
+        "`feature_flag`, `experiment`, `notebook` or `hog_function`. Combine with `object_id` for one object.",
+    )
+    object_id = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Only members who changed or often open this object. Requires `object_type`. Use the short id "
+        "for an insight, a notebook or a replay playlist (the id in its URL, such as `aBc123Xy`), and the numeric "
+        "or UUID primary key for every other type.",
+    )
+    object_relation = serializers.ChoiceField(
+        choices=ActivitySummaryObjectRelation.choices,
+        default=ActivitySummaryObjectRelation.ANY,
+        help_text="With `object_type` or `object_id`: `owned` matches members who changed the object, `watched` "
+        "members who opened it on many days, and `any` both.",
+    )
     product = serializers.ChoiceField(
         choices=ActivitySummaryProduct.choices,
         required=False,
         help_text="Only members who work in or visit this product.",
+    )
+    mode = serializers.ChoiceField(
+        choices=ActivitySummaryMode.choices,
+        required=False,
+        help_text="Only members who work in this mode, overall or on one of their themes.",
+    )
+    active_since_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=ACTIVITY_SUMMARY_SEARCH_MAX_ACTIVE_SINCE_DAYS,
+        help_text="Only members with a theme or an object seen in this many days.",
+    )
+    user_uuids = JSONTolerantListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT,
+        help_text="Only these members. With no query, this reads their summaries directly.",
     )
     exclude_user_uuids = JSONTolerantListField(
         child=serializers.UUIDField(),
@@ -328,6 +370,17 @@ class ActivitySummarySearchQuerySerializer(serializers.Serializer):
         default=ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT,
         help_text="The most results to return, best match first.",
     )
+    offset = serializers.IntegerField(
+        min_value=0,
+        max_value=ACTIVITY_SUMMARY_SEARCH_MAX_OFFSET,
+        default=0,
+        help_text="The number of results to skip, for the next page. Compare with `total`.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("object_id") and not attrs.get("object_type"):
+            raise serializers.ValidationError({"object_id": "Set `object_type` too, because ids repeat across types."})
+        return attrs
 
 
 class ActivitySummarySearchMatchSerializer(serializers.Serializer):
@@ -337,6 +390,40 @@ class ActivitySummarySearchMatchSerializer(serializers.Serializer):
     )
     snippet = serializers.CharField(
         allow_null=True, help_text="A short excerpt around the first keyword match. Null for a semantic match."
+    )
+
+
+class ActivitySummarySearchObjectSerializer(serializers.Serializer):
+    relation = serializers.ChoiceField(
+        choices=ActivitySummaryObjectSource.choices,
+        help_text="`owned` when the member changed the object, `watched` when they opened it on many days.",
+    )
+    type = serializers.CharField(help_text="The object type, such as `insight` or `dashboard`.")
+    id = serializers.CharField(
+        help_text="The short id for an insight, a notebook or a replay playlist, else the primary key."
+    )
+    name = serializers.CharField(help_text="The object name.")
+    edit_days = serializers.IntegerField(
+        allow_null=True, help_text="Days the member changed the object. Set on an owned object only."
+    )
+    open_days = serializers.IntegerField(
+        allow_null=True, help_text="Days the member opened the object. Set on a watched object only."
+    )
+    last_at = serializers.CharField(allow_null=True, help_text="The last day of the change or the view, as YYYY-MM-DD.")
+    not_theirs = serializers.BooleanField(
+        allow_null=True,
+        help_text="True when someone else created the watched object. Null on an owned object.",
+    )
+
+
+class ActivitySummarySearchProductsSerializer(serializers.Serializer):
+    works_in = serializers.ListField(
+        child=serializers.ChoiceField(choices=ActivitySummaryProduct.choices),
+        help_text="Products the member changed something in, the most active first.",
+    )
+    visits = serializers.ListField(
+        child=serializers.ChoiceField(choices=ActivitySummaryProduct.choices),
+        help_text="Products the member only opened, the most opened first.",
     )
 
 
@@ -352,6 +439,11 @@ class ActivitySummarySearchHitSerializer(serializers.Serializer):
         help_text="The reciprocal rank fusion score. Higher is a better match. Null when the request had no query.",
     )
     matched_on = ActivitySummarySearchMatchSerializer(many=True, help_text="Why this member matched.")
+    objects = ActivitySummarySearchObjectSerializer(
+        many=True,
+        help_text="The member's owned and watched objects that matched the object filter, or whose name matched "
+        "a query term.",
+    )
     headline = serializers.CharField(
         allow_null=True, help_text="One or two sentences about what the member works on in this project."
     )
@@ -360,6 +452,7 @@ class ActivitySummarySearchHitSerializer(serializers.Serializer):
         child=serializers.ChoiceField(choices=ActivitySummaryMode.choices),
         help_text="How the member works in this project overall, the main mode first.",
     )
+    products = ActivitySummarySearchProductsSerializer(help_text="The products the member works in or visits.")
     generated_at = serializers.DateTimeField(allow_null=True, help_text="When this summary was written.")
     stale = serializers.BooleanField(help_text="True when a newer version will replace this summary soon.")
     profile = serializers.CharField(
@@ -369,6 +462,7 @@ class ActivitySummarySearchHitSerializer(serializers.Serializer):
 
 class ActivitySummarySearchResultSerializer(serializers.Serializer):
     results = ActivitySummarySearchHitSerializer(many=True, help_text="The matching members, best match first.")
+    total = serializers.IntegerField(help_text="All the members that matched, before `offset` and `limit`.")
     semantic_used = serializers.BooleanField(
         help_text="False when the search used keywords only: a `keyword` search, a request with no query, or a "
         "`hybrid` search whose vector search failed."
@@ -410,22 +504,38 @@ class ActivitySummaryMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     def search(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         query = request.validated_query_data
         team = self.team
+        has_object = query.get("object_type") is not None
         properties = {
             "search_mode": query["search_mode"],
             "has_query": bool((query.get("query") or "").strip()),
+            "has_object": has_object,
+            "object_relation": query["object_relation"] if has_object else None,
             "has_product": query.get("product") is not None,
+            "has_mode": query.get("mode") is not None,
+            "active_since_days": query.get("active_since_days"),
+            "user_count": len(query["user_uuids"]),
             "excluded_count": len(query["exclude_user_uuids"]),
             "include_profile": query["include_profile"],
+            "offset": query["offset"],
         }
         try:
             result = signals_facade.search_activity_summaries(
                 team=team,
                 query=query.get("query"),
                 search_mode=query["search_mode"],
+                object_filter=ActivitySummaryObjectFilter(
+                    type=query.get("object_type"), id=query.get("object_id"), relation=query["object_relation"]
+                )
+                if has_object
+                else None,
                 product=query.get("product"),
+                mode=query.get("mode"),
+                active_since_days=query.get("active_since_days"),
+                user_uuids=[str(value) for value in query["user_uuids"]],
                 exclude_user_uuids=[str(value) for value in query["exclude_user_uuids"]],
                 include_profile=query["include_profile"],
                 limit=query["limit"],
+                offset=query["offset"],
             )
         except SemanticSearchUnavailable:
             self._capture(request, team, "semantic_unavailable", **properties)
@@ -439,6 +549,8 @@ class ActivitySummaryMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             ActivitySummaryStatus.READY,
             **properties,
             count=len(result.results),
+            total=result.total,
+            profile_count=sum(1 for hit in result.results if hit.profile is not None),
             semantic_used=result.semantic_used,
             not_ready_count=result.not_ready_count,
         )

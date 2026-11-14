@@ -4,19 +4,30 @@ import dataclasses
 from typing import Any
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.api.embedding_worker import EmbeddingResponse
-from posthog.models import Organization, User
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Organization, Team, User
 
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig
-from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
+from products.signals.backend.activity_summary.prompt import (
+    EMBEDDING_DOCUMENT_TYPE,
+    EMBEDDING_RENDERING,
+    EMBEDDING_RENDERING_PROFILE,
+    PROMPT_VERSION,
+)
 from products.signals.backend.activity_summary.render import RENDER_VERSION
-from products.signals.backend.activity_summary.search import member_activities
+from products.signals.backend.activity_summary.search import EMBEDDINGS_TABLE, member_activities, search_summaries
+from products.signals.backend.hybrid_search import SearchMode
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
+from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
+from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout
 
 NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
@@ -265,14 +276,23 @@ class TestActivitySummarySearchAPI(APIBaseTest):
         self.reader = User.objects.create_and_join(self.organization, "reader@example.com", None, first_name="Reader")
         _authenticate_as_scout(self)
 
-    def _summary(self, user: User, headline: str, watched: str = "") -> None:
+    def _summary(
+        self,
+        user: User,
+        headline: str,
+        watched: str = "",
+        *,
+        summary: dict[str, Any] | None = None,
+        computed: dict[str, Any] | None = None,
+        generated_at: datetime.datetime = NOW,
+    ) -> None:
         UserActivitySummary.objects.for_team(self.team.id).create(
             team=self.team,
             user=user,
             status=UserActivitySummary.Status.OK,
-            summary={**SUMMARY, "headline": headline, "profile": f"## Work\n- {headline}"},
+            summary={**SUMMARY, "headline": headline, "profile": f"## Work\n- {headline}", **(summary or {})},
             summary_text=headline,
-            generated_at=NOW,
+            generated_at=generated_at,
             prompt_version=PROMPT_VERSION,
             render_version=RENDER_VERSION,
             version=1,
@@ -291,6 +311,7 @@ class TestActivitySummarySearchAPI(APIBaseTest):
                 ]
                 if watched
                 else [],
+                **(computed or {}),
             },
         )
 
@@ -355,6 +376,92 @@ class TestActivitySummarySearchAPI(APIBaseTest):
         assert response.status_code == 200, response.content
         assert [hit["user_uuid"] for hit in response.json()["results"]] == [str(self.reader.uuid)]
 
+    @parameterized.expand(
+        [
+            ("watched_object", {"object_type": "dashboard", "object_id": "7"}, [("reader", "watched", "7")]),
+            ("watched_object_as_owner", {"object_type": "dashboard", "object_id": "7", "object_relation": "owned"}, []),
+            (
+                "owned_insight_by_short_id",
+                {"object_type": "insight", "object_id": "aBc123Xy"},
+                [("user", "owned", "aBc123Xy")],
+            ),
+            (
+                "file_system_type_suffix",
+                {"object_type": "hog_function", "object_id": "3"},
+                [("reader", "watched", "3")],
+            ),
+        ]
+    )
+    def test_object_filter_finds_people_who_change_or_open_an_object(
+        self, _name: str, params: dict[str, str], expected: list[tuple[str, str, str]]
+    ) -> None:
+        owned = {"ref": "o1", "type": "insight", "id": "aBc123Xy", "name": "Signup funnel", "edit_days": 2}
+        self._summary(self.user, "Builds the signup funnel.", computed={"owned": [owned]})
+        watched = {"ref": "o22", "name": "Slack alerts", "open_days": 4, "last_at": "2026-10-18", "not_theirs": True}
+        self._summary(
+            self.reader,
+            "Plans the roadmap.",
+            computed={
+                "owned": [],
+                "watched": [
+                    {**watched, "type": "dashboard", "id": "7", "name": "Onboarding drop-off"},
+                    {**watched, "type": "hog_function/destination", "id": "3"},
+                ],
+            },
+        )
+        users = {"user": self.user, "reader": self.reader}
+
+        response = self._search(**params)
+
+        assert response.status_code == 200, response.content
+        assert [
+            (hit["user_uuid"], [(obj["relation"], obj["id"]) for obj in hit["objects"]])
+            for hit in response.json()["results"]
+        ] == [(str(users[who].uuid), [(relation, object_id)]) for who, relation, object_id in expected]
+
+    @parameterized.expand(
+        [
+            ("overall_mode", {"mode": "monitoring"}, ["reader"], 1),
+            ("theme_mode", {"mode": "investigating"}, ["reader"], 1),
+            ("recent_activity", {"active_since_days": 7}, ["user"], 1),
+            ("listed_members", {"user_uuids": "reader"}, ["reader"], 1),
+            ("filters_combine_with_and", {"product": "product_analytics", "mode": "monitoring"}, [], 0),
+            ("second_page", {"offset": 1, "limit": 1}, ["reader"], 2),
+        ]
+    )
+    def test_filters_narrow_the_members_listed(
+        self, _name: str, params: dict[str, Any], expected: list[str], total: int
+    ) -> None:
+        self._summary(self.user, "Builds the signup funnel.")
+        self._summary(
+            self.reader,
+            "Watches retention.",
+            summary={
+                "modes": ["monitoring"],
+                "themes": [
+                    {
+                        "label": "Retention",
+                        "mode": "investigating",
+                        "strength": "high",
+                        "refs": [],
+                        "last_seen": "2026-08-01",
+                    }
+                ],
+            },
+            computed={"owned": [], "products": {"works_in": ["session_replay"], "visits": []}},
+            generated_at=NOW - datetime.timedelta(days=1),
+        )
+        users = {"user": self.user, "reader": self.reader}
+        if "user_uuids" in params:
+            params = {**params, "user_uuids": [str(users[params["user_uuids"]].uuid)]}
+
+        response = self._search(**params)
+
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert [hit["user_uuid"] for hit in body["results"]] == [str(users[who].uuid) for who in expected]
+        assert body["total"] == total
+
     @parameterized.expand([("flag_off", True), ("not_enrolled", False)])
     def test_returns_404_when_search_is_off(self, _name: str, flag_off: bool) -> None:
         if flag_off:
@@ -418,3 +525,101 @@ class TestActivitySummarySearchAPI(APIBaseTest):
         assert str(self.reader.uuid) in {row["user_uuid"] for row in rows}
         assert all(row["activity"] is None for row in rows)
         assert read.called is reads_activity
+
+
+class TestActivitySummarySemanticRanking(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        config = ActivitySummaryConfig(enabled=True, organization_ids=(str(self.organization.id),))
+        query = [1.0, *([0.0] * (EMBEDDING_DIMENSIONS - 1))]
+        for target, kwargs in (
+            ("products.signals.backend.activity_summary.read.read_config", {"return_value": config}),
+            (f"{SEARCH}.feature_enabled_or_false", {"return_value": True}),
+            ("posthog.api.embedding_worker.generate_embedding", {"return_value": EmbeddingResponse(query, 1, False)}),
+        ):
+            patch(target, **kwargs).start()
+        self.addCleanup(patch.stopall)
+
+    def _member(self, email: str) -> User:
+        user = User.objects.create_and_join(self.organization, email, None)
+        UserActivitySummary.objects.for_team(self.team.id).create(
+            team=self.team,
+            user=user,
+            status=UserActivitySummary.Status.OK,
+            summary={**SUMMARY, "headline": email},
+            summary_text=email,
+            generated_at=timezone.now(),
+            prompt_version=PROMPT_VERSION,
+            render_version=RENDER_VERSION,
+            version=1,
+            computed=COMPUTED,
+        )
+        return user
+
+    def _vectors(self, rows: list[tuple[int, User, str, int, tuple[float, float]]]) -> None:
+        # The table drops rows three months after `timestamp` on the real clock, so the days are relative to now.
+        now = timezone.now()
+        values = []
+        for team_id, user, rendering, days_ago, (x, y) in rows:
+            at = now - datetime.timedelta(days=days_ago)
+            embedding = [x, y, *([0.0] * (EMBEDDING_DIMENSIONS - 2))]
+            document_id = f"{user.id}:{at.date().isoformat()}"
+            values.append(
+                (
+                    team_id,
+                    EMBEDDING_PRODUCT,
+                    EMBEDDING_DOCUMENT_TYPE,
+                    rendering,
+                    document_id,
+                    at,
+                    at,
+                    "",
+                    "{}",
+                    embedding,
+                    at,
+                    0,
+                    0,
+                )
+            )
+        sync_execute(
+            f"""
+            INSERT INTO {EMBEDDINGS_TABLE} (
+                team_id, product, document_type, rendering, document_id,
+                timestamp, inserted_at, content, metadata, embedding,
+                _timestamp, _offset, _partition
+            ) VALUES
+            """,
+            values,
+            flush=False,
+            team_id=self.team.pk,
+        )
+
+    def test_ranks_each_member_by_the_best_vector_of_their_newest_build(self) -> None:
+        near, middle, far, farther = (1.0, 0.05), (1.0, 1.0), (0.2, 1.0), (0.0, 1.0)
+        other_team = Team.objects.create(organization=self.organization)
+        with_profile = self._member("profile@example.com")
+        text_only = self._member("text@example.com")
+        moved_on = self._member("moved@example.com")
+        self._vectors(
+            [
+                (self.team.pk, with_profile, EMBEDDING_RENDERING, 1, far),
+                (self.team.pk, with_profile, EMBEDDING_RENDERING_PROFILE, 1, near),
+                (self.team.pk, text_only, EMBEDDING_RENDERING, 1, middle),
+                (self.team.pk, moved_on, EMBEDDING_RENDERING, 3, near),
+                (self.team.pk, moved_on, EMBEDDING_RENDERING_PROFILE, 3, near),
+                (self.team.pk, moved_on, EMBEDDING_RENDERING, 1, farther),
+                (other_team.pk, moved_on, EMBEDDING_RENDERING, 0, near),
+            ]
+        )
+
+        result = search_summaries(self.team, query="onboarding", search_mode=SearchMode.SEMANTIC)
+
+        assert result is not None
+        assert result.semantic_used is True
+        assert [hit.user_uuid for hit in result.results] == [
+            str(with_profile.uuid),
+            str(text_only.uuid),
+            str(moved_on.uuid),
+        ]
