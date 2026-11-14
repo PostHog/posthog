@@ -50,7 +50,9 @@ from products.batch_exports.backend.facade.contracts import InvalidBatchExportFi
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.filters import DATA_WAREHOUSE_SOURCES
 from products.cdp.backend.internal_events import (
+    INTERNAL_EVENT_READ_SCOPES,
     generic_api_editable_alert_scope,
+    internal_event_read_scope,
     is_managed_alert_internal_event,
     is_reserved_internal_event,
 )
@@ -197,6 +199,15 @@ def mask_config_secrets(content: dict) -> dict:
 
 
 REVISION_READ_ACTIONS = ("revisions", "revision_detail")
+# Actions that replay or show the payloads a destination handled in the past, under any earlier config.
+PAYLOAD_HISTORY_ACTIONS = frozenset({"rerun", "logs"})
+
+
+def _event_ids(filters: Any) -> set[str]:
+    events = filters.get("events") if isinstance(filters, dict) else None
+    if not isinstance(events, list):
+        return set()
+    return {event["id"] for event in events if isinstance(event, dict) and isinstance(event.get("id"), str)}
 
 
 def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
@@ -1203,6 +1214,50 @@ class HogFunctionViewSet(
             self._cached_editable_alert_scope = next(iter(scopes), None) if len(scopes) == 1 else None
         return self._cached_editable_alert_scope
 
+    def _internal_event_read_scopes(self, request: Request) -> list[str]:
+        """Scope objects of the product data this request lets the destination send or show."""
+        if self.action not in self.scope_object_write_actions and self.action not in PAYLOAD_HISTORY_ACTIONS:
+            return []
+        if not hasattr(self, "_cached_internal_event_read_scopes"):
+            hog_function_id = self.kwargs.get("pk")
+            event_ids = self._stored_event_ids(str(hog_function_id)) if hog_function_id else set()
+            data = getattr(request, "data", None)
+            event_ids |= _event_ids(data.get("filters") if isinstance(data, dict) else None)
+            scopes = {internal_event_read_scope(event_id) for event_id in event_ids}
+            self._cached_internal_event_read_scopes = sorted(scope for scope in scopes if scope)
+        return self._cached_internal_event_read_scopes
+
+    def _stored_event_ids(self, hog_function_id: str) -> set[str]:
+        """Events in the live config, plus the draft a publish promotes, the revision a restore copies,
+        or any revision for the actions that work on past payloads."""
+        try:
+            row = (
+                HogFunction.objects.filter(team_id=self.team_id, id=hog_function_id).values("filters", "draft").first()
+            )
+        except (ValueError, DjangoValidationError):
+            return set()
+        if row is None:
+            return set()
+        event_ids = _event_ids(row["filters"])
+        if self.action == "publish":
+            event_ids |= _event_ids((row["draft"] or {}).get("filters"))
+        if self.action != "restore_revision" and self.action not in PAYLOAD_HISTORY_ACTIONS:
+            return event_ids
+        revisions = HogFunctionRevision.objects.for_team(self.team_id).filter(hog_function_id=hog_function_id)
+        if self.action == "restore_revision":
+            version = self.kwargs.get("version")
+            content = (
+                revisions.filter(version=int(version)).values_list("content", flat=True).first() if version else None
+            )
+            event_ids |= _event_ids((content or {}).get("filters"))
+        else:
+            event_ids |= {
+                event_id
+                for event_id in INTERNAL_EVENT_READ_SCOPES
+                if revisions.filter(content__filters__events__contains=[{"id": event_id}]).exists()
+            }
+        return event_ids
+
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         alert_scope = self._editable_alert_scope()
@@ -1210,14 +1265,26 @@ class HogFunctionViewSet(
             cast(APIScopeObject, alert_scope), required_level="editor"
         ):
             raise PermissionDenied(f"Editing this alert destination requires {alert_scope} write access.")
+        for read_scope in self._internal_event_read_scopes(request):
+            if not self.user_access_control.check_access_level_for_resource(
+                cast(APIScopeObject, read_scope), required_level="viewer"
+            ):
+                raise PermissionDenied(
+                    f"This destination handles {read_scope} data, so it requires {read_scope} read access."
+                )
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
+        # Reading a deleted function's history needs write access, as an undelete does.
+        deleted_history_read = self.action in REVISION_READ_ACTIONS and self._target_is_deleted()
+        writes = self.action in self.scope_object_write_actions or deleted_history_read
+        required_scopes = ["hog_function:write" if writes else "hog_function:read"]
         # A managed alert destination is also gated by the owning product's write scope, so a
         # token that cannot configure the alert cannot redirect its notifications either.
-        required_scopes = ["hog_function:write"]
         alert_scope = self._editable_alert_scope()
         if alert_scope:
             required_scopes.append(f"{alert_scope}:write")
+        # A destination on an internal event that carries product data can send or show that data.
+        required_scopes += [f"{scope}:read" for scope in self._internal_event_read_scopes(request)]
         # Rerun re-executes stored invocations — it replays up to 30 days of
         # persisted event/person/group data through the current (possibly
         # reconfigured) function. A `hog_function:write`-only token could use
@@ -1227,8 +1294,7 @@ class HogFunctionViewSet(
         # (`hog_function:read` would be a no-op since :write already satisfies it.)
         if self.action == "rerun":
             required_scopes += ["person:read", "group:read"]
-        # Reading a deleted function's history needs write access, as an undelete does.
-        if self.action in REVISION_READ_ACTIONS and self._target_is_deleted():
+        if deleted_history_read:
             return required_scopes
         return required_scopes if len(required_scopes) > 1 else None
 

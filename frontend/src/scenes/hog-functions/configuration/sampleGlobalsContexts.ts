@@ -88,4 +88,30 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
             },
         },
     }),
+    // Placeholder ids, so a test delivery cannot be mistaken for a real report.
+    'signals-reports': async (exampleGlobals) => {
+        const reportId = '00000000-0000-0000-0000-000000000000'
+        const reportUrl = `${exampleGlobals.project.url}/inbox/reports/${reportId}`
+        return {
+            ...exampleGlobals,
+            event: {
+                ...exampleGlobals.event,
+                event: '$signals_report_ready',
+                distinct_id: reportId,
+                url: reportUrl,
+                properties: {
+                    report_id: reportId,
+                    report_url: reportUrl,
+                    title: 'Test Inbox report',
+                    priority: 'P2',
+                    actionability: 'immediately_actionable',
+                    source_products: ['error_tracking'],
+                    repo_slug: 'example-org/example-repo',
+                    suggested_reviewers: ['example-reviewer'],
+                    updated_at: new Date().toISOString(),
+                },
+            },
+            person: undefined,
+        }
+    },
 }

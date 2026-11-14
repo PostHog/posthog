@@ -36,6 +36,18 @@ def is_reserved_internal_event(event_name: object) -> bool:
     return isinstance(event_name, str) and event_name in RESERVED_INTERNAL_EVENTS
 
 
+# Internal events that carry a product's data, keyed to the scope object that guards reading it. A destination
+# on one can send that data out of PostHog, so working with it needs the same read access.
+INTERNAL_EVENT_READ_SCOPES: dict[str, str] = {
+    "$signals_report_ready": "inbox",
+}
+
+
+def internal_event_read_scope(event_name: object) -> str | None:
+    """Return the scope object whose read access a destination on this internal event needs."""
+    return INTERNAL_EVENT_READ_SCOPES.get(event_name) if isinstance(event_name, str) else None
+
+
 def is_managed_alert_internal_event(event_name: object) -> bool:
     """Return whether an internal event is reserved for an alert-owned destination."""
     return (

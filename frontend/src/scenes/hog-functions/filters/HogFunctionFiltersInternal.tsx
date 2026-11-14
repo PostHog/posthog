@@ -79,7 +79,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.EventProperties]
         } else if (contextId === 'health-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
-        } else if (contextId === 'batch-export-alerts') {
+        } else if (contextId === 'batch-export-alerts' || contextId === 'signals-reports') {
             return [TaxonomicFilterGroupType.EventProperties]
         }
         return []
