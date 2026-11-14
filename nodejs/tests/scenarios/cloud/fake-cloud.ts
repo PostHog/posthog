@@ -21,7 +21,21 @@ type Resource = {
     clusterId?: string
     createdAt?: number
     image?: string
+    seeded?: boolean
 }
+
+type Command = {
+    id: string
+    instanceId: string
+    script: string
+    sentAt: number
+    settlesAt: number
+    status: string
+    code: number
+    undelivered?: boolean
+}
+
+type Card = { runId: string; instanceId: string; endsAt: number; exitCode: number; reportsDone: boolean }
 
 type Stack = {
     name: string
@@ -43,6 +57,10 @@ const MINUTE_MS = 60_000
 const SECRET_LISTING_LAG_MS = 5 * MINUTE_MS
 const BACKUP = 'AWS::RDS::DBClusterAutomatedBackup'
 const SNAPSHOT = 'AWS::RDS::DBClusterSnapshot'
+const EXIT_INVALID = 2
+const INVOCATION_LAG_MS = 20_000
+const STOP_TIMEOUT_MS = 5 * MINUTE_MS
+const DEFAULT_DELIVERY_TIMEOUT_S = 3600
 const TAKES_MS: Record<string, number> = {
     CREATE_IN_PROGRESS: MINUTE_MS / 4,
     UPDATE_IN_PROGRESS: 10 * MINUTE_MS,
@@ -64,6 +82,10 @@ export type FakeCloudOptions = {
     deleteTakesMs?: number
     rollsBack?: 'create' | 'update'
     outlives?: string[]
+    seed?: { exitCode?: number; takesMs?: number }
+    card?: { exitCode?: number; takesMs?: number; ignoresStop?: boolean; uploadFails?: boolean; diesAfterMs?: number }
+    probe?: 'lost' | 'timedOut'
+    agent?: 'offline'
 }
 
 const ACTION_OF: Record<string, string> = {
@@ -123,6 +145,8 @@ export class FakeCloud implements Aws {
     readonly resources: Resource[] = []
     readonly parameterStore = new Map<string, string>()
     readonly untyped: string[] = []
+    private readonly commands: Command[] = []
+    private card: Card | undefined
     private deleteFailures: number
     private readonly failures = new Map<string, { from: number; to: number }>()
     private readonly conditions = new Map<string, (args: string[]) => boolean>()
@@ -186,6 +210,9 @@ export class FakeCloud implements Aws {
 
     tick(): void {
         const now = this.options.now().getTime()
+        if (this.card && this.card.endsAt <= now) {
+            this.finishCard(this.card.exitCode)
+        }
         for (const stack of [...this.stacks.values()].filter(({ settlesAt }) => settlesAt <= now)) {
             this.settleStack(stack.name)
         }
@@ -289,6 +316,7 @@ export class FakeCloud implements Aws {
                     arn: `arn:aws:rds:us-east-1:${this.account}:db:${instanceId}`,
                     state: 'available',
                     runTag,
+                    seeded: this.backlogSeeded(),
                 })
             } else if (Type === 'AWS::EC2::Instance') {
                 const instanceId = `i-${randomUUID().replace(/-/g, '').slice(0, 17)}`
@@ -323,6 +351,121 @@ export class FakeCloud implements Aws {
             }
             stack.resources.push(...created)
             this.resources.push(...created)
+        }
+    }
+
+    private hostRunning(instanceId: string): boolean {
+        return this.resources.some(
+            ({ type, id, state }) => type === 'AWS::EC2::Instance' && id === instanceId && state === 'running'
+        )
+    }
+
+    private backlogSeeded(): boolean {
+        const now = this.options.now().getTime()
+        return this.commands.some(
+            ({ script, status, settlesAt }) =>
+                script.includes('host-prepare.sh') && status === 'Success' && settlesAt <= now
+        )
+    }
+
+    private finishCard(exitCode: number): void {
+        const card = this.card!
+        this.card = undefined
+        if (!this.hostRunning(card.instanceId) || !card.reportsDone) {
+            return
+        }
+        const uploaded = !this.options.card?.uploadFails
+        if (uploaded) {
+            const sums = ['card.log'].map((file) => `${'0'.repeat(64)}  ./${file}`).join('\n')
+            this.objects.set(`runs/${card.runId}/evidence/card.log`, `exit ${exitCode}\n`)
+            this.objects.set(`runs/${card.runId}/evidence/SHA256SUMS`, `${sums}\n`)
+        }
+        this.objects.set(`runs/${card.runId}/host/done`, JSON.stringify({ exitCode, uploaded }))
+    }
+
+    private sendCommand(flags: Map<string, string>, operation: string): string {
+        const instanceId = flags.get('instance-ids')!
+        const { commands, executionTimeout } = parseJSON(flags.get('parameters')!) as {
+            commands: string[]
+            executionTimeout?: string[]
+        }
+        if (flags.get('document-name') !== 'AWS-RunShellScript' || executionTimeout === undefined) {
+            throw new Error('the fake cloud models only shell commands with an execution timeout')
+        }
+        if (!this.hostRunning(instanceId)) {
+            throw serviceError(operation, 'InvalidInstanceId', `${instanceId} is not a managed instance`)
+        }
+        const now = this.options.now().getTime()
+        const script = commands.join('\n')
+        const timeoutMs = Number(executionTimeout[0]) * 1000
+        const runId = /SCENARIO_RUN_ID='?([\w-]+)/.exec(script)?.[1]
+        const command: Command = {
+            id: randomUUID(),
+            instanceId,
+            script,
+            sentAt: now,
+            settlesAt: now + MINUTE_MS / 4,
+            status: 'Success',
+            code: 0,
+        }
+        if (this.options.agent === 'offline') {
+            const deliveryMs = Number(flags.get('timeout-seconds') ?? DEFAULT_DELIVERY_TIMEOUT_S) * 1000
+            this.commands.push({
+                ...command,
+                settlesAt: now + deliveryMs + timeoutMs,
+                status: 'TimedOut',
+                code: -1,
+                undelivered: true,
+            })
+            return command.id
+        }
+        if (script.includes('host-prepare.sh')) {
+            const { exitCode = 0, takesMs = 10 * MINUTE_MS } = this.options.seed ?? {}
+            command.settlesAt = now + Math.min(takesMs, timeoutMs)
+            command.status = takesMs > timeoutMs ? 'TimedOut' : exitCode === 0 ? 'Success' : 'Failed'
+            command.code = takesMs > timeoutMs ? -1 : exitCode
+        } else if (script.includes('systemd-run') && script.includes('host-run-card.sh') && runId) {
+            const { exitCode = 0, takesMs = 90 * MINUTE_MS, diesAfterMs } = this.options.card ?? {}
+            this.objects.set(`runs/${runId}/host/started`, '{}')
+            this.card =
+                diesAfterMs === undefined
+                    ? { runId, instanceId, endsAt: now + takesMs, exitCode, reportsDone: true }
+                    : { runId, instanceId, endsAt: now + diesAfterMs, exitCode: EXIT_INVALID, reportsDone: false }
+        } else if (script.includes('systemctl is-active')) {
+            command.settlesAt = this.options.probe === 'lost' ? Infinity : command.settlesAt
+            command.status = this.options.probe === 'timedOut' ? 'TimedOut' : this.card ? 'Success' : 'Failed'
+            command.code = this.options.probe === 'timedOut' ? -1 : this.card ? 0 : 3
+        } else if (script.includes('systemctl stop')) {
+            const ignoresStop = this.options.card?.ignoresStop === true
+            const stopsAt = now + (ignoresStop ? STOP_TIMEOUT_MS : MINUTE_MS)
+            if (this.card && this.card.endsAt > stopsAt) {
+                this.card.endsAt = stopsAt
+                this.card.exitCode = EXIT_INVALID
+                this.card.reportsDone = !ignoresStop
+            }
+            command.settlesAt = Math.max(command.settlesAt, this.card?.endsAt ?? now)
+        } else {
+            throw new Error(`the fake cloud does not model the host command ${script}`)
+        }
+        this.commands.push(command)
+        return command.id
+    }
+
+    private invocation(flags: Map<string, string>, operation: string): unknown {
+        const command = this.commands.find(
+            ({ id, instanceId }) => id === flags.get('command-id') && instanceId === flags.get('instance-id')
+        )
+        const now = this.options.now().getTime()
+        if (!command || now - command.sentAt < INVOCATION_LAG_MS) {
+            throw serviceError(operation, 'InvocationDoesNotExist', 'no such invocation')
+        }
+        const settled = command.settlesAt <= now
+        return {
+            CommandId: command.id,
+            InstanceId: command.instanceId,
+            Status: settled ? command.status : command.undelivered ? 'Pending' : 'InProgress',
+            ResponseCode: settled ? command.code : -1,
+            StandardErrorContent: settled && command.code !== 0 ? 'the command failed on the host' : '',
         }
     }
 
@@ -643,8 +786,10 @@ export class FakeCloud implements Aws {
                     ? { ARN: secret.id, DeletedDate: '2026-03-02T00:00:00Z' }
                     : { ARN: secret.id }
             }
+            case 'ssm send-command':
+                return { Command: { CommandId: this.sendCommand(flags, operation) } }
             case 'ssm get-command-invocation':
-                throw serviceError(operation, 'InvocationDoesNotExist', 'no such invocation')
+                return this.invocation(flags, operation)
             case 'cloudwatch get-metric-data':
                 return { MetricDataResults: [] }
             case 'logs filter-log-events':
