@@ -2,10 +2,17 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 from products.warehouse_sources.sources.vultr._config import VultrSourceConfig
+from products.warehouse_sources.sources.vultr.settings import VULTR_PER_PAGE
 from products.warehouse_sources.sources.vultr.source import VultrSource
-from products.warehouse_sources.sources.vultr.vultr import VULTR_PER_PAGE, _redact_secrets, validate_credentials
+from products.warehouse_sources.sources.vultr.vultr import _redact_secrets, validate_credentials
 
 
 class TestGetResource:
@@ -103,3 +110,71 @@ class TestVultrSourceWiring:
         assert result.rows == [{"id": "i-1", "label": "web"}]
         # Raw responses carry secrets, so the source must opt out of HTTP sample capture.
         assert result.session_options[0]["capture"] is False
+
+    def test_invoice_items_are_numbered_per_invoice_across_pages(self) -> None:
+        def item(description: str) -> dict[str, Any]:
+            return {"description": description, "product": "Vultr Cloud Compute", "units": 720, "total": 5.0}
+
+        script = route(
+            {
+                "/v2/billing/invoices/101/items": [
+                    ScriptedResponse(json={"invoice_items": [item("a"), item("b")], "meta": {"links": {"next": "c2"}}}),
+                    ScriptedResponse(json={"invoice_items": [item("c")], "meta": {"links": {"next": ""}}}),
+                ],
+                "/v2/billing/invoices/102/items": [
+                    ScriptedResponse(json={"invoice_items": [item("d")], "meta": {"links": {"next": ""}}}),
+                ],
+                "/v2/billing/invoices": [
+                    ScriptedResponse(
+                        json={
+                            "billing_invoices": [{"id": 101, "amount": 15.0}, {"id": 102, "amount": 5.0}],
+                            "meta": {"links": {"next": ""}},
+                        }
+                    ),
+                ],
+            }
+        )
+
+        result = SourceDriver(VultrSource(), VultrSourceConfig(api_key="k")).run("invoice_items", script)
+
+        assert result.raised is None
+        assert [(r["invoice_id"], r["line_number"], r["description"]) for r in result.rows] == [
+            (101, 1, "a"),
+            (101, 2, "b"),
+            (101, 3, "c"),
+            (102, 1, "d"),
+        ]
+        assert not any(key.startswith("_invoices_") for row in result.rows for key in row)
+
+    def test_instance_bandwidth_turns_each_date_into_a_row(self) -> None:
+        usage = {"incoming_bytes": 10, "outgoing_bytes": 20}
+        script = route(
+            {
+                "/v2/instances/i-1/bandwidth": [
+                    ScriptedResponse(json={"bandwidth": {"2020-07-25": usage, "2020-07-26": usage}})
+                ],
+                # Destroyed after the instance listing: skipped, not a failed sync.
+                "/v2/instances/i-2/bandwidth": [ScriptedResponse(status=404, json={"error": "Invalid instance-id."})],
+                "/v2/instances/i-3/bandwidth": [ScriptedResponse(json={"bandwidth": {}})],
+                "/v2/instances": [
+                    ScriptedResponse(
+                        json={
+                            "instances": [
+                                {"id": "i-1", "default_password": "hunter2"},
+                                {"id": "i-2"},
+                                {"id": "i-3"},
+                            ],
+                            "meta": {"links": {"next": ""}},
+                        }
+                    ),
+                ],
+            }
+        )
+
+        result = SourceDriver(VultrSource(), VultrSourceConfig(api_key="k")).run("instance_bandwidth", script)
+
+        assert result.raised is None
+        assert result.rows == [
+            {"instance_id": "i-1", "date": "2020-07-25", "incoming_bytes": 10, "outgoing_bytes": 20},
+            {"instance_id": "i-1", "date": "2020-07-26", "incoming_bytes": 10, "outgoing_bytes": 20},
+        ]
