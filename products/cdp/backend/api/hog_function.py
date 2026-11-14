@@ -1120,9 +1120,14 @@ class HogFunctionRearrangeSerializer(serializers.Serializer):
         normalized: dict[str, int] = {}
         for function_id, order in orders.items():
             try:
-                normalized[str(UUID(function_id))] = order
+                canonical_id = str(UUID(function_id))
             except ValueError:
                 raise serializers.ValidationError(f"'{function_id}' is not a valid hog function UUID.")
+            if canonical_id in normalized:
+                raise serializers.ValidationError(
+                    f"Hog function '{canonical_id}' is listed more than once. List each function once."
+                )
+            normalized[canonical_id] = order
         return normalized
 
 

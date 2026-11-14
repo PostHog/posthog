@@ -4291,11 +4291,21 @@ class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
 
 class TestHogFunctionRearrangeSerializer(SimpleTestCase):
-    def test_rejects_key_that_is_not_a_uuid(self):
-        serializer = HogFunctionRearrangeSerializer(data={"orders": {"not-a-uuid": 1}})
+    @parameterized.expand(
+        [
+            ("not_a_uuid", {"not-a-uuid": 1}, "not-a-uuid"),
+            (
+                "same_uuid_in_two_cases",
+                {"0193B5D6-6FF6-0000-4AE8-423DEE9BF14A": 1, "0193b5d6-6ff6-0000-4ae8-423dee9bf14a": 2},
+                "0193b5d6-6ff6-0000-4ae8-423dee9bf14a",
+            ),
+        ]
+    )
+    def test_rejects_invalid_keys(self, _name, orders, named_key):
+        serializer = HogFunctionRearrangeSerializer(data={"orders": orders})
 
         assert not serializer.is_valid()
-        assert "not-a-uuid" in str(serializer.errors["orders"][0])
+        assert named_key in str(serializer.errors["orders"][0])
 
     def test_normalizes_keys_to_canonical_uuid_form(self):
         function_id = "0193B5D6-6FF6-0000-4AE8-423DEE9BF14A"
