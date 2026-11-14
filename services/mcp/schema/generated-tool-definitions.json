@@ -2147,7 +2147,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-training-runs-list": {
-        "description": "List training runs for a pipeline, ordered most recent first. Check status (completed/failed), iteration_count, and best_holdout_score to understand training history.",
+        "description": "List training runs for a pipeline, ordered most recent first. Check status (completed/failed), iteration_count, and best_holdout_score to understand training history. task_id, task_run_id and task_url point to the run's Tasks sandbox run, which holds its log, cost and failure reason. They are null for a run that an external agent opened.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "List training runs",

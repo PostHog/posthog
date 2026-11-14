@@ -712,7 +712,9 @@ tools:
         title: List training runs
         description: >
             List training runs for a pipeline, ordered most recent first. Check status (completed/failed),
-            iteration_count, and best_holdout_score to understand training history.
+            iteration_count, and best_holdout_score to understand training history. task_id, task_run_id and task_url
+            point to the run's Tasks sandbox run, which holds its log, cost and failure reason. They are null for a run
+            that an external agent opened.
         feature_flag: autoresearch
         response:
             include:
@@ -726,6 +728,9 @@ tools:
                 - iteration_count
                 - best_holdout_score
                 - error
+                - task_id
+                - task_run_id
+                - task_url
                 - started_at
                 - completed_at
                 - created_at

@@ -17565,6 +17565,21 @@ export namespace Schemas {
     export interface AutoresearchLiveTrainingRun {
       /** Unique UUID of the live training run. */
       readonly id: string;
+      /**
+         * Parent Task ID of the run's sandbox. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_id: string | null;
+      /**
+         * Task run ID of the run's sandbox, which holds its log, cost and failure reason. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_run_id: string | null;
+      /**
+         * Relative URL to the run's Task detail page. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_url: string | null;
       /** Maximum experiments allowed for this run. */
       readonly iteration_budget: number;
       /** Experiments the agent has recorded so far in this run. */

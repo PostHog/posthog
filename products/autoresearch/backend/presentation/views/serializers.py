@@ -534,6 +534,24 @@ class TrainingTrendPointSerializer(DataclassSerializer):
 @extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
 class LiveTrainingRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Parent Task ID of the run's sandbox. Null for a run that an external agent opened.",
+    )
+    task_run_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Task run ID of the run's sandbox, which holds its log, cost and failure reason. "
+            "Null for a run that an external agent opened."
+        ),
+    )
+    task_url = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Relative URL to the run's Task detail page. Null for a run that an external agent opened.",
+    )
     iteration_budget = serializers.IntegerField(read_only=True, help_text="Maximum experiments allowed for this run.")
     experiment_count = serializers.IntegerField(
         read_only=True, help_text="Experiments the agent has recorded so far in this run."
@@ -562,6 +580,9 @@ class LiveTrainingRunSerializer(DataclassSerializer):
         dataclass = LiveTrainingRun
         fields = [
             "id",
+            "task_id",
+            "task_run_id",
+            "task_url",
             "iteration_budget",
             "experiment_count",
             "best_holdout_score",
