@@ -427,7 +427,6 @@ def _typed_edit_serializer(
     native = spec.native
     if native is not None and native.check_intervals and source.value not in UNSERVED_SOURCE_KINDS:
         allowed = ", ".join(str(minutes) for minutes in sorted(native.check_intervals))
-        # Optional on every write, so an edit that leaves it out keeps the stored cadence.
         fields["check_interval_minutes"] = serializers.IntegerField(
             min_value=1,
             required=False,

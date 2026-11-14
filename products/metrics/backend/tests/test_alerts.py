@@ -124,7 +124,6 @@ class TestMetricsAlertCreate(APIBaseTest):
         renamed = self.client.patch(url, {"name": "Consumer lag, renamed"}, format="json")
 
         assert moved.status_code == status.HTTP_200_OK, moved.json()
-        # Due on the new cadence, not after the 50 minutes the hourly one had left.
         assert datetime.fromisoformat(moved.json()["next_check_at"]) <= timezone.now() + timedelta(minutes=2)
         assert renamed.status_code == status.HTTP_200_OK, renamed.json()
         assert renamed.json()["check_interval_minutes"] == 5
