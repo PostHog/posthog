@@ -4,6 +4,7 @@ import { parse } from 'yaml'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import type { ValveTimelineEntry } from '../valves/valves'
 import { Aws, AwsError } from './aws'
 
 type Schedule = { expression: string; target: { Arn: string; RoleArn: string; Input: string } }
@@ -35,7 +36,25 @@ type Command = {
     undelivered?: boolean
 }
 
-type Card = { runId: string; instanceId: string; endsAt: number; exitCode: number; reportsDone: boolean }
+type Card = {
+    runId: string
+    instanceId: string
+    startedAt: number
+    endsAt: number
+    exitCode: number
+    reportsDone: boolean
+}
+
+export type ReaderMinute = { minute: number; max?: number; avg?: number }
+
+type MetricQuery = {
+    Id: string
+    MetricStat: {
+        Metric: { Namespace: string; MetricName: string; Dimensions?: { Name: string; Value: string }[] }
+        Period: number
+        Stat: string
+    }
+}
 
 type Stack = {
     name: string
@@ -61,6 +80,15 @@ const EXIT_INVALID = 2
 const INVOCATION_LAG_MS = 20_000
 const STOP_TIMEOUT_MS = 5 * MINUTE_MS
 const DEFAULT_DELIVERY_TIMEOUT_S = 3600
+const FAILOVER_AFTER_MS = 15 * MINUTE_MS
+const LOG_PAGE_EVENTS = 2
+const EVENTS_PER_INSTANCE = 3
+const STATUSES = ['passed', 'failed', 'invalid', 'passed']
+const DEFAULT_READER_ACU: ReaderMinute[] = [
+    ...[-3, -2, -1].map((minute) => ({ minute, max: 1, avg: 1 })),
+    { minute: 0, max: 2, avg: 1.5 },
+    ...[1, 2, 3].map((minute) => ({ minute, max: 6, avg: 5 })),
+]
 const TAKES_MS: Record<string, number> = {
     CREATE_IN_PROGRESS: MINUTE_MS / 4,
     UPDATE_IN_PROGRESS: 10 * MINUTE_MS,
@@ -83,9 +111,19 @@ export type FakeCloudOptions = {
     rollsBack?: 'create' | 'update'
     outlives?: string[]
     seed?: { exitCode?: number; takesMs?: number }
-    card?: { exitCode?: number; takesMs?: number; ignoresStop?: boolean; uploadFails?: boolean; diesAfterMs?: number }
+    card?: {
+        exitCode?: number
+        takesMs?: number
+        ignoresStop?: boolean
+        uploadFails?: boolean
+        diesAfterMs?: number
+        runnerStatus?: string
+        journalsIntent?: boolean
+    }
     probe?: 'lost' | 'timedOut'
     agent?: 'offline'
+    readerAcu?: ReaderMinute[]
+    averageStatuses?: string[]
 }
 
 const ACTION_OF: Record<string, string> = {
@@ -147,6 +185,8 @@ export class FakeCloud implements Aws {
     readonly untyped: string[] = []
     private readonly commands: Command[] = []
     private card: Card | undefined
+    private metricReads = 0
+    readonly failovers = new Map<string, number>()
     private deleteFailures: number
     private readonly failures = new Map<string, { from: number; to: number }>()
     private readonly conditions = new Map<string, (args: string[]) => boolean>()
@@ -374,13 +414,134 @@ export class FakeCloud implements Aws {
         if (!this.hostRunning(card.instanceId) || !card.reportsDone) {
             return
         }
+        const failoverAt = card.startedAt + FAILOVER_AFTER_MS
+        if (this.options.now().getTime() >= failoverAt) {
+            this.failovers.set(card.runId, failoverAt)
+        }
         const uploaded = !this.options.card?.uploadFails
         if (uploaded) {
-            const sums = ['card.log'].map((file) => `${'0'.repeat(64)}  ./${file}`).join('\n')
-            this.objects.set(`runs/${card.runId}/evidence/card.log`, `exit ${exitCode}\n`)
+            const runnerRunId = randomUUID()
+            const files = {
+                'card.log': `exit ${exitCode}\n`,
+                [`run/${runnerRunId}/scorecard.json`]: this.runnerScorecard(card, runnerRunId, exitCode),
+            }
+            const sums = Object.keys(files)
+                .map((file) => `${'0'.repeat(64)}  ./${file}`)
+                .join('\n')
+            Object.entries(files).forEach(([file, body]) =>
+                this.objects.set(`runs/${card.runId}/evidence/${file}`, body)
+            )
             this.objects.set(`runs/${card.runId}/evidence/SHA256SUMS`, `${sums}\n`)
         }
         this.objects.set(`runs/${card.runId}/host/done`, JSON.stringify({ exitCode, uploaded }))
+    }
+
+    private runnerScorecard(card: Card, runnerRunId: string, exitCode: number): string {
+        const status = this.options.card?.runnerStatus ?? STATUSES[exitCode] ?? 'invalid'
+        const statusReason = status === 'passed' ? '' : `the card ended ${status}`
+        const failoverAt = this.failovers.get(card.runId)
+        const timeline: ValveTimelineEntry[] =
+            failoverAt === undefined
+                ? []
+                : [
+                      {
+                          valve: 'pg.failover',
+                          target: 'cyclotron',
+                          requestedAt: new Date(card.startedAt).toISOString(),
+                          ...(this.options.card?.journalsIntent === false
+                              ? {}
+                              : { intentAt: new Date(failoverAt).toISOString() }),
+                          appliedAt: new Date(failoverAt + 5_000).toISOString(),
+                      },
+                  ]
+        const startedAt = new Date(card.startedAt).toISOString()
+        const endedAt = this.options.now().toISOString()
+        return JSON.stringify({
+            runId: runnerRunId,
+            status,
+            statusReason,
+            timeline,
+            startedAt,
+            endedAt,
+            event: {
+                schema_version: 1,
+                run_id: runnerRunId,
+                card_id: 'cyclotron-failover-under-load',
+                origin: 'local-agent',
+                target: 'local',
+                fingerprint: 'f'.repeat(64),
+                status,
+                status_reason: statusReason,
+                started_at: startedAt,
+                ended_at: endedAt,
+                m_writer_recovery_s: 42,
+                valve_timeline: timeline,
+                evidence_dir: `/opt/scenario/cache/posthog-scenarios/${runnerRunId}`,
+            },
+        })
+    }
+
+    private readerCapacity(
+        { Id, MetricStat: { Metric, Period, Stat } }: MetricQuery,
+        from: number,
+        to: number,
+        averageStatus: string
+    ) {
+        if (Id === 'avg' && averageStatus !== 'Complete') {
+            return {
+                Id,
+                Label: Id,
+                Timestamps: [],
+                Values: [],
+                StatusCode: averageStatus,
+                Messages: [{ Code: averageStatus, Value: 'injected by the fake cloud' }],
+            }
+        }
+        const instance = (Metric.Dimensions ?? []).find(({ Name }) => Name === 'DBInstanceIdentifier')?.Value ?? ''
+        const runId = /^scn-(.+)-reader$/.exec(instance)?.[1]
+        const measured =
+            Metric.Namespace === 'AWS/RDS' && Metric.MetricName === 'ServerlessDatabaseCapacity' && Period === 60
+        const failoverAt = runId && measured ? this.failovers.get(runId) : undefined
+        const t0Minute = failoverAt === undefined ? 0 : failoverAt - (failoverAt % MINUTE_MS)
+        const points = (failoverAt === undefined ? [] : (this.options.readerAcu ?? DEFAULT_READER_ACU))
+            .map(({ minute, max, avg }) => ({
+                at: t0Minute + minute * MINUTE_MS,
+                value: { Maximum: max, Average: avg, SampleCount: 60 }[Stat],
+            }))
+            .filter(({ at, value }) => at >= from && at < to && value !== undefined)
+        return {
+            Id,
+            Label: Id,
+            Timestamps: points.map(({ at }) => new Date(at).toISOString()),
+            Values: points.map(({ value }) => value),
+            StatusCode: 'Complete',
+        }
+    }
+
+    private enhancedMonitoring(flags: Map<string, string>): unknown {
+        const from = Number(flags.get('start-time'))
+        const pattern = flags.get('filter-pattern') ?? ''
+        const events =
+            flags.get('log-group-name') === 'RDSOSMetrics'
+                ? this.resources
+                      .filter(({ type, id }) => type === 'AWS::RDS::DBInstance' && pattern.includes(`"${id}"`))
+                      .flatMap(({ id }) =>
+                          Array.from({ length: EVENTS_PER_INSTANCE }, (_, second) => ({
+                              logStreamName: `db-${id}`,
+                              timestamp: from + second * 1000,
+                              message: JSON.stringify({ instanceID: id, second }),
+                          }))
+                      )
+                : []
+        if (!flags.has('no-paginate')) {
+            return { events }
+        }
+        const offset = Number(flags.get('next-token') ?? 0)
+        const next = offset + LOG_PAGE_EVENTS
+        return {
+            events: events.slice(offset, next),
+            ...(next < events.length ? { nextToken: String(next) } : {}),
+        }
     }
 
     private sendCommand(flags: Map<string, string>, operation: string): string {
@@ -429,8 +590,15 @@ export class FakeCloud implements Aws {
             this.objects.set(`runs/${runId}/host/started`, '{}')
             this.card =
                 diesAfterMs === undefined
-                    ? { runId, instanceId, endsAt: now + takesMs, exitCode, reportsDone: true }
-                    : { runId, instanceId, endsAt: now + diesAfterMs, exitCode: EXIT_INVALID, reportsDone: false }
+                    ? { runId, instanceId, startedAt: now, endsAt: now + takesMs, exitCode, reportsDone: true }
+                    : {
+                          runId,
+                          instanceId,
+                          startedAt: now,
+                          endsAt: now + diesAfterMs,
+                          exitCode: EXIT_INVALID,
+                          reportsDone: false,
+                      }
         } else if (script.includes('systemctl is-active')) {
             command.settlesAt = this.options.probe === 'lost' ? Infinity : command.settlesAt
             command.status = this.options.probe === 'timedOut' ? 'TimedOut' : this.card ? 'Success' : 'Failed'
@@ -790,10 +958,20 @@ export class FakeCloud implements Aws {
                 return { Command: { CommandId: this.sendCommand(flags, operation) } }
             case 'ssm get-command-invocation':
                 return this.invocation(flags, operation)
-            case 'cloudwatch get-metric-data':
-                return { MetricDataResults: [] }
+            case 'cloudwatch get-metric-data': {
+                const queries = flags.has('metric-data-queries')
+                    ? (parseJSON(flags.get('metric-data-queries')!) as MetricQuery[])
+                    : []
+                const [from, to] = ['start-time', 'end-time'].map((flag) => Date.parse(flags.get(flag) ?? ''))
+                const averageStatus = flags.has('scan-by')
+                    ? (this.options.averageStatuses?.[this.metricReads++] ?? 'Complete')
+                    : 'Complete'
+                return {
+                    MetricDataResults: queries.map((query) => this.readerCapacity(query, from, to, averageStatus)),
+                }
+            }
             case 'logs filter-log-events':
-                return { events: [] }
+                return this.enhancedMonitoring(flags)
             case 'resourcegroupstaggingapi get-resources': {
                 const runId = /Values=(.+)$/.exec(flags.get('tag-filters') ?? '')?.[1]
                 return {

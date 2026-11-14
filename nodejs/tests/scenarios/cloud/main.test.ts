@@ -6,7 +6,8 @@ import { stringify } from 'yaml'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { FakeCloud, FakeCloudOptions } from './fake-cloud'
+import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
+import { FakeCloud, FakeCloudOptions, ReaderMinute } from './fake-cloud'
 import { PROFILE } from './fixtures'
 import { lease } from './lease'
 import { Controller, main } from './main'
@@ -29,6 +30,9 @@ type Setup = {
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
 
+const minutes = (from: number, to: number, max: number, avg: number): ReaderMinute[] =>
+    Array.from({ length: to - from + 1 }, (_, i) => ({ minute: from + i, max, avg }))
+
 describe('cloud controller', () => {
     let dir: string
     let now: Date
@@ -37,6 +41,7 @@ describe('cloud controller', () => {
     let err: string[]
     let interrupt: (() => void) | undefined
     let onSleep: (() => Promise<void> | void) | undefined
+    let api: FakeProjectApi
 
     const profilePath = (): string => path.join(dir, 'profile.yaml')
 
@@ -118,7 +123,27 @@ describe('cloud controller', () => {
             .map(({ expression }) => expression)
             .sort()
 
+    const published = (): Record<string, unknown> => {
+        expect(api.captured).toHaveLength(1)
+        return api.captured[0].properties
+    }
+
+    const cardOf = (runId: string): { startedAt: number; endedAt: number } => {
+        const key = [...cloud.objects.keys()].find(
+            (key) => key.startsWith(`runs/${runId}/evidence/run/`) && key.endsWith('/scorecard.json')
+        )!
+        const { event } = parseJSON(cloud.objects.get(key)!) as { event: { started_at: string; ended_at: string } }
+        return { startedAt: Date.parse(event.started_at), endedAt: Date.parse(event.ended_at) }
+    }
+
+    beforeAll(async () => {
+        api = await startFakeProjectApi()
+    })
+
+    afterAll(() => api.close())
+
     beforeEach(() => {
+        api.captured.length = 0
         dir = mkdtempSync(path.join(os.tmpdir(), 'scenario-cloud-'))
         now = T
         out = []
@@ -747,11 +772,13 @@ describe('cloud controller', () => {
             'stopped without reporting',
         ],
     ])('makes the run invalid and tears down when %s', async (_, setup, reason) => {
-        const { controller } = prepare(setup)
+        const { controller } = prepare({ ...setup, env: { ...setup.env, ...api.credentials } })
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
         expect(err.join('\n')).toContain(reason)
+        expect(published()).toMatchObject({ run_id: leasedRunId(), origin: 'cloud-manual', status: 'invalid' })
+        expect(published().status_reason).toContain(reason)
         expect(cloud.deleteStackRequests).toEqual([])
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
@@ -764,7 +791,7 @@ describe('cloud controller', () => {
         ['passes while its liveness probes are lost', { probe: 'lost' }, 0],
         ['passes while its liveness probes time out', { probe: 'timedOut' }, 0],
     ])('seeds before it adds the reader, and exits as the card does when it %s', async (_, options, exitCode) => {
-        const { controller } = prepare({ cloud: options })
+        const { controller } = prepare({ cloud: options, env: api.credentials })
         let doneAt: number | undefined
         let deletedAt: number | undefined
         onSleep = () => {
@@ -784,6 +811,7 @@ describe('cloud controller', () => {
         expect(parseJSON(cloud.objects.get(`runs/${runId}/host/done`)!)).toMatchObject({ exitCode })
         expect(cloud.objects.has(`runs/${runId}/evidence/SHA256SUMS`)).toBe(true)
         expect(cloud.billable()).toEqual([])
+        expect(published()).toMatchObject({ run_id: runId, status: exitCode === 1 ? 'failed' : 'passed' })
     })
 
     it.each<[string, Partial<FakeCloudOptions>, (fake: FakeCloud) => void, boolean]>([
@@ -1201,6 +1229,321 @@ describe('cloud controller', () => {
 
         expect(evidenceAtDelete).toBe(true)
         expect(cloud.billable()).toEqual([])
+    })
+
+    it.each<[string, Partial<FakeCloudOptions>, (fake: FakeCloud) => void, string, string]>([
+        [
+            'a T0 minute above 1 ACU alone',
+            { readerAcu: [...minutes(-3, -1, 1, 1), ...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)] },
+            () => undefined,
+            'passed',
+            '',
+        ],
+        [
+            'a minute after T0 whose maximum CloudWatch left out',
+            {
+                readerAcu: [
+                    ...minutes(-3, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                    { minute: 3, avg: 9 },
+                ],
+            },
+            () => undefined,
+            'passed',
+            '',
+        ],
+        [
+            'a complete minute before T0 above 1 ACU',
+            {
+                readerAcu: [
+                    ...minutes(-3, -3, 1, 1),
+                    ...minutes(-2, -2, 1.5, 1.2),
+                    ...minutes(-1, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'reader above 1 ACU before T0',
+        ],
+        [
+            'a minute before T0 above 1 ACU whose average CloudWatch left out',
+            {
+                readerAcu: [
+                    ...minutes(-3, -3, 1, 1),
+                    { minute: -2, max: 1.5 },
+                    ...minutes(-1, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'reader above 1 ACU before T0',
+        ],
+        [
+            'a minute before T0 averaging above 1 ACU whose maximum CloudWatch left out',
+            {
+                readerAcu: [
+                    ...minutes(-3, -3, 1, 1),
+                    { minute: -2, avg: 1.3 },
+                    ...minutes(-1, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'reader above 1 ACU before T0',
+        ],
+        [
+            'a series that ends before T0',
+            { readerAcu: minutes(-3, -1, 1, 1) },
+            () => undefined,
+            'invalid',
+            'no measured reader maximum from T0 on',
+        ],
+        [
+            'no capacity before T0',
+            { readerAcu: [...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)] },
+            () => undefined,
+            'invalid',
+            'no reader capacity before T0',
+        ],
+        [
+            'capacity CloudWatch cannot answer',
+            { readerAcu: minutes(-3, 2, 1, 1) },
+            (fake) => fake.failWhen('get-metric-data', (args) => args.includes('--scan-by')),
+            'invalid',
+            'could not read the reader capacity',
+        ],
+        [
+            'a reader above 1 ACU while the failover waits for its offset',
+            {
+                readerAcu: [
+                    ...minutes(-12, -11, 1, 1),
+                    { minute: -10, max: 3, avg: 2 },
+                    ...minutes(-9, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'reader above 1 ACU before T0',
+        ],
+        [
+            'a failover entry without the instant of its request',
+            { card: { journalsIntent: false } },
+            () => undefined,
+            'invalid',
+            'the runner recorded no pg.failover request',
+        ],
+        [
+            'one internal error from CloudWatch, then a complete answer',
+            {
+                averageStatuses: ['InternalError'],
+                readerAcu: [...minutes(-3, -1, 1, 1), ...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)],
+            },
+            () => undefined,
+            'passed',
+            '',
+        ],
+        [
+            'CloudWatch answering an internal error on every attempt',
+            { averageStatuses: ['InternalError', 'InternalError', 'InternalError'] },
+            () => undefined,
+            'invalid',
+            'CloudWatch answered InternalError for the avg series',
+        ],
+        [
+            'CloudWatch refusing the average series',
+            { averageStatuses: ['Forbidden', 'Complete'] },
+            () => undefined,
+            'invalid',
+            'CloudWatch answered Forbidden for the avg series',
+        ],
+        [
+            'a card that passes before its failover',
+            { card: { takesMs: HOUR_MS / 6 } },
+            () => undefined,
+            'invalid',
+            'the runner recorded no pg.failover',
+        ],
+        [
+            'a runner status outside passed, failed and invalid',
+            { card: { runnerStatus: 'skipped' } },
+            () => undefined,
+            'invalid',
+            'could not read the runner scorecard',
+        ],
+    ])('judges the run on %s and publishes it', async (_, cloudOptions, arrange, status, reason) => {
+        const { controller } = prepare({ cloud: cloudOptions, env: api.credentials })
+        arrange(cloud)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(status === 'passed' ? 0 : 2)
+
+        expect(published()).toMatchObject({ run_id: leasedRunId(), status })
+        expect(published().status_reason).toContain(reason)
+        if (status === 'passed') {
+            expect(published()).toMatchObject({
+                acu_pre_t0_max: 1,
+                acu_t0_minute_max: 2.5,
+                acu_peak: 8,
+                acu_seconds_to_peak: 60,
+            })
+            const t0 = Date.parse(String(published().t0_at))
+            expect(published().acu_gaps).not.toContain(new Date(t0 - (t0 % 60_000)).toISOString())
+        }
+    })
+
+    it('publishes the receipt, the cost estimate and the fingerprint beside the runner measurements', async () => {
+        const readerAcu: ReaderMinute[] = [
+            ...minutes(-30, -1, 1, 1),
+            ...minutes(0, 9, 6, 5),
+            ...minutes(12, 29, 6, 5),
+            { minute: 30, max: 6 },
+        ]
+        const { controller } = prepare({ cloud: { readerAcu }, env: api.credentials })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+
+        const runId = leasedRunId()
+        const { createdAt } = parseJSON(cloud.objects.get(`runs/${runId}/manifest.json`)!) as { createdAt: string }
+        const properties = published()
+        const hours = (Date.parse(String(properties.ended_at)) - Date.parse(createdAt)) / HOUR_MS
+        const t0 = Date.parse(String(properties.t0_at))
+        const minuteAt = (offset: number): string => new Date(t0 - (t0 % 60_000) + offset * 60_000).toISOString()
+        const cardEndOffset = Math.floor((cardOf(runId).endedAt - (t0 - (t0 % 60_000))) / 60_000)
+        const gapOffsets = [10, 11, ...Array.from({ length: cardEndOffset - 29 }, (_, i) => 30 + i)]
+        expect(properties).toMatchObject({
+            run_id: runId,
+            origin: 'cloud-manual',
+            target: 'cloud',
+            started_at: createdAt,
+            status: 'passed',
+            m_writer_recovery_s: 42,
+            environment_kind: 'run-host',
+            writer_class: 'db.r8g.2xlarge',
+            reader_acu_min: 1,
+            reader_acu_max: 32,
+            host_class: 'm7i.8xlarge',
+            engine_version: '16.4',
+            pooler_replicas: 2,
+            cloud_profile_hash: sha256(readFileSync(profilePath(), 'utf8')),
+            runner_profile_hash: sha256(readFileSync(path.join(dir, 'runner.yaml'), 'utf8')),
+            teardown_clean: true,
+            teardown_leftovers: [],
+            acu_gaps: gapOffsets.map(minuteAt),
+            enhanced_monitoring_events: 6,
+            cost_estimate_excluded: ['data transfer', 'S3 requests', 'Enhanced Monitoring log ingestion'],
+        })
+        expect(properties.deviations).toEqual(expect.arrayContaining([expect.stringMatching(/team skew/)]))
+        expect(properties.cost_estimate_items).toEqual(
+            expect.arrayContaining([
+                `writer db.r8g.2xlarge, ${hours.toFixed(2)} h: $${hours.toFixed(2)}`,
+                `reader, 2.83 ACU-hours, ${gapOffsets.length} minutes missing: $0.28`,
+            ])
+        )
+        const items = properties.cost_estimate_items as string[]
+        const total = items.reduce((sum, item) => sum + Number(/\$(\d+\.\d\d)$/.exec(item)![1]), 0)
+        expect(properties.cost_estimate_usd).toBeCloseTo(total, 1)
+        expect(parseJSON(cloud.objects.get(`runs/${runId}/scorecard.json`)!)).toEqual(properties)
+        const pages = [...cloud.objects.keys()].filter((key) => key.startsWith(`runs/${runId}/capacity/rdsosmetrics/`))
+        expect(pages).toHaveLength(3)
+        const kept = pages
+            .flatMap((key) => parseJSON(cloud.objects.get(key)!) as { message: string }[])
+            .map(({ message }) => (parseJSON(message) as { instanceID: string }).instanceID)
+        expect(kept.sort()).toEqual([...Array(3).fill(`scn-${runId}-reader`), ...Array(3).fill(`scn-${runId}-writer`)])
+    })
+
+    it('counts every minute of the card as missing when CloudWatch returns no reader capacity', async () => {
+        const { controller } = prepare({ cloud: { readerAcu: [] }, env: api.credentials })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        const { startedAt, endedAt } = cardOf(leasedRunId())
+        const minuteIso = (at: number): string => new Date(at - (at % 60_000)).toISOString()
+        const gaps = published().acu_gaps as string[]
+        const cardMinutes = (Date.parse(minuteIso(endedAt)) - Date.parse(minuteIso(startedAt))) / 60_000 + 1
+        expect(gaps).toEqual(
+            Array.from({ length: cardMinutes }, (_, i) =>
+                new Date(Date.parse(minuteIso(startedAt)) + i * 60_000).toISOString()
+            )
+        )
+        expect(published().cost_estimate_items).toContainEqual(
+            expect.stringContaining(`reader, 0.00 ACU-hours, ${gaps.length} minutes missing`)
+        )
+    })
+
+    it('fingerprints runs alike only when their environment matches', async () => {
+        const fingerprintOf = async (profile: Setup['profile']): Promise<unknown> => {
+            api.captured.length = 0
+            const { controller } = prepare({ profile, env: api.credentials })
+            await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+            return published().fingerprint
+        }
+
+        const first = await fingerprintOf((p) => p)
+        const repriced = await fingerprintOf((p) => ({
+            ...p,
+            admission: { ...p.admission, rates: { ...p.admission.rates, hostPerHour: 2 } },
+        }))
+        const other = await fingerprintOf((p) => ({
+            ...p,
+            pooler: { ...p.pooler, settings: { ...p.pooler.settings, default_pool_size: 40 } },
+        }))
+
+        expect(first).toMatch(/^[0-9a-f]{64}$/)
+        expect(repriced).toBe(first)
+        expect(other).not.toBe(first)
+    })
+
+    it('publishes an invalid run with what teardown left behind', async () => {
+        const { controller } = prepare({ cloud: { outlives: ['AWS::EC2::Volume'] }, env: api.credentials })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        const [volume] = cloud.billable()
+        expect(published()).toMatchObject({ status: 'invalid', teardown_clean: false })
+        expect(published().teardown_leftovers).toEqual([expect.stringContaining(volume.split(' ')[1])])
+    })
+
+    it.each<[string, Partial<FakeCloudOptions>, boolean, (fake: FakeCloud) => void]>([
+        [
+            'Scenario runs refuses the scorecard of an invalid run',
+            { outlives: ['AWS::EC2::Volume'] },
+            true,
+            () => undefined,
+        ],
+        [
+            'the bucket refuses the copy and no Scenario runs credentials are set',
+            {},
+            false,
+            (fake) =>
+                fake.failWhen('put-object', (args) => args.some((arg) => /^runs\/[^/]+\/scorecard\.json$/.test(arg))),
+        ],
+    ])('exits as a failed scorecard write when %s', async (_, cloudOptions, refused, arrange) => {
+        const env = refused ? { ...api.credentials, SCENARIO_RUNS_PROJECT_TOKEN: 'wrong' } : {}
+        const { controller } = prepare({ cloud: cloudOptions, env })
+        arrange(cloud)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(3)
+
+        expect(api.captured).toEqual([])
+    })
+
+    it('keeps the scorecard in the bucket and names it when no Scenario runs credentials are set', async () => {
+        const { controller } = prepare()
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+
+        const key = `runs/${leasedRunId()}/scorecard.json`
+        expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ origin: 'cloud-manual', status: 'passed' })
+        expect(out.join('\n')).toContain(`s3://test-evidence/${key}`)
+        expect(api.captured).toEqual([])
     })
 
     it('deletes the stack by schedule when the controller dies after creating it', async () => {
