@@ -1,11 +1,9 @@
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from functools import partial
 from typing import Any
 
 from unittest.mock import patch
 
-import boto3
 from botocore.exceptions import ClientError
 from dns.rdtypes.ANY.MX import MX
 
@@ -17,14 +15,6 @@ from products.workflows.backend.tests.fakes.faults import AwsFault, FaultInjecto
 ACCOUNT_ID = "123456789012"
 SUCCESS = "Success"
 PENDING = "Pending"
-
-
-def verification_token(domain: str) -> str:
-    return f"token-{domain}"
-
-
-def dkim_tokens(domain: str) -> tuple[str, ...]:
-    return tuple(f"dk{index}{domain.replace('.', '')}" for index in range(1, 4))
 
 
 @frozen(frozen=False)
@@ -54,12 +44,12 @@ class FakeSes:
         self.writes: list[str] = []
 
     @contextmanager
-    def installed(self, *, passthrough: bool = False) -> Iterator["FakeSes"]:
-        with patch.object(boto3, "client", partial(self._client, boto3.client if passthrough else None)):
+    def installed(self) -> Iterator["FakeSes"]:
+        with patch("boto3.client", self._client):
             yield self
 
     def add_identity(self, domain: str, **fields: Any) -> SesIdentity:
-        identity = SesIdentity(domain=domain, **{"verification_token": verification_token(domain), **fields})
+        identity = SesIdentity(domain=domain, **{"verification_token": f"token-{domain}", **fields})
         self.identities[domain] = identity
         return identity
 
@@ -113,7 +103,7 @@ class FakeSes:
         # SES rejects a MAIL FROM domain that has any MX record besides its own.
         return SUCCESS if exchanges == [expected_exchange] else PENDING
 
-    def _client(self, real_client: Callable[..., Any] | None, service_name: str, *args: Any, **config: Any) -> Any:
+    def _client(self, service_name: str, **_config: Any) -> "_FakeAwsClient":
         handlers: dict[str, dict[str, Callable[..., Any]]] = {
             "ses": {
                 "verify_domain_identity": self._verify_domain_identity,
@@ -135,8 +125,6 @@ class FakeSes:
             "sts": {"get_caller_identity": lambda: {"Account": ACCOUNT_ID}},
         }
         if service_name not in handlers:
-            if real_client:
-                return real_client(service_name, *args, **config)
             raise ValueError(f"FakeSes does not serve the {service_name} client")
         return _FakeAwsClient(service_name, handlers[service_name], self._faults)
 
@@ -149,7 +137,7 @@ class FakeSes:
         self.writes.append("verify_domain_dkim")
         identity = self.identities.get(Domain) or self.add_identity(Domain)
         if not identity.dkim_tokens:
-            identity.dkim_tokens = dkim_tokens(Domain)
+            identity.dkim_tokens = tuple(f"dk{index}{Domain.replace('.', '')}" for index in range(1, 4))
         return {"DkimTokens": list(identity.dkim_tokens)}
 
     def _set_identity_mail_from_domain(self, *, Identity: str, MailFromDomain: str, **_options: Any) -> dict:

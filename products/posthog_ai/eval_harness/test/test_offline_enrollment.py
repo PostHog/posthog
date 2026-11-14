@@ -12,7 +12,7 @@ from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 
 @pytest.mark.asyncio
 async def test_discovered_suites_match_reporting_enrollment(tmp_path: Path) -> None:
-    ctx = Mock(spec=EvalContext, posthog_client=None, case_filter=None, skill_delivery="bundled", trials=1)
+    ctx = Mock(spec=EvalContext, posthog_client=None, case_filter=None, skill_delivery="bundled")
     ctx.engine = Mock()
     ctx.provider_strategy = Mock()
     ctx.demo_data = Mock()

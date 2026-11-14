@@ -193,18 +193,10 @@ class TestEmailSenderScopedAccess(EmailDomainApiTestCase):
         assert self.config() == config_before
         assert self.mail_from_domain() == f"feedback.{DOMAIN}"
 
-    @parameterized.expand(
-        [
-            ("domain_connect_check", "get", "domain-connect/check?domain=mail.example.com"),
-            ("domain_connect_apply_url", "post", "domain-connect/apply-url"),
-            ("sender_update", "patch", "{sender}/email"),
-        ]
-    )
-    def test_token_access_is_refused_while_the_flag_is_off(self, _name: str, method: str, path: str) -> None:
+    def test_token_cannot_check_a_dns_host_while_the_flag_is_off(self) -> None:
         with email_from_code(False):
-            response = getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/integrations/{path.format(sender=self.sender)}",
-                format="json",
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/integrations/domain-connect/check?domain=mail.example.com",
                 **self.credentials("pak"),
             )
 

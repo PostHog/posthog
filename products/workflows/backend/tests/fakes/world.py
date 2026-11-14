@@ -22,12 +22,8 @@ class EmailDomainWorld:
         self.domain_connect = FakeDomainConnectProvider(self.dns, self.faults)
 
     @contextmanager
-    def installed(self, *, passthrough: bool = False) -> Iterator["EmailDomainWorld"]:
-        with (
-            self.dns.installed(passthrough=passthrough),
-            self.ses.installed(passthrough=passthrough),
-            self.domain_connect.installed(passthrough=passthrough),
-        ):
+    def installed(self) -> Iterator["EmailDomainWorld"]:
+        with self.dns.installed(), self.ses.installed(), self.domain_connect.installed():
             yield self
 
     def publish_record(self, record: Mapping[str, Any]) -> None:

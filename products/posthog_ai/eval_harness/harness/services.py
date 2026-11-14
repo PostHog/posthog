@@ -342,7 +342,6 @@ def start_mcp_server(
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
                 "dashboard-widgets": True,
-                "workflows-email-from-code": True,
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
             }
         ),
