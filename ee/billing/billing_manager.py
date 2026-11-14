@@ -876,9 +876,9 @@ class BillingManager:
                     data["billing_period"]["current_period_end"],
                 ],
             )
-            for key in AI_CREDIT_SETTING_KEYS:
-                if (setting := _ai_credit_setting(organization, data, key)) is not None:
-                    usage_info[key] = setting
+            for setting_key in AI_CREDIT_SETTING_KEYS:
+                if (setting := _ai_credit_setting(organization, data, setting_key)) is not None:
+                    usage_info[setting_key] = setting
             if _ai_automatic_reload_enabled(organization, data):
                 usage_info[AI_AUTOMATIC_RELOAD_KEY] = True
 
