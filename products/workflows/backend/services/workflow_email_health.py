@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timedelta
+from itertools import chain
 from typing import Final, Literal
 from uuid import UUID
 
@@ -303,6 +304,16 @@ def _breach(
     )
 
 
+def _sends_only_transactional_email(actions: list[dict] | None) -> bool:
+    """An API workflow that passes is exempt from pauses and warnings: its bounces come from addresses
+    people type in, and a pause stops sign-up email. Same rule as hogflow-quota-limiting.ts."""
+    return all(
+        (action.get("config") or {}).get("message_category_type") == "transactional"
+        for action in actions or []
+        if action.get("type") == "function_email"
+    )
+
+
 @frozen
 class DetectorDecisions:
     pauses: list[PauseDecision]
@@ -330,10 +341,15 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
 
     # Already-paused workflows are skipped: the pause is in force and a second decision would only
     # re-notify. Resuming is what puts a workflow back in scope.
+    flows = HogFlow.objects.filter(team_id__in=candidate_team_ids, email_sending_paused_at__isnull=True)
+    fields = ("id", "team_id", "name", "email_sending_resumed_at", "email_sending_warned_at")
+    # Only API workflows can be transactional, so only their action graphs are loaded.
+    api_flows = flows.filter(trigger__contains={"type": "api"}).only(*fields, "actions")
     flows_by_id = {
         str(flow.id): flow
-        for flow in HogFlow.objects.filter(team_id__in=candidate_team_ids, email_sending_paused_at__isnull=True).only(
-            "id", "team_id", "name", "email_sending_resumed_at", "email_sending_warned_at"
+        for flow in chain(
+            flows.exclude(trigger__contains={"type": "api"}).only(*fields),
+            (flow for flow in api_flows if not _sends_only_transactional_email(flow.actions)),
         )
     }
     if not flows_by_id:
