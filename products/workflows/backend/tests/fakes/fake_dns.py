@@ -82,14 +82,11 @@ class FakeDnsZone:
         self._zones: list[_Zone] = []
         self._records: dict[RecordKey, list[dns.rdata.Rdata]] = {}
         self._clock = _ResolverClock()
-        # A live server resolves on its own threads while seeders publish into the same zones.
         self._lock = threading.Lock()
         self.queried_addresses: set[str] = set()
 
     @contextmanager
     def installed(self, *, passthrough: bool = False) -> Iterator["FakeDnsZone"]:
-        """With `passthrough`, a name outside every zone goes to the real network, so the rest of a
-        running process keeps resolving."""
         with ExitStack() as stack:
             for protocol in ("udp", "tcp"):
                 real_query = getattr(dns.query, protocol) if passthrough else None

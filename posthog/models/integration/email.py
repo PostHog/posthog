@@ -279,8 +279,7 @@ class EmailIntegration:
         if mail_from_changed:
             # The identity at the provider is shared by every organization that added the domain, so a claim that has
             # not proven ownership must not change it for the others. Under the domain lock, a verification that
-            # releases this claim either finishes before the check or waits until the change is made. A sender created
-            # on this domain copies the MAIL FROM that SES holds, so the sharing check also runs under the lock.
+            # releases this claim either finishes before the check or waits until the change is made.
             proven = self._organization_proof_published()
             with transaction.atomic():
                 with connection.cursor() as cursor:

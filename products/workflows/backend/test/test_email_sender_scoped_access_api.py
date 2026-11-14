@@ -615,7 +615,6 @@ def another_connection_waits_on_this_one() -> bool:
 
 @email_domain_settings
 class TestMailFromChangeRacingSenderCreation(EmailDomainApi, NonAtomicAPIBaseTest):
-    # Both requests commit for real, so the second one, on its own connection, can wait on the first.
     CLASS_DATA_LEVEL_SETUP = False
 
     @parameterized.expand(
@@ -646,7 +645,6 @@ class TestMailFromChangeRacingSenderCreation(EmailDomainApi, NonAtomicAPIBaseTes
                 format="json",
             )
 
-        # The first request calls SES while it holds the domain, so the second request starts there and must wait for it.
         if mail_from_change_first:
             first, second, ses_call = change_mail_from, create_sender_in_other_project, "_set_identity_mail_from_domain"
         else:

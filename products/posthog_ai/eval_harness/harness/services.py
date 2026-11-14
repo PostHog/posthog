@@ -339,8 +339,6 @@ def start_mcp_server(
         # (honored only when NODE_ENV is explicitly development/test — set above).
         # mcp-exec-skills follows the run's skill delivery mode. dashboard-widgets gates
         # the widget batch tools that the dashboard widget evals exercise.
-        # workflows-email-from-code gates the sender update and Domain Connect tools that
-        # the email domain setup eval exercises.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
                 "dashboard-widgets": True,

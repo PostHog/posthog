@@ -23,8 +23,6 @@ class EmailDomainWorld:
 
     @contextmanager
     def installed(self, *, passthrough: bool = False) -> Iterator["EmailDomainWorld"]:
-        """With `passthrough`, traffic this world does not simulate reaches the real network, as a live
-        server running alongside it needs."""
         with (
             self.dns.installed(passthrough=passthrough),
             self.ses.installed(passthrough=passthrough),

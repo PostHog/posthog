@@ -57,8 +57,6 @@ def ses_records(domain: str, mail_from_subdomain: str = "feedback") -> list[DnsR
 
 
 class SimulatedEmailDomains(EmailDomainWorld):
-    """The DNS hosts, SES and Domain Connect provider behind every simulated sending domain of an eval run."""
-
     def __init__(self) -> None:
         super().__init__()
         self.ses.region = settings.SES_REGION

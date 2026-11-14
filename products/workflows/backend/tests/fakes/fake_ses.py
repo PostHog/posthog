@@ -55,8 +55,6 @@ class FakeSes:
 
     @contextmanager
     def installed(self, *, passthrough: bool = False) -> Iterator["FakeSes"]:
-        """With `passthrough`, clients for other AWS services stay real, so the rest of a running process
-        keeps working."""
         with patch.object(boto3, "client", partial(self._client, boto3.client if passthrough else None)):
             yield self
 
