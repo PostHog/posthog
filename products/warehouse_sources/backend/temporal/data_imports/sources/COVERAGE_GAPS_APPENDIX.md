@@ -12948,18 +12948,18 @@ Note: Downloaded the official Swagger ZIP and parsed all 231 paths in its JSON s
 
 ## US Treasury Fiscal Data — **thin**
 
-Today (3): `avg_interest_rates`, `debt_to_penny`, `rates_of_exchange`
+Today (7): `auctions_query`, `avg_interest_rates`, `debt_to_penny`, `interest_expense`, `mts_table_1`, `ofs2_estimated_ownership_treasury_securities`, `rates_of_exchange`
 
 Diffed against: <https://fiscaldata.treasury.gov/page-data/sq/d/707360527.json>
 
-- [ ] `Summary of Receipts, Outlays, and the Deficit/Surplus (GET /v1/accounting/mts/mts_table_1)` — measure the federal deficit and its revenue and spending components, which debt balances cannot reproduce (high)
-- [ ] `Treasury Securities Auctions Data (GET /v1/accounting/od/auctions_query)` — analyze auction yields, demand, accepted bids, and government financing costs (high)
-- [ ] `Interest Expense on the Public Debt Outstanding (GET /v2/accounting/od/interest_expense)` — measure actual debt servicing costs alongside outstanding debt and average interest rates (high)
+- [x] `Summary of Receipts, Outlays, and the Deficit/Surplus (GET /v1/accounting/mts/mts_table_1)` — measure the federal deficit and its revenue and spending components, which debt balances cannot reproduce (high)
+- [x] `Treasury Securities Auctions Data (GET /v1/accounting/od/auctions_query)` — analyze auction yields, demand, accepted bids, and government financing costs (high)
+- [x] `Interest Expense on the Public Debt Outstanding (GET /v2/accounting/od/interest_expense)` — measure actual debt servicing costs alongside outstanding debt and average interest rates (high)
 - [ ] `Detail of Treasury Securities Outstanding (GET /v1/debt/mspd/mspd_table_3)` — break down outstanding debt by security and maturity for financing and refinancing analysis (medium)
 - [ ] `Deposits and Withdrawals of Operating Cash (GET /v1/accounting/dts/deposits_withdrawals_operating_cash)` — track daily government cash receipts and payments by source (medium)
 - [ ] `Debt Subject to Limit (GET /v1/accounting/dts/debt_subject_to_limit)` — measure debt ceiling headroom using the statutory debt measure rather than total public debt (medium)
 - [ ] `U.S. Government Revenue Collections (GET /v2/revenue/rcm)` — analyze government receipts by agency and collection category (medium)
-- [ ] `Estimated Ownership of Treasury Securities (GET /v1/accounting/tb/ofs2_estimated_ownership_treasury_securities)` — compare holdings across investor classes to assess changes in demand for Treasury securities (medium)
+- [x] `Estimated Ownership of Treasury Securities (GET /v1/accounting/tb/ofs2_estimated_ownership_treasury_securities)` — compare holdings across investor classes to assess changes in demand for Treasury securities (medium)
 
 Note: Fetched the official API documentation, then followed its Gatsby query references to the dataset catalog JSON cited here. Parsed every table endpoint and compared it with the three source paths. These public collection GET endpoints need no credentials, but each new table needs its own key and date cursor. Specialized trust funds and duplicate summary tables were omitted in favor of fiscal flows, financing, and debt composition.
 
