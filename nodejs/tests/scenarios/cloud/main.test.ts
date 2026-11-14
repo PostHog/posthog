@@ -1065,14 +1065,22 @@ describe('cloud controller', () => {
         expect(other).not.toBe(first)
     })
 
-    it('publishes an invalid run with what teardown left behind', async () => {
+    it.each<[string, (fake: FakeCloud) => void, (volumeId: string) => unknown]>([
+        ['its receipt lists', () => undefined, (volumeId) => [expect.stringContaining(volumeId)]],
+        [
+            'an unreadable receipt reports as unknown',
+            (fake) => fake.failWhen('get-object', (args) => args.some((arg) => arg.includes('/receipts/'))),
+            () => [expect.stringMatching(/^unknown: the teardown receipt could not be read/)],
+        ],
+    ])('publishes an invalid run with what teardown left behind, which %s', async (_, arrange, leftovers) => {
         const { controller } = prepare({ cloud: { outlives: ['AWS::EC2::Volume'] }, env: api.credentials })
+        arrange(cloud)
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
         const [volume] = cloud.billable()
         expect(published()).toMatchObject({ status: 'invalid', teardown_clean: false })
-        expect(published().teardown_leftovers).toEqual([expect.stringContaining(volume.split(' ')[1])])
+        expect(published().teardown_leftovers).toEqual(leftovers(volume.split(' ')[1]))
     })
 
     it.each<[string, Partial<FakeCloudOptions>, boolean, (fake: FakeCloud) => void]>([

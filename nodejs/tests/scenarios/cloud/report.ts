@@ -226,7 +226,13 @@ export async function report(
     if (judged?.reason) {
         reasons.push(judged.reason)
     }
-    const receipt = (await receiptsOf(evidence, manifest).catch(() => [])).at(-1)
+    const leftovers = await receiptsOf(evidence, manifest).then(
+        (receipts) =>
+            (receipts.at(-1)?.resources ?? [])
+                .filter(({ state }) => state !== 'gone')
+                .map(({ type, id, state }) => `${type} ${id}: ${state}`),
+        (error: Error) => [`unknown: the teardown receipt could not be read: ${error.message}`]
+    )
     const cost = costOf(profile, (to - from) / HOUR_MS, capacity)
     const costItems = cost.map(([item, usd]) => `${item}: ${dollars(usd)}`)
     const status: Status = reasons.length > 0 || !host ? 'invalid' : host.event.status
@@ -249,9 +255,7 @@ export async function report(
         ...judged?.scalars,
         acu_gaps: capacity?.gaps.map(iso) ?? [],
         teardown_clean: end.teardownClean,
-        teardown_leftovers: (receipt?.resources ?? [])
-            .filter(({ state }) => state !== 'gone')
-            .map(({ type, id, state }) => `${type} ${id}: ${state}`),
+        teardown_leftovers: leftovers,
         cost_estimate_usd: Number(cost.reduce((sum, [, usd]) => sum + usd, 0).toFixed(2)),
         cost_estimate_items: costItems,
         cost_estimate_excluded: EXCLUDED,
