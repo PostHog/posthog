@@ -29,10 +29,7 @@ function getSurveysIOSSteps(ctx: OnboardingComponentsContext): StepDefinition[] 
                                     let POSTHOG_HOST = "<ph_client_api_host>"
                                     let config = PostHogConfig(projectToken: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
 
-                                    // Surveys require iOS 15.0 or later
-                                    if #available(iOS 15.0, *) {
-                                        config.surveys = true
-                                    }
+                                    config.surveys = true
 
                                     PostHogSDK.shared.setup(config)
                                 `,

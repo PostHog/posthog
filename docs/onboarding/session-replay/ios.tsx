@@ -12,19 +12,10 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Add PostHog to your Podfile:</Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'ruby',
-                                file: 'Podfile',
-                                code: dedent`
-                                    pod "PostHog", "~> 3.56"
-                                `,
-                            },
-                        ]}
-                    />
-                    <Markdown>Or install via Swift Package Manager:</Markdown>
+                    <Markdown>
+                        Install via Swift Package Manager. PostHog requires Xcode 26 or later, and iOS 15, macOS 11,
+                        tvOS 15, watchOS 10, or visionOS 1 or later.
+                    </Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -32,16 +23,17 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 file: 'Package.swift',
                                 code: dedent`
                                     dependencies: [
-                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.56.0")
+                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "4.0.0")
                                     ]
                                 `,
                             },
                         ]}
                     />
-                    <CalloutBox type="fyi" title="SDK version">
+                    <CalloutBox type="fyi" title="Using CocoaPods?">
                         <Markdown>
-                            Session replay requires PostHog iOS SDK version 3.6.0 or higher. We recommend always using
-                            the latest version.
+                            {
+                                'Version 4 is only published to Swift Package Manager. Version 3 stays on CocoaPods (`pod "PostHog", "~> 3.0"`), but [CocoaPods trunk becomes read-only on December 2, 2026](https://blog.cocoapods.org/CocoaPods-Specs-Repo/). After that, existing 3.x versions stay installable, but new releases only ship through Swift Package Manager. To switch, see the [iOS migration guide](https://posthog.com/docs/libraries/ios/migration).'
+                            }
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -111,25 +103,29 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // requires SDK version 3.41.1 or higher.
                                             config.sessionReplayConfig.captureNetworkTelemetry = true
 
-                                            // Whether replays are created using high quality screenshots. Default is false.
-                                            // Required for SwiftUI.
-                                            // If disabled, replays are created using wireframes instead.
-                                            // The screenshot may contain sensitive information, so use with caution
-                                            config.sessionReplayConfig.screenshotMode = true
+                                            // Replays are recorded as masked screenshots, so mask anything sensitive.
+                                            // Before SDK version 4.0, also set config.sessionReplayConfig.screenshotMode = true,
+                                            // otherwise replays are recorded as wireframes and SwiftUI screens aren't recorded.
 
-                                            // Experimental. Only applies when \`screenshotMode\` is enabled.
-                                            // Moves screenshot rendering off the main thread, which reduces jank
-                                            // on high refresh rate (120Hz ProMotion) displays. May trigger Xcode's
-                                            // Main Thread Checker and briefly freeze the app on the first capture.
+                                            // Experimental. Moves screenshot capture to a background queue, which can
+                                            // reduce main-thread hangs and dropped frames on complex screens or high
+                                            // refresh rate (120Hz ProMotion) displays. May trigger Xcode's Main Thread
+                                            // Checker and briefly freeze the app on the first capture.
                                             // Default is false. Requires SDK version 3.58.1 or higher.
                                             config.sessionReplayConfig.screenshotModeBackgroundCapture = false
+
+                                            // Experimental. Screenshot resolution as a fraction of the screen's native
+                                            // resolution, from 0.1 to 1.0. With no value, captures one pixel per point,
+                                            // which is a third of native resolution on a 3x device. Higher values give
+                                            // sharper replays at the cost of capture time and upload size.
+                                            // Default is nil. Requires SDK version 3.93.0 or higher.
+                                            config.sessionReplayConfig.screenshotScale = nil
 
                                             // Minimum time (in seconds) between snapshots. Default is 1.0s.
                                             // Snapshots are taken when views lay out, so this caps how often one
                                             // can be captured rather than setting a fixed frame rate.
                                             // Lower values can make playback smoother, at the cost of more
                                             // capture work on the device.
-                                            // Note: called \`debouncerDelay\` before version 3.21.0
                                             config.sessionReplayConfig.throttleDelay = 1.0
 
                                             // Sample rate for session recordings. A value between 0.0 and 1.0.
@@ -156,8 +152,9 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                     </Markdown>
                     <CalloutBox type="fyi" title="SwiftUI support">
                         <Markdown>
-                            SwiftUI is only supported if the `screenshotMode` option is enabled. Custom views and
-                            WebViews also require screenshot mode for full support.
+                            SDK version 4.0 and later record SwiftUI, custom views and WebViews as screenshots. Earlier
+                            versions only support them if the `screenshotMode` option is enabled. A `WKWebView` is
+                            masked whole while `maskAllTextInputs` or `maskAllImages` is on, as in this snippet.
                         </Markdown>
                     </CalloutBox>
                 </>
