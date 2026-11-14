@@ -654,11 +654,12 @@ describe("resolveAiProduct", () => {
 // consume gateway-routing-cases.json so the resolvers cannot drift independently.
 describe("shared routing contract", () => {
   it.each(routingCases.resolve_ai_product)(
-    "resolves $origin_product/$ai_stage -> $expected",
-    ({ origin_product, ai_stage, internal, expected }) => {
+    "resolves $origin_product/$ai_stage/$billing_product -> $expected",
+    ({ origin_product, ai_stage, internal, billing_product, expected }) => {
       const product = resolveGatewayProduct({
         isInternal: internal,
         originProduct: origin_product,
+        billingProduct: billing_product,
       });
       expect(resolveAiProduct({ product, aiStage: ai_stage })).toBe(expected);
     },

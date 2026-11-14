@@ -692,9 +692,11 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # filter drops never reaches the agent server, so the gate would silently do nothing.
 # `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
 # `agent_instructions` can carry a member's personal instructions, so the same applies.
+# `billing_product` names the gateway product the run's OAuth token is valid for.
 _TASK_RUN_AGENT_STATE_KEYS = frozenset(
     {
         "agent_instructions",
+        "billing_product",
         "caller_ends_run",
         "end_run_when_done",
         "initial_prompt_override",

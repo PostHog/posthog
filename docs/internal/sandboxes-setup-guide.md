@@ -300,6 +300,10 @@ When a run lands on the Python gateway unexpectedly, check those two variables f
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
 
+Self-driving runs that a person starts carry `billing_product: posthog_ai` in their run state.
+The worker mints their OAuth token under the PostHog AI application, so their Python gateway fallback uses `posthog_ai`, not `signals`.
+When the model of such a run is outside the `posthog_ai` model pin, provisioning fails and asks the person to choose another model, because neither gateway serves that model to the run.
+
 ### ReviewHog project access
 
 The boolean `review-hog` feature flag controls the Code review UI and all project ReviewHog APIs,

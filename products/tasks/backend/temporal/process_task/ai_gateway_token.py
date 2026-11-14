@@ -77,6 +77,9 @@ _SIGNALS_STAGE_PRODUCTS = frozenset(
 )
 _SCOUT_STAGE_PREFIX = "scout:"
 
+# Mirrors POSTHOG_AI_BILLED_SIGNALS_ORIGINS in gateway.ts.
+POSTHOG_AI_BILLED_SIGNALS_ORIGINS = frozenset({"signal_report", "signals_scout"})
+
 # Products whose runs may mint an internally funded token. Mint scope needs
 # server-side provenance: `internal` and some origin_product values are
 # API-settable, so an unmapped origin marked internal resolves to
@@ -160,7 +163,7 @@ def resolve_sandbox_ai_product(
     profile_billing_product: str | None = None,
 ) -> str:
     """The `ai_product` the agent server will resolve for this run."""
-    if origin_product in ("signal_report", "signals_scout") and billing_product == "posthog_ai":
+    if origin_product in POSTHOG_AI_BILLED_SIGNALS_ORIGINS and billing_product == "posthog_ai":
         return "posthog_ai"
     gateway_product = profile_billing_product or _origin_gateway_product(origin_product, internal=internal)
     if gateway_product == "signals" and ai_stage:
