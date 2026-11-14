@@ -53,7 +53,6 @@ class TestMarketingCostFallback(SimpleTestCase):
             compareFilter=CompareFilter(compare=True, compare_to=compare_to),
             series=[precomputed],
             marketingAnalyticsCostFallback=MarketingAnalyticsCostFallback(series=[live], sourceIds=["a"]),
-            # An unset schema choice makes the runner read an instance setting, and that read needs the database.
             modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
         )
         warning = BreakdownNotAppliedWarning(type="breakdown_not_applied", message="Costs are shown by source.")
