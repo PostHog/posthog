@@ -100,6 +100,7 @@ For an edit with `canvas-edit-create`:
   Set `replace_all: true` to change every match, for example a rename.
 - Use `write` with the complete `content` for a new file or a full rewrite, `delete` to remove a file, and `rename` with `new_path` to move one.
 - When the change needs a new capability, for example a `ph.state` scope, also send `capabilities` with the complete new capabilities (the current ones plus the addition) in the same edit.
+  Only the canvas creator can add capabilities beyond the live version. If the edit is rejected with 403 `capability_widening_requires_creator`, do not retry: explain that the creator must publish the change. An alternative edit must omit both the added capabilities and the code that needs them. Edits that keep or reduce the current capabilities are allowed. Notebook widget canvases are exempt from this creator check.
   Do not switch to `canvas-publish-create` for that.
 - Put every operation of one change into one call. They apply in order, and the whole edit is rejected if any operation fails.
 - A 400 lists each failed operation by index. `edit_no_match` shows the closest lines of the file and `edit_ambiguous_match` lists the lines that match.
@@ -157,7 +158,12 @@ preview.
    conflicts with nothing. The response returns the draft's `version_id`, its queued `build`, and
    `capability_widening` — the insights, capture events, inline queries, and network origins the
    draft declares beyond the live version. Surface a non-empty widening to the user before
-   promoting; it is the access the change would newly grant.
+   promoting; it is the access the change would newly grant. Only the canvas creator can add
+   capabilities beyond the live version. A draft that declares more than the live version does is
+   rejected with 403 `capability_widening_requires_creator`; do not retry, and explain that the
+   creator must stage or publish the change. An alternative draft must omit both the added
+   capabilities and the code that needs them. Drafts that keep or reduce the current capabilities
+   are allowed. Notebook widget canvases are exempt from this creator check.
 2. **Wait for the build** — poll `canvas-builds-retrieve` until the draft's build is terminal, the
    same way you would after a publish. A failed draft build is fixed by staging a new draft, not by
    promoting.
