@@ -2,21 +2,21 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconArrowLeft, IconEllipsis, IconFolder, IconLetter } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonMenu, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { urls } from 'scenes/urls'
 
-import { getItemId, parentPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { parentPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { serializeFacetQuery } from './FacetSearchBar/facetQuery'
+import { WorkflowEmailTemplateActions } from './WorkflowEmailTemplateActions'
+import { WorkflowEmailTemplateNameCell } from './WorkflowEmailTemplateNameCell'
 import { WorkflowFolderActions } from './WorkflowFolderActions'
-import { WORKFLOW_FOLDER_CONTENTS_DROP_SCOPE } from './workflowFolderDragScopes'
-import { WorkflowFolderPath } from './WorkflowFolderPath'
-import { WorkflowFolderRow } from './WorkflowFolderRow'
+import { WorkflowFolderDraftRow } from './WorkflowFolderDraftRow'
+import { WorkflowFolderNavigationRow } from './WorkflowFolderNavigationRow'
+import { WorkflowFolderSelectAll } from './WorkflowFolderSelectAll'
 import { workflowFoldersLogic, type WorkflowFolderFileRow } from './workflowFoldersLogic'
 import { buildWorkflowsListV2Columns } from './workflowsListV2Columns'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
@@ -51,21 +51,11 @@ export function WorkflowFolderContents(): JSX.Element {
         browserReadyLoading,
         hasActiveQuery,
         selectedFileIds,
-        selectedFiles,
         selectableFiles,
         otherProductFileCount,
-        pendingFileMoveIds,
     } = useValues(workflowFoldersLogic)
-    const { folderDraft, folderDraftError, creatingFolder } = useValues(workflowFoldersLogic)
-    const {
-        openFolder,
-        moveFileToFolder,
-        toggleSelectedFile,
-        setSelectedFiles,
-        setFolderDraftName,
-        submitFolderDraft,
-        cancelFolderDraft,
-    } = useActions(workflowFoldersLogic)
+    const { folderDraft } = useValues(workflowFoldersLogic)
+    const { openFolder, toggleSelectedFile } = useActions(workflowFoldersLogic)
     const { setValue } = useActions(workflowsListV2Logic)
     const showFolderDraft = !!folderDraft && folderDraft.parent === (currentFolder ?? '')
     const {
@@ -113,19 +103,7 @@ export function WorkflowFolderContents(): JSX.Element {
     const selectColumn: LemonTableColumn<ContentsRow, keyof ContentsRow | undefined> = {
         key: 'select',
         width: 0,
-        title: (
-            <LemonCheckbox
-                aria-label="Select all movable items"
-                checked={
-                    selectedFiles.length && selectedFiles.length === Object.keys(selectableFiles).length
-                        ? true
-                        : selectedFiles.length
-                          ? 'indeterminate'
-                          : false
-                }
-                onChange={(checked) => setSelectedFiles(checked ? Object.keys(selectableFiles) : [])}
-            />
-        ),
+        title: <WorkflowFolderSelectAll />,
         render: (_, item) =>
             item.kind === 'workflow' || item.kind === 'email_template' ? (
                 <LemonCheckbox
@@ -162,101 +140,27 @@ export function WorkflowFolderContents(): JSX.Element {
                     return column.render?.(undefined, item.row, rowIndex, columnIndex)
                 }
                 if (column.key === 'name') {
-                    if (item.kind === 'folder' || item.kind === 'up') {
+                    if (isNavigationRow(item)) {
                         return (
-                            <WorkflowFolderRow
-                                icon={item.kind === 'up' ? <IconArrowLeft /> : <IconFolder />}
-                                drop={{ id: `project://${item.path}`, scope: WORKFLOW_FOLDER_CONTENTS_DROP_SCOPE }}
-                            >
-                                <LemonButton
-                                    size="small"
-                                    noPadding
-                                    className="flex-1 min-w-0"
-                                    onClick={() => openFolder(item.path || null)}
-                                    data-attr="workflows-folder-row"
-                                >
-                                    <span className="truncate mr-1">{item.name}</span>
-                                    {item.kind === 'folder' && (
-                                        <span
-                                            className="text-secondary font-normal text-xs"
-                                            translate="no"
-                                        >{`(${item.count})`}</span>
-                                    )}
-                                </LemonButton>
-                            </WorkflowFolderRow>
-                        )
-                    }
-                    if (item.kind === 'draft') {
-                        const showError = !!folderDraft?.name.trim() && !!folderDraftError
-                        return (
-                            <WorkflowFolderRow icon={<IconFolder />}>
-                                <LemonInput
-                                    size="small"
-                                    autoFocus
-                                    placeholder="Folder name"
-                                    aria-label="New folder name"
-                                    value={folderDraft?.name ?? ''}
-                                    onChange={setFolderDraftName}
-                                    onKeyDown={(event) => {
-                                        if (event.nativeEvent.isComposing || event.keyCode === 229) {
-                                            return
-                                        }
-                                        if (event.key === 'Enter') {
-                                            submitFolderDraft()
-                                        } else if (event.key === 'Escape') {
-                                            cancelFolderDraft()
-                                        }
-                                    }}
-                                    onBlur={() => !folderDraft?.name.trim() && cancelFolderDraft()}
-                                    status={showError ? 'danger' : 'default'}
-                                    disabled={creatingFolder}
-                                    data-attr="workflows-new-folder-name"
-                                />
-                                {showError && <span className="text-danger text-xs truncate">{folderDraftError}</span>}
-                            </WorkflowFolderRow>
-                        )
-                    }
-                    if (item.kind !== 'email_template') {
-                        return null
-                    }
-                    return (
-                        <WorkflowFolderRow
-                            icon={<IconLetter />}
-                            drag={
-                                ['viewer', 'none'].includes(item.entry.user_access_level ?? '') ||
-                                pendingFileMoveIds.includes(item.entry.id)
-                                    ? undefined
-                                    : { id: getItemId(item.entry), label: `Drag email template ${item.name}` }
-                            }
-                        >
-                            <WorkflowFolderPath path={item.entry.path} />
-                            <LemonTableLink
-                                to={urls.workflowsLibraryTemplate(item.entry.ref ?? '')}
-                                title={item.name}
-                                truncateTitle
+                            <WorkflowFolderNavigationRow
+                                kind={item.kind}
+                                name={item.name}
+                                path={item.path}
+                                count={item.count}
                             />
-                        </WorkflowFolderRow>
+                        )
+                    }
+                    return item.kind === 'draft' ? (
+                        <WorkflowFolderDraftRow />
+                    ) : (
+                        <WorkflowEmailTemplateNameCell entry={item.entry} name={item.name} />
                     )
                 }
                 if (item.kind === 'email_template' && column.key === 'status') {
                     return <LemonTag type="muted">Email template</LemonTag>
                 }
                 if (item.kind === 'email_template' && column.key === 'actions') {
-                    return (
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: 'Move to…',
-                                    onClick: () => moveFileToFolder(item.entry),
-                                    disabledReason: ['viewer', 'none'].includes(item.entry.user_access_level ?? '')
-                                        ? 'Editor access is required'
-                                        : undefined,
-                                },
-                            ]}
-                        >
-                            <LemonButton size="small" icon={<IconEllipsis />} aria-label={`Actions for ${item.name}`} />
-                        </LemonMenu>
-                    )
+                    return <WorkflowEmailTemplateActions entry={item.entry} name={item.name} />
                 }
                 if (item.kind === 'folder' && column.key === 'actions') {
                     return <WorkflowFolderActions path={item.path} count={item.count} />
@@ -265,6 +169,8 @@ export function WorkflowFolderContents(): JSX.Element {
             },
         })
     )
+    const loading =
+        !browserReady || browserReadyLoading || !listLoaded || serverSearchStatus === 'pending' || healthPending
     // Rows on pages still to come, or on a page that failed, could land here, so nothing is empty yet.
     const empty = !listComplete ? (
         'Nothing here among the workflows loaded so far.'
@@ -318,13 +224,7 @@ export function WorkflowFolderContents(): JSX.Element {
                         : {}
                 }
                 size="small"
-                loading={
-                    !browserReady ||
-                    browserReadyLoading ||
-                    !listLoaded ||
-                    serverSearchStatus === 'pending' ||
-                    healthPending
-                }
+                loading={loading}
                 sorting={sorting}
                 pagination={{
                     pageSize: 100,
@@ -334,11 +234,7 @@ export function WorkflowFolderContents(): JSX.Element {
                 emptyState={empty}
                 data-attr="workflows-folder-contents"
             />
-            {browserReady &&
-                !browserReadyLoading &&
-                serverSearchStatus !== 'pending' &&
-                !healthPending &&
-                listLoaded &&
+            {!loading &&
                 folderRows.length === 0 &&
                 folderTemplates.length === 0 &&
                 childFolders.length === 0 &&

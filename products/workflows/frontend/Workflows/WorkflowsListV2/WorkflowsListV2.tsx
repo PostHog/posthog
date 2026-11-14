@@ -3,13 +3,13 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { pluralize } from 'lib/utils/strings'
 
 import { AutomationEmptyState } from '../../setupGuide/AutomationEmptyState'
 import { AutomationSuggestionBanner } from '../../setupGuide/AutomationSuggestionBanner'
 import { MessagingSetupReminderBanner } from '../../setupGuide/MessagingSetupReminderBanner'
 import { workflowLogic } from '../workflowLogic'
 import { FacetSearchBar } from './FacetSearchBar/FacetSearchBar'
+import { WorkflowFolderBulkMoveBar } from './WorkflowFolderBulkMoveBar'
 import { WorkflowFolderContents } from './WorkflowFolderContents'
 import { WorkflowFolderDropMonitor } from './WorkflowFolderDropMonitor'
 import { WorkflowFolderSidebar } from './WorkflowFolderSidebar'
@@ -40,7 +40,6 @@ export function WorkflowsListV2(): JSX.Element {
         showsAutomationSetup,
         otherFilesScanFailed,
         otherFileCountsLoading,
-        selectedFiles,
     } = useValues(workflowFoldersLogic)
 
     useOnMountEffect(() => {
@@ -48,7 +47,7 @@ export function WorkflowsListV2(): JSX.Element {
         workflowLogic.findMounted({ id: 'new' })?.unmount()
     })
 
-    const { loadBrowser, loadOtherFiles, moveSelectedFiles, clearSelectedFiles } = useActions(workflowFoldersLogic)
+    const { loadBrowser, loadOtherFiles } = useActions(workflowFoldersLogic)
     const metricsFailed = hasHealthFilter && metricsStatus === 'failed'
     const renderWorkflowsLoadError = (title: string): JSX.Element => (
         <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
@@ -108,20 +107,7 @@ export function WorkflowsListV2(): JSX.Element {
                 <WorkflowFolderSidebar />
                 <div className="min-w-0 flex-1 @container">
                     <WorkflowFolderDropMonitor />
-                    {selectedFiles.length > 0 && (
-                        <div
-                            className="flex flex-wrap gap-2 items-center border rounded px-2 py-1 mb-2 bg-surface-secondary"
-                            data-attr="workflows-folder-bulk-move"
-                        >
-                            <span translate="no">{`${pluralize(selectedFiles.length, 'item')} selected`}</span>
-                            <LemonButton size="small" type="secondary" onClick={moveSelectedFiles}>
-                                Move to…
-                            </LemonButton>
-                            <LemonButton size="small" onClick={clearSelectedFiles}>
-                                Clear selection
-                            </LemonButton>
-                        </div>
-                    )}
+                    <WorkflowFolderBulkMoveBar />
                     <WorkflowFolderToolbar />
                     {browserLoadFailed && (
                         <div

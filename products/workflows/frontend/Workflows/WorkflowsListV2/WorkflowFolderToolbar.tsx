@@ -3,20 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconFolder } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TreeNodeDroppable } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
-import { addProductIntent } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 
 import { splitPath, joinPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { newWorkflowLogic } from '../newWorkflowLogic'
-import { workflowTemplatesLogic } from '../templates/workflowTemplatesLogic'
 import { WORKFLOW_FOLDER_BREADCRUMBS_DROP_SCOPE } from './workflowFolderDragScopes'
 import { workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
+import { WorkflowNewWorkflowButton } from './WorkflowNewWorkflowButton'
 import { WorkflowsListV2ColumnsMenu } from './WorkflowsListV2ColumnsMenu'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
 
@@ -38,9 +33,6 @@ export function WorkflowFolderToolbar(): JSX.Element {
     // Counts come from the loaded workflows, so before the list arrives every folder would read 0.
     const { listLoaded } = useValues(workflowsListV2Logic)
     const { openFolder, setFolderJumpSearch } = useActions(workflowFoldersLogic)
-    const { templateTypeFilter } = useValues(workflowsListV2Logic)
-    const { setTypeFilter } = useActions(workflowTemplatesLogic)
-    const { startNewWorkflow } = useActions(newWorkflowLogic)
     const segments = splitPath(currentFolder ?? '')
     const count = folderRows.length + folderTemplates.length
     return (
@@ -136,27 +128,7 @@ export function WorkflowFolderToolbar(): JSX.Element {
             </div>
             <div className="flex gap-2 ml-auto">
                 <WorkflowsListV2ColumnsMenu />
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.Workflow}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        onClick={() => {
-                            void addProductIntent({
-                                product_type: ProductKey.WORKFLOWS,
-                                intent_context: ProductIntentContext.WORKFLOW_CREATED,
-                            })
-                            setTypeFilter(templateTypeFilter)
-                            startNewWorkflow()
-                        }}
-                        tooltip={`The workflow lands in ${currentFolder && currentFolder !== 'Unfiled' ? currentFolder.replaceAll('/', ' / ') : 'Unfiled / Workflows'}`}
-                        data-attr="new-workflow"
-                    >
-                        New workflow
-                    </LemonButton>
-                </AccessControlAction>
+                <WorkflowNewWorkflowButton />
             </div>
         </div>
     )
