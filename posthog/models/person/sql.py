@@ -503,6 +503,12 @@ def PERSON_DISTINCT_ID_OVERRIDES_WS_MV_SQL(target_table=PERSON_DISTINCT_ID_OVERR
 #
 
 PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
+# person_static_cohort isn't fed from Kafka, so its _offset carries no Kafka offset: every writer leaves it at 0,
+# except a static cohort replace's own query insert, which writes REPLACE_ROW_OFFSET. That tells a replace's rows,
+# stamped at their attempt's marker, apart from members added since the request, which a replace keeps even when an
+# add and a marker share a second. 0 is the safe value: a row with any other _offset is kept as an add. No other
+# writer may set a non-zero _offset on this table.
+REPLACE_ROW_OFFSET = 1
 PERSON_STATIC_COHORT_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
@@ -544,7 +550,16 @@ INSERT_PERSON_STATIC_COHORT = (
 
 DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
 # A replace's prune: one mutation removes every row older than the run's marker.
-DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND _timestamp < %(marker)s"
+# A replace keeps this attempt's rows and the members added since the request, and only those.
+REPLACE_KEEPS_ROW = (
+    "((_offset = %(replace_offset)s AND _timestamp = %(marker)s)"
+    " OR (_offset != %(replace_offset)s AND _timestamp >= %(floor)s))"
+)
+# Everything a replace doesn't keep: rows from before the request, and the rows its own earlier attempts wrote.
+DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER = (
+    f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s"
+    " AND (_timestamp < %(floor)s OR (_offset = %(replace_offset)s AND _timestamp < %(marker)s))"
+)
 
 #
 # Copying demo data
@@ -603,9 +618,9 @@ WHERE actor_id NOT IN (
 
 # A replace inserts every match, existing members included, because the prune that follows removes
 # rows older than this run's _timestamp. Skipping existing members would leave them only at older
-# timestamps, and the prune would delete members the query still matches.
+# timestamps, and the prune would delete members the query still matches. Its rows carry REPLACE_ROW_OFFSET.
 INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE = """
-INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
+INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, %(_offset)s FROM (
     SELECT DISTINCT actor_id FROM ({query})
 ) AS new_actors
 """

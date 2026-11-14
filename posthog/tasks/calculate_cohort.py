@@ -999,13 +999,19 @@ def _replace_static_members(
     # would all change at once. Nothing is pruned yet, so both stores keep every member.
     if not rows_written:
         raise PopulationEmptyResult(f"Cohort {cohort.pk}: the replace query matched nobody")
-    insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written, replace_marker=marker)
+    # The replace keeps every member added since the request, across retries and sweep redispatches, and drops
+    # the rows its own earlier attempts wrote. A claim from before the request time was recorded keeps the marker.
+    claimed_at = cohort.population_claimed_at
+    floor = min(claimed_at, marker) if claimed_at is not None else marker
+    insert_cohort_people_into_pg(
+        cohort, team_id=team_id, min_rows=rows_written, replace_marker=marker, replace_floor=floor
+    )
     require_current_population_marker(cohort.pk, marker)
     # Postgres first: the flags service reads it, and it now holds every new member, so the prune
     # never leaves it short of a member the query matches. Both prunes can be replayed by a retry.
-    removed = prune_members_absent_from_replace(cohort, team_id=team_id, marker=marker)
+    removed = prune_members_absent_from_replace(cohort, team_id=team_id, marker=marker, floor=floor)
     require_current_population_marker(cohort.pk, marker)
-    prune_static_cohort_rows_before_marker(cohort.pk, team_id=team_id, marker=marker)
+    prune_static_cohort_rows_before_marker(cohort.pk, team_id=team_id, marker=marker, floor=floor)
     require_current_population_marker(cohort.pk, marker)
     logger.info(f"{log_prefix}_replace_pruned", cohort_id=cohort.pk, team_id=team_id, removed=removed)
 

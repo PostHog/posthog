@@ -1168,8 +1168,7 @@
   '''
   SELECT 1 AS "a"
   FROM "posthog_cohort"
-  WHERE ("posthog_cohort"."is_calculating"
-         AND "posthog_cohort"."pending_population_mode" = 'replace'
+  WHERE ("posthog_cohort"."pending_population_mode" = 'replace'
          AND "posthog_cohort"."id" = 99999)
   LIMIT 1
   '''

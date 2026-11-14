@@ -55,6 +55,8 @@ from posthog.models.person.sql import (
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
+    REPLACE_KEEPS_ROW,
+    REPLACE_ROW_OFFSET,
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
@@ -1406,6 +1408,8 @@ def insert_actors_into_cohort_by_query(
             "cohort_id": cohort.pk,
             "_timestamp": replace_marker if replace_marker is not None else population_timestamp_now(),
             "team_id": team_id,
+            # Only the replace insert reads it; the append insert writes 0.
+            **({"_offset": REPLACE_ROW_OFFSET} if replace_marker is not None else {}),
             **context.values,
             **params,
         },
@@ -1459,6 +1463,7 @@ def insert_cohort_people_into_pg(
     min_rows: int = 0,
     written_since: str | None = None,
     replace_marker: datetime | None = None,
+    replace_floor: datetime | None = None,
 ) -> None:
     """Copy the cohort's ClickHouse rows to Postgres.
 
@@ -1474,7 +1479,11 @@ def insert_cohort_people_into_pg(
     for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
         try:
             new_rows_read = _copy_static_cohort_rows_to_pg(
-                cohort, team_id=team_id, written_since=written_since, replace_marker=replace_marker
+                cohort,
+                team_id=team_id,
+                written_since=written_since,
+                replace_marker=replace_marker,
+                replace_floor=replace_floor,
             )
         except Exception as err:
             # A replace reads with sequential consistency, so a replica that hasn't fetched the replace's quorum part
@@ -1498,27 +1507,35 @@ def insert_cohort_people_into_pg(
 
 
 def _copy_static_cohort_rows_to_pg(
-    cohort: Cohort, *, team_id: int, written_since: str | None, replace_marker: datetime | None = None
+    cohort: Cohort,
+    *,
+    team_id: int,
+    written_since: str | None,
+    replace_marker: datetime | None = None,
+    replace_floor: datetime | None = None,
 ) -> int:
     """Return how many of the copied rows have a `_timestamp` at or after `written_since`.
 
-    A replace counts against its own marker instead: its rows carry the marker as `_timestamp`, which can be
-    earlier than `written_since`.
+    A replace copies the rows it keeps (``REPLACE_KEEPS_ROW``): this attempt's rows and the members added since
+    ``replace_floor``, the request time. It counts only this attempt's rows, which carry the marker.
     """
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
 
     CH_PAGE_SIZE = 10_000
-    timestamp_filter = " AND _timestamp >= %(replace_marker)s" if replace_marker is not None else ""
+    timestamp_filter = f" AND {REPLACE_KEEPS_ROW}" if replace_marker is not None else ""
+    counted = (
+        "max(_offset = %(replace_offset)s AND _timestamp = %(marker)s)"
+        if replace_marker is not None
+        else "max(_timestamp) >= %(counted_since)s"
+    )
     # The table is sorted by person_id within a cohort, so this streams the GROUP BY instead of
     # holding every remaining person_id in a hash table.
     read_settings: dict[str, Any] = {"optimize_aggregation_in_order": 1}
     if replace_marker is not None:
         read_settings |= REPLACE_READ_SETTINGS
-    counted_since: str | datetime = (
-        replace_marker if replace_marker is not None else written_since or "1970-01-01 00:00:00"
-    )
+    counted_since = written_since or "1970-01-01 00:00:00"
     new_rows_read = 0
 
     # Use cursor-based pagination to stream from ClickHouse in pages instead of
@@ -1532,14 +1549,16 @@ def _copy_static_cohort_rows_to_pg(
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_sync_page")
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT person_id, max(_timestamp) >= %(written_since)s FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s{timestamp_filter} AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
+            f"SELECT person_id, {counted} FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s{timestamp_filter} AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
             {
                 "cohort_id": cohort.pk,
                 "team_id": team_id,
                 "cursor": cursor,
                 "limit": batch_size,
-                "written_since": counted_since,
-                "replace_marker": replace_marker,
+                "counted_since": counted_since,
+                "marker": replace_marker,
+                "floor": replace_floor or replace_marker,
+                "replace_offset": REPLACE_ROW_OFFSET,
             },
             settings=read_settings,
             # The cluster the population insert writes to, so a read never lands on another one.
@@ -1741,14 +1760,24 @@ def _iter_cohort_member_id_pages(team_id: int, cohort_id: int, page_size: int) -
     )
 
 
-def _uuids_present_at_marker(cohort_id: int, team_id: int, person_uuids: list[str], marker: datetime) -> set[str]:
+def _uuids_present_at_marker(
+    cohort_id: int, team_id: int, person_uuids: list[str], marker: datetime, floor: datetime | None = None
+) -> set[str]:
+    """The persons among ``person_uuids`` that have a row the replace keeps (``REPLACE_KEEPS_ROW``)."""
     if not person_uuids:
         return set()
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_replace_membership")
     # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
     rows = sync_execute(
-        f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND _timestamp >= %(marker)s AND person_id IN %(person_uuids)s",
-        {"team_id": team_id, "cohort_id": cohort_id, "marker": marker, "person_uuids": person_uuids},
+        f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND {REPLACE_KEEPS_ROW} AND person_id IN %(person_uuids)s",
+        {
+            "team_id": team_id,
+            "cohort_id": cohort_id,
+            "marker": marker,
+            "floor": floor or marker,
+            "replace_offset": REPLACE_ROW_OFFSET,
+            "person_uuids": person_uuids,
+        },
         settings=REPLACE_READ_SETTINGS,
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.COHORTS,
@@ -1758,7 +1787,13 @@ def _uuids_present_at_marker(cohort_id: int, team_id: int, person_uuids: list[st
 
 
 def _restore_members_whose_rows_arrived(
-    cohort: Cohort, *, team_id: int, marker: datetime, removed: dict[int, str], last_delete_at: float
+    cohort: Cohort,
+    *,
+    team_id: int,
+    marker: datetime,
+    removed: dict[int, str],
+    last_delete_at: float,
+    floor: datetime | None = None,
 ) -> int:
     """Re-check the removed members once the settle time has passed since the last delete, restore
     any whose row at the marker has arrived since, and return how many were restored."""
@@ -1769,7 +1804,7 @@ def _restore_members_whose_rows_arrived(
     pairs = list(removed.items())
     for start in range(0, len(pairs), PRUNE_PAGE_SIZE):
         chunk = dict(pairs[start : start + PRUNE_PAGE_SIZE])
-        arrived = _uuids_present_at_marker(cohort.pk, team_id, list(chunk.values()), marker)
+        arrived = _uuids_present_at_marker(cohort.pk, team_id, list(chunk.values()), marker, floor)
         if not arrived:
             continue
         require_current_population_marker(cohort.pk, marker)
@@ -1779,7 +1814,9 @@ def _restore_members_whose_rows_arrived(
     return restored_total
 
 
-def prune_members_absent_from_replace(cohort: Cohort, *, team_id: int, marker: datetime) -> int:
+def prune_members_absent_from_replace(
+    cohort: Cohort, *, team_id: int, marker: datetime, floor: datetime | None = None
+) -> int:
     """Remove every Postgres member the replace run didn't stamp, and return how many were removed.
 
     A member is removed only when it resolves to a person and that person has no ClickHouse row at or
@@ -1800,7 +1837,7 @@ def prune_members_absent_from_replace(cohort: Cohort, *, team_id: int, marker: d
         require_current_population_marker(cohort.pk, marker)
         # An id that doesn't resolve is left out, so the prune keeps it.
         uuids_by_id = get_person_uuids_by_ids(team_id, page)
-        present = _uuids_present_at_marker(cohort.pk, team_id, list(uuids_by_id.values()), marker)
+        present = _uuids_present_at_marker(cohort.pk, team_id, list(uuids_by_id.values()), marker, floor)
         stale = {person_id: person_uuid for person_id, person_uuid in uuids_by_id.items() if person_uuid not in present}
         if not stale:
             continue
@@ -1810,12 +1847,17 @@ def prune_members_absent_from_replace(cohort: Cohort, *, team_id: int, marker: d
         awaiting_recheck.update(stale)
         if len(awaiting_recheck) >= REPLACE_PRUNE_SETTLE_BATCH:
             removed_total -= _restore_members_whose_rows_arrived(
-                cohort, team_id=team_id, marker=marker, removed=awaiting_recheck, last_delete_at=last_delete_at
+                cohort,
+                team_id=team_id,
+                marker=marker,
+                removed=awaiting_recheck,
+                last_delete_at=last_delete_at,
+                floor=floor,
             )
             awaiting_recheck = {}
     if awaiting_recheck:
         removed_total -= _restore_members_whose_rows_arrived(
-            cohort, team_id=team_id, marker=marker, removed=awaiting_recheck, last_delete_at=last_delete_at
+            cohort, team_id=team_id, marker=marker, removed=awaiting_recheck, last_delete_at=last_delete_at, floor=floor
         )
     return removed_total
 
@@ -1828,8 +1870,11 @@ def _static_cohort_delete_settings() -> dict[str, str]:
     return {"mutations_sync": "0", "lightweight_deletes_sync": "0"}
 
 
-def prune_static_cohort_rows_before_marker(cohort_id: int, *, team_id: int, marker: datetime) -> None:
-    """Delete the cohort's ClickHouse rows stamped before the replace marker, in one mutation.
+def prune_static_cohort_rows_before_marker(
+    cohort_id: int, *, team_id: int, marker: datetime, floor: datetime | None = None
+) -> None:
+    """Delete the cohort's ClickHouse rows the replace doesn't keep, in one mutation: rows from before the
+    request (``floor``), and the rows the replace's own earlier attempts wrote.
 
     Scoped by team and cohort, because two cohorts can mint the same marker second.
     """
@@ -1845,7 +1890,13 @@ def prune_static_cohort_rows_before_marker(cohort_id: int, *, team_id: int, mark
     # right to delete can't be checked here.
     sync_execute(
         DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER,
-        {"team_id": team_id, "cohort_id": cohort_id, "marker": marker},
+        {
+            "team_id": team_id,
+            "cohort_id": cohort_id,
+            "marker": marker,
+            "floor": floor or marker,
+            "replace_offset": REPLACE_ROW_OFFSET,
+        },
         settings=_static_cohort_delete_settings(),
         workload=Workload.OFFLINE,
         team_id=team_id,

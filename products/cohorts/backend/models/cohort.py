@@ -1254,9 +1254,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def _replace_in_flight(self) -> bool:
         # Read from the database: the caller's instance may predate the claim.
-        return Cohort.objects.filter(
-            pk=self.pk, is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
-        ).exists()
+        # The mode alone, not is_calculating: the sweep releases is_calculating before its redispatch starts, and an
+        # add in that gap must still write a fresh row. A stale mode would only write a duplicate row, which readers
+        # deduplicate.
+        return Cohort.objects.filter(pk=self.pk, pending_population_mode=CohortPopulationMode.REPLACE).exists()
 
     def _get_existing_ch_member_uuids(
         self,

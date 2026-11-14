@@ -24,6 +24,7 @@ from posthog.hogql.errors import QueryError
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorQueryWasCancelled, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models.person.sql import REPLACE_ROW_OFFSET
 from posthog.tasks.calculate_cohort import (
     COHORT_BACKFILL_REFUSAL_OUTCOMES,
     COHORT_BACKFILL_TRIGGER_TASK_COUNTER,
@@ -64,6 +65,7 @@ from products.cohorts.backend.models.util import (
     count_cohort_members,
     delete_cohort_members_by_person_ids,
     get_friendly_error_message,
+    insert_cohort_query_actors_into_ch,
     insert_static_cohort,
     list_cohort_member_ids,
 )
@@ -1971,6 +1973,70 @@ class TestCohortCalculationTasks(APIBaseTest):
 
         self.assertNotIn("replace_marker", scheduled.exception.sig.kwargs)
         self.assertFalse(scheduled.exception.sig.kwargs["ch_insert_done"])
+
+    def test_a_retried_replace_keeps_adds_since_the_request_and_drops_its_failed_attempt(self) -> None:
+        # Attempt 1 writes its matches, then fails, so attempt 2 mints a newer marker under an edited query.
+        # Adds made before attempt 1 and between the attempts must survive. Attempt 1's rows must not: neither
+        # a match only attempt 1 made, nor the duplicate rows it left for a person both attempts match.
+        a, s, p, q, r = (
+            create_person(team=self.team, distinct_ids=[name], properties={"tag": tag}, uuid=uuid4())
+            for name, tag in (("a", "a"), ("s", "s"), ("p", "x"), ("q", "x"), ("r", "x"))
+        )
+        flush_persons_and_events()
+        start = timezone.now().replace(microsecond=0)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag IN ('a', 's')"},
+        )
+        real_insert = insert_cohort_query_actors_into_ch
+
+        def insert_then_fail(*args: Any, **kwargs: Any) -> int:
+            real_insert(*args, **kwargs)
+            raise InternalCHQueryError("unknown status of insert", code=319)
+
+        with time_machine.travel(start, tick=False) as clock:
+            # r was a member before the request and matches neither query.
+            cohort.insert_users_list_by_uuid([str(r.uuid)], team_id=self.team.pk)
+            clock.shift(10)
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_claimed_at=timezone.now(),
+            )
+            clock.shift(10)
+            cohort.insert_users_list_by_uuid([str(p.uuid)], team_id=self.team.pk, save_state=False)
+            clock.shift(10)
+            insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
+            try:
+                with (
+                    patch(QUERY_CH_INSERT_PATH, side_effect=insert_then_fail),
+                    self.assertRaises(Retry) as scheduled,
+                ):
+                    insert_cohort_from_query.run(cohort.id, self.team.pk)
+            finally:
+                insert_cohort_from_query.pop_request()
+            clock.shift(10)
+            cohort.insert_users_list_by_uuid([str(q.uuid)], team_id=self.team.pk, save_state=False)
+            Cohort.objects.filter(pk=cohort.pk).update(
+                query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'a'"}
+            )
+            clock.shift(10)
+            insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {a.id, p.id, q.id})
+        rows = sync_execute(
+            "SELECT person_id, _offset FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.pk, "cohort_id": cohort.pk},
+        )
+        # One flagged row for the match, and the adds keep _offset 0: only the replace's insert sets the flag.
+        self.assertEqual(
+            sorted((str(person_id), offset) for person_id, offset in rows),
+            sorted([(str(a.uuid), REPLACE_ROW_OFFSET), (str(p.uuid), 0), (str(q.uuid), 0)]),
+        )
 
     def test_replace_retry_after_partial_postgres_prune_converges(self) -> None:
         # A retry after a partial Postgres prune converges both stores exact.
