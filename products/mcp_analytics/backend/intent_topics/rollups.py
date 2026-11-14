@@ -4,7 +4,7 @@ Both tables are ReplacingMergeTree, which keeps every version of a row until par
 reader goes through ``hourly_calls_source`` or ``topic_daily_source`` to see one version only.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from typing import Any, cast
@@ -102,6 +102,18 @@ class WholeDays:
             end = datetime.combine(local_end.date() + timedelta(days=1), time.min, tzinfo=zone)
         return cls(start=start.astimezone(UTC), end=end.astimezone(UTC))
 
+    def each_day(self, timezone: str) -> Iterator["WholeDays"]:
+        zone = ZoneInfo(timezone)
+        day = self.start.astimezone(zone).date()
+        last = self.end.astimezone(zone).date()
+        while day < last:
+            next_day = day + timedelta(days=1)
+            yield WholeDays(
+                start=datetime.combine(day, time.min, tzinfo=zone).astimezone(UTC),
+                end=datetime.combine(next_day, time.min, tzinfo=zone).astimezone(UTC),
+            )
+            day = next_day
+
 
 def build_topic_daily_insert(
     *, team_id: int, window_start: datetime, window_end: datetime, now: datetime, timezone: str = "UTC"
@@ -136,10 +148,12 @@ def build_topic_daily_insert(
 def rebuild_topic_daily(
     *, team_id: int, window_start: datetime, window_end: datetime, now: datetime, timezone: str = "UTC"
 ) -> None:
-    sql, params = build_topic_daily_insert(
-        team_id=team_id, window_start=window_start, window_end=window_end, now=now, timezone=timezone
-    )
-    sync_execute(sql, params, team_id=team_id, workload=Workload.OFFLINE)
+    # One insert per day keeps each query to a day of hourly rows, however long the window is.
+    for day in WholeDays.covering(window_start, window_end, timezone).each_day(timezone):
+        sql, params = build_topic_daily_insert(
+            team_id=team_id, window_start=day.start, window_end=day.end, now=now, timezone=timezone
+        )
+        sync_execute(sql, params, team_id=team_id, workload=Workload.OFFLINE)
 
 
 _HOURLY_SOURCE_SQL = """

@@ -129,6 +129,8 @@ class IntentUsage:
     distance: float
     calls: int
     tool: str
+    # Rows matching the filters before the limit, repeated on every row.
+    total_points: int
 
 
 _TOPIC_SUMS_SQL = """
@@ -155,7 +157,8 @@ LIMIT {limit}
 # assignment apply after the latest row is chosen, so an older assignment never resurfaces.
 _INTENT_USAGE_SQL = """
 SELECT u.intent_hash AS intent_hash, a.intent_text AS intent_text, a.x AS x, a.y AS y, a.topic_id AS topic_id,
-       a.is_outlier AS is_outlier, a.distance AS distance, u.calls AS calls, u.tool AS tool
+       a.is_outlier AS is_outlier, a.distance AS distance, u.calls AS calls, u.tool AS tool,
+       count() OVER () AS total_points
 FROM (
     SELECT intent_hash, sum(tool_calls) AS calls, argMax(tool, tool_calls) AS tool
     FROM (SELECT intent_hash, tool, sum(calls) AS tool_calls FROM {usage} GROUP BY intent_hash, tool)
@@ -194,8 +197,9 @@ class _IntentTopicsBase:
 
     @cached_property
     def window(self) -> QueryWindow:
-        date_from = self.query_date_range.date_from()
-        date_to = self.query_date_range.date_to()
+        # Topic totals come from whole-day rollups, so the hourly reads widen to the same project-local days.
+        date_from = self.query_date_range.date_from().replace(hour=0, minute=0, second=0, microsecond=0)
+        date_to = self.query_date_range.date_to().replace(hour=23, minute=59, second=59, microsecond=999999)
         days = (date_to.date() - date_from.date()).days + 1
         return QueryWindow(previous_from=date_from - timedelta(days=days), date_from=date_from, date_to=date_to)
 
@@ -317,6 +321,7 @@ class _IntentTopicsBase:
                 distance=float(row[6] or 0),
                 calls=int(row[7] or 0),
                 tool=row[8] or "",
+                total_points=int(row[9] or 0),
             )
             for row in rows
         ]
@@ -585,18 +590,14 @@ class MCPIntentMapQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPIntentM
             )
             for item in usage
         ]
-        total_rows = self._execute(
-            cast(
-                ast.SelectQuery,
-                parse_select("SELECT count() FROM {points}", placeholders={"points": self.to_query()}),
-            ),
-            "mcp_intent_map_total",
-        )
-        total_points = int(total_rows[0][0]) if total_rows else 0
+        total_points = usage[0].total_points if usage else 0
 
         sums = self._topic_sums(self.query.toolName)
         total_calls = sums.calls_with_intent
         registry = self._topics_by_id()
+        calls_by_topic = {topic_id: totals.calls for topic_id, totals in sums.current.items()}
+        # A point sits under its intent's latest assignment, which can name a topic with no daily rows in the window.
+        bubble_ids = {self.query.topicId} if self.query.topicId else {*calls_by_topic, *(p.topic_id for p in points)}
         topics = [
             MCPIntentMapTopic(
                 topic_id=topic_id,
@@ -604,11 +605,11 @@ class MCPIntentMapQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPIntentM
                 summary=self._summary(topic),
                 x=topic.centroid_x,
                 y=topic.centroid_y,
-                calls=sums.current[topic_id].calls,
-                share_pct=_pct(sums.current[topic_id].calls, total_calls),
+                calls=calls_by_topic.get(topic_id, 0),
+                share_pct=_pct(calls_by_topic.get(topic_id, 0), total_calls),
             )
             for topic_id, topic in registry.items()
-            if topic_id in sums.current and (not self.query.topicId or topic_id == self.query.topicId)
+            if topic_id in bubble_ids
         ]
         topics.sort(key=lambda t: -t.calls)
         return MCPIntentMapQueryResponse(
