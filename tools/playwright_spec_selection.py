@@ -17,7 +17,8 @@ any selector error. Over-selection silently drops coverage, so the only safe
 default is "run everything". A selection miss that slips through is caught by
 the post-merge full run on master (the backstop).
 
-Two carve-outs soften fail-closed where the full suite provably adds nothing:
+Three carve-outs soften fail-closed. The first two apply where the full suite
+provably adds nothing; the third is a deliberate trust trade:
 
 - `ignore`: paths that cannot affect the app under test (docs, agent
   instructions, lint rules, workflows for other suites) contribute nothing to
@@ -32,6 +33,22 @@ Two carve-outs soften fail-closed where the full suite provably adds nothing:
   auth works) instead of everything. A mapping in `scenes` outranks the
   smoke-only list; writing a real spec for the scene means moving it to
   `scenes`.
+- `backend_smoke` + `backend_smoke_specs` + `backend_explicit`: a backend
+  Python file (or its pytest snapshot) that no earlier rule maps runs
+  `backend_smoke_specs`, plus the specs of the first `backend_explicit` area
+  it falls in, instead of everything. Unlike the two above, the full suite
+  DOES exercise backend code, so this accepts that a backend regression
+  outside those specs first fails in the merge queue (`trunk-merge/**`,
+  always full) rather than on the PR. `force_full` keeps the high-blast-radius
+  backend paths (migrations, settings, URL routing, auth, middleware, the e2e
+  setup endpoint, demo data) on the full suite. `backend_explicit` applies
+  only to files `backend_smoke` already matched, so a non-Python file in a
+  mapped backend area still forces a full run. A diff that mixes these files
+  with mapped files runs the union; any unmapped non-backend file still
+  forces a full run. `selection_reason_category` tags these runs:
+  `backend_smoke` when backend files were the only spec source and none hit a
+  `backend_explicit` area, `backend_targeted` when at least one did, and
+  `backend_smoke_mixed` when non-backend files also contributed specs.
 
 Emits a single JSON object to stdout:
 
@@ -41,6 +58,7 @@ Emits a single JSON object to stdout:
       "full_run_reasons": [...],        # why a full run was chosen (empty when selected)
       "full_run_reason_category": "",   # low-cardinality category (empty when selected)
       "full_run_reason_detail": "",     # low-cardinality trigger (the pattern/scene/product/dir)
+      "selection_reason_category": "",  # carve-out that shaped a selected run (empty when full)
       "changed_files": [...],
       "changed_file_count": N,
       "selected_count": M,
@@ -151,6 +169,7 @@ def _result(
     total_spec_count: int,
     reason_category: str = "",
     reason_detail: str = "",
+    selection_category: str = "",
 ) -> dict:
     return {
         "mode": mode,
@@ -159,6 +178,7 @@ def _result(
         # Low-cardinality labels for analytics grouping (the reasons carry file paths).
         "full_run_reason_category": reason_category,
         "full_run_reason_detail": reason_detail,
+        "selection_reason_category": selection_category,
         "changed_files": changed_files,
         "changed_file_count": len(changed_files),
         "selected_count": len(spec_files),
@@ -175,9 +195,18 @@ class FullRun:
     detail: str = ""
 
 
+@dataclass(frozen=True)
+class BackendSmoke:
+    """A backend file no earlier rule maps: it runs the backend smoke specs (plus its area's specs)
+    and tags the run for telemetry."""
+
+    specs: frozenset[str]
+    targeted: bool
+
+
 # One file's contribution to the selection: a full run, the specs it selects, or
 # `None` when the file is ignore-listed and contributes nothing.
-FileOutcome = FullRun | set[str] | None
+FileOutcome = FullRun | BackendSmoke | set[str] | None
 
 
 class AreaMap:
@@ -191,6 +220,11 @@ class AreaMap:
         self._scenes = area_map.get("scenes", {})
         self._scenes_smoke_only = set(area_map.get("scenes_smoke_only", []))
         self._smoke_subset = area_map.get("smoke_subset", [])
+        self._backend_smoke = [_compile_glob(p) for p in area_map.get("backend_smoke", [])]
+        self._backend_smoke_specs = area_map.get("backend_smoke_specs", [])
+        self._backend_explicit = [
+            (_compile_glob(p), targets) for p, targets in area_map.get("backend_explicit", {}).items()
+        ]
         self._explicit = [(p, _compile_glob(p), targets) for p, targets in area_map.get("explicit", {}).items()]
 
     def _expand(self, targets: Iterable[str]) -> set[str]:
@@ -243,9 +277,16 @@ class AreaMap:
             return self._expand(self._smoke_subset)
         return FullRun(f"{path}: scene '{area}' has no spec mapping", "unmapped_scene", area)
 
+    def backend_specs(self, path: str) -> BackendSmoke:
+        specs = self._expand(self._backend_smoke_specs)
+        for rx, targets in self._backend_explicit:
+            if rx.match(path):
+                return BackendSmoke(frozenset(specs | self._expand(targets)), targeted=True)
+        return BackendSmoke(frozenset(specs), targeted=False)
+
     def classify(self, path: str) -> FileOutcome:
         """The ordered decision flow for one changed file."""
-        # 1. Shared infra / backend / unattributable code -> full (highest priority,
+        # 1. Shared infra / high-blast-radius backend / unattributable code -> full (highest priority,
         #    deliberately above `ignore` so an ignore glob can never swallow a
         #    force-full path like the playwright workflow file itself).
         pattern = self.force_full_pattern(path)
@@ -275,7 +316,12 @@ class AreaMap:
         if path in self._all_specs:
             return {path}
 
-        # 7. Anything unrecognized -> full (fail closed).
+        # 7. Backend code no rule above maps -> backend smoke specs plus its area's specs
+        #    (the merge queue runs the full suite).
+        if any(rx.match(path) for rx in self._backend_smoke):
+            return self.backend_specs(path)
+
+        # 8. Anything unrecognized -> full (fail closed).
         return FullRun(f"{path}: unmapped path", "unmapped_path", _dir_prefix(path))
 
 
@@ -294,12 +340,19 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
     rules = AreaMap(area_map, all_specs)
     selected: set[str] = set()
     ignored_count = 0
+    backend_smoke_count = 0
+    backend_targeted = False
     for f in changed_files:
         outcome = rules.classify(f)
         if isinstance(outcome, FullRun):
             return full(outcome.reason, outcome.category, outcome.detail)
         if outcome is None:
             ignored_count += 1
+            continue
+        if isinstance(outcome, BackendSmoke):
+            backend_smoke_count += 1
+            backend_targeted = backend_targeted or outcome.targeted
+            selected |= outcome.specs
             continue
         selected |= outcome
 
@@ -313,7 +366,14 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
                 "all_ignored",
             )
         return full("no specs selected (defensive full run)", "no_specs")
-    return _result("selected", sorted(selected), [], changed_files, total)
+    selection_category = ""
+    if backend_smoke_count:
+        mapped_count = len(changed_files) - ignored_count - backend_smoke_count
+        if mapped_count:
+            selection_category = "backend_smoke_mixed"
+        else:
+            selection_category = "backend_targeted" if backend_targeted else "backend_smoke"
+    return _result("selected", sorted(selected), [], changed_files, total, selection_category=selection_category)
 
 
 def _error_result(detail: str, changed_files: list[str] | None = None, total_spec_count: int = 0) -> dict:

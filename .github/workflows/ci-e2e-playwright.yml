@@ -424,6 +424,7 @@ jobs:
             changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
             full_run_reason_category: ${{ steps.classify.outputs.full_run_reason_category }}
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
+            selection_reason_category: ${{ steps.classify.outputs.selection_reason_category }}
         steps:
             # Keep both complete spec roots so added and removed specs affect discovery.
             # The selector still reads the script and map from the PR head.
@@ -492,6 +493,7 @@ jobs:
                   CHANGED_COUNT=""
                   REASON_CATEGORY=""
                   REASON_DETAIL=""
+                  SELECTION_CATEGORY=""
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/spec-selection.json ]]; then
                       echo "::warning::spec selector produced no output — running the FULL suite"
@@ -516,10 +518,12 @@ jobs:
                       SKIPPED_COUNT=$((TOTAL_COUNT - SELECTED_COUNT))
                       if [[ "$MODE" == "selected" ]]; then
                           SPECS=$(jq -r '.spec_files | join(" ")' /tmp/spec-selection.json)
+                          SELECTION_CATEGORY=$(jq -r '.selection_reason_category // ""' /tmp/spec-selection.json)
                           if [[ -z "$SPECS" ]]; then
                               echo "::warning::selected mode but empty spec list — full run"
                               MODE=full
                               REASON_CATEGORY=no_specs
+                              SELECTION_CATEGORY=""
                           fi
                       else
                           echo "Selector requested a full run:"
@@ -541,6 +545,7 @@ jobs:
                       echo "changed_file_count=$CHANGED_COUNT"
                       echo "full_run_reason_category=$REASON_CATEGORY"
                       echo "full_run_reason_detail=$REASON_DETAIL"
+                      echo "selection_reason_category=$SELECTION_CATEGORY"
                   } >> "$GITHUB_OUTPUT"
                   echo "mode=$MODE category=${REASON_CATEGORY:-none} selected=${SELECTED_COUNT:-?}/${TOTAL_COUNT:-?}"
 
@@ -1252,6 +1257,7 @@ jobs:
                         "changed_file_count": ${{ needs.select-specs.outputs.changed_file_count || 'null' }},
                         "full_run_reason_category": ${{ toJSON(needs.select-specs.outputs.full_run_reason_category || '') }},
                         "full_run_reason_detail": ${{ toJSON(needs.select-specs.outputs.full_run_reason_detail || '') }},
+                        "selection_reason_category": ${{ toJSON(needs.select-specs.outputs.selection_reason_category || '') }},
                         "playwright_test_seconds": ${{ needs.playwright.outputs.test_seconds || 'null' }},
                         "playwright_result": ${{ toJSON(needs.playwright.result) }},
                         "runner_billing_multiplier": 4,
