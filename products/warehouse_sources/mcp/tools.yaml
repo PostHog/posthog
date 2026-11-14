@@ -282,7 +282,14 @@ tools:
             (direct_query_enabled), set live_query_enabled=true to make a table queryable live without syncing it;
             synced tables are always queryable live. The schema's live_query_unavailable_reason says why a table can't
             be made live, and the update is refused for the same reason. Query live tables with 'execute-sql' and the
-            source id as connectionId."
+            source id as connectionId. partition_policy (beta, behind a feature flag, refused while that flag is off)
+            sets how PostHog partitions the synced table: auto is the default and balances the two;
+            prefer_query_speed keeps fewer, larger partitions, so queries on the table read fewer files but syncs merge
+            more data; prefer_sync_speed keeps smaller partitions and never merges them, so syncs are lighter but
+            queries read more files; manual keeps the current layout until 'external-data-schemas-repartition-create'
+            changes it. Choose prefer_query_speed when the user says queries on this table are slow, and
+            prefer_sync_speed when syncs of this table are slow. Check the effect with
+            'external-data-schemas-partitioning-retrieve'."
         exclude_params:
             - drop_history_table
         param_overrides:
@@ -292,6 +299,53 @@ tools:
                     - schemaId
             sync_frequency:
                 cast: sync-frequency
+    external-data-schemas-partitioning-retrieve:
+        operation: external_data_schemas_partitioning_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a table's partitioning and repartition history
+        description: >
+            Beta. Read how one synced table is partitioned, its repartitions newest first, and sync stats for each
+            layout it had (job count, median and 90th percentile duration, median rows per second). Use it when the
+            user says queries on this table are slow, or syncs of this table are slow: compare the sync stats before
+            and after each repartition, and check the partition scheme and the size of the largest partition. To
+            change the trade-off, set partition_policy with 'external-data-schemas-partial-update', or rewrite the
+            layout now with 'external-data-schemas-repartition-create'.
+        param_overrides:
+            id:
+                aliases:
+                    - schema_id
+                    - schemaId
+        feature_flag: warehouse-partitioning-controls
+    external-data-schemas-repartition-create:
+        operation: external_data_schemas_repartition_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Repartition a table now
+        description: >
+            Beta. Rewrite one synced table into a chosen partition scheme now, in place, without re-importing from
+            the source. Use it when the user says queries on this table are slow (choose a coarser scheme: a coarser
+            datetime tier, fewer md5 buckets or wider numerical buckets) or syncs are slow (choose a finer one). Read
+            the current scheme with 'external-data-schemas-partitioning-retrieve' first. The run starts now and blocks
+            the table's sync until the rewrite ends, which can take hours for a large table, so ask the user before
+            calling it. The table's partition_policy becomes manual. Refused when the largest partition would be over
+            the size limit, when a repartition is already queued or running, or within 24 hours of the last one.
+        param_overrides:
+            id:
+                aliases:
+                    - schema_id
+                    - schemaId
+        feature_flag: warehouse-partitioning-controls
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true

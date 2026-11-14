@@ -340,9 +340,86 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.api_version !== undefined) {
             body['api_version'] = params.api_version
         }
+        if (params.partition_policy !== undefined) {
+            body['partition_policy'] = params.partition_policy
+        }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExternalDataSchemasPartitioningRetrieveSchema = () => {
+    const ExternalDataSchemasPartitioningRetrieveParams = orvalSchemas.ExternalDataSchemasPartitioningRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasPartitioningRetrieveParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSchemasPartitioningRetrieve = (): ToolBase<
+    ReturnType<typeof ExternalDataSchemasPartitioningRetrieveSchema>,
+    Schemas.PartitioningHistory
+> => ({
+    name: 'external-data-schemas-partitioning-retrieve',
+    schema: ExternalDataSchemasPartitioningRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSchemasPartitioningRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PartitioningHistory>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/partitioning/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSchemasRepartitionCreateSchema = () => {
+    const ExternalDataSchemasRepartitionCreateBody = orvalSchemas.ExternalDataSchemasRepartitionCreateBody()
+    const ExternalDataSchemasRepartitionCreateParams = orvalSchemas.ExternalDataSchemasRepartitionCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasRepartitionCreateParams.omit({ project_id: true }).extend(
+            ExternalDataSchemasRepartitionCreateBody.shape
+        )
+    )
+}
+
+const externalDataSchemasRepartitionCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSchemasRepartitionCreateSchema>,
+    unknown
+> => ({
+    name: 'external-data-schemas-repartition-create',
+    schema: ExternalDataSchemasRepartitionCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSchemasRepartitionCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.partition_mode !== undefined) {
+            body['partition_mode'] = params.partition_mode
+        }
+        if (params.partition_format !== undefined) {
+            body['partition_format'] = params.partition_format
+        }
+        if (params.partition_count !== undefined) {
+            body['partition_count'] = params.partition_count
+        }
+        if (params.partition_size !== undefined) {
+            body['partition_size'] = params.partition_size
+        }
+        if (params.partitioning_keys !== undefined) {
+            body['partitioning_keys'] = params.partitioning_keys
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/repartition/`,
             body,
         })
         return result
@@ -1610,6 +1687,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,
     'external-data-schemas-list': externalDataSchemasList,
     'external-data-schemas-partial-update': externalDataSchemasPartialUpdate,
+    'external-data-schemas-partitioning-retrieve': externalDataSchemasPartitioningRetrieve,
+    'external-data-schemas-repartition-create': externalDataSchemasRepartitionCreate,
     'external-data-schemas-reload': externalDataSchemasReload,
     'external-data-schemas-resync': externalDataSchemasResync,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,

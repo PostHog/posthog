@@ -16,20 +16,29 @@ from django.conf import settings
 from django.utils import timezone
 
 import deltalake as deltalake
+import structlog
 import posthoganalytics
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, PartitionPolicy
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.models.repartition_history import (
+    ExternalDataSchemaRepartition,
+    PartitionScheme,
+    RepartitionStatus,
+    RepartitionTransition,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_maintenance_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    COARSEN_MIN_REDUCTION_FACTOR,
     measure_partition_bytes,
     select_coarsen_target,
     select_repartition_target,
@@ -43,6 +52,8 @@ from products.warehouse_sources.backend.temporal.data_imports.schema_flags impor
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
+LOGGER = structlog.get_logger(__name__)
+
 # Gates pausing a schema's imports while a multi-budget rewrite converges. Off by default:
 # repartitioning a table costs us worker time, pausing its imports costs the customer freshness, so
 # the second is not a decision the first should make.
@@ -51,6 +62,10 @@ WAREHOUSE_REPARTITION_HOLD_FLAG = "data-warehouse-repartition-hold"
 # Lets the automatic coarsening path size keyed md5 tables by merge parallelism. Release it to one
 # table with a `schema_id` condition before rolling out wider.
 WAREHOUSE_MERGE_AUTO_COARSEN_FLAG = "data-warehouse-merge-auto-coarsen"
+
+# Lets a team choose a partitioning policy per table. Off means every table runs the auto tuning,
+# whatever its stored policy, so turning the flag off is always safe.
+WAREHOUSE_PARTITIONING_CONTROLS_FLAG = "warehouse-partitioning-controls"
 
 # Coarsening gates. The two directions deliberately don't meet: a table is split finer above the budget
 # and merged coarser only below an eighth of it, and a coarsen aims at half the budget. So a freshly
@@ -82,7 +97,13 @@ MAX_REPARTITION_ATTEMPTS = 3
 # error tracking. Every other reason means the schema row disagrees with itself (numerical mode with
 # no `partition_size`) or the selector saw a state the caller should have filtered out first
 # (`no_partitions`, `within_budget`), which is a bug in us, so it still alerts.
-EXPECTED_SKIP_REASONS = frozenset({"unpartitionable_no_keys", "datetime_at_finest_tier", "numerical_cannot_shrink"})
+EXPECTED_SKIP_REASONS = frozenset(
+    {"unpartitionable_no_keys", "datetime_at_finest_tier", "numerical_cannot_shrink", "hour_tier_needs_oom"}
+)
+
+# The skip reason a `manual` table records when its largest partition is over budget, because nothing
+# rewrites it until someone repartitions it.
+MANUAL_POLICY_OVER_BUDGET = "manual_policy_over_budget"
 
 
 def target_partition_bytes() -> int:
@@ -191,6 +212,69 @@ def min_splittable_partition_bytes() -> int:
     return target_partition_bytes() // COARSEN_TRIGGER_DIVISOR
 
 
+@frozen
+class RepartitionTuning:
+    """The thresholds the controller applies to one table, resolved from its partitioning policy.
+
+    Fewer, larger partitions make queries read fewer files but make each merge during a sync heavier.
+    More, smaller partitions do the opposite. Each policy moves the controller's thresholds along that
+    trade-off; `auto` is the behavior every table had before policies existed.
+    """
+
+    policy: PartitionPolicy
+    # False for `manual`: the controller still measures the table but never stages a target.
+    stages_targets: bool = True
+    coarsens: bool = True
+    # The size split fires above the split budget divided by this.
+    split_budget_divisor: int = 1
+    # Without it, a size split never moves a datetime table to the hour tier; only an OOM-triggered one does.
+    size_split_reaches_hour_tier: bool = True
+    coarsen_trigger_divisor: int = COARSEN_TRIGGER_DIVISOR
+    coarsen_target_divisor: int = COARSEN_TARGET_DIVISOR
+    coarsen_min_reduction_factor: int = COARSEN_MIN_REDUCTION_FACTOR
+
+    def split_budget(self, schema: ExternalDataSchema) -> int:
+        return max(1, split_budget_bytes(schema) // self.split_budget_divisor)
+
+
+AUTO_TUNING = RepartitionTuning(policy=PartitionPolicy.AUTO)
+
+_TUNINGS: dict[str, RepartitionTuning] = {
+    PartitionPolicy.AUTO: AUTO_TUNING,
+    # A coarsened table may fill the whole budget, so the split path only claims it once it outgrows
+    # the budget. The layout age and the cooldown keep the two paths from trading the table back and forth.
+    PartitionPolicy.PREFER_QUERY_SPEED: RepartitionTuning(
+        policy=PartitionPolicy.PREFER_QUERY_SPEED,
+        size_split_reaches_hour_tier=False,
+        coarsen_trigger_divisor=2,
+        coarsen_target_divisor=1,
+        coarsen_min_reduction_factor=2,
+    ),
+    PartitionPolicy.PREFER_SYNC_SPEED: RepartitionTuning(
+        policy=PartitionPolicy.PREFER_SYNC_SPEED, coarsens=False, split_budget_divisor=2
+    ),
+    PartitionPolicy.MANUAL: RepartitionTuning(policy=PartitionPolicy.MANUAL, stages_targets=False, coarsens=False),
+}
+
+
+def partitioning_controls_enabled(schema: ExternalDataSchema) -> bool:
+    return is_schema_flag_enabled(schema, WAREHOUSE_PARTITIONING_CONTROLS_FLAG)
+
+
+def tuning_for(schema: ExternalDataSchema) -> RepartitionTuning:
+    """The tuning for this table's policy, or the auto tuning while the controls flag is off for its team.
+
+    An `auto` table never evaluates the flag. The evaluation is synchronous and reads the database, so
+    async callers run this in a thread.
+    """
+    tuning = _TUNINGS.get(schema.partition_policy)
+    if tuning is None or tuning.policy == PartitionPolicy.AUTO:
+        return AUTO_TUNING
+    if not partitioning_controls_enabled(schema):
+        return AUTO_TUNING
+    return tuning
+
+
 def repartition_oom_threshold() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_REPARTITION_OOM_THRESHOLD", 3))
 
@@ -264,7 +348,11 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
         return False
     if measurement.get("budget") != target_partition_bytes():
         return False
-    if measurement.get("split_budget") != split_budget_bytes(schema):
+    tuning = tuning_for(schema)
+    # A measurement without this key is older than policies, and every table was `auto` then.
+    if measurement.get("policy", PartitionPolicy.AUTO) != tuning.policy:
+        return False
+    if measurement.get("split_budget") != tuning.split_budget(schema):
         return False
     # A measurement without this key is older than the key, and was taken against the base budget.
     if measurement.get("coarsen_budget", measurement.get("budget")) != coarsen_trigger_budget(
@@ -293,6 +381,10 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
 
 AUTOMATIC_SPLIT_TRIGGERS = frozenset({"proactive_threshold", "oom_history"})
 
+# A person chose these targets: staff in PostHog Admin, or the customer with "repartition now". The
+# rewrite runs whole rather than in slices, and a transient error retries it at once.
+OPERATOR_TRIGGERS = frozenset({"admin", "user"})
+
 
 def is_automatic_split_of_append_table(schema: ExternalDataSchema, trigger_reason: str) -> bool:
     """Whether a queued target is an automatic split of an append table. An operator target is not."""
@@ -306,7 +398,7 @@ def is_stale_size_split(schema: ExternalDataSchema, trigger_reason: str) -> bool
         trigger_reason == "proactive_threshold"
         and schema.sync_type in KEYED_MERGE_SYNC_TYPES
         and schema.max_partition_bytes is not None
-        and schema.max_partition_bytes <= split_budget_bytes(schema)
+        and schema.max_partition_bytes <= tuning_for(schema).split_budget(schema)
     )
 
 
@@ -380,14 +472,87 @@ def base_event_props(schema: ExternalDataSchema, source: ExternalDataSource, job
         "partition_format": schema.partition_format,
         "partition_count": schema.partition_count,
         "partition_size": schema.partition_size,
+        "partitioning_keys": schema.partitioning_keys,
     }
 
 
-def capture_repartition_event(event: str, props: dict[str, Any]) -> None:
+_HISTORY_STATUS_BY_EVENT: dict[str, RepartitionStatus] = {
+    "warehouse_repartition_flagged": RepartitionStatus.FLAGGED,
+    "warehouse_repartition_started": RepartitionStatus.RUNNING,
+    "warehouse_repartition_completed": RepartitionStatus.COMPLETED,
+    "warehouse_repartition_skipped": RepartitionStatus.SKIPPED,
+    "warehouse_repartition_failed": RepartitionStatus.FAILED,
+}
+
+
+def _scheme_from_props(props: dict[str, Any], suffix: str, keys: Any) -> PartitionScheme:
+    mode = props.get(f"partition_mode{suffix}")
+    return PartitionScheme(
+        mode=mode,
+        format=props.get(f"partition_format{suffix}"),
+        count=props.get(f"partition_count{suffix}"),
+        size=props.get(f"partition_size{suffix}"),
+        keys=tuple(keys) if isinstance(keys, list | tuple) else None,
+    )
+
+
+def repartition_transition_from_props(
+    status: RepartitionStatus, props: dict[str, Any], *, requested_by_id: int | None = None
+) -> RepartitionTransition:
+    has_before = "partition_mode_before" in props
+    has_after = "partition_mode_after" in props
+    # A completed rewrite reports both schemes explicitly, and by then the schema row already holds the
+    # new keys. Every other step reports the schema as it is, which is the scheme before the rewrite.
+    if has_before:
+        scheme_before = _scheme_from_props(props, "_before", None)
+        scheme_after = _scheme_from_props(props, "_after", props.get("partitioning_keys")) if has_after else None
+    else:
+        scheme_before = _scheme_from_props(props, "", props.get("partitioning_keys"))
+        scheme_after = _scheme_from_props(props, "_after", props.get("partition_keys_after")) if has_after else None
+    error_type = props.get("error_type") or props.get("reason")
+    return RepartitionTransition(
+        team_id=int(props["team_id"]),
+        schema_id=str(props["schema_id"]),
+        job_id=props.get("job_id"),
+        status=status,
+        trigger_reason=props.get("trigger_reason"),
+        requested_by_id=requested_by_id,
+        scheme_before=scheme_before,
+        scheme_after=scheme_after,
+        max_partition_bytes_before=props.get("max_partition_bytes_before"),
+        rows_rewritten=props.get("row_count") if status == RepartitionStatus.COMPLETED else None,
+        duration_seconds=props.get("duration_seconds"),
+        error_type=str(error_type) if error_type is not None else None,
+    )
+
+
+def record_repartition_history(
+    status: RepartitionStatus, props: dict[str, Any], *, requested_by_id: int | None = None
+) -> None:
+    """Upsert the history row for this step. Never raises: the history must not fail a sync."""
+    try:
+        ExternalDataSchemaRepartition.record_transition(
+            repartition_transition_from_props(status, props, requested_by_id=requested_by_id)
+        )
+    except Exception as e:
+        LOGGER.warning(
+            "repartition: could not record repartition history",
+            schema_id=props.get("schema_id"),
+            status=status,
+            exc_info=True,
+        )
+        capture_exception(e)
+
+
+def capture_repartition_event(event: str, props: dict[str, Any], *, requested_by_id: int | None = None) -> None:
+    """Report one repartition step as a PostHog event, and record it in the schema's repartition history."""
+    status = _HISTORY_STATUS_BY_EVENT.get(event)
+    if status is not None:
+        record_repartition_history(status, props, requested_by_id=requested_by_id)
     posthoganalytics.capture(distinct_id=get_machine_id(), event=event, properties=props)
 
 
-def _cooldown_seconds_remaining(schema: ExternalDataSchema) -> float:
+def cooldown_seconds_remaining(schema: ExternalDataSchema) -> float:
     """Seconds until the per-table repartition cooldown expires; 0 when no cooldown is active."""
     last = schema.last_repartition_at
     if not last:
@@ -421,6 +586,7 @@ async def maybe_flag_for_coarsening(
     *,
     max_bytes: int,
     auto_coarsen: bool | None = None,
+    tuning: RepartitionTuning = AUTO_TUNING,
 ) -> None:
     """Flag an over-fragmented table to be rebuilt into fewer, larger partitions.
 
@@ -437,6 +603,10 @@ async def maybe_flag_for_coarsening(
 
     A keyed md5 table can use the merge budget and the md5 partition target instead of the base
     budget (see `coarsens_for_merge_parallelism`). The safety check then uses that budget too.
+
+    The table's partitioning policy (see `RepartitionTuning`) sets the trigger, the target and the
+    minimum reduction. A policy that never coarsens wins over an operator nomination too: the customer
+    chose it for this table.
 
     Ordered cheapest first — in-memory shape gates, then the in-memory selector, then the database.
     Post-load detection runs this
@@ -460,6 +630,12 @@ async def maybe_flag_for_coarsening(
         return
 
     requested = schema.coarsen_requested
+    if not tuning.coarsens:
+        if requested is not None:
+            # Left set, the nomination would force a Delta-log measurement on every sync forever.
+            await asyncio.to_thread(schema.clear_coarsen_requested)
+            return _decline("policy_never_coarsens")
+        return
     merge_policy = await asyncio.to_thread(
         coarsens_for_merge_parallelism, schema, operator_requested=requested is not None, auto_coarsen=auto_coarsen
     )
@@ -469,7 +645,7 @@ async def maybe_flag_for_coarsening(
         # keeps the metric scoped to the population the rollout is about.
         if measured_partitions < COARSEN_MIN_PARTITIONS:
             return
-        if max_bytes * COARSEN_TRIGGER_DIVISOR > budget:
+        if max_bytes * tuning.coarsen_trigger_divisor > budget:
             return
         # Cheap short-circuit on the count the caller already has: it covers the split trigger's
         # shorter window, so the authoritative gate over `COARSEN_OOM_FREE_DAYS` is
@@ -488,10 +664,15 @@ async def maybe_flag_for_coarsening(
             int(budget * MERGE_COARSEN_TARGET_FRACTION),
             min_md5_count=merge_md5_partition_min(),
             preferred_md5_count=merge_md5_partition_target(),
+            min_reduction_factor=tuning.coarsen_min_reduction_factor,
         )
     else:
         target, reason = await asyncio.to_thread(
-            select_coarsen_target, schema, partition_bytes, budget // COARSEN_TARGET_DIVISOR
+            select_coarsen_target,
+            schema,
+            partition_bytes,
+            budget // tuning.coarsen_target_divisor,
+            min_reduction_factor=tuning.coarsen_min_reduction_factor,
         )
     if requested is not None and target is None:
         # Consume a refused nomination now: leaving it set would re-evaluate the same table every sync,
@@ -542,6 +723,7 @@ async def maybe_flag_for_coarsening(
             "partition_format_after": target.partition_format,
             "partition_count_after": target.partition_count,
             "partition_size_after": target.partition_size,
+            "partition_keys_after": target.partition_keys,
         }
     )
     await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_flagged", props)
@@ -560,6 +742,41 @@ async def maybe_flag_for_coarsening(
     )
 
 
+def _manual_over_budget_already_recorded(schema: ExternalDataSchema) -> bool:
+    latest = (
+        ExternalDataSchemaRepartition.objects.for_team(schema.team_id)
+        .filter(schema_id=schema.id)
+        .order_by("-created_at")
+        .values_list("status", "error_type")
+        .first()
+    )
+    return latest == (RepartitionStatus.SKIPPED, MANUAL_POLICY_OVER_BUDGET)
+
+
+async def _record_manual_over_budget(
+    schema: ExternalDataSchema,
+    source: ExternalDataSource,
+    job: ExternalDataJob,
+    max_bytes: int,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Report once that a `manual` table outgrew the budget, so its history shows why nothing changed.
+
+    Only the first measurement over budget is reported. Later ones would add a row on every sync.
+    """
+    if await asyncio.to_thread(_manual_over_budget_already_recorded, schema):
+        return
+    props = base_event_props(schema, source, str(job.id))
+    props.update({"max_partition_bytes_before": max_bytes, "reason": MANUAL_POLICY_OVER_BUDGET})
+    await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_skipped", props)
+    await logger.ainfo(
+        f"repartition: largest partition is over budget, but the table's partitioning policy is manual "
+        f"schema_id={schema.id} max_partition_bytes={max_bytes}",
+        schema_id=str(schema.id),
+        max_partition_bytes=max_bytes,
+    )
+
+
 async def maybe_flag_for_repartition(
     schema: ExternalDataSchema,
     source: ExternalDataSource,
@@ -574,8 +791,11 @@ async def maybe_flag_for_repartition(
     Always records `max_partition_bytes` for observability (even when the table is in cooldown). The
     rewrite itself happens on the next run. Never raises — detection must not break post-load.
 
-    The measurement is recorded with the job, the `phase` and the verdict, so the next run can tell
-    whether it still describes the table (see `partition_measurement_holds`).
+    The measurement is recorded with the job, the `phase`, the policy and the verdict, so the next run
+    can tell whether it still describes the table (see `partition_measurement_holds`).
+
+    The table's partitioning policy sets the thresholds (see `RepartitionTuning`). A `manual` table is
+    measured as any other, but nothing is staged for it.
     """
     try:
         # A table pending a corruption revive must heal before it's rewritten — flagging it here would
@@ -598,6 +818,7 @@ async def maybe_flag_for_repartition(
 
         max_bytes = max(partition_bytes.values())
 
+        tuning = await asyncio.to_thread(tuning_for, schema)
         budget = target_partition_bytes()
         # The budget bounds the working set of a merge, and an append sync never merges: it adds new
         # files and reads no partition. So neither split trigger applies to an append table, and a
@@ -605,7 +826,7 @@ async def maybe_flag_for_repartition(
         # make reads of the table cheaper.
         split_applies = not schema.is_append
         # The size trigger only. The OOM trigger, its floor and coarsening stay on `budget`.
-        size_split_budget = split_budget_bytes(schema)
+        size_split_budget = tuning.split_budget(schema)
         over_budget = split_applies and max_bytes > size_split_budget
 
         # Hybrid trigger: a table that has actually OOM'd repeatedly is repartitioned even when its
@@ -614,7 +835,7 @@ async def maybe_flag_for_repartition(
         # Only query the OOM log when the size check didn't already trip: an over-budget table
         # repartitions regardless, so the count would only feed observability props there — skip the
         # per-sync indexed COUNT for it and report 0.
-        if over_budget or not split_applies:
+        if over_budget or not split_applies or not tuning.stages_targets:
             oom_count = 0
             oom_triggered = False
         else:
@@ -630,7 +851,9 @@ async def maybe_flag_for_repartition(
         auto_coarsen = await asyncio.to_thread(coarsens_for_merge_parallelism, schema, operator_requested=nominated)
         coarsen_budget = coarsen_trigger_budget(schema, operator_requested=nominated, auto_coarsen=auto_coarsen)
         coarsen_candidate = (
-            len(partition_bytes) >= COARSEN_MIN_PARTITIONS and max_bytes * COARSEN_TRIGGER_DIVISOR <= coarsen_budget
+            tuning.coarsens
+            and len(partition_bytes) >= COARSEN_MIN_PARTITIONS
+            and max_bytes * tuning.coarsen_trigger_divisor <= coarsen_budget
         )
         await asyncio.to_thread(
             schema.record_partition_measurement,
@@ -641,9 +864,17 @@ async def maybe_flag_for_repartition(
                 "budget": budget,
                 "split_budget": size_split_budget,
                 "coarsen_budget": coarsen_budget,
+                "policy": tuning.policy,
                 "healthy": not over_budget and not oom_triggered and not coarsen_candidate,
             },
         )
+
+        if not tuning.stages_targets:
+            if over_budget:
+                await _record_manual_over_budget(schema, source, job, max_bytes, logger)
+            if nominated:
+                await asyncio.to_thread(schema.clear_coarsen_requested)
+            return
 
         if not over_budget and not oom_triggered:
             verdict = "within budget and no repeated OOMs" if split_applies else "append table, a split does not apply"
@@ -658,7 +889,15 @@ async def maybe_flag_for_repartition(
                 partition_count=len(partition_bytes),
             )
             await maybe_flag_for_coarsening(
-                schema, source, job, partition_bytes, oom_count, logger, max_bytes=max_bytes, auto_coarsen=auto_coarsen
+                schema,
+                source,
+                job,
+                partition_bytes,
+                oom_count,
+                logger,
+                max_bytes=max_bytes,
+                auto_coarsen=auto_coarsen,
+                tuning=tuning,
             )
             return
 
@@ -688,7 +927,7 @@ async def maybe_flag_for_repartition(
             # its chance, and this is the only route by which a nominated table reaches coarsening at
             # all once its OOM count crosses the split threshold.
             await maybe_flag_for_coarsening(
-                schema, source, job, partition_bytes, oom_count, logger, max_bytes=max_bytes
+                schema, source, job, partition_bytes, oom_count, logger, max_bytes=max_bytes, tuning=tuning
             )
             return
 
@@ -719,7 +958,7 @@ async def maybe_flag_for_repartition(
             )
             return
 
-        cooldown_remaining = _cooldown_seconds_remaining(schema)
+        cooldown_remaining = cooldown_seconds_remaining(schema)
         if cooldown_remaining > 0:
             await logger.adebug(
                 f"repartition: needs repartition (trigger_reason={trigger_reason}) but skipped, in post-repartition "
@@ -738,7 +977,12 @@ async def maybe_flag_for_repartition(
         # budget, while an OOM-triggered one targets roughly half its current largest partition to force
         # a meaningfully finer scheme (md5 grows buckets, numerical halves the row-size, datetime steps
         # one tier finer).
-        target, reason = select_repartition_target(schema, partition_bytes, split_budget)
+        target, reason = select_repartition_target(
+            schema,
+            partition_bytes,
+            split_budget,
+            allow_hour_tier=tuning.size_split_reaches_hour_tier or trigger_reason == "oom_history",
+        )
         if target is None:
             # Needs repartition but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).
             # `reason` is reported on the metric + event so a skipped table is diagnosable.
@@ -793,6 +1037,7 @@ async def maybe_flag_for_repartition(
                 "partition_format_after": target.partition_format,
                 "partition_count_after": target.partition_count,
                 "partition_size_after": target.partition_size,
+                "partition_keys_after": target.partition_keys,
             }
         )
         await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_flagged", props)

@@ -1,14 +1,10 @@
 """What staff see and do for one warehouse source or schema in PostHog Admin: partitioning, schedules, ad-hoc runs."""
 
-import time
-from typing import Any, assert_never, cast, get_args
 from uuid import UUID
 
 from django.core.paginator import Paginator
 
-from posthog.dataclasses import frozen
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.facade.api import (
     pause_external_data_schedule,
@@ -19,8 +15,6 @@ from products.warehouse_sources.backend.ad_hoc_sync import (
     SchedulePauseError,
     SyncStillRunningError,
     WorkflowStartError,
-    is_schedule_paused,
-    start_external_data_workflow,
     trigger_ad_hoc_sync,
 )
 from products.warehouse_sources.backend.facade.contracts import (
@@ -34,18 +28,14 @@ from products.warehouse_sources.backend.facade.contracts import (
     StaffSchemaSummary,
     StaffSourceSummary,
 )
+from products.warehouse_sources.backend.logic.partitioning import (
+    PARTITION_FORMAT_CHOICES as PARTITION_FORMAT_CHOICES,
+    PARTITION_MODE_CHOICES as PARTITION_MODE_CHOICES,
+    stage_repartition,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
-    PartitionFormat,
-    PartitionMode,
-)
-
-# Source of truth lives in pipeline.typings. Re-deriving here keeps the choices in sync if a new format or mode is
-# ever added.
-PARTITION_FORMAT_CHOICES: tuple[str, ...] = get_args(PartitionFormat)
-PARTITION_MODE_CHOICES: tuple[str, ...] = get_args(PartitionMode)
 
 JOBS_PER_PAGE = 20
 SCHEMAS_PER_PAGE = 50
@@ -167,12 +157,6 @@ class SchemaStaffReads:
         )
 
 
-@frozen
-class StagedRepartition:
-    label: str
-    target: dict[str, Any]
-
-
 def _failed(message: str) -> StaffActionResult:
     return StaffActionResult(ok=False, message=message)
 
@@ -181,204 +165,16 @@ class SchemaStaffActions:
     """Each action returns what happened as one message, so the console can show it as is."""
 
     @staticmethod
-    def _stage_repartition(schema: ExternalDataSchema, request: RepartitionRequest) -> StagedRepartition | str:
-        """The `repartition_pending` target for the input, or why the input cannot be used."""
-        # Mode comes from the form. It falls back to the schema's current mode for a pure in-place repartition, and
-        # must resolve to a known mode: the pipeline picks one on the first sync, so before that staff choose.
-        new_mode = request.partition_mode or schema.partition_mode
-        if new_mode not in PARTITION_MODE_CHOICES:
-            return (
-                f"Invalid partition_mode: {new_mode!r}. Choose one of {', '.join(PARTITION_MODE_CHOICES)} "
-                "(or run a sync first so the pipeline picks one)."
-            )
-        new_mode = cast(PartitionMode, new_mode)
-        mode_changed = new_mode != schema.partition_mode
-
-        # `staged` is only a validated carrier of the chosen knobs for the pending target below.
-        staged: dict[str, Any] = {"partition_mode_override": new_mode}
-        label_bits: list[str] = []
-        if mode_changed:
-            label_bits.append(f"partition_mode: {schema.partition_mode!r} → {new_mode!r}")
-
-        # Keys are optional: omitting them keeps the existing keys (in-place repartition). When switching INTO
-        # datetime or numerical they are required, because the existing composite PK is usually unsuitable for
-        # single-column bucketing.
-        keys = list(request.partitioning_keys)
-
-        if new_mode == "datetime":
-            if keys:
-                if len(keys) != 1:
-                    return (
-                        "datetime mode needs exactly one partitioning key — the date/timestamp "
-                        "column to bucket on (e.g. action_date)."
-                    )
-                staged["partitioning_keys_override"] = keys
-                label_bits.append(f"keys={keys}")
-            elif mode_changed:
-                return (
-                    "Switching to datetime needs exactly one partitioning key — the date/timestamp "
-                    "column to bucket on (e.g. action_date)."
-                )
-            if request.partition_format not in PARTITION_FORMAT_CHOICES:
-                return f"Invalid partition_format: {request.partition_format!r}."
-            # partition_format already survives the reset and is read directly by the pipeline.
-            staged["partition_format"] = request.partition_format
-            label_bits.append(f"format={request.partition_format!r}")
-        elif new_mode == "numerical":
-            if keys:
-                if len(keys) != 1:
-                    return "numerical mode needs exactly one integer partitioning key."
-                staged["partitioning_keys_override"] = keys
-                label_bits.append(f"keys={keys}")
-            elif mode_changed:
-                return "Switching to numerical needs exactly one integer partitioning key."
-            if request.partition_size is None:
-                return "partition_size is required."
-            staged["partition_size_override"] = request.partition_size
-            label_bits.append(f"partition_size={request.partition_size}")
-        elif new_mode == "md5":
-            if request.partition_count is None:
-                return "partition_count is required."
-            if keys:
-                staged["partitioning_keys_override"] = keys
-                label_bits.append(f"keys={keys}")
-            elif mode_changed:
-                # Switching INTO md5: clear any stale keys override so md5 falls back to the table's primary keys
-                # instead of a date column pinned by an earlier datetime attempt.
-                staged["partitioning_keys_override"] = None
-            staged["partition_count_override"] = request.partition_count
-            label_bits.append(f"partition_count={request.partition_count}")
-        else:
-            # Exhaustive over PartitionMode, so mypy asks for an update here if a new mode is ever added.
-            assert_never(new_mode)
-
-        return StagedRepartition(
-            label=", ".join(label_bits) if label_bits else "repartition",
-            # The next run's pre-extraction activity rewrites the existing S3 data into this scheme in place: no
-            # source re-pull, no reset.
-            target={
-                "partition_mode": new_mode,
-                "partition_format": staged.get("partition_format"),
-                "partition_count": staged.get("partition_count_override"),
-                "partition_size": staged.get("partition_size_override"),
-                "partition_keys": (
-                    staged.get("partitioning_keys_override")
-                    or schema.partitioning_keys
-                    or schema.primary_key_columns
-                    or []
-                ),
-                "trigger_reason": "admin",
-                "attempts": 0,
-            },
-        )
-
-    @classmethod
-    def repartition(cls, schema_id: UUID, request: RepartitionRequest) -> StaffActionResult:
+    def repartition(
+        schema_id: UUID, request: RepartitionRequest, *, requested_by_id: int | None = None
+    ) -> StaffActionResult:
         # nosemgrep: idor-lookup-without-team -- staff-only console lookup by id behind admin_view
         schema = ExternalDataSchema.objects.select_related("source").filter(id=schema_id).first()
         if schema is None:
             return _failed(f"Schema {schema_id} not found.")
-        staged = cls._stage_repartition(schema, request)
-        if isinstance(staged, str):
-            return _failed(staged)
-        return cls._pause_save_and_resync(
-            schema,
-            staged_updates={"repartition_pending": staged.target},
-            change_label=staged.label,
-            workflow_kind="repartition",
-            reset_pipeline=False,
-        )
-
-    @staticmethod
-    def _pause_save_and_resync(
-        schema: ExternalDataSchema,
-        *,
-        staged_updates: dict[str, Any],
-        change_label: str,
-        workflow_kind: str,
-        reset_pipeline: bool = True,
-    ) -> StaffActionResult:
-        # Shared tail for the partition-tuning staff actions: pause the schedule, stage the sync_type_config
-        # updates, and trigger a single non-billable run. With reset_pipeline=True the run re-pulls from source;
-        # with False the run's pre-extraction activity repartitions in place from S3 (no source pull) before
-        # syncing.
-        #
-        # Pause first so the scheduled workflow doesn't race with the staff one (Temporal's "OnlyOne" overlap
-        # policy is per-schedule, not across schedule + ad-hoc workflow). If the schedule was already paused by
-        # hand, skip auto-unpause so this does not undo that.
-        try:
-            client = sync_connect()
-        except Exception as e:
-            return _failed(f"Failed to connect to Temporal: {e}.")
-
-        was_paused = is_schedule_paused(client, str(schema.id))
-        admin_paused_now = False
-        if not was_paused:
-            try:
-                pause_external_data_schedule(str(schema.id))
-                admin_paused_now = True
-            except Exception as e:
-                return _failed(f"Failed to pause schedule before resync: {e}.")
-
-        # Single save: stage the partition update(s), reset_pipeline, and the auto-unpause marker (read by
-        # `resume_schedule_after_ad_hoc_run` when the run completes) in one round-trip. reset_pipeline goes on
-        # sync_type_config rather than the workflow input so the pipeline can pop it after the first reset;
-        # passing it on inputs makes every activity retry re-read True and wipe Delta + cursor, restarting from
-        # row 0.
-        for key, value in staged_updates.items():
-            schema.sync_type_config[key] = value
-        if reset_pipeline:
-            schema.sync_type_config["reset_pipeline"] = True
-        workflow_id = f"{schema.id}-admin-{workflow_kind}-{int(time.time())}"
-        previous_marker = schema.sync_type_config.get("admin_unpause_schedule_after_run")
-        if admin_paused_now or previous_marker:
-            schema.sync_type_config["admin_unpause_schedule_after_run"] = workflow_id
-        schema.save(update_fields=["sync_type_config"])
-
-        inputs = ExternalDataWorkflowInputs(
-            team_id=schema.team_id,
-            external_data_source_id=schema.source.id,
-            external_data_schema_id=schema.id,
-            billable=False,
-            reset_pipeline=None,
-        )
-        try:
-            start_external_data_workflow(client, workflow_id, inputs)
-        except Exception as e:
-            # Best-effort rollback of the pause taken above. Without this, a failed workflow start leaves the
-            # schedule paused forever (the flag is read by the workflow at completion, and there's no workflow
-            # if start failed) and the flag orphaned in sync_type_config.
-            if admin_paused_now:
-                try:
-                    unpause_external_data_schedule(str(schema.id))
-                    schema.sync_type_config.pop("admin_unpause_schedule_after_run", None)
-                    schema.save(update_fields=["sync_type_config"])
-                except Exception:
-                    pass
-            elif previous_marker:
-                try:
-                    schema.sync_type_config["admin_unpause_schedule_after_run"] = previous_marker
-                    schema.save(update_fields=["sync_type_config"])
-                except Exception:
-                    pass
-            return _failed(
-                f"Saved {change_label}, but failed to trigger run: {e}. "
-                f"Trigger one manually before the next scheduled sync."
-            )
-
-        pause_note = (
-            " Schedule paused for the duration of this run; will auto-unpause on a successful completion."
-            if admin_paused_now
-            else " Schedule was already paused; leaving it paused."
-        )
-        run_note = (
-            "non-billable reset resync (re-pulls from source)"
-            if reset_pipeline
-            else "non-billable in-place repartition (no source pull)"
-        )
-        return StaffActionResult(
-            ok=True, message=f"{change_label}. Triggered {run_note} (workflow_id={workflow_id}).{pause_note}"
-        )
+        outcome = stage_repartition(schema, request, trigger_reason="admin", requested_by_id=requested_by_id)
+        # A target that is staged but whose run did not start still reports a failure, so staff start one.
+        return StaffActionResult(ok=outcome.run_started, message=outcome.message)
 
     @staticmethod
     def trigger_sync(schema_id: UUID, *, billable: bool, reset_pipeline: bool) -> StaffActionResult:
