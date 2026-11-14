@@ -24,14 +24,13 @@ from temporalio.client import WorkflowExecutionDescription, WorkflowExecutionSta
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import get_current_team_id, team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.temporal.common.client import async_connect, sync_connect
 
@@ -47,12 +46,14 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.organization_flags import organization_flag_enabled
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.temporal.models import (
     METRICS_RECALCULATION_WORKFLOW_NAME,
     RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE,
     ExperimentMetricsRecalculationWorkflowInputs,
 )
+from products.experiments.backend.temporal.recalculation.routing import _activity_task_queue
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
@@ -72,7 +73,6 @@ _QUEUED_RECALC_CEILING = timedelta(hours=1)
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
-RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -398,51 +398,17 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
             pass
 
 
-def _organization_flag_enabled(flag_key: str, organization_id: str) -> bool:
-    # Evaluated locally: callers sit on request and start paths, and a miss would otherwise block them on a call
-    # to /flags. The flag has to target the organization id sent here, or it reads false for everyone.
-    return feature_enabled_or_false(
-        flag_key,
-        organization_id,
-        groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id}},
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )
-
-
-def _activity_task_queue(organization_id: str) -> str | None:
-    # A flag error keeps the run on the workflow's queue, because a failed start would roll the row back to FAILED.
-    try:
-        enabled = _organization_flag_enabled(RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG, organization_id)
-    except Exception as e:
-        capture_exception(e)
-        return None
-    return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
-
-
-def recalculation_clickhouse_user(task_queue: str) -> ClickHouseUser | None:
-    # Only the slot-capped queues run as the experiments user; a queue that collapses into the main queue keeps the default.
-    capped_task_queues = {
-        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
-        settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
-        settings.EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE,
-        settings.EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE,
-    } - {settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE}
-    return ClickHouseUser.EXPERIMENTS if task_queue in capped_task_queues else None
-
-
 def _refresh_window_enforced(experiment: Experiment) -> bool:
     # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
     if settings.DEBUG and not settings.TEST:
         return False
-    return _organization_flag_enabled(RECALCULATION_RATE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
+    return organization_flag_enabled(RECALCULATION_RATE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
 
 
 def _recalculation_max_age(experiment: Experiment) -> timedelta | None:
     # A flag error turns the limit off, so a flag outage never rejects a recalculation.
     try:
-        enabled = _organization_flag_enabled(RECALCULATION_AGE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
+        enabled = organization_flag_enabled(RECALCULATION_AGE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
     except Exception as e:
         capture_exception(e)
         return None
