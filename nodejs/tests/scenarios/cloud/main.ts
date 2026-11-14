@@ -6,14 +6,14 @@ import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
 import { CloudProfile, REGION, RunInputs, loadCloudProfile, loadRunInputs } from './profile'
 import { addReader, createRunStack } from './stack'
-import { teardown, teardownExpired } from './teardown'
+import { teardown } from './teardown'
 
 export type { Controller } from './admission'
 
 const USAGE = [
     'Usage:',
     '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile>',
-    '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> (<run id> | --expired)',
+    '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> <run id>',
 ].join('\n')
 
 const SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
@@ -36,10 +36,6 @@ function defaultController(): Controller {
 
 async function run(controller: Controller, loaded: RunInputs): Promise<number> {
     const { profile } = loaded
-    if (!(await teardownExpired(controller, profile, { retryLeftovers: false }))) {
-        controller.warn('Refused the run: an expired run still holds resources.')
-        return EXIT_CODE.invalid
-    }
     const admission = await admit(controller, profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
@@ -72,10 +68,11 @@ async function run(controller: Controller, loaded: RunInputs): Promise<number> {
 }
 
 async function cleanup(controller: Controller, profile: CloudProfile, target: string): Promise<number> {
-    const clean =
-        target === '--expired'
-            ? await teardownExpired(controller, profile, { retryLeftovers: true })
-            : await teardown(controller, profile, await manifestOf(controller, profile.baseline.evidenceBucket, target))
+    const clean = await teardown(
+        controller,
+        profile,
+        await manifestOf(controller, profile.baseline.evidenceBucket, target)
+    )
     return clean ? EXIT_CODE.passed : EXIT_CODE.invalid
 }
 
