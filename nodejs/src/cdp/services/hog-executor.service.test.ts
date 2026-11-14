@@ -2127,13 +2127,22 @@ describe('Hog Executor', () => {
                 return invocation
             }
 
-            it('signs the bytes the request sends with the configured secret', async () => {
+            it.each([
+                ['the configured secret', SECRET, BODY_SIGNATURE],
+                [
+                    'a secret of exactly 24 bytes in 12 characters',
+                    'é'.repeat(12),
+                    'sha256=08faf5c284367a94cb95273a9fb68873b5b46460b0f7de89af5f45214667aded',
+                ],
+            ])('signs the bytes the request sends with %s', async (_case, secret, signature) => {
                 const received = receiveRequests()
+                const invocation = await createSignedInvocation()
+                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: secret } } as any
 
-                const result = await executor.executeFetch(await createSignedInvocation())
+                const result = await executor.executeFetch(invocation)
 
                 expect(result.error).toBeUndefined()
-                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature: BODY_SIGNATURE, body: BODY }])
+                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature, body: BODY }])
             })
 
             it.each([
