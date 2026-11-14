@@ -129,6 +129,33 @@ describe('HogFunctionMonitoringService', () => {
         ])
     })
 
+    it('counts an unverified sender under its own Prometheus label and keeps email_failed in app metrics', async () => {
+        const counted = async (metricName: string): Promise<number> =>
+            (await register.getSingleMetric('cdp_hog_function_metric')!.get()).values.find(
+                (v) => v.labels.metric_kind === 'email' && v.labels.metric_name === metricName
+            )?.value ?? 0
+        const failedBefore = await counted('email_failed')
+        const unverifiedBefore = await counted('email_sender_unverified')
+
+        service.queueAppMetric(
+            metric({
+                metric_kind: 'email',
+                metric_name: 'email_failed',
+                prometheus_metric_name: 'email_sender_unverified',
+            }),
+            'hog_flow'
+        )
+        service.queueAppMetric(metric({ metric_kind: 'email', metric_name: 'email_failed' }), 'hog_flow')
+
+        expect({
+            failed: (await counted('email_failed')) - failedBefore,
+            unverified: (await counted('email_sender_unverified')) - unverifiedBefore,
+        }).toEqual({ failed: 1, unverified: 1 })
+        const rows = await flushedRows()
+        expect(rows).toEqual([expect.objectContaining({ metric_kind: 'email', metric_name: 'email_failed', count: 2 })])
+        expect(rows.every((row) => !('prometheus_metric_name' in row))).toBe(true)
+    })
+
     const producerConfig = {
         LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'key',
         LOGS_INTERNAL_PRODUCER_URL: 'http://capture-logs.test/i/v1/logs',

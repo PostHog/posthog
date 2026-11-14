@@ -505,6 +505,18 @@ describe('EmailService', () => {
                     )
                 }
             )
+            it('records an unverified email domain as email_failed that Prometheus labels email_sender_unverified', async () => {
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 2 } })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.metrics).toEqual([
+                    expect.objectContaining({
+                        metric_name: 'email_failed',
+                        prometheus_metric_name: 'email_sender_unverified',
+                    }),
+                ])
+            })
             it.each([
                 ['unsupported', 'Email delivery mode not supported'],
                 [
@@ -1853,17 +1865,39 @@ describe('EmailService', () => {
             })
         })
 
-        it('should error if not verified', async () => {
-            ses.failWith({
-                status: 400,
-                type: 'MessageRejected',
-                message: 'Email address not verified "Test User" <test@posthog-test.com>',
-            })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toEqual(
-                'Failed to send email via SES: Email address not verified "Test User" <test@posthog-test.com>'
-            )
-        })
+        it.each([
+            [
+                'the sender',
+                'Email address is not verified. The following identities failed the check in region EU-CENTRAL-1: Test@Posthog-Test.com',
+                'email_sender_unverified',
+            ],
+            [
+                'the sender in the older format',
+                'Email address not verified "Test User" <test@posthog-test.com>',
+                'email_sender_unverified',
+            ],
+            [
+                'only the recipient',
+                'Email address is not verified. The following identities failed the check in region EU-CENTRAL-1: test@example.com',
+                undefined,
+            ],
+            ['no identity', 'Illegal address', undefined],
+        ])(
+            'fails a send SES rejects for %s and labels it for Prometheus only when the sender is unverified',
+            async (_name, sesMessage, prometheusMetricName) => {
+                ses.failWith({ status: 400, type: 'MessageRejected', message: sesMessage })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toEqual(`Failed to send email via SES: ${sesMessage}`)
+                expect(
+                    result.metrics.map(({ metric_name, prometheus_metric_name }) => ({
+                        metric_name,
+                        prometheus_metric_name,
+                    }))
+                ).toEqual([{ metric_name: 'email_failed', prometheus_metric_name: prometheusMetricName }])
+            }
+        )
 
         it.each([
             ['an ordinary template', {}, '$pageview', { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
