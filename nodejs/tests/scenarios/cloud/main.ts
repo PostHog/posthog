@@ -1,5 +1,5 @@
 import { EXIT_CODE } from '../runner/status'
-import { Controller, admit } from './admission'
+import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
 import { lease, manifestOf, release, sweepExpired } from './lease'
 import { githubOrigin } from './origin'
@@ -60,6 +60,7 @@ export async function main(argv: string[], controller: Controller = defaultContr
         return EXIT_CODE.invalid
     }
     try {
+        await refuseOutsideDev(controller)
         return command === 'run'
             ? await run(controller, loadRunInputs(file))
             : await cleanup(controller, loadCloudProfile(file), target)

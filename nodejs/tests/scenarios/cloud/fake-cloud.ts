@@ -10,7 +10,10 @@ export type FakeCloudOptions = {
     now: () => Date
     account?: string
     expiration?: Date | string | null
+    role?: string
+    session?: string
     ssoSession?: string
+    sourceProfile?: string
     orderable?: string[]
     denied?: string[]
 }
@@ -60,6 +63,8 @@ export class FakeCloud implements Aws {
     readonly schedules = new Map<string, Schedule>()
     readonly deleteStackRequests: { stackName: string; at: string }[] = []
     expiration: Date | string | null
+    role: string
+    session: string
     ssoSession: string | undefined
     readonly orderable: string[]
     readonly denied: Set<string>
@@ -69,6 +74,8 @@ export class FakeCloud implements Aws {
     constructor(private readonly options: FakeCloudOptions) {
         this.account = options.account ?? '000000000000'
         this.expiration = options.expiration === undefined ? null : options.expiration
+        this.role = options.role ?? 'scenario-run-controller'
+        this.session = options.session ?? 'person'
         this.ssoSession = options.ssoSession
         this.orderable = options.orderable ?? ['db.r8g.2xlarge', 'db.serverless']
         this.denied = new Set(options.denied ?? [])
@@ -119,19 +126,29 @@ export class FakeCloud implements Aws {
         return this.answer(service, operation, flags, positionals)
     }
 
+    private configured(key: string, profile: string | undefined): string {
+        const value =
+            key === 'source_profile'
+                ? this.options.sourceProfile
+                : this.options.sourceProfile === undefined || profile === this.options.sourceProfile
+                  ? this.ssoSession
+                  : undefined
+        if (value === undefined) {
+            throw new AwsError(['configure', 'get', key], 1, '')
+        }
+        return value
+    }
+
     private answer(service: string, operation: string, flags: Map<string, string>, positionals: string[]): unknown {
         switch (`${service} ${operation}`) {
             case 'sts get-caller-identity':
                 return {
                     Account: this.account,
-                    Arn: `arn:aws:sts::${this.account}:assumed-role/developers/person`,
+                    Arn: `arn:aws:sts::${this.account}:assumed-role/${this.role}/${this.session}`,
                     UserId: 'AROAEXAMPLE:person',
                 }
             case 'configure get':
-                if (this.ssoSession === undefined) {
-                    throw new AwsError(['configure', 'get'], 1, '')
-                }
-                return this.ssoSession
+                return this.configured(positionals[0], flags.get('profile'))
             case 'configure export-credentials':
                 return {
                     Version: 1,

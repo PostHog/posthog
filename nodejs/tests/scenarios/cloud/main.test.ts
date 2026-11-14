@@ -14,7 +14,8 @@ import { loadRunInputs } from './profile'
 const T = new Date('2026-03-02T10:00:00.000Z')
 const HOUR_MS = 60 * 60 * 1000
 const COMMIT = 'c0ffee0000000000000000000000000000000000'
-const OWNER = 'arn:aws:sts::000000000000:assumed-role/developers/person'
+const OWNER = 'arn:aws:sts::000000000000:assumed-role/scenario-run-controller/person'
+const OTHER_ACCOUNT = '111111111111'
 
 const PROFILE = {
     name: 'test-eu',
@@ -232,6 +233,14 @@ describe('cloud controller', () => {
             { cloud: { ssoSession: 'test-sso' }, ssoToken: { expiresAt: new Date(T.getTime() + 2 * HOUR_MS) } },
             'expire',
         ],
+        [
+            'a controller role profile whose SSO session expires first',
+            {
+                cloud: { ssoSession: 'test-sso', sourceProfile: 'dev-write' },
+                ssoToken: { expiresAt: new Date(T.getTime() + 2 * HOUR_MS) },
+            },
+            'expire',
+        ],
         ['an SSO session with no cached token', { cloud: { ssoSession: 'test-sso' } }, 'aws sso login'],
         [
             'environment credentials with no expiry, over an SSO profile',
@@ -276,6 +285,38 @@ describe('cloud controller', () => {
         expect(cloud.objects.size).toBe(0)
         expect(cloud.schedules.size).toBe(0)
     })
+
+    const PERSON_ROLE = 'AWSReservedSSO_administrators_0123456789abcdef'
+
+    it.each<[string, string, string, (runId: string) => string[]]>([
+        ['run', PERSON_ROLE, 'person', () => ['run', profilePath()]],
+        ['cleanup --expired', PERSON_ROLE, 'person', () => ['cleanup', profilePath(), '--expired']],
+        ['cleanup <run id>', PERSON_ROLE, 'person', (runId) => ['cleanup', profilePath(), runId]],
+        ['run', 'scenario-run-controller-copy', 'person', () => ['run', profilePath()]],
+        ['run', PERSON_ROLE, 'scenario-run-controller', () => ['run', profilePath()]],
+    ])(
+        'refuses to %s as role %s with session %s, even when the profile names the account',
+        async (_, role, session, argv) => {
+            const { controller } = prepare({
+                profile: (p) => ({ ...p, account: OTHER_ACCOUNT }),
+                cloud: { account: OTHER_ACCOUNT },
+            })
+            const runId = await leaseAt(T, controller)
+            cloud.role = role
+            cloud.session = session
+            now = new Date(T.getTime() + 6.5 * HOUR_MS)
+            await cloud.call(['sts', 'get-caller-identity'])
+            const objects = new Map(cloud.objects)
+            const schedules = new Map(cloud.schedules)
+
+            await expect(main(argv(runId), controller)).resolves.toBe(2)
+
+            expect(err.join('\n')).toContain('scenario-run-controller role')
+            expect(cloud.objects).toEqual(objects)
+            expect(cloud.schedules).toEqual(schedules)
+            expect(released(runId)).toBe(0)
+        }
+    )
 
     it('prints the estimate when it refuses a run over the cap', async () => {
         const { controller } = prepare({

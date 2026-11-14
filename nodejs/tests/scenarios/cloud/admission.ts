@@ -29,6 +29,7 @@ const HOURS_PER_MONTH = 730
 const BYTES_PER_GB = 1e9
 const MONITORED_INSTANCES = 2
 const SERVERLESS_CLASS = 'db.serverless'
+const CONTROLLER_ROLE = 'scenario-run-controller'
 const DENIED = ['AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation', 'UnauthorizedException']
 const PROBE_ID = 'scn-permission-probe'
 
@@ -99,8 +100,14 @@ function endOf(expiry: string | undefined): Session {
         : { problem: `The credentials report an unreadable expiry, ${expiry}. Sign in again.` }
 }
 
+async function ssoSessionOf(aws: Aws): Promise<string> {
+    const source = await aws.text(['configure', 'get', 'source_profile']).catch(() => '')
+    const profile = source === '' ? [] : ['--profile', source]
+    return aws.text(['configure', 'get', 'sso_session', ...profile]).catch(() => '')
+}
+
 async function sessionOf({ aws, env }: Controller): Promise<Session> {
-    const ssoSession = env.AWS_ACCESS_KEY_ID ? '' : await aws.text(['configure', 'get', 'sso_session']).catch(() => '')
+    const ssoSession = env.AWS_ACCESS_KEY_ID ? '' : await ssoSessionOf(aws)
     if (ssoSession === '') {
         const { Expiration } = parseJSON(
             await aws.text(['configure', 'export-credentials', '--format', 'process'])
@@ -220,6 +227,15 @@ async function unorderable({ aws }: Controller, { engineVersion, writerClass }: 
         }
     }
     return problems
+}
+
+export async function refuseOutsideDev({ aws }: Controller): Promise<void> {
+    const { Arn } = (await aws.call(['sts', 'get-caller-identity'])) as { Arn: string }
+    if (/^arn:aws:sts::\d{12}:assumed-role\/([^/]+)\//.exec(Arn)?.[1] !== CONTROLLER_ROLE) {
+        throw new Error(
+            `Refused: the credentials are for ${Arn}. A cloud run acts only as the ${CONTROLLER_ROLE} role, which the failover baseline creates in the dev account alone. Use a profile that assumes that role.`
+        )
+    }
 }
 
 export async function admit(
