@@ -6957,13 +6957,12 @@ const api = {
         return await getJSONFromSuccessResponse(response, 'POST', url)
     },
 
-    async delete(url: string, options?: Pick<ApiMethodOptions, 'signal'>): Promise<any> {
+    async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',
-                signal: options?.signal,
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',

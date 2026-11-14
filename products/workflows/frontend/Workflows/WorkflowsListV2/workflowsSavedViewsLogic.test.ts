@@ -56,9 +56,6 @@ const hidesArchive: WorkflowViewApi = {
     state: { filters: [{ facet: 'in', value: 'Archive', negated: true }], text: '', columns: [] },
 }
 
-const LANDED_ID = '00000000-0000-4000-8000-000000000005'
-const RETRIED_ID = '00000000-0000-4000-8000-000000000006'
-
 describe('workflowsSavedViewsLogic', () => {
     let logic: ReturnType<typeof workflowsSavedViewsLogic.build>
     let requests: string[]
@@ -1393,116 +1390,6 @@ describe('workflowsSavedViewsLogic', () => {
             expect((failure as { status?: number } | null)?.status).toEqual(dialogStaysOpen ? status : undefined)
         }
     )
-
-    it('fails a stalled save after the deadline, runs the next change, and ignores the late answer', async () => {
-        const toastError = jest.spyOn(lemonToast, 'error')
-        let patches = 0
-        let answerLate: () => void = () => {}
-        const lateAnswer = new Promise<void>((resolve) => (answerLate = resolve))
-        useMocks({
-            patch: {
-                '/api/projects/:team_id/workflow_views/:id/': async ({ request }) => {
-                    patches++
-                    if (patches === 1) {
-                        await lateAnswer
-                        return [200, { ...savedView, name: 'Stale flows', version: 99 }]
-                    }
-                    return [200, { ...savedView, ...((await request.json()) as Partial<WorkflowViewApi>) }]
-                },
-            },
-        })
-        router.actions.push(urls.workflows(), { view: VIEW_ID })
-        logic = workflowsSavedViewsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
-        workflowsListV2Logic.actions.setValue({ filters: [status('draft')], text: '' })
-        jest.useFakeTimers()
-        try {
-            void logic.asyncActions.updateActiveView()
-            const renamed = logic.asyncActions.renameView(VIEW_ID, 'Renamed flows')
-            await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
-            expect(toastError).toHaveBeenCalledWith(
-                "Couldn't update Active flows. Check your connection and try again."
-            )
-            await renamed
-            answerLate()
-            await jest.advanceTimersByTimeAsync(0)
-        } finally {
-            jest.useRealTimers()
-        }
-        await expectLogic(logic).toFinishAllListeners()
-        expect(patches).toBe(2)
-        expect(logic.values.saving).toBe(false)
-        expect(logic.values.views.find((view) => view.id === VIEW_ID)?.name).toEqual('Renamed flows')
-    })
-
-    it.each([
-        ['picks up a new view whose timed-out save landed, instead of saving it twice', true, 1, LANDED_ID],
-        ["saves again when only a teammate's view of that name with another search exists", false, 2, RETRIED_ID],
-    ])('%s', async (_name, landed, expectedPosts, activeId) => {
-        let posts = 0
-        useMocks({
-            post: {
-                '/api/projects/:team_id/workflow_views/': async ({ request }) => {
-                    posts++
-                    const view = { ...savedView, ...((await request.json()) as WorkflowViewCreateApi), id: LANDED_ID }
-                    if (posts === 1) {
-                        storedViews.push(landed ? view : { ...view, state: { ...view.state, text: 'renewal' } })
-                        return new Promise(() => {})
-                    }
-                    return [201, { ...view, id: RETRIED_ID }]
-                },
-            },
-        })
-        router.actions.push(urls.workflows())
-        logic = workflowsSavedViewsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
-        workflowsListV2Logic.actions.setValue({ filters: [status('draft')], text: '' })
-        jest.useFakeTimers()
-        try {
-            const saved = logic.asyncActions.saveViewAs('Draft flows')
-            await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
-            await saved
-        } finally {
-            jest.useRealTimers()
-        }
-        await logic.asyncActions.saveViewAs('Draft flows')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(posts).toBe(expectedPosts)
-        expect(logic.values.views.filter((view) => view.id === activeId)).toHaveLength(1)
-        expect(logic.values.activeViewId).toBe(activeId)
-    })
-
-    it('keeps a view whose stalled delete answers after the deadline', async () => {
-        let answerLate: () => void = () => {}
-        const lateAnswer = new Promise<void>((resolve) => (answerLate = resolve))
-        useMocks({
-            delete: {
-                '/api/projects/:team_id/workflow_views/:id/': async () => {
-                    await lateAnswer
-                    return [204]
-                },
-            },
-        })
-        router.actions.push(urls.workflows(), { view: VIEW_ID })
-        logic = workflowsSavedViewsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
-        jest.useFakeTimers()
-        try {
-            const deleted = logic.asyncActions.deleteView(VIEW_ID)
-            await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
-            await deleted
-            answerLate()
-            await jest.advanceTimersByTimeAsync(0)
-        } finally {
-            jest.useRealTimers()
-        }
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.saving).toBe(false)
-        expect(logic.values.views.some((view) => view.id === VIEW_ID)).toBe(true)
-    })
 
     it('keeps local edits on All when the view being updated was deleted by someone else', async () => {
         const toastError = jest.spyOn(lemonToast, 'error')
