@@ -2,10 +2,14 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, materialized
 from unittest.mock import Mock, patch
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.ai.ai_table_resolver import (
     AIEventsExpiredError,
@@ -13,6 +17,7 @@ from posthog.hogql_queries.ai.ai_table_resolver import (
     is_ai_events_enabled,
     query_ai_events,
 )
+from posthog.models import PropertyDefinition
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 
 
@@ -274,3 +279,48 @@ class TestQueryAiEventsPersonJoin(ClickhouseTestMixin, BaseTest):
 
         assert result.results == [("user@example.com",)]
         assert "pmat_email" not in result.clickhouse
+
+
+class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("boolean", "is_subagent", "Boolean", False, True),
+            ("numeric", "turn", "Numeric", 3, 4),
+        ]
+    )
+    def test_filters_typed_custom_property(self, _name, key, property_type, match, other):
+        PropertyDefinition.objects.create(team=self.team, name=key, property_type=property_type)
+        bulk_create_ai_events(
+            [
+                {"event": "$ai_generation", "team": self.team, "distinct_id": "d1", "properties": {key: value}}
+                for value in (match, other)
+            ]
+        )
+
+        result = query_ai_events(
+            query=parse_select(f"SELECT properties.{key} FROM posthog.ai_events WHERE {{where_clause}}"),
+            placeholders={"where_clause": property_to_expr({"type": "event", "key": key, "value": match}, self.team)},
+            team=self.team,
+            query_type="TestQuery",
+        )
+
+        assert result.results == [(match,)]
+
+    def test_hand_written_id_filter_ignores_detected_numeric_type(self):
+        PropertyDefinition.objects.create(team=self.team, name="$ai_trace_id", property_type="Numeric")
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "d1",
+                    "properties": {"$ai_trace_id": "7f3a"},
+                }
+            ]
+        )
+
+        result = execute_hogql_query(
+            "SELECT count() FROM posthog.ai_events WHERE properties.$ai_trace_id = '7f3a'", team=self.team
+        )
+
+        assert result.results == [(1,)]
