@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from functools import partial
 
@@ -61,7 +62,7 @@ class TestFetchDistinctIntents(ClickhouseTestMixin, APIBaseTest):
 
     def test_groups_calls_by_intent_text_and_copies_no_other_property(self) -> None:
         self._call("list flags", tool="feature-flag-get-all")
-        self._call("list flags", tool="query-trends")
+        self._call("list flags", tool="query-trends", at=WINDOW_START + timedelta(minutes=6))
         self._call("find retention", extra={"$mcp_intent_source": "context_parameter"})
         self._call("outside window", at=WINDOW_END + timedelta(minutes=1))
         self._call("", tool="query-trends")
@@ -72,13 +73,23 @@ class TestFetchDistinctIntents(ClickhouseTestMixin, APIBaseTest):
         assert pages == [
             sorted(
                 [
-                    DistinctIntent(hash=intent_hash("list flags"), text="list flags", calls=2),
-                    DistinctIntent(hash=intent_hash("find retention"), text="find retention", calls=1),
+                    DistinctIntent(
+                        hash=intent_hash("list flags"),
+                        text="list flags",
+                        calls=2,
+                        source_min_timestamp=WINDOW_START + timedelta(minutes=5),
+                    ),
+                    DistinctIntent(
+                        hash=intent_hash("find retention"),
+                        text="find retention",
+                        calls=1,
+                        source_min_timestamp=WINDOW_START + timedelta(minutes=5),
+                    ),
                 ],
                 key=lambda i: i.hash,
             )
         ]
-        assert set(DistinctIntent.__dataclass_fields__) == {"hash", "text", "calls"}
+        assert set(DistinctIntent.__dataclass_fields__) == {"hash", "text", "calls", "source_min_timestamp"}
 
     def test_pages_through_every_intent_by_hash_without_a_cap(self) -> None:
         for i in range(5):
@@ -90,7 +101,15 @@ class TestFetchDistinctIntents(ClickhouseTestMixin, APIBaseTest):
 
         assert [len(page) for page in pages] == [2, 2, 1]
         assert [intent for page in pages for intent in page] == sorted(
-            (DistinctIntent(hash=intent_hash(f"intent {n}"), text=f"intent {n}", calls=5 - n) for n in range(5)),
+            (
+                DistinctIntent(
+                    hash=intent_hash(f"intent {n}"),
+                    text=f"intent {n}",
+                    calls=5 - n,
+                    source_min_timestamp=WINDOW_START + timedelta(minutes=5),
+                )
+                for n in range(5)
+            ),
             key=lambda i: i.hash,
         )
 
@@ -205,6 +224,82 @@ class TestFetchSeenHashes(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestIntentEmbeddingsAccess(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (f"{name}_{months}", source, model_filter, content, months)
+            for name, source, model_filter, content in [
+                ("raw", "raw_document_embeddings AS e", f"model_name = '{EMBEDDING_MODEL}'", "content"),
+                ("lazy", "document_embeddings AS e", f"model_name = '{EMBEDDING_MODEL}'", "content"),
+                ("model", "posthog.document_embeddings_text_embedding_3_small_256 AS e", "1 = 1", "content"),
+                (
+                    "renamed",
+                    "posthog.document_embeddings_text_embedding_3_small_256 AS e(p, dt, r, d, ts, ia, c, m, v)",
+                    "1 = 1",
+                    "c",
+                ),
+                (
+                    "swapped",
+                    "raw_document_embeddings AS e(document_type, product)",
+                    f"model_name = '{EMBEDDING_MODEL}'",
+                    "content",
+                ),
+            ]
+            for months in (None, 1)
+        ]
+    )
+    def test_source_provenance_gates_every_embedding_scan(
+        self, _name: str, source: str, model_filter: str, content: str, months: int | None
+    ) -> None:
+        sync_execute(DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL(replace=True))
+        table = next(t for t in EMBEDDING_TABLES if t.model_name == EMBEDDING_MODEL).distributed_table_name()
+        cases = [
+            (self.team.pk, "mcp_analytics", "mcp-intent", "fresh", WINDOW_START.isoformat()),
+            (
+                self.team.pk,
+                "mcp_analytics",
+                "mcp-intent",
+                "expired",
+                (WINDOW_START - timedelta(days=45)).isoformat(),
+            ),
+            (self.team.pk, "mcp_analytics", "mcp-intent", "unknown", None),
+            (self.team.pk, "mcp_analytics", "mcp-intent", "malformed", "not a timestamp"),
+            (self.team.pk, "error_tracking", "mcp-intent", "other product", None),
+            (self.team.pk, "mcp_analytics", "other-document", "other document", None),
+            (OTHER_TEAM_ID, "mcp_analytics", "mcp-intent", "other team", WINDOW_START.isoformat()),
+        ]
+        sync_execute(
+            f"INSERT INTO {table} (team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, metadata, embedding) VALUES",
+            [
+                (
+                    team_id,
+                    product,
+                    document_type,
+                    "raw",
+                    intent_hash(text),
+                    WINDOW_START,
+                    WINDOW_START,
+                    text,
+                    json.dumps({"source_min_timestamp": provenance} if provenance is not None else {}),
+                    [0.0] * 256,
+                )
+                for team_id, product, document_type, text, provenance in cases
+            ],
+        )
+        expected = ["fresh", "other document", "other product"]
+        if months is None:
+            expected.append("expired")
+        with patch("posthog.models.team.event_retention.events_retention_months_for_team", return_value=months):
+            rows = execute_hogql_query(
+                query=f"SELECT {content} AS payload FROM {source} WHERE {model_filter} ORDER BY payload",
+                team=self.team,
+            ).results
+            count = execute_hogql_query(
+                query=f"SELECT count() FROM {source} WHERE {model_filter}", team=self.team
+            ).results
+
+        assert rows == [(text,) for text in sorted(expected)]
+        assert count == [(len(expected),)]
+
     @parameterized.expand(
         [
             (

@@ -131,7 +131,7 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budge
                 handled.update(intent.hash for intent in fresh)
                 seen = corpus.fetch_seen_hashes(team, [intent.hash for intent in fresh], now=window_end)
                 to_emit = embedding_sync.select_intents_to_emit(fresh, seen)
-                emitted += embedding_sync.emit_intent_embeddings(team, to_emit, now=window_end)
+                emitted += embedding_sync.emit_intent_embeddings(team, to_emit)
                 n_intents += len(fresh)
             drained_until = sync_slice.end
         # The row version is the read time, not window_end, so a rerun of the same window replaces the
@@ -165,6 +165,7 @@ WHERE run_id = {run_id}
 # not exist; a quorum that cannot be met fails the run after the timeout, and the retry re-assigns the window.
 ASSIGNMENT_INSERT_SETTINGS: dict[str, Any] = {
     "insert_distributed_sync": 1,
+    "async_insert": 0,
     "insert_quorum": 0 if settings.TEST or settings.DEBUG else "auto",
     "insert_quorum_timeout": 60_000,
 }

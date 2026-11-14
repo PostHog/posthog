@@ -30,11 +30,12 @@ from products.mcp_analytics.backend.intent_topics.constants import (
 )
 
 
-@dataclass(frozen=True)
+@frozen
 class DistinctIntent:
-    hash: str
-    text: str
+    hash: str = field(repr=False)
+    text: str = field(repr=False)
     calls: int
+    source_min_timestamp: datetime
 
 
 @frozen
@@ -76,6 +77,12 @@ class IntentQuery:
 
 
 SOURCE_PAGE_SIZE = 5_000
+
+
+def _source_time(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 _LIVE_INTENTS_SQL = f"""
 SELECT
     {INTENT_HASH_HOGQL} AS intent_hash,
@@ -120,7 +127,10 @@ def iter_live_intent_pages(
             or []
         )
         if rows:
-            yield [IntentSource(hash=r[0], text=r[1], calls=int(r[2]), source_min_timestamp=r[3]) for r in rows]
+            yield [
+                IntentSource(hash=r[0], text=r[1], calls=int(r[2]), source_min_timestamp=_source_time(r[3]))
+                for r in rows
+            ]
         if len(rows) < page_size:
             return
         after_key, after_hash = rows[-1][4], rows[-1][0]
@@ -164,7 +174,8 @@ _DISTINCT_INTENTS_SQL = f"""
 SELECT
     {INTENT_HASH_HOGQL} AS intent_hash,
     any(toString(properties.{INTENT_PROPERTY})) AS text,
-    count() AS calls
+    count() AS calls,
+    min(timestamp) AS source_min_timestamp
 FROM events
 WHERE event = '$mcp_tool_call'
   AND timestamp >= {{since}}
@@ -207,7 +218,10 @@ def iter_distinct_intent_pages(
             or []
         )
         if rows:
-            yield [DistinctIntent(hash=row[0], text=row[1], calls=int(row[2])) for row in rows]
+            yield [
+                DistinctIntent(hash=row[0], text=row[1], calls=int(row[2]), source_min_timestamp=_source_time(row[3]))
+                for row in rows
+            ]
         if len(rows) < page_size:
             return
         after = rows[-1][0]

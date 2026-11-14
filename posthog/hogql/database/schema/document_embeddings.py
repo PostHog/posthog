@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.transforms.order_by_pushdown import push_down_order_by, resolve_alias, unwrap_alias
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES, EMBEDDING_TABLES_1
@@ -112,6 +113,27 @@ def extract_model_name_from_where(node: Optional[ast.Expr]) -> Optional[str]:
     return None
 
 
+def intent_embedding_predicates(context: Optional[HogQLContext]) -> list[ast.Expr]:
+    source = parse_expr("parseDateTimeBestEffort(JSONExtractString(metadata, 'source_min_timestamp'))")
+    eligibility = parse_expr("isNotNull({source})", placeholders={"source": source})
+    if context is not None and context.events_retention_months is not None:
+        eligibility = ast.And(
+            exprs=[
+                eligibility,
+                parse_expr(
+                    "{source} > now() - toIntervalMonth({months})",
+                    placeholders={"source": source, "months": ast.Constant(value=context.events_retention_months)},
+                ),
+            ]
+        )
+    return [
+        parse_expr(
+            "product != 'mcp_analytics' OR document_type != 'mcp-intent' OR {eligibility}",
+            placeholders={"eligibility": eligibility},
+        )
+    ]
+
+
 class ModelSpecificEmbeddingTable(Table):
     description: str = "Document embeddings for a single embedding model; the `model_name` column is fixed per table."
     model_name: str = ""
@@ -128,6 +150,9 @@ class ModelSpecificEmbeddingTable(Table):
 
     def to_printed_hogql(self):
         return f"document_embeddings_{self.model_name.replace('-', '_')}"
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[ast.Expr]:
+        return intent_embedding_predicates(context)
 
 
 HOGQL_EMBEDDING_TABLES = {
@@ -216,3 +241,6 @@ class RawDocumentEmbeddingsTable(Table):
 
     def to_printed_hogql(self):
         return "raw_document_embeddings"
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[ast.Expr]:
+        return intent_embedding_predicates(context)

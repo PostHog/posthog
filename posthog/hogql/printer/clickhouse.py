@@ -1250,6 +1250,15 @@ class ClickHousePrinter(BasePrinter):
 
         return build_access_control_guard(table_type.table, node_type, self.context)
 
+    def _get_table_predicates(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> list[ast.Expr]:
+        return super()._get_table_predicates(
+            table_type, _table_filter_type(node_type) if node_type is not None else None
+        )
+
     def _events_retention_floor(
         self,
         table_type: ast.TableType | ast.LazyTableType,
