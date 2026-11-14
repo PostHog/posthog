@@ -15,11 +15,19 @@ interface UpdateEditingView {
 
 /** Update state for the view open in the editor. Call it below the SQLEditor bindings. */
 export function useUpdateEditingView(): UpdateEditingView {
-    const { editingView, changesToSave, isSourceQueryLastRun, isMultiQuery, saveAsViewDisabledReason } =
-        useValues(sqlEditorLogic)
-    const { reviewEditingViewUpdate } = useActions(sqlEditorLogic)
-    const { response, responseError, responseLoading } = useValues(dataNodeLogic)
+    const {
+        editingView,
+        hasEditorChanges,
+        isMultiQuery,
+        saveAsViewDisabledReason,
+        queryInput,
+        sourceQuery,
+        isSourceQueryLastRun,
+    } = useValues(sqlEditorLogic)
+    const { updateEditingView } = useActions(sqlEditorLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
+
+    const { response, responseError, responseLoading } = useValues(dataNodeLogic)
 
     const isMaterializedView = editingView?.is_materialized === true
 
@@ -39,35 +47,37 @@ export function useUpdateEditingView(): UpdateEditingView {
             }
         }
 
-        if (!changesToSave) {
+        if (!queryInput?.trim()) {
+            return { disabledReason: 'Write a SQL query before saving', loading: false }
+        }
+
+        if (
+            sourceQuery.source.executionTarget === 'managed_trino' &&
+            (!isSourceQueryLastRun || !response || responseError || responseLoading)
+        ) {
+            return {
+                disabledReason: 'Run the latest query successfully to determine the view’s columns',
+                loading: responseLoading,
+            }
+        }
+
+        if (!hasEditorChanges) {
             return { disabledReason: 'No changes to save', loading: false }
-        }
-
-        // Require the current (edited) query to have been run successfully before updating — a stale
-        // response from a previous run must not enable the button after further edits.
-        if (!isSourceQueryLastRun) {
-            return { disabledReason: 'Run the latest query before updating the view', loading: false }
-        }
-
-        if (responseLoading) {
-            return { disabledReason: 'Running query...', loading: true }
-        }
-
-        if (responseError || !response) {
-            return { disabledReason: 'Run the query successfully before updating the view', loading: false }
         }
 
         return { disabledReason: undefined, loading: false }
     }, [
         updatingDataWarehouseSavedQuery,
-        changesToSave,
-        isSourceQueryLastRun,
-        responseLoading,
-        responseError,
-        response,
+        hasEditorChanges,
         isMultiQuery,
         saveAsViewDisabledReason,
+        queryInput,
+        sourceQuery,
+        isSourceQueryLastRun,
+        response,
+        responseError,
+        responseLoading,
     ])
 
-    return { disabledReason, loading, isMaterializedView, update: reviewEditingViewUpdate }
+    return { disabledReason, loading, isMaterializedView, update: updateEditingView }
 }
