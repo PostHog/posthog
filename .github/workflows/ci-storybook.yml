@@ -621,6 +621,125 @@ jobs:
                     $VR_PARTIAL)
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
+    # A required commit status that never arrives blocks the PR. When change detection
+    # decides that a commit needs no visual run, this job tells Visual Review, which then
+    # posts a passing status for that commit. It reports nothing when a job before it
+    # failed or the run was cancelled, because then no decision was made.
+    # Not in the needs of the required gate: a failed report shows as this failed job and
+    # a missing status, and must not turn the gate red.
+    # Off until the repository variable is set, because the report only does something
+    # once the repo keeps its baselines in Visual Review.
+    # The job needs the changes job. When that job fails or times out, this one is skipped and
+    # no status arrives for the commit, so a re-run of the workflow is the repair.
+    vr-skip:
+        name: Report no Visual Review run needed
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
+        timeout-minutes: 10
+        needs: [changes, build-storybook, select-stories]
+        # !cancelled() stops the skips of build-storybook and select-stories from
+        # cascading to this job. Each arm then requires the jobs it reads to have succeeded.
+        if: |
+            !cancelled()
+            && vars.VISUAL_REVIEW_REPORT_NO_RUN == 'true'
+            && github.repository == 'PostHog/posthog'
+            && github.event_name == 'pull_request'
+            && github.event.pull_request.head.repo.full_name == github.repository
+            && needs.changes.result == 'success'
+            && (
+                needs.changes.outputs.frontend != 'true'
+                || (
+                    needs.build-storybook.result == 'success'
+                    && needs.select-stories.result == 'success'
+                    && needs.select-stories.outputs.should_run == 'false'
+                )
+            )
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  sparse-checkout: frontend/snapshots.yml
+                  sparse-checkout-cone-mode: false
+
+            # The baseline file's config block names the API host, the team and the repo, as
+            # it does for the CLI. The job reads the default branch's copy, because the host
+            # receives the token and a pull request can change its own copy. Only connection
+            # errors are retried: on a 502 the backend already tried to post the status, and
+            # a re-run of this job is the repair. A 404 or 405 means a backend that does not
+            # have this call yet, so the job passes. The token goes to curl on stdin, so it
+            # never shows in the process list.
+            - name: Report no Visual Review run needed
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BASELINE: frontend/snapshots.yml
+                  VR_RUN_TYPE: storybook
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
+              run: |
+                  set -euo pipefail
+                  if [ -z "$VR_TOKEN" ]; then
+                      echo "::notice::No token is available for this pull request, so no status was reported."
+                      exit 0
+                  fi
+                  api=$(yq '.config.api // ""' "$VR_BASELINE")
+                  team=$(yq '.config.team // ""' "$VR_BASELINE")
+                  repo=$(yq '.config.repo // ""' "$VR_BASELINE")
+                  if [ -z "$api" ] || [ -z "$team" ] || [ -z "$repo" ]; then
+                      echo "::error::$VR_BASELINE has no complete config block (api, team, repo)."
+                      exit 1
+                  fi
+                  url="${api%/}/api/projects/${team}/visual_review/runs/skip/"
+                  body=$(jq -cn \
+                      --arg repo_id "$repo" \
+                      --arg run_type "$VR_RUN_TYPE" \
+                      --arg commit_sha "$VR_COMMIT" \
+                      --arg branch "$VR_BRANCH" \
+                      --argjson pr_number "$VR_PR" \
+                      '{repo_id: $repo_id, run_type: $run_type, commit_sha: $commit_sha, branch: $branch, pr_number: $pr_number}')
+                  response="$RUNNER_TEMP/vr-skip-response.txt"
+                  status=""
+                  for attempt in 1 2 3; do
+                      if status=$(printf 'Authorization: Bearer %s\n' "$VR_TOKEN" | curl -sS \
+                          --connect-timeout 10 --max-time 30 \
+                          -H @- -H 'Content-Type: application/json' \
+                          --data "$body" -o "$response" -w '%{http_code}' "$url"); then
+                          break
+                      fi
+                      status=""
+                      if [ "$attempt" -lt 3 ]; then
+                          sleep $((attempt * 5))
+                      fi
+                  done
+                  case "$status" in
+                      200)
+                          jq -r '.detail' "$response"
+                          ;;
+                      404 | 405)
+                          # A deployed backend answers 404 only for a repo it does not know. That is a
+                          # wrong config, and passing on it would hide a status that never arrives.
+                          if [ "$(jq -r '.detail // empty' "$response" 2>/dev/null)" = 'Repo not found' ]; then
+                              echo "::error::Visual Review does not know the repo in $VR_BASELINE."
+                              exit 1
+                          fi
+                          echo "::notice::Visual Review answered $status, so it has no report for commits that need no run yet. Nothing was reported."
+                          cat "$response"
+                          ;;
+                      502)
+                          echo "::error::Visual Review could not post the commit status. Re-run this job to try again."
+                          cat "$response"
+                          exit 1
+                          ;;
+                      "")
+                          echo "::error::Visual Review did not answer after 3 attempts."
+                          exit 1
+                          ;;
+                      *)
+                          echo "::error::Visual Review answered $status."
+                          cat "$response"
+                          exit 1
+                          ;;
+                  esac
+
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ${{ matrix.browser == 'chromium' && 'ubuntu-24.04' || 'depot-ubuntu-24.04' }}
