@@ -6,9 +6,11 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, MCPIntentTopicsQuery
+from posthog.schema import DateRange, HogQLQueryModifiers, MCPIntentTopicsQuery
 
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.models.event.new_events_schema import events_route_scope
 
 from products.mcp_analytics.backend.hogql_queries.intent_topics import MCPIntentTopicsQueryRunner
 from products.mcp_analytics.backend.intent_hash import intent_hash
@@ -123,26 +125,33 @@ class TestRebuildTopicDaily(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         ).calculate()
         return [(t.topic_id, t.calls, t.sessions) for t in response.results]
 
-    def test_sums_calls_per_tool_and_topic_with_unassigned_outliers_and_distinct_conversations(self) -> None:
-        insert_hourly_calls(
-            self.team.pk,
-            [
-                self._hourly(1, "h1", "query-trends", 3, conversations=(1,)),
-                self._hourly(2, "h1", "query-trends", 2, conversations=(1,)),
-                self._hourly(1, "h2", "query-trends", 4, conversations=(1, 2)),
-                self._hourly(1, "h3", "query-funnel", 1),
-                self._hourly(1, "h4", "query-trends", 7),
-            ],
-            now=DAY + timedelta(days=1),
-        )
+    @parameterized.expand([("legacy_events", False), ("native_events", True)])
+    def test_sums_calls_per_tool_and_topic_with_unassigned_outliers_and_distinct_conversations(
+        self, _name: str, native_events: bool
+    ) -> None:
         _insert_assignment(self.team.pk, "h1", "topic-a")
         _insert_assignment(self.team.pk, "h2", "topic-a", is_outlier=1)
         _insert_assignment(self.team.pk, "h3", "topic-b")
         _insert_assignment(OTHER_TEAM_ID, "h4", "topic-z")
 
-        rebuild_topic_daily(
-            team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
-        )
+        with (
+            self.settings(CLICKHOUSE_EVENTS_OFFLINE_HOST="events-only.invalid"),
+            events_route_scope(HogQLQueryModifiers(useNewEventsSchema=native_events)),
+        ):
+            insert_hourly_calls(
+                self.team.pk,
+                [
+                    self._hourly(1, "h1", "query-trends", 3, conversations=(1,)),
+                    self._hourly(2, "h1", "query-trends", 2, conversations=(1,)),
+                    self._hourly(1, "h2", "query-trends", 4, conversations=(1, 2)),
+                    self._hourly(1, "h3", "query-funnel", 1),
+                    self._hourly(1, "h4", "query-trends", 7),
+                ],
+                now=DAY + timedelta(days=1),
+            )
+            rebuild_topic_daily(
+                team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
+            )
 
         assert self._daily() == [
             (DAY.date().isoformat(), "query-funnel", "topic-b", 1, 1, 0, 1),
