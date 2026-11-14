@@ -492,17 +492,19 @@ class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
 
         return executor.submit(run)
 
-    def _wait_until_the_import_waits_on_this_transaction(self, result: Future[dict]) -> None:
+    def _wait_until_the_import_stops(self, result: Future[dict], paused: Event | None = None) -> None:
         pid = self.import_pid.get(timeout=10)
         deadline = monotonic() + 10
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_backend_pid()")
             holder_pid = cursor.fetchone()[0]
             while not result.done() and monotonic() < deadline:
+                if paused is not None and paused.is_set():
+                    return
                 cursor.execute("SELECT %s = ANY(pg_blocking_pids(%s))", [holder_pid, pid])
                 if cursor.fetchone()[0]:
                     return
-        self.fail("The import did not wait for the bounce write")
+        self.fail("The import neither waited on the bounce write nor paused")
 
     def test_import_blocks_transactional_email_to_an_address_the_bounce_feedback_inserts_meanwhile(self):
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -515,37 +517,46 @@ class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
                     transient_bounce_count=1,
                 )
                 result = self._start_import(executor)
-                self._wait_until_the_import_waits_on_this_transaction(result)
+                self._wait_until_the_import_stops(result)
             assert result.result(timeout=10)["status"] == "completed"
 
         row = self.rows.get(identifier="known@example.com")
         assert (row.suppressed, row.hard_bounced_at is not None, row.transient_bounce_count) == (True, True, 1)
 
-    def test_import_page_retries_without_waiting_while_a_bounce_write_holds_one_of_its_rows(self):
+    def test_import_page_lets_a_bounce_write_that_holds_one_of_its_rows_insert_another(self):
         self.rows.create(
             team=self.team, identifier="known@example.com", source=SuppressionSource.MANUAL, suppressed=True
         )
-        retrying, released = Event(), Event()
+        paused, released = Event(), Event()
 
         def pause(seconds: float) -> None:
             if seconds:
-                retrying.set()
+                paused.set()
                 released.wait(timeout=10)
 
         with (
             patch("products.messaging.backend.services.customerio_import_service.time.sleep", side_effect=pause),
             ThreadPoolExecutor(max_workers=1) as executor,
         ):
-            with transaction.atomic():
-                self.rows.filter(identifier="known@example.com").update(
-                    transient_bounce_count=F("transient_bounce_count") + 1
-                )
-                result = self._start_import(executor)
-                assert retrying.wait(timeout=10)
-            released.set()
+            try:
+                with transaction.atomic():
+                    self.rows.filter(identifier="known@example.com").update(
+                        transient_bounce_count=F("transient_bounce_count") + 1
+                    )
+                    result = self._start_import(executor)
+                    self._wait_until_the_import_stops(result, paused)
+                    self.rows.create(
+                        team=self.team,
+                        identifier="new@example.com",
+                        source=SuppressionSource.BOUNCE,
+                        suppressed=False,
+                        transient_bounce_count=1,
+                    )
+            finally:
+                released.set()
             assert result.result(timeout=10)["status"] == "completed"
 
         assert [
-            (row.identifier, row.transient_bounce_count, row.hard_bounced_at is None)
+            (row.identifier, row.transient_bounce_count, row.suppressed, row.hard_bounced_at is not None)
             for row in self.rows.order_by("identifier")
-        ] == [("known@example.com", 1, False), ("new@example.com", 0, False)]
+        ] == [("known@example.com", 1, True, True), ("new@example.com", 1, True, True)]
