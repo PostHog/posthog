@@ -1625,6 +1625,77 @@ export interface TransactionalEmailStatsOverTimeApi {
     previous: TransactionalEmailStatsCountsApi | null
 }
 
+/**
+ * * `sending` - Sending
+ * * `sent` - Sent
+ * * `not_sent` - Not sent
+ * * `failed` - Failed
+ */
+export type PushSendStatusEnumApi = (typeof PushSendStatusEnumApi)[keyof typeof PushSendStatusEnumApi]
+
+export const PushSendStatusEnumApi = {
+    Sending: 'sending',
+    Sent: 'sent',
+    NotSent: 'not_sent',
+    Failed: 'failed',
+} as const
+
+export interface TransactionalPushLogEntryApi {
+    /** The ID of this send. */
+    run_id: string
+    /** When the send was queued. */
+    created_at: string
+    /** What happened. `sending` is still running, `sent` reached at least one of the person's devices, `not_sent` reached none, for example because the person has no device or its token expired, and `failed` stopped with an error.
+     *
+     * * `sending` - Sending
+     * * `sent` - Sent
+     * * `not_sent` - Not sent
+     * * `failed` - Failed */
+    status: PushSendStatusEnumApi
+    /** The warnings and errors the send logged, oldest first. They say why a push was not sent. */
+    messages: string[]
+    /** The distinct ID the push was sent to. */
+    distinct_id: string
+    /** The person behind the distinct ID. Empty when none was found. */
+    person_id: string
+    /** The workflow behind the push notification. */
+    workflow_id: string
+    /**
+     * The push notification that was sent.
+     * @nullable
+     */
+    template_id: string | null
+    /** The push notification's name. */
+    template_name: string
+    /** The title the push went out with. Empty when it was not sent. */
+    title: string
+}
+
+export interface TransactionalPushLogListApi {
+    /** Sends, newest first. */
+    results: TransactionalPushLogEntryApi[]
+    /** Whether another page follows. */
+    has_more: boolean
+}
+
+export interface TransactionalPushStatsRowApi {
+    /** The push notification. */
+    template_id: string
+    /** The push notification's name. */
+    template_name: string
+    /** Sends that reached at least one device. */
+    sent: number
+    /** Sends that reached no device. */
+    not_sent: number
+    /** Sends that stopped with an error. */
+    failed: number
+}
+
+export interface TransactionalPushStatsApi {
+    /** One row per push notification, busiest first. */
+    results: TransactionalPushStatsRowApi[]
+}
+
 export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
@@ -1799,6 +1870,67 @@ export const TransactionalEmailLogStatsRetrieveGroupBy = {
 } as const
 
 export type TransactionalEmailLogStatsOverTimeRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+}
+
+export type TransactionalPushLogListParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Sends to skip.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * The recipient's exact distinct ID, or the ID of one send.
+     */
+    search?: string
+    /**
+     * Only sends with this outcome.
+     *
+     * * `sending` - Sending
+     * * `sent` - Sent
+     * * `not_sent` - Not sent
+     * * `failed` - Failed
+     * @minLength 1
+     */
+    status?: TransactionalPushLogListStatus
+    /**
+     * Only sends of the push notification backed by this workflow.
+     */
+    workflow_id?: string
+}
+
+export type TransactionalPushLogListStatus =
+    (typeof TransactionalPushLogListStatus)[keyof typeof TransactionalPushLogListStatus]
+
+export const TransactionalPushLogListStatus = {
+    Sending: 'sending',
+    Sent: 'sent',
+    NotSent: 'not_sent',
+    Failed: 'failed',
+} as const
+
+export type TransactionalPushLogStatsRetrieveParams = {
     /**
      * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
      */

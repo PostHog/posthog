@@ -50,7 +50,7 @@ export function TransactionalEmailLog(): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const emailOptions = transactionalTemplates
-        .filter((template) => template.transactional_hog_flow_id)
+        .filter((template) => template.transactional_hog_flow_id && template.type !== 'push')
         .map((template) => ({
             value: template.transactional_hog_flow_id as string,
             label: template.name || 'Unnamed email',

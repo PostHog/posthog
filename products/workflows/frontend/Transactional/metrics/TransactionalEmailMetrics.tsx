@@ -2,21 +2,26 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { TransactionalEmailMetricsDateRange } from './TransactionalEmailMetricsDateRange'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailMetricTiles } from './TransactionalEmailMetricTiles'
 import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
+import { TransactionalPushMetrics } from './TransactionalPushMetrics'
 
 export function TransactionalEmailMetrics(): JSX.Element {
     const { templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
         useValues(transactionalEmailMetricsLogic)
     const { loadTemplateStats, loadDomainStats, loadStatsOverTime } = useActions(transactionalEmailMetricsLogic)
+    const { sendablePushTemplates } = useValues(transactionalTemplatesLogic)
+    const showPush = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API') && sendablePushTemplates.length > 0
     const emptyState = statsFailed ? "The numbers couldn't load" : 'No transactional emails were sent in this period'
 
     return (
@@ -73,6 +78,12 @@ export function TransactionalEmailMetrics(): JSX.Element {
             >
                 <TransactionalEmailResults />
             </SceneSection>
+            {showPush ? (
+                <>
+                    <SceneDivider />
+                    <TransactionalPushMetrics />
+                </>
+            ) : null}
         </div>
     )
 }

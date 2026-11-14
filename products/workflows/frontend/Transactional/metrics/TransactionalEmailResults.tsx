@@ -17,7 +17,7 @@ export function TransactionalEmailResults(): JSX.Element {
     const { transactionalTemplates, transactionalTemplatesFailed } = useValues(transactionalTemplatesLogic)
 
     const emailOptions = transactionalTemplates
-        .filter((template) => template.transactional_hog_flow_id)
+        .filter((template) => template.transactional_hog_flow_id && template.type !== 'push')
         .map((template) => ({
             value: template.transactional_hog_flow_id as string,
             label: template.name || 'Unnamed email',

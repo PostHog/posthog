@@ -19,6 +19,7 @@ from products.messaging.backend.presentation.views.topic_preferences import Topi
 from products.messaging.backend.presentation.views.transactional_code_emails import TransactionalCodeEmailViewSet
 from products.messaging.backend.presentation.views.transactional_email_log import TransactionalEmailLogViewSet
 from products.messaging.backend.presentation.views.transactional_email_status import MessagingEmailsViewSet
+from products.messaging.backend.presentation.views.transactional_push_log import TransactionalPushLogViewSet
 
 webhook_urlpatterns: list[URLPattern] = [
     re_path(
@@ -62,6 +63,9 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"transactional_email_log", TransactionalEmailLogViewSet, "project_transactional_email_log", ["team_id"]
+    )
+    routers.projects.register(
+        r"transactional_push_log", TransactionalPushLogViewSet, "project_transactional_push_log", ["team_id"]
     )
     routers.projects.register(
         r"transactional_code_emails",

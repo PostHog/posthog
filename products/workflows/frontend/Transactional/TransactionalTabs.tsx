@@ -10,7 +10,7 @@ import { ComingSoonInterestTag } from './comingSoon/ComingSoonInterestTag'
 import { SmtpInterestModal } from './comingSoon/SmtpInterestModal'
 import { SMTP_INTEREST_SURVEY } from './comingSoon/smtpInterestSurvey'
 import { useComingSoonInterestSurvey } from './comingSoon/useComingSoonInterestSurvey'
-import { TransactionalEmailLog } from './log/TransactionalEmailLog'
+import { TransactionalLog } from './log/TransactionalLog'
 import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalRoute, TransactionalTab } from './transactionalRoute'
@@ -53,7 +53,7 @@ export function TransactionalTabs({
                         label: 'Log',
                         key: 'log',
                         link: urls.transactionalLog(),
-                        content: <TransactionalEmailLog />,
+                        content: <TransactionalLog />,
                     },
                     {
                         label: 'Metrics',
