@@ -65,6 +65,7 @@ from posthog.hogql.functions.traffic_type import (
 )
 from posthog.hogql.functions.with_icon import with_icon
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
+from posthog.hogql.insight_table_functions import expand_insight_table_function, get_insight_table_function
 from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
@@ -1535,6 +1536,13 @@ class Resolver(CloningVisitor):
 
         if isinstance(node.table, ast.HogQLXTag):
             node.table = expand_hogqlx_query(node.table, self.context.team_id)
+
+        insight_table_function = get_insight_table_function(node) if self.dialect in ("hogql", "clickhouse") else None
+        if insight_table_function is not None and insight_table_function.name not in self.ctes:
+            assert node.table_args is not None
+            node.table = expand_insight_table_function(insight_table_function, node.table_args, self.context)
+            node.table_args = None
+            node.alias = node.alias or insight_table_function.name
 
         # Capture the bare column names of a USING constraint before resolution qualifies its
         # fields, so the constraint can be desugared into an ON constraint once the joined

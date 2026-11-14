@@ -132,6 +132,9 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
     def to_query(self) -> ast.SelectQuery:
         return self.funnel_class.get_query()
 
+    def to_table_function_query(self) -> ast.SelectQuery:
+        return self.funnel_order_class.get_table_function_query()
+
     def to_actors_query(self) -> ast.SelectQuery:
         # A persons modal opened from a 'previous' compare bar must return actors from the shifted
         # window only; every other case uses the source's own (current) date range.
