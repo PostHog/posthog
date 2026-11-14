@@ -1642,15 +1642,10 @@ class UserCanInvitePermission(BasePermission):
         if not org_invite_settings_available:
             return True
 
-        membership = get_required_organization_membership(request, organization)
-
-        members_can_invite = bool(organization.members_can_invite)
-        user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
-
-        if user_is_admin:
+        if can_in_required_organization(request, organization, Action.EDIT):
             return True
 
-        return members_can_invite
+        return bool(organization.members_can_invite)
 
 
 class UserCanCreateProjectPermission(BasePermission):
