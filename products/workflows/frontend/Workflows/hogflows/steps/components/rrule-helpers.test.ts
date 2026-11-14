@@ -22,6 +22,8 @@ import {
 describe('rrule-helpers', () => {
     describe('frequencyToRRule', () => {
         test.each([
+            ['minutely', RRule.MINUTELY],
+            ['hourly', RRule.HOURLY],
             ['daily', RRule.DAILY],
             ['weekly', RRule.WEEKLY],
             ['monthly', RRule.MONTHLY],
@@ -118,6 +120,13 @@ describe('rrule-helpers', () => {
             return parseRRuleToState(rruleStr)
         }
 
+        test.each(['FREQ=MINUTELY;INTERVAL=5', 'FREQ=HOURLY;INTERVAL=2'])(
+            'keeps %s when an API-created schedule is opened and saved',
+            (rrule) => {
+                expect(stateToRRule(parseRRuleToState(rrule), null)).toBe(rrule)
+            }
+        )
+
         it('roundtrips daily every 3 days', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily', interval: 3 }
             const parsed = roundtrip(state)
@@ -189,6 +198,24 @@ describe('rrule-helpers', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily', endType: 'never' }
             const result = computePreviewOccurrences(state, startsAt, undefined, 3)
             expect(result).toHaveLength(3)
+        })
+
+        it('previews the next runs of a minutely schedule that started long ago', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-11-12T10:00:30Z'))
+            try {
+                const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'minutely', interval: 5 }
+                const result = computePreviewOccurrences(state, '2025-01-01T00:00:00Z', 'UTC')
+                expect(result.map((d) => d.toISOString())).toEqual([
+                    '2026-11-12T10:05:00.000Z',
+                    '2026-11-12T10:10:00.000Z',
+                    '2026-11-12T10:15:00.000Z',
+                    '2026-11-12T10:20:00.000Z',
+                    '2026-11-12T10:25:00.000Z',
+                    '2026-11-12T10:30:00.000Z',
+                ])
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('returns empty array for invalid startsAt', () => {
@@ -442,11 +469,15 @@ describe('rrule-helpers', () => {
         })
 
         it('shows a rule the picker cannot model as written rather than describing it wrongly', () => {
-            expect(summarizeSchedule('FREQ=HOURLY;INTERVAL=1', STARTS, 'UTC')).toBe('FREQ=HOURLY;INTERVAL=1')
+            expect(summarizeSchedule('FREQ=SECONDLY;INTERVAL=1', STARTS, 'UTC')).toBe('FREQ=SECONDLY;INTERVAL=1')
         })
 
-        it('describes a rule the picker does model', () => {
-            expect(summarizeSchedule('FREQ=DAILY;INTERVAL=3', STARTS, 'UTC')).toContain('every 3 days')
+        test.each([
+            ['FREQ=DAILY;INTERVAL=3', 'Runs every 3 days'],
+            ['FREQ=HOURLY;INTERVAL=1', 'Runs every hour'],
+            ['FREQ=MINUTELY;INTERVAL=5', 'Runs every 5 minutes'],
+        ])('describes %s in words', (rrule, expected) => {
+            expect(summarizeSchedule(rrule, STARTS, 'UTC')).toContain(expected)
         })
     })
 })

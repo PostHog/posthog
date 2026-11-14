@@ -722,7 +722,7 @@ export const HogFlowScheduleStatusEnumApi = {
 
 export interface HogFlowScheduleApi {
     readonly id: string
-    /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+    /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Occurrences must be at least 1 minute apart on a schedule trigger, and at least 1 hour apart on a batch trigger. */
     rrule: string
     /** ISO 8601 datetime the schedule starts from. */
     starts_at: string
@@ -1943,7 +1943,7 @@ export interface HogFlowRunResponseApi {
 
 export interface PatchedHogFlowScheduleApi {
     readonly id?: string
-    /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+    /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Occurrences must be at least 1 minute apart on a schedule trigger, and at least 1 hour apart on a batch trigger. */
     rrule?: string
     /** ISO 8601 datetime the schedule starts from. */
     starts_at?: string

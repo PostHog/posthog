@@ -178,7 +178,10 @@ const ScheduleCreateSchema = z.object({
         .describe('ID of the workflow to attach the recurring schedule to. Its trigger must be batch or schedule.'),
     rrule: z
         .string()
-        .describe("iCalendar RRULE (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour."),
+        .describe(
+            "iCalendar RRULE (e.g. 'FREQ=DAILY;INTERVAL=1'). Occurrences must be at least 1 minute apart on a " +
+                'schedule trigger, and at least 1 hour apart on a batch trigger.'
+        ),
     starts_at: z.string().describe('ISO 8601 datetime the schedule starts from.'),
     timezone: z.string().optional().describe("IANA timezone for the RRULE (default 'UTC')."),
     acknowledged_affected_count: z
