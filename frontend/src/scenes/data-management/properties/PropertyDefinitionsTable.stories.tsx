@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -106,4 +107,48 @@ export const FilteredUnverifiedOnly: Story = {
     parameters: {
         pageUrl: urls.propertyDefinitions() + '?verified=false',
     },
+}
+
+const QUERY_COUNTS: Record<string, number> = { $browser: 1284, $os: 312, plan: 0, revenue: 57, $current_url: 9_431 }
+
+export const WithQueryCounts: Story = {
+    parameters: {
+        pageUrl: urls.propertyDefinitions(),
+        featureFlags: [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
+        testOptions: {
+            waitForSelector: '[data-attr="property-definition-query-count"]',
+            snapshotBrowsers: [],
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/property_definitions/': () => [
+                    200,
+                    {
+                        ...MOCK_PROPERTY_DEFINITIONS,
+                        results: MOCK_PROPERTY_DEFINITIONS.results.map((definition) => ({
+                            ...definition,
+                            type: 'event',
+                        })),
+                    },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/property_definitions/usage_metrics/': async ({ request }) => {
+                    const { properties } = (await request.json()) as { properties: { type: string; name: string }[] }
+                    return [
+                        200,
+                        {
+                            results: properties.map((entry) => ({
+                                ...entry,
+                                group_type_index: null,
+                                query_usage_30_day: QUERY_COUNTS[entry.name] ?? 0,
+                            })),
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
 }
