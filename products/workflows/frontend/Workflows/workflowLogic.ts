@@ -20,7 +20,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { selectedSenderIds } from 'scenes/hog-functions/email-templater/emailSenderFields'
-import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
+import type { EmailFieldErrors, EmailTemplateFrom } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -3630,8 +3630,15 @@ function senderErrors(
     }
 }
 
-function unusableSenderError(senderIds: number[], integrations: IntegrationType[]): string | undefined {
-    for (const senderId of senderIds) {
+function unusableSenderError(
+    action: HogFlowAction,
+    from: EmailTemplateFrom | undefined,
+    integrations: IntegrationType[] | null
+): string | undefined {
+    if (action.type !== 'function_email' || !integrations) {
+        return undefined
+    }
+    for (const senderId of selectedSenderIds(from ?? {})) {
         const sender = integrations.find((integration) => integration.id === Number(senderId))
         if (!sender || sender.kind !== 'email') {
             return "This sender can't be found. Choose another sender."
@@ -4427,10 +4434,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
                             }
 
-                            const unusableSender =
-                                action.type === 'function_email' && integrations
-                                    ? unusableSenderError(selectedSenderIds(emailValue?.from ?? {}), integrations)
-                                    : undefined
+                            const unusableSender = unusableSenderError(action, emailValue?.from, integrations)
                             emailErrors.from = unusableSender ?? emailErrors.from
 
                             const hasEmailErrors = Object.values(emailErrors).some((v) => !!v)
@@ -4444,8 +4448,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 if (saveAttemptedActionIds?.includes(action.id)) {
                                     result.emailErrors = emailErrors
                                 } else if (unusableSender) {
-                                    // A picked sender that can't send is no template-start gap, so it shows
-                                    // straight away, also on a live workflow whose emails are failing now.
+                                    // A sender that can't send is no template-start gap, so it shows before any save.
                                     result.emailErrors = { from: unusableSender }
                                 }
                             }

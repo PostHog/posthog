@@ -4069,9 +4069,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if status == HogFlowState.ACTIVE and not is_draft and get_team is not None:
             live_flow = instance or self.context.get("instance")
             activating = live_flow is None or live_flow.status != HogFlowState.ACTIVE
-            # Internal rewrites of a live workflow, such as the UTM defaults apply or the refresh command, touch
-            # steps nobody edited, so a sender that broke since activation must not fail them. An MCP edit that
-            # stages a draft isn't live yet: publishing it runs this check.
+            # Internal rewrites (UTM apply, refresh command) must not fail on a sender that broke after going live,
+            # and an MCP edit that stages a draft gets this check when it's published.
             user_save = getattr(self.context.get("view"), "action", None) in WORKFLOW_SAVE_ACTIONS
             if activating or ("actions" in data and user_save and not self.context.get("stages_draft")):
                 _refuse_unusable_email_senders(actions, team_id=get_team().id)
