@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
-import { NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
+import { HogQLVariable, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
@@ -81,6 +81,47 @@ describe('variablesLogic', () => {
         await expectLogic(logic, () => logic.actions.deleteVariable('region-id')).toFinishAllListeners()
         expect(logic.values.variables.map((variable) => variable.id)).toEqual(['region-id'])
         logic.unmount()
+    })
+
+    it('restores an unused selection before it is referenced and preserves its value', async () => {
+        let query: VisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+        }
+        let selections: HogQLVariable[] = [{ variableId: 'region-id', code_name: 'region', value: 'West' }]
+        const parent = dataVisualizationLogic({
+            key: 'recovered-variables',
+            dataNodeCollectionId: 'recovered-variables',
+            query,
+            cachedResults: { columns: [], types: [], results: [] },
+        })
+        parent.mount()
+        const props = {
+            key: 'recovered-variables',
+            readOnly: false,
+            sourceQuery: query,
+            selectedVariables: selections,
+            setQuery: (updated: VisualizationNode) => {
+                query = updated
+            },
+            onSelectionChange: (variables: HogQLVariable[]) => {
+                selections = variables
+            },
+        }
+        const logic = variablesLogic(props)
+        logic.mount()
+        await expectLogic(variableDataLogic).toFinishAllListeners()
+        logic.actions.setEditorQuery('SELECT 1')
+        expect(logic.values.variablesNotInQuery).toEqual([expect.objectContaining({ value: 'West' })])
+        expect(query.source.variables ?? {}).toEqual({})
+        logic.actions.setEditorQuery('SELECT {variables.region}')
+        expect(query.source.variables?.['region-id'].value).toBe('West')
+        variablesLogic({ ...props, sourceQuery: query, selectedVariables: selections })
+        logic.actions.setEditorQuery('SELECT 1')
+        logic.actions.removeVariable('region-id')
+        expect(selections).toEqual([])
+        logic.unmount()
+        parent.unmount()
     })
 
     it.each([false, true])(
