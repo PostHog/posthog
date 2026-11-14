@@ -1,9 +1,12 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { DndContext, MouseSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
+import { folderFormLogic } from 'lib/components/FileSystem/FolderSelect/folderFormLogic'
+import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -98,7 +101,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'health:failing' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         const metricsRetry = (): Element | null =>
@@ -124,6 +129,22 @@ describe('WorkflowsScene', () => {
         expect(metricsRetry()).not.toBeNull()
     })
 
+    it('keeps the Customer.io import next to the folder view', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_IMPORT]: true,
+        })
+        render(
+            <Provider>
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
+            </Provider>
+        )
+        await waitFor(() => expect(document.querySelector('[data-attr="workflows-folder-toolbar"]')).not.toBeNull())
+        expect(document.querySelector('[data-attr="workflows-import-customerio"]')).not.toBeNull()
+    })
+
     it('shows run metrics as pending, not unavailable, while later pages load', async () => {
         const answerLaterPage: (() => void)[] = []
         useMocks({
@@ -144,7 +165,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(answerLaterPage).toHaveLength(1))
@@ -164,7 +187,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
@@ -202,7 +227,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled status:draft' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -234,12 +261,20 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'kind:automation' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() =>
             expect(document.querySelector('[data-attr="workflows-automation-empty-state-guided-setup"]')).not.toBeNull()
         )
+        fireEvent.click(
+            document.querySelector<HTMLElement>(
+                '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+            )!
+        )
+        expect(document.querySelector('input[data-attr="workflows-new-folder-name"]')).not.toBeNull()
     })
 
     it('filters the list and writes pills to the URL', async () => {
@@ -247,7 +282,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -281,7 +318,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000 even'))
@@ -309,7 +348,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()).toHaveLength(6))
@@ -332,13 +373,13 @@ describe('WorkflowsScene', () => {
     })
 
     it.each([
-        ['shows Owner when no columns are saved', null, ['Name', 'Status', 'Owner', 'Updated', '', '']],
+        ['shows Owner when no columns are saved', null, ['', 'Name', 'Status', 'Owner', 'Updated', '', '']],
         [
             'ignores a saved column the list no longer has',
             ['health', 'tags'],
-            ['Name', 'Status', 'Health', 'Updated', '', ''],
+            ['', 'Name', 'Status', 'Health', 'Updated', '', ''],
         ],
-        ['shows Kind beside the name', ['type', 'owner'], ['Name', 'Kind', 'Status', 'Owner', 'Updated', '', '']],
+        ['shows Kind beside the name', ['type', 'owner'], ['', 'Name', 'Kind', 'Status', 'Owner', 'Updated', '', '']],
     ])('%s', async (_, savedColumns, expectedHeaders) => {
         if (savedColumns) {
             localStorage.setItem(
@@ -350,7 +391,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -364,7 +407,9 @@ describe('WorkflowsScene', () => {
         const openList = async (): Promise<void> => {
             render(
                 <Provider>
-                    <WorkflowsScene />
+                    <DndContext>
+                        <WorkflowsScene />
+                    </DndContext>
                 </Provider>
             )
             await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
@@ -378,14 +423,14 @@ describe('WorkflowsScene', () => {
         await openList()
         await chooseFromListOptions('workflows-list-v2-column-health')
         await chooseFromListOptions('workflows-list-v2-column-owner')
-        await waitFor(() => expect(shownHeaders()).toEqual(['Name', 'Status', 'Health', 'Updated', '', '']))
+        await waitFor(() => expect(shownHeaders()).toEqual(['', 'Name', 'Status', 'Health', 'Updated', '', '']))
 
         cleanup()
         await openList()
-        expect(shownHeaders()).toEqual(['Name', 'Status', 'Health', 'Updated', '', ''])
+        expect(shownHeaders()).toEqual(['', 'Name', 'Status', 'Health', 'Updated', '', ''])
 
         await chooseFromListOptions('workflows-list-v2-reset-columns')
-        await waitFor(() => expect(shownHeaders()).toEqual(['Name', 'Status', 'Owner', 'Updated', '', '']))
+        await waitFor(() => expect(shownHeaders()).toEqual(['', 'Name', 'Status', 'Owner', 'Updated', '', '']))
     })
 
     it.each([
@@ -403,7 +448,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), searchParams)
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -438,7 +485,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { type: 'messaging' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -454,7 +503,9 @@ describe('WorkflowsScene', () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -470,18 +521,36 @@ describe('WorkflowsScene', () => {
 
     describe('project folders', () => {
         let files: FileSystemEntry[]
+        let moveRequests: { id: string; newPath: string }[]
+
+        function MouseDragContext({ children }: { children: JSX.Element }): JSX.Element {
+            const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 10 } }))
+            return <DndContext sensors={sensors}>{children}</DndContext>
+        }
+        let holdMoves: boolean
+        let releaseHeldMoves: (() => void)[]
 
         const renderScene = (q: string): void => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
             router.actions.push(urls.workflows(), { q })
             render(
                 <Provider>
-                    <WorkflowsScene />
+                    <MouseDragContext>
+                        <WorkflowsScene />
+                    </MouseDragContext>
                 </Provider>
             )
         }
 
+        const renderFolder = async (folder: string, visibleWorkflow: string, filters = ''): Promise<void> => {
+            renderScene(`in:${folder}${filters}`)
+            await waitFor(() => expect(shownRowNames()).toContain(visibleWorkflow))
+        }
+
         beforeEach(() => {
+            moveRequests = []
+            holdMoves = false
+            releaseHeldMoves = []
             files = [
                 { id: 'billing', path: 'Billing', type: 'folder' },
                 { id: 'cards', path: 'Billing/Cards', type: 'folder' },
@@ -505,21 +574,37 @@ describe('WorkflowsScene', () => {
                         ]
                     },
                 },
+                post: {
+                    '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 1 }],
+                    '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => {
+                        const { new_path: newPath } = (await request.json()) as { new_path: string }
+                        moveRequests.push({ id: String(params.id), newPath })
+                        if (holdMoves) {
+                            await new Promise<void>((resolve) => releaseHeldMoves.push(resolve))
+                        }
+                        const moved = files.find((file) => file.id === params.id)!
+                        const oldPath = moved.path
+                        for (const file of files) {
+                            if (file.path === oldPath || file.path.startsWith(`${oldPath}/`)) {
+                                file.path = newPath + file.path.slice(oldPath.length)
+                            }
+                        }
+                        return [200, moved]
+                    },
+                    '/api/projects/:team_id/file_system/': async ({ request }) => {
+                        const body = (await request.json()) as { path: string; type: string }
+                        const created = { id: `created-${body.path}`, ...body }
+                        files.push(created)
+                        return [201, created]
+                    },
+                },
             })
-        })
-
-        it('shows workflow descriptions inside a folder as the flat list does', async () => {
-            renderScene('in:Billing')
-            await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
-            expect(document.querySelector('[data-attr="workflows-list-v2-description"]')).toHaveTextContent(
-                'Greets new sign-ups'
-            )
         })
 
         it('mounts only the sidebar folders in view, and opens a far folder after scrolling to it', async () => {
             const teams = Array.from({ length: 300 }, (_, index) => `Team-${String(index).padStart(3, '0')}`)
             files = [...files, ...teams.map((path) => ({ id: path, path, type: 'folder' }))]
-            renderScene('in:Billing')
+            await renderFolder('Billing', 'Welcome series')
             const tree = (): HTMLElement => document.querySelector<HTMLElement>('nav [role="tree"]')!
             const treeItems = (): string[] =>
                 Array.from(tree().querySelectorAll('[aria-label^="tree item: "]')).map(
@@ -565,7 +650,7 @@ describe('WorkflowsScene', () => {
         it('lists a bounded number of folders in the Folders menu, and finds a far folder by typing', async () => {
             const teams = Array.from({ length: 300 }, (_, index) => `Team-${String(index).padStart(3, '0')}`)
             files = [...files, ...teams.map((path) => ({ id: path, path, type: 'folder' }))]
-            renderScene('in:Billing')
+            await renderFolder('Billing', 'Welcome series')
             await waitFor(() => expect(workflowFoldersLogic.values.folderPaths).toContain('Team-299'))
             const menuItems = (): string[] =>
                 Array.from(document.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent ?? '')
@@ -651,7 +736,15 @@ describe('WorkflowsScene', () => {
                     },
                 },
             })
-            renderScene('in:Unfiled')
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+            router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+            render(
+                <Provider>
+                    <DndContext>
+                        <WorkflowsScene />
+                    </DndContext>
+                </Provider>
+            )
             await waitFor(() => expect(workflowsListV2Logic.values.listLoaded).toBe(true))
             expect(shownRowNames()).toEqual([])
 
@@ -659,6 +752,191 @@ describe('WorkflowsScene', () => {
             await waitFor(() => expect(shownRowNames()).toEqual(['Spring promo', 'Sync accounts to CRM']))
             act(() => router.actions.push(urls.workflows(), { q: 'in:Billing/Cards' }))
             await waitFor(() => expect(shownRowNames()).toEqual(['Renewal reminder']))
+        })
+
+        it('shows workflow descriptions inside a folder as the flat list does', async () => {
+            await renderFolder('Billing', 'Welcome series')
+            expect(document.querySelector('[data-attr="workflows-list-v2-description"]')).toHaveTextContent(
+                'Greets new sign-ups'
+            )
+        })
+
+        it('opens the template chooser on the kind facet from the folder toolbar', async () => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT!,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT!.resource_access_control!,
+                    hog_flow: AccessControlLevel.Editor,
+                },
+            }
+            await renderFolder('Billing', 'Welcome series', ' kind:messaging')
+            fireEvent.click(
+                document.querySelector('[data-attr="workflows-folder-toolbar"] [data-attr="new-workflow"]')!
+            )
+            await waitFor(() => expect(document.body).toHaveTextContent('Create a workflow'))
+            expect(document.querySelector('[data-attr="workflow-template-type-messaging"]')?.closest('li')).toHaveClass(
+                'LemonSegmentedButton__option--selected'
+            )
+        })
+
+        // jsdom lays nothing out, so the drag gets real boxes only for the dragged row and the one drop target.
+        const box = (left: number, top: number, width: number, height: number): DOMRect =>
+            ({ x: left, y: top, left, top, width, height, right: left + width, bottom: top + height }) as DOMRect
+        const dragOnto = async (handle: Element, target: () => Element): Promise<void> => {
+            jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+                // The sidebar tree's drag overlay is a fixed box the size of the dragged row.
+                if (this.classList.contains('cursor-grab') || (this as HTMLElement).style?.position === 'fixed') {
+                    return box(0, 0, 100, 30)
+                }
+                // TreeNodeDroppable's own wrapper is the node dnd-kit measures for a drop target.
+                return this === target().closest('.z-2') ? box(400, 400, 100, 30) : box(0, 0, 0, 0)
+            })
+            fireEvent.mouseDown(handle, { button: 0, clientX: 10, clientY: 10 })
+            fireEvent.mouseMove(document, { clientX: 30, clientY: 10 })
+            await act(async () => {})
+            fireEvent.mouseMove(document, { clientX: 410, clientY: 410 })
+            await act(async () => {})
+            fireEvent.mouseUp(document, { clientX: 410, clientY: 410 })
+        }
+
+        it.each([
+            ['a sidebar folder', () => document.querySelector('nav [aria-label="tree item: Billing"]')!],
+            [
+                'a breadcrumb',
+                () =>
+                    [
+                        ...document.querySelectorAll(
+                            '[data-attr="workflows-folder-toolbar"] button, [data-attr="workflows-folder-toolbar"] a'
+                        ),
+                    ].find((element) => element.textContent === 'Billing')!,
+            ],
+            [
+                'the up row',
+                () =>
+                    [...document.querySelectorAll('[data-attr="workflows-folder-row"]')].find(
+                        (element) => element.textContent === '..'
+                    )!,
+            ],
+        ])('moves a workflow dragged by its name onto %s, and offers no drag until it lands', async (_, target) => {
+            holdMoves = true
+            await renderFolder('Billing/Cards', 'Renewal reminder')
+            const dragHandle = (): HTMLElement | null => screen.queryByLabelText('Drag workflow Renewal reminder')
+            expect(dragHandle()).not.toBeNull()
+            const name = [...document.querySelectorAll('[data-attr="workflows-list-v2-name"]')].find(
+                (element) => element.textContent === 'Renewal reminder'
+            )!
+            await dragOnto(name, target)
+            jest.restoreAllMocks()
+            await waitFor(() => expect(moveRequests).toEqual([{ id: 'renewal', newPath: 'Billing/Renewal reminder' }]))
+            expect(dragHandle()).toBeNull()
+            act(() => releaseHeldMoves[0]())
+            act(() => router.actions.push(urls.workflows(), { q: 'in:Billing' }))
+            await waitFor(() => expect(shownRowNames()).toContain('Renewal reminder'))
+            await waitFor(() => expect(dragHandle()).not.toBeNull())
+        })
+
+        it('keeps a folder rename pending until the move lands, then renames from the new name', async () => {
+            holdMoves = true
+            await renderFolder('Billing', 'Welcome series')
+            await waitFor(() => expect(workflowFoldersLogic.values.takenFolderPaths).not.toBeNull())
+            const folderActions = (folder: string): HTMLElement => screen.getByLabelText(`Actions for folder ${folder}`)
+            const rename = async (from: string, to: string): Promise<void> => {
+                fireEvent.click(folderActions(from))
+                fireEvent.click(await screen.findByText('Rename…'))
+                fireEvent.change(await screen.findByDisplayValue(from), { target: { value: to } })
+                await waitFor(() => expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true'))
+                fireEvent.click(submitButton())
+            }
+            const submitButton = (): HTMLElement => screen.getByText('Rename').closest('button') as HTMLElement
+
+            await rename('Cards', 'Payments')
+            await waitFor(() => expect(moveRequests).toHaveLength(1))
+            expect(screen.getByText('Rename Cards')).toBeInTheDocument()
+            expect(submitButton()).toHaveAttribute('aria-disabled', 'true')
+            expect(folderActions('Cards')).toHaveAttribute('aria-disabled', 'true')
+
+            act(() => releaseHeldMoves[0]())
+            await waitFor(() => expect(screen.queryByText('Rename Cards')).toBeNull())
+            holdMoves = false
+            await rename('Payments', 'Wallet')
+            await waitFor(() => expect(screen.queryByText('Rename Payments')).toBeNull())
+            expect(moveRequests).toEqual([
+                { id: 'cards', newPath: 'Billing/Payments' },
+                { id: 'cards', newPath: 'Billing/Wallet' },
+            ])
+            act(() => router.actions.push(urls.workflows(), { q: 'in:Billing/Wallet' }))
+            await waitFor(() => expect(shownRowNames()).toEqual(['Renewal reminder']))
+        })
+
+        it('selects what is still in the folder from the header after the selected workflow moves away', async () => {
+            const other = FIXTURE_WORKFLOWS[2]
+            files.push({ id: 'other', path: `Billing/${other.name}`, type: 'hog_flow', ref: other.id })
+            await renderFolder('Billing', other.name)
+            const unmountMoveTo = moveToLogic.mount()
+            fireEvent.click(screen.getByLabelText('Select Welcome series'))
+            fireEvent.click(await screen.findByText('Move to…'))
+            folderFormLogic({ dialog: 'move' }).actions.setFormValue('folder', 'Billing/Cards')
+            folderFormLogic({ dialog: 'move' }).actions.submitForm()
+            await waitFor(() => expect(shownRowNames()).not.toContain('Welcome series'))
+
+            fireEvent.click(screen.getByLabelText('Select all movable items'))
+            expect(await screen.findByText('1 item selected')).toBeInTheDocument()
+            unmountMoveTo()
+        })
+
+        it('lists a subfolder in the open folder after naming it inline', async () => {
+            await renderFolder('Billing', 'Welcome series')
+            fireEvent.click(
+                document.querySelector<HTMLElement>(
+                    '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+                )!
+            )
+            const input = document.querySelector<HTMLInputElement>('input[data-attr="workflows-new-folder-name"]')
+            expect(input).not.toBeNull()
+            fireEvent.change(input!, { target: { value: 'Invoices' } })
+            fireEvent.keyDown(input!, { key: 'Enter' })
+            await waitFor(() =>
+                expect(
+                    Array.from(document.querySelectorAll('[data-attr="workflows-folder-row"]')).map(
+                        (row) => row.textContent
+                    )
+                ).toContain('Invoices(0)')
+            )
+            expect(router.values.searchParams.q).toEqual('in:Billing')
+            expect(document.querySelector('[role="tree"]')?.textContent).toContain('Invoices')
+        })
+
+        const draftInputAfterNewFolder = async (): Promise<HTMLInputElement | null> => {
+            fireEvent.click(
+                document.querySelector<HTMLElement>(
+                    '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+                )!
+            )
+            return document.querySelector<HTMLInputElement>('input[data-attr="workflows-new-folder-name"]')
+        }
+
+        it('shows the inline folder name while a filter narrows the folder', async () => {
+            await renderFolder('Billing', 'Welcome series', ' status:active')
+            expect(await draftInputAfterNewFolder()).not.toBeNull()
+        })
+
+        it('shows the inline folder name from a later page of the folder', async () => {
+            workflows = Array.from({ length: 120 }, (_, i) =>
+                buildWorkflowRow({ id: `wf-${i}`, name: `Flow ${String(i).padStart(3, '0')}` })
+            )
+            files = [
+                { id: 'billing', path: 'Billing', type: 'folder' },
+                ...workflows.map((workflow) => ({
+                    id: `file-${workflow.id}`,
+                    path: `Billing/${workflow.name}`,
+                    type: 'hog_flow',
+                    ref: workflow.id,
+                })),
+            ]
+            await renderFolder('Billing', 'Flow 000')
+            fireEvent.click(document.querySelector('[aria-label="Next page"]')!)
+            await waitFor(() => expect(shownRowNames()).toContain('Flow 119'))
+            expect(await draftInputAfterNewFolder()).not.toBeNull()
         })
     })
 })

@@ -4,7 +4,9 @@ import { IconFolder } from '@posthog/icons'
 
 import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
 
+import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
 import { workflowFoldersLogic } from './workflowFoldersLogic'
+import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
 
 export function WorkflowFolderTree(): JSX.Element {
@@ -33,8 +35,18 @@ export function WorkflowFolderTree(): JSX.Element {
                     </span>
                 </span>
             )}
+            itemSideAction={() => null}
+            itemSideActionButton={(item) => (
+                <span className="opacity-0 group-hover/lemon-tree-button-group:opacity-100 focus-within:opacity-100">
+                    <WorkflowNewFolderButton parent={item.record?.path ?? ''} iconOnly />
+                </span>
+            )}
             defaultNodeIcon={<IconFolder />}
             virtualized
+            enableDragAndDrop
+            dragAndDropScope={WORKFLOW_FILES_DRAG_SCOPE}
+            isItemDraggable={() => false}
+            isItemDroppable={() => true}
         />
     )
 }

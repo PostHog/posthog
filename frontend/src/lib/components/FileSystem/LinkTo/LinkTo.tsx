@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { LemonSnack } from '@posthog/lemon-ui'
 
+import { folderFormLogic } from 'lib/components/FileSystem/FolderSelect/folderFormLogic'
 import { FolderSelect } from 'lib/components/FileSystem/FolderSelect/FolderSelect'
 import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -13,8 +14,10 @@ import { pluralize } from 'lib/utils/strings'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 export function LinkToModal(): JSX.Element {
-    const { isOpen, form, linkingItems } = useValues(linkToLogic)
-    const { closeLinkToModal, submitForm } = useActions(linkToLogic)
+    const { isOpen, linkingItems } = useValues(linkToLogic)
+    const { closeLinkToModal } = useActions(linkToLogic)
+    const { form } = useValues(folderFormLogic({ dialog: 'link' }))
+    const { submitForm } = useActions(folderFormLogic({ dialog: 'link' }))
 
     const destinationFolder = form.folder || 'Project root'
     const allFolders = splitPath(destinationFolder)
@@ -52,7 +55,7 @@ export function LinkToModal(): JSX.Element {
             }
         >
             <div className="w-192 max-w-full">
-                <Form logic={linkToLogic} formKey="form">
+                <Form logic={folderFormLogic} props={{ dialog: 'link' }} formKey="form">
                     <LemonField name="folder">
                         <FolderSelect
                             root="project://"

@@ -9,7 +9,9 @@ import { AutomationSuggestionBanner } from '../../setupGuide/AutomationSuggestio
 import { MessagingSetupReminderBanner } from '../../setupGuide/MessagingSetupReminderBanner'
 import { workflowLogic } from '../workflowLogic'
 import { FacetSearchBar } from './FacetSearchBar/FacetSearchBar'
+import { WorkflowFolderBulkMoveBar } from './WorkflowFolderBulkMoveBar'
 import { WorkflowFolderContents } from './WorkflowFolderContents'
+import { WorkflowFolderDropMonitor } from './WorkflowFolderDropMonitor'
 import { WorkflowFolderSidebar } from './WorkflowFolderSidebar'
 import { workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowFolderToolbar } from './WorkflowFolderToolbar'
@@ -36,6 +38,8 @@ export function WorkflowsListV2(): JSX.Element {
         folderMatchesText,
         displayedValue,
         showsAutomationSetup,
+        otherFilesScanFailed,
+        otherFileCountsLoading,
     } = useValues(workflowFoldersLogic)
 
     useOnMountEffect(() => {
@@ -43,7 +47,7 @@ export function WorkflowsListV2(): JSX.Element {
         workflowLogic.findMounted({ id: 'new' })?.unmount()
     })
 
-    const { loadBrowser } = useActions(workflowFoldersLogic)
+    const { loadBrowser, loadOtherFiles } = useActions(workflowFoldersLogic)
     const metricsFailed = hasHealthFilter && metricsStatus === 'failed'
     const renderWorkflowsLoadError = (title: string): JSX.Element => (
         <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
@@ -102,6 +106,8 @@ export function WorkflowsListV2(): JSX.Element {
             <div className="flex flex-col gap-3 @min-[48rem]/main-content:flex-row min-w-0 min-h-[calc(100vh-20rem)]">
                 <WorkflowFolderSidebar />
                 <div className="min-w-0 flex-1 @container">
+                    <WorkflowFolderDropMonitor />
+                    <WorkflowFolderBulkMoveBar />
                     <WorkflowFolderToolbar />
                     {browserLoadFailed && (
                         <div
@@ -114,6 +120,23 @@ export function WorkflowsListV2(): JSX.Element {
                                 size="small"
                                 onClick={() => loadBrowser()}
                                 loading={browserReadyLoading}
+                            >
+                                Retry
+                            </LemonButton>
+                        </div>
+                    )}
+                    {otherFilesScanFailed && !browserLoadFailed && (
+                        <div
+                            className="flex items-center gap-2 text-xs text-secondary mb-2"
+                            data-attr="workflows-folder-names-failed"
+                        >
+                            <span>Couldn't check existing folder names, so you can't add or rename folders yet.</span>
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                loading={otherFileCountsLoading}
+                                onClick={() => loadOtherFiles()}
+                                data-attr="workflows-folder-names-retry"
                             >
                                 Retry
                             </LemonButton>

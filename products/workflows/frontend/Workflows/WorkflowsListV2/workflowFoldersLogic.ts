@@ -5,6 +5,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    getContext,
     kea,
     listeners,
     path,
@@ -14,12 +15,22 @@ import {
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { ApiError } from 'lib/api'
+import { type MoveToRefusal, moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { withTimeout } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { fileSystemFolderCountsRetrieve, fileSystemList, fileSystemUnfiledRetrieve } from '~/generated/core/api'
+import {
+    fileSystemCreate,
+    fileSystemDestroy,
+    fileSystemFolderCountsRetrieve,
+    fileSystemList,
+    fileSystemUnfiledRetrieve,
+} from '~/generated/core/api'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import type { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import {
@@ -29,15 +40,20 @@ import {
     joinPath,
     isPathUnder,
     reparentPath,
+    resolveProjectTreeDrop,
+    calculateMovePath,
 } from '~/layout/panel-layout/ProjectTree/utils'
 import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { newWorkflowLogic } from '../newWorkflowLogic'
 import { createFacetMatcher, type FacetDefinition, type MatchesText } from './FacetSearchBar/facetQuery'
 import type { FacetFilter, FacetSearchValue } from './FacetSearchBar/facetQuery'
+import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
 import { ancestorFolders, displayedFolder, folderScopes, workflowFolderFacet } from './workflowListFacets'
 import type { WorkflowListRow } from './workflowListRows'
 import { addListQueryFacet, type ServerSearchStatus, workflowsListV2Logic } from './workflowsListV2Logic'
+
+export type WorkflowFolderDraft = { parent: string; name: string }
 
 export type WorkflowFolderFileRow = { id: string; name: string; path: string } & (
     | { kind: 'workflow'; row: WorkflowListRow }
@@ -67,16 +83,23 @@ export interface workflowFoldersLogicValues {
         name: string
         path: string
     }[]
+    creatingFolder: boolean
     currentFolder: string | null
     displayedValue: FacetSearchValue
     expandedFolders: string[]
+    folderActionPending: boolean
+    folderChangeDisabledReason: (folder: string) => string | null
     folderCounts: Record<string, number>
+    folderCreationError: unknown
+    folderDraft: WorkflowFolderDraft | null
+    folderDraftError: string | null
     folderFacets: FacetDefinition<WorkflowFolderFileRow>[]
     folderFileRows: WorkflowFolderFileRow[]
     folderJumpPaths: string[]
     folderJumpSearch: string
     folderMatchesText: MatchesText<WorkflowFolderFileRow>
     folderMutationDisabledReason: (folder: string) => string | null
+    folderNamesUnavailableReason: string | null
     folderPaths: string[]
     folderRows: WorkflowListRow[]
     folderSearchItems: WorkflowFolderFileRow[]
@@ -87,11 +110,19 @@ export interface workflowFoldersLogicValues {
     hasActiveQuery: boolean
     matchingRows: WorkflowListRow[]
     matchingTemplates: FileSystemEntry[]
+    moveToRefusal: MoveToRefusal
+    movingWorkflowId: string | null
     otherFileCounts: Record<string, number> | null
     otherFileCountsLoading: boolean
+    otherFilesScanFailed: boolean
     otherProductFileCount: number
+    pendingFileMoveIds: string[]
     placements: Record<string, FileSystemEntry> | null
+    selectableFiles: Record<string, FileSystemEntry>
+    selectedFileIds: string[]
+    selectedFiles: FileSystemEntry[]
     showsAutomationSetup: boolean
+    takenFolderPaths: string[] | null
     workflowFacets: FacetDefinition<WorkflowListRow>[]
 }
 
@@ -103,6 +134,29 @@ export interface workflowFoldersLogicActions {
     setValue: (value: FacetSearchValue) => {
         value: FacetSearchValue
     } // workflowsListV2Logic
+    cancelFolderDraft: () => {
+        value: true
+    }
+    clearSelectedFiles: () => {
+        value: true
+    }
+    createFolder: (
+        name: string,
+        parent?: string
+    ) => {
+        name: string
+        parent: string | undefined
+    }
+    deleteFolder: (folder: string) => {
+        folder: string
+    }
+    dropFile: (
+        activeId: string,
+        overId: string | null
+    ) => {
+        activeId: string
+        overId: string | null
+    }
     loadBrowser: (_: void) => void
     loadBrowserFailure: (
         error: string,
@@ -137,6 +191,15 @@ export interface workflowFoldersLogicActions {
         } | null
         payload?: void
     }
+    moveFileToFolder: (entry: FileSystemEntry) => {
+        entry: FileSystemEntry
+    }
+    moveSelectedFiles: () => {
+        value: true
+    }
+    moveWorkflowToFolder: (id: string) => {
+        id: string
+    }
     openFolder: (folder: string | null) => {
         folder: string | null
     }
@@ -160,8 +223,20 @@ export interface workflowFoldersLogicActions {
         expanded: boolean
         folder: string | null
     }
+    setCreatingFolder: (creating: boolean) => {
+        creating: boolean
+    }
     setExpandedFolders: (folders: string[]) => {
         folders: string[]
+    }
+    setFolderActionPending: (pending: boolean) => {
+        pending: boolean
+    }
+    setFolderCreationError: (error: unknown) => {
+        error: unknown
+    }
+    setFolderDraftName: (name: string) => {
+        name: string
     }
     setFolderJumpSearch: (search: string) => {
         search: string
@@ -169,21 +244,62 @@ export interface workflowFoldersLogicActions {
     setFolderSidebarCollapsed: (collapsed: boolean) => {
         collapsed: boolean
     }
+    setMovingWorkflowId: (id: string | null) => {
+        id: string | null
+    }
     setPlacements: (placements: Record<string, FileSystemEntry>) => {
         placements: Record<string, FileSystemEntry>
+    }
+    setSelectedFiles: (ids: string[]) => {
+        ids: string[]
+    }
+    startFolderDraft: (parent: string) => {
+        parent: string
+    }
+    submitFolderDraft: () => {
+        value: true
+    }
+    toggleSelectedFile: (id: string) => {
+        id: string
     }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface workflowFoldersLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        folderNamesUnavailableReason: (
+            takenFolderPaths: string[] | null,
+            otherFilesScanFailed: boolean,
+            browserLoadFailed: boolean
+        ) => string | null
+        folderDraftError: (
+            folderDraft: WorkflowFolderDraft | null,
+            takenFolderPaths: string[] | null,
+            folderNamesUnavailableReason: string | null
+        ) => string | null
         folderMutationDisabledReason: (pendingActions: ProjectTreeAction[]) => (folder: string) => string | null
+        folderChangeDisabledReason: (
+            folderMutationDisabledReason: (folder: string) => string | null,
+            pendingActions: ProjectTreeAction[]
+        ) => (folder: string) => string | null
+        moveToRefusal: (
+            folderMutationDisabledReason: (folder: string) => string | null,
+            folderChangeDisabledReason: (folder: string) => string | null,
+            pendingFileMoveIds: string[],
+            takenFolderPaths: string[] | null
+        ) => MoveToRefusal
+        pendingFileMoveIds: (pendingActions: ProjectTreeAction[]) => string[]
         folderJumpPaths: (folderPaths: string[], folderJumpSearch: string) => string[]
         otherProductFileCount: (
             otherFileCounts: Record<string, number> | null,
             currentFolder: string | null,
             hasActiveQuery: boolean
         ) => number
+        takenFolderPaths: (
+            savedItems: FileSystemEntry[],
+            browserReady: boolean,
+            otherFileCounts: Record<string, number> | null
+        ) => string[] | null
         folderPaths: (
             savedItems: FileSystemEntry[],
             rows: WorkflowListRow[],
@@ -210,7 +326,8 @@ export interface workflowFoldersLogicMeta {
             listComplete: boolean,
             isUnfilteredAutomationView: boolean,
             filteredRows: WorkflowListRow[],
-            serverSearchStatus: ServerSearchStatus
+            serverSearchStatus: ServerSearchStatus,
+            folderDraft: WorkflowFolderDraft | null
         ) => boolean
         matchingTemplates: (
             folderSearchItems: WorkflowFolderFileRow[],
@@ -263,6 +380,14 @@ export interface workflowFoldersLogicMeta {
             folderTemplates: FileSystemEntry[],
             hasActiveQuery: boolean
         ) => WorkflowFolderFileRow[]
+        selectableFiles: (
+            folderFileRows: WorkflowFolderFileRow[],
+            placements: Record<string, FileSystemEntry> | null
+        ) => Record<string, FileSystemEntry>
+        selectedFiles: (
+            selectedFileIds: string[],
+            selectableFiles: Record<string, FileSystemEntry>
+        ) => FileSystemEntry[]
         currentFolder: (value: FacetSearchValue) => string | null
     }
 }
@@ -319,6 +444,63 @@ async function listAllFiles(
             return entries
         }
     }
+}
+
+// A folder move is queued in two steps, a count check and then the move. The second step is queued in the same
+// tick that clears the first, so the check waits for that tick before calling the move settled.
+function whenSettled(isPending: () => boolean): Promise<void> {
+    return new Promise((resolve) => {
+        const settle = (): void => {
+            if (!isPending()) {
+                unsubscribe()
+                resolve()
+            }
+        }
+        const unsubscribe = getContext().store.subscribe(() => queueMicrotask(settle))
+        settle()
+    })
+}
+
+const NAME_TAKEN = 'This name is already used in this folder.'
+
+// A file move queued while the file or its folder moves starts from the old path, so the shared tree caches the
+// file there once both land.
+function movingSourceReason(
+    items: FileSystemEntry[],
+    folderMoving: (path: string) => string | null,
+    pendingFileMoveIds: string[]
+): string | null {
+    if (items.some((item) => pendingFileMoveIds.includes(item.id))) {
+        return "Couldn't move the file. Wait until it finishes moving."
+    }
+    return items.some((item) => folderMoving(item.path))
+        ? "Couldn't move the file. Wait until its folder finishes moving."
+        : null
+}
+
+function refuseMovingSource(
+    items: FileSystemEntry[],
+    folderMoving: (path: string) => string | null,
+    pendingFileMoveIds: string[]
+): boolean {
+    const reason = movingSourceReason(items, folderMoving, pendingFileMoveIds)
+    if (reason) {
+        lemonToast.error(reason)
+    }
+    return !!reason
+}
+
+function failureMessage(failure: string, error: unknown): string {
+    return `${failure} ${(error instanceof ApiError && error.detail) || 'Try again.'}`
+}
+
+/** The view loads no other product's files, so the server is asked whether one already sits at this path. */
+async function isPathTaken(teamId: string, path: string, except?: string): Promise<boolean> {
+    // A rename to the folder's current name matches the folder itself, so a second row is needed to find another file.
+    const { results } = await withDeadline('checking a folder name', (signal) =>
+        fileSystemList(teamId, { path, limit: 2 }, { signal })
+    )
+    return results.some((entry) => entry.id !== except)
 }
 
 function isIndexed(entry: FileSystemEntry): boolean {
@@ -496,6 +678,35 @@ function relevantFolderPaths(
     return [...paths].sort((a, b) => a.localeCompare(b))
 }
 
+const NAMES_LOADING = 'Checking existing folder names. Try again in a moment.'
+
+/** A rename passes its own path so a case-only change is not a collision. */
+export function folderNameError(
+    rawName: string,
+    parent: string,
+    folderPaths: string[] | null,
+    renaming?: string
+): string | null {
+    const name = rawName.trim()
+    if (!name) {
+        return 'Give the folder a name'
+    }
+    if (name.includes('/')) {
+        return 'Folder names cannot contain /'
+    }
+    if (!folderPaths) {
+        return NAMES_LOADING
+    }
+    const path = joinPath([...splitPath(parent), name]).toLowerCase()
+    return folderPaths.some((existing) => existing !== renaming && existing.toLowerCase() === path)
+        ? 'A folder with this name already exists'
+        : null
+}
+
+// The dialog asks at submit, so the answer comes from the state then, and from nothing once the list is gone.
+const refuseMove: MoveToRefusal = (items, destination) =>
+    workflowFoldersLogic.findMounted()?.values.moveToRefusal(items, destination) ?? null
+
 export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     path(['products', 'workflows', 'frontend', 'workflowFoldersLogic']),
     connect({
@@ -523,12 +734,29 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         setFolderJumpSearch: (search: string) => ({ search }),
         restoreFileIndex: true,
         setPlacements: (placements: Record<string, FileSystemEntry>) => ({ placements }),
+        setSelectedFiles: (ids: string[]) => ({ ids }),
+        toggleSelectedFile: (id: string) => ({ id }),
+        clearSelectedFiles: true,
+        moveSelectedFiles: true,
+        deleteFolder: (folder: string) => ({ folder }),
+        setFolderActionPending: (pending: boolean) => ({ pending }),
+        dropFile: (activeId: string, overId: string | null) => ({ activeId, overId }),
+        createFolder: (name: string, parent?: string) => ({ name, parent }),
+        setCreatingFolder: (creating: boolean) => ({ creating }),
+        setFolderCreationError: (error: unknown) => ({ error }),
+        startFolderDraft: (parent: string) => ({ parent }),
+        setFolderDraftName: (name: string) => ({ name }),
+        cancelFolderDraft: true,
+        submitFolderDraft: true,
         setExpandedFolders: (folders: string[]) => ({ folders }),
         setFolderSidebarCollapsed: (collapsed: boolean) => ({ collapsed }),
+        moveFileToFolder: (entry: FileSystemEntry) => ({ entry }),
         openFolder: (folder: string | null) => ({ folder }),
         renameFolder: (folder: string, name: string) => ({ folder, name }),
         revealFolder: (folder: string | null) => ({ folder }),
         selectTreeFolder: (folder: string | null, expanded: boolean) => ({ folder, expanded }),
+        moveWorkflowToFolder: (id: string) => ({ id }),
+        setMovingWorkflowId: (id: string | null) => ({ id }),
     }),
     reducers(() => ({
         folderJumpSearch: ['', { setFolderJumpSearch: (_, { search }) => search }],
@@ -537,12 +765,45 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             null as Record<string, FileSystemEntry> | null,
             { setPlacements: (_, { placements }) => placements },
         ],
+        selectedFileIds: [
+            [] as string[],
+            {
+                setSelectedFiles: (_, { ids }) => ids,
+                toggleSelectedFile: (state, { id }) =>
+                    state.includes(id) ? state.filter((selected) => selected !== id) : [...state, id],
+                clearSelectedFiles: () => [],
+                setValue: () => [],
+            },
+        ],
+        folderActionPending: [false, { setFolderActionPending: (_, { pending }) => pending }],
         browserLoadFailed: [
             false,
             {
                 loadBrowser: () => false,
                 loadBrowserFailure: () => true,
             },
+        ],
+        otherFilesScanFailed: [
+            false,
+            {
+                loadOtherFiles: () => false,
+                loadOtherFilesFailure: () => true,
+                loadOtherFilesSuccess: () => false,
+            },
+        ],
+        creatingFolder: [false, { setCreatingFolder: (_, { creating }) => creating }],
+        folderDraft: [
+            null as WorkflowFolderDraft | null,
+            {
+                startFolderDraft: (_, { parent }) => ({ parent, name: '' }),
+                setFolderDraftName: (draft, { name }) => draft && { ...draft, name },
+                cancelFolderDraft: () => null,
+                openFolder: (draft, { folder }) => (draft?.parent === (folder ?? '') ? draft : null),
+            },
+        ],
+        folderCreationError: [
+            null as unknown,
+            { createFolder: () => null, setFolderCreationError: (_, { error }) => error },
         ],
         expandedFolders: [
             ['project://'] as string[],
@@ -557,6 +818,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 ],
             },
         ],
+        movingWorkflowId: [null as string | null, { setMovingWorkflowId: (_, { id }) => id }],
         folderSidebarCollapsed: [
             false,
             buildUserScopedPersistenceConfig('workflows_folder_sidebar_collapsed__'),
@@ -639,8 +901,30 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 return moved
             },
         },
+        folderDraft: {
+            [projectTreeDataLogic.actionTypes.movedItem]: (draft, { item, oldPath, newPath }) =>
+                draft && item.type === 'folder'
+                    ? { ...draft, parent: reparentPath(draft.parent, oldPath, newPath) ?? draft.parent }
+                    : draft,
+        },
     })),
     selectors({
+        folderNamesUnavailableReason: [
+            (s) => [s.takenFolderPaths, s.otherFilesScanFailed, s.browserLoadFailed],
+            (paths: string[] | null, scanFailed: boolean, loadFailed: boolean): string | null =>
+                paths
+                    ? null
+                    : scanFailed || loadFailed
+                      ? "Couldn't check existing folder names. Use Retry above the list."
+                      : NAMES_LOADING,
+        ],
+        folderDraftError: [
+            (s) => [s.folderDraft, s.takenFolderPaths, s.folderNamesUnavailableReason],
+            (draft: WorkflowFolderDraft | null, paths: string[] | null, unavailable: string | null): string | null => {
+                const error = folderNameError(draft?.name ?? '', draft?.parent ?? '', paths)
+                return error === NAMES_LOADING ? unavailable : error
+            },
+        ],
         // The shared tree applies a folder move only once its request lands, so a second change queued before then
         // starts from the old path and leaves cached subfolders under a name the folder no longer has.
         folderMutationDisabledReason: [
@@ -656,6 +940,71 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         : null
                 },
         ],
+        // A file move that lands after its folder's rename is cached under the folder's old name.
+        folderChangeDisabledReason: [
+            (s) => [s.folderMutationDisabledReason, s.pendingActions],
+            (folderMoving: (folder: string) => string | null, pendingActions: ProjectTreeAction[]) =>
+                (folder: string): string | null =>
+                    folderMoving(folder) ??
+                    (pendingActions.some(
+                        (action) =>
+                            action.item.type !== 'folder' &&
+                            [action.path, action.newPath].some((path) => !!path && isPathUnder(path, folder))
+                    )
+                        ? 'Wait until the files in this folder finish moving'
+                        : null),
+        ],
+        moveToRefusal: [
+            (s) => [
+                s.folderMutationDisabledReason,
+                s.folderChangeDisabledReason,
+                s.pendingFileMoveIds,
+                s.takenFolderPaths,
+            ],
+            (
+                folderMoving: (folder: string) => string | null,
+                folderChanging: (folder: string) => string | null,
+                pendingFileMoveIds: string[],
+                takenFolderPaths: string[] | null
+            ): MoveToRefusal =>
+                (items, destination) => {
+                    const folders = items.filter((item) => item.type === 'folder')
+                    const source = movingSourceReason(
+                        items.filter((item) => item.type !== 'folder'),
+                        folderMoving,
+                        pendingFileMoveIds
+                    )
+                    // The server merges a folder into one of the same name, and Undo can't split them again.
+                    const folderReason = folders
+                        .map(
+                            (folder) =>
+                                folderChanging(folder.path) ??
+                                folderNameError(
+                                    splitPath(folder.path).at(-1) ?? '',
+                                    destination,
+                                    takenFolderPaths,
+                                    folder.path
+                                )
+                        )
+                        .find(Boolean)
+                    const noun = folders.length > 0 ? 'folder' : 'file'
+                    return (
+                        source ??
+                        (folderReason ? `Couldn't move the folder. ${folderReason.replace(/\.$/, '')}.` : null) ??
+                        (folderMoving(destination)
+                            ? `Couldn't move the ${noun}. Wait until that folder finishes moving.`
+                            : null)
+                    )
+                },
+        ],
+        // A second move of a file queued before the first lands starts from its old path again.
+        pendingFileMoveIds: [
+            (s) => [s.pendingActions],
+            (pendingActions: ProjectTreeAction[]): string[] =>
+                pendingActions.flatMap((action) =>
+                    action.type === 'move' && action.item.type !== 'folder' && action.item.id ? [action.item.id] : []
+                ),
+        ],
         folderJumpPaths: [
             (s) => [s.folderPaths, s.folderJumpSearch],
             (paths: string[], search: string): string[] =>
@@ -667,6 +1016,23 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             (s) => [s.otherFileCounts, s.currentFolder, s.hasActiveQuery],
             (counts: Record<string, number> | null, folder: string | null, searching: boolean): number =>
                 searching ? 0 : (counts?.[folder ?? ''] ?? 0),
+        ],
+        // Names collide with every folder in the project, including folders the list hides because only other products use them.
+        takenFolderPaths: [
+            (s) => [s.savedItems, s.browserReady, s.otherFileCounts],
+            (items: FileSystemEntry[], browserReady: boolean, counts: Record<string, number> | null): string[] | null =>
+                browserReady && counts !== null
+                    ? [
+                          ...new Set(
+                              [
+                                  ...items
+                                      .filter((entry) => !entry.shortcut)
+                                      .map((entry) => (entry.type === 'folder' ? entry.path : parentPath(entry.path))),
+                                  ...Object.keys(counts),
+                              ].flatMap(ancestorFolders)
+                          ),
+                      ]
+                    : null,
         ],
         folderPaths: [
             (s) => [s.savedItems, s.rows, s.otherFileCounts],
@@ -731,19 +1097,22 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             (value: FacetSearchValue): boolean =>
                 !!value.text.trim() || value.filters.some((filter) => !isFolderScope(filter)),
         ],
+        // The folder contents hold the inline name field of a new folder, so an open draft keeps them on screen.
         showsAutomationSetup: [
-            (s) => [s.listComplete, s.isUnfilteredAutomationView, s.filteredRows, s.serverSearchStatus],
+            (s) => [s.listComplete, s.isUnfilteredAutomationView, s.filteredRows, s.serverSearchStatus, s.folderDraft],
             (
                 listComplete: boolean,
                 isUnfilteredAutomationView: boolean,
                 filteredRows: WorkflowListRow[],
-                serverSearchStatus: ServerSearchStatus
+                serverSearchStatus: ServerSearchStatus,
+                folderDraft: WorkflowFolderDraft | null
             ): boolean =>
                 // A later page can still hold an automation workflow.
                 listComplete &&
                 isUnfilteredAutomationView &&
                 filteredRows.length === 0 &&
-                serverSearchStatus !== 'pending',
+                serverSearchStatus !== 'pending' &&
+                !folderDraft,
         ],
         matchingTemplates: [
             (s) => [s.folderSearchItems, s.value, s.folderFacets, s.folderMatchesText],
@@ -925,6 +1294,28 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     )
             },
         ],
+        selectableFiles: [
+            (s) => [s.folderFileRows, s.placements],
+            (
+                rows: WorkflowFolderFileRow[],
+                items: Record<string, FileSystemEntry> | null
+            ): Record<string, FileSystemEntry> =>
+                Object.fromEntries(
+                    rows.flatMap((row) => {
+                        const entry = row.kind === 'workflow' ? items?.[`hog_flow::${row.row.id}`] : row.entry
+                        const access =
+                            row.kind === 'workflow' ? row.row.workflow.user_access_level : entry?.user_access_level
+                        return entry && !entry.shortcut && !['viewer', 'none'].includes(access ?? '')
+                            ? [[row.id, entry]]
+                            : []
+                    })
+                ),
+        ],
+        selectedFiles: [
+            (s) => [s.selectedFileIds, s.selectableFiles],
+            (ids: string[], files: Record<string, FileSystemEntry>): FileSystemEntry[] =>
+                ids.flatMap((id) => (files[id] ? [files[id]] : [])),
+        ],
         currentFolder: [
             (s) => [s.value],
             (value: FacetSearchValue): string | null => {
@@ -933,8 +1324,100 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, asyncActions, values, cache }) => ({
         loadBrowser: () => actions.loadOtherFiles(),
+        startFolderDraft: ({ parent }) => {
+            if (parent !== (values.currentFolder ?? '')) {
+                actions.openFolder(parent || null)
+            }
+        },
+        submitFolderDraft: async () => {
+            const draft = values.folderDraft
+            if (!draft || values.folderDraftError || values.creatingFolder) {
+                return
+            }
+            await asyncActions.createFolder(draft.name.trim(), draft.parent)
+            if (!values.folderCreationError) {
+                actions.cancelFolderDraft()
+            }
+        },
+        moveSelectedFiles: () => {
+            if (
+                !refuseMovingSource(
+                    values.selectedFiles,
+                    values.folderMutationDisabledReason,
+                    values.pendingFileMoveIds
+                )
+            ) {
+                moveToLogic.actions.openMoveToModal(values.selectedFiles, refuseMove)
+            }
+        },
+        deleteFolder: async ({ folder }) => {
+            if (values.folderActionPending || folder === 'Unfiled') {
+                return
+            }
+            const entry = values.savedItems.find((item) => item.type === 'folder' && item.path === folder)
+            if (!entry?.id) {
+                return
+            }
+            actions.setFolderActionPending(true)
+            try {
+                const teamId = String(values.currentTeamId)
+                await withDeadline('deleting a folder', (signal) =>
+                    fileSystemDestroy(teamId, entry.id, { recursive: false }, { signal })
+                )
+                projectTreeDataLogic.actions.deleteSavedItem(entry)
+            } catch (error) {
+                const reason =
+                    error instanceof ApiError && error.code === 'directory_not_empty'
+                        ? 'It still contains project files.'
+                        : error instanceof ApiError && error.detail
+                          ? error.detail
+                          : 'Try again.'
+                lemonToast.error(`Couldn't delete the folder. ${reason}`)
+            } finally {
+                actions.setFolderActionPending(false)
+            }
+        },
+        dropFile: async ({ activeId, overId }) => {
+            const storedFolders = new Set(
+                values.savedItems.filter((entry) => entry.type === 'folder').map((entry) => entry.path)
+            )
+            const inferredFolders = values.folderPaths
+                .filter((path) => !storedFolders.has(path))
+                .map((path): FileSystemEntry => ({ id: `inferred:${path}`, path, type: 'folder' }))
+            const drop = resolveProjectTreeDrop(activeId, overId, [...values.savedItems, ...inferredFolders], [])
+            if (
+                drop?.type !== 'move' ||
+                !WORKFLOW_FILE_TYPES.includes(drop.item.type ?? '') ||
+                ['viewer', 'none'].includes(drop.item.user_access_level ?? '')
+            ) {
+                return
+            }
+            const movingReason = values.folderMutationDisabledReason(drop.folder)
+            if (movingReason) {
+                lemonToast.error(`Couldn't move the file. ${movingReason}.`)
+                return
+            }
+            const items = (
+                values.selectedFiles.some((item) => item.id === drop.item.id) ? values.selectedFiles : [drop.item]
+            ).filter((item) => !values.pendingFileMoveIds.includes(item.id))
+            if (refuseMovingSource(items, values.folderMutationDisabledReason, values.pendingFileMoveIds)) {
+                return
+            }
+            const moves = items.flatMap((item) => {
+                const destination =
+                    drop.folder === 'Unfiled'
+                        ? `Unfiled/${item.type === 'hog_flow' ? 'Workflows' : 'Email templates'}`
+                        : drop.folder
+                const { newPath, isValidMove } = calculateMovePath(item, destination)
+                return isValidMove ? [{ item, newPath }] : []
+            })
+            if (moves.length) {
+                await projectTreeDataLogic.asyncActions.moveItems(moves, false, WORKFLOW_FILES_DRAG_SCOPE)
+                actions.clearSelectedFiles()
+            }
+        },
         // The shared tree drops collapsed folders and cuts a reloaded folder to its first page. Neither changes a file,
         // so the view puts back what it indexed.
         [projectTreeDataLogic.actionTypes.pruneClosedFolders]: () => actions.restoreFileIndex(),
@@ -1017,16 +1500,39 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 })
             }
         },
-        renameFolder: ({ folder, name }) => {
+        renameFolder: async ({ folder, name }) => {
             const entry = values.savedItems.find((item) => item.type === 'folder' && item.path === folder)
-            if (entry && !values.folderMutationDisabledReason(folder)) {
-                projectTreeDataLogic.actions.moveItem(
-                    entry,
-                    joinPath([...splitPath(parentPath(folder)), name.trim()]),
-                    false,
-                    WORKFLOW_FOLDERS_TREE_KEY
-                )
+            if (!entry || !values.currentTeamId) {
+                return
             }
+            const refuseBusy = (): boolean => {
+                const reason = values.folderChangeDisabledReason(folder)
+                if (reason) {
+                    lemonToast.error(`Couldn't rename the folder. ${reason}.`)
+                }
+                return !!reason
+            }
+            if (refuseBusy()) {
+                return
+            }
+            const newPath = joinPath([...splitPath(parentPath(folder)), name.trim()])
+            let taken: boolean
+            try {
+                taken = await isPathTaken(String(values.currentTeamId), newPath, entry.id)
+            } catch (error) {
+                lemonToast.error(failureMessage("Couldn't rename the folder.", error))
+                return
+            }
+            if (taken) {
+                lemonToast.error(`Couldn't rename the folder. ${NAME_TAKEN}`)
+                return
+            }
+            // Another change to this folder may have started while the server answered.
+            if (refuseBusy()) {
+                return
+            }
+            projectTreeDataLogic.actions.moveItem(entry, newPath, false, WORKFLOW_FOLDERS_TREE_KEY)
+            await whenSettled(() => !!values.folderMutationDisabledReason(folder))
         },
         openFolder: ({ folder }) => {
             actions.setValue({
@@ -1037,6 +1543,46 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 ],
             })
         },
+        createFolder: async ({ name, parent }) => {
+            if (values.creatingFolder || !values.currentTeamId) {
+                return
+            }
+            actions.setCreatingFolder(true)
+            try {
+                const teamId = String(values.currentTeamId)
+                const path = joinPath([...splitPath(parent ?? values.currentFolder ?? ''), name])
+                const taken = !values.folderMutationDisabledReason(path) && (await isPathTaken(teamId, path))
+                // A move of the parent can start while the server answers.
+                const reason = values.folderMutationDisabledReason(path)
+                if (taken || reason) {
+                    lemonToast.error(`Couldn't create the folder. ${reason ? `${reason}.` : NAME_TAKEN}`)
+                    actions.setFolderCreationError(reason ?? NAME_TAKEN)
+                    return
+                }
+                const entry = await withDeadline('creating a folder', (signal) =>
+                    fileSystemCreate(teamId, { path, type: 'folder' }, { signal })
+                )
+                cache.changes = (cache.changes ?? 0) + 1
+                projectTreeDataLogic.actions.addLoadedResults({
+                    searchTerm: '',
+                    results: [{ id: entry.id, path: entry.path, type: 'folder' }],
+                    hasMore: false,
+                    lastCount: 1,
+                })
+                actions.revealFolder(path)
+            } catch (error) {
+                const reason = error instanceof ApiError ? error.detail : null
+                lemonToast.error(`Couldn't create the folder. ${reason || 'Try again.'}`)
+                actions.setFolderCreationError(error)
+            } finally {
+                actions.setCreatingFolder(false)
+            }
+        },
+        moveFileToFolder: ({ entry }) => {
+            if (!refuseMovingSource([entry], values.folderMutationDisabledReason, values.pendingFileMoveIds)) {
+                moveToLogic.actions.openMoveToModal([entry], refuseMove)
+            }
+        },
         [workflowsListV2Logic.actionTypes.setValue]: () => {
             actions.revealFolder(values.currentFolder)
         },
@@ -1045,6 +1591,35 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 actions.setExpandedFolders(values.expandedFolders.filter((id) => id !== treeFolderId(folder)))
             } else {
                 actions.openFolder(folder)
+            }
+        },
+        moveWorkflowToFolder: async ({ id }, breakpoint) => {
+            if (values.movingWorkflowId) {
+                return
+            }
+            actions.setMovingWorkflowId(id)
+            let files: FileSystemEntry[]
+            try {
+                files = await listAllFiles(String(values.currentTeamId), `type:hog_flow ref:${id}`, breakpoint)
+            } catch (error) {
+                // The list unmounted while the lookup ran, so its outcome belongs to a page the person left.
+                breakpoint()
+                actions.setMovingWorkflowId(null)
+                lemonToast.error(failureMessage("Couldn't load this workflow's folder.", error))
+                return
+            }
+            actions.setMovingWorkflowId(null)
+            projectTreeDataLogic.actions.addLoadedResults({
+                searchTerm: '',
+                results: files,
+                hasMore: false,
+                lastCount: files.length,
+            })
+            const entry = workflowFilesByRef([...fileIndex(cache).values()])[`hog_flow::${id}`]
+            if (!entry || entry.shortcut) {
+                lemonToast.error("Couldn't find this workflow in project files")
+            } else if (!refuseMovingSource([entry], values.folderMutationDisabledReason, values.pendingFileMoveIds)) {
+                moveToLogic.actions.openMoveToModal([entry], refuseMove)
             }
         },
     })),
