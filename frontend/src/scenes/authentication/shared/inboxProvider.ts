@@ -7,8 +7,7 @@ type InboxProviderLink = {
     url: (email: string | null) => string
 }
 
-// Searches every folder, spam included, so a filtered code still shows. `authuser` picks the
-// account the code went to when the browser holds several Google accounts.
+// Searches every folder, spam included. `authuser` picks the account the code went to.
 const GMAIL_RECENT_MAIL_SEARCH = '#search/in%3Aanywhere+newer_than%3A1h'
 
 const INBOX_PROVIDER_LINKS: Record<InboxProvider, InboxProviderLink> = {

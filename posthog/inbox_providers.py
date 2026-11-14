@@ -28,7 +28,6 @@ _executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="inbox-provider
 
 
 class InboxProvider(enum.StrEnum):
-    # The frontend maps each value to a button label and a webmail URL, so a value is API.
     GMAIL = "gmail"
     OUTLOOK = "outlook"
     MICROSOFT_365 = "microsoft_365"
@@ -56,8 +55,7 @@ _INBOX_PROVIDERS_BY_DOMAIN: dict[str, InboxProvider] = {
     "pm.me": InboxProvider.PROTON,
 }
 
-# The leading dot anchors each suffix to a label boundary. Outlook.com consumer mail and Microsoft 365
-# tenants open different webmail sites.
+# The leading dot anchors each suffix to a label boundary.
 _INBOX_PROVIDERS_BY_MX_MARKER: tuple[tuple[str, InboxProvider], ...] = (
     (".google.com", InboxProvider.GMAIL),
     (".googlemail.com", InboxProvider.GMAIL),

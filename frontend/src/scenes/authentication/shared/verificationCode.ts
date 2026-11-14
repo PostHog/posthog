@@ -1,4 +1,4 @@
-import { type InboxProvider, parseInboxProvider } from './inboxProvider'
+import type { InboxProvider } from './inboxProvider'
 
 // Email clients and manual entry can wrap the emailed code in whitespace or invisible characters
 // (zero-width family, word joiner, BOM, soft hyphen) or group it as "123-456". Fold compatibility
@@ -44,7 +44,7 @@ export function setPendingVerificationEmail(uuid: string, email: string, inboxPr
 
 export function getPendingVerification(
     uuid: string | null
-): { email: string | null; inboxProvider: InboxProvider | null } | null {
+): { email: string | null; inboxProvider: string | null } | null {
     if (!uuid) {
         return null
     }
@@ -57,7 +57,8 @@ export function getPendingVerification(
         if (stored.uuid !== uuid) {
             return null
         }
-        return { email: stored.email ?? null, inboxProvider: parseInboxProvider(stored.inboxProvider) }
+        // Callers parse the provider, so this module stays free of the provider table on the boot path
+        return { email: stored.email ?? null, inboxProvider: stored.inboxProvider ?? null }
     } catch {
         return null
     }

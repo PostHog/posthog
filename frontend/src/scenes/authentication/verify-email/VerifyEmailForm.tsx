@@ -12,6 +12,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
 import { OpenInboxButton } from 'scenes/authentication/shared/OpenInboxButton'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { getPendingVerification, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
@@ -211,7 +212,7 @@ function CheckYourInbox(): JSX.Element {
                 </p>
             )}
             <OpenInboxButton
-                provider={pendingVerification?.inboxProvider ?? null}
+                provider={parseInboxProvider(pendingVerification?.inboxProvider)}
                 email={verificationEmail ?? null}
                 step="verify_email"
                 className="mb-2.5"
