@@ -88,6 +88,58 @@ The `ON CLUSTER` clause is used to specify the cluster to run the DDL statement 
 
 To re-run a migration, you'll need to delete the entry from the `infi_clickhouse_orm_migrations` table.
 
+### Verifying a view filter after deployment
+
+Confirm the current deployment contains the migration, then inspect the view definition on each target replica.
+Compare the view with its source over the same completed time window and project.
+Counts from different hours can change with incoming traffic even when a view migration preserves every eligible row.
+Keep the before-and-after volume check as context, and count the rows the new predicate excludes before deciding whether a rollback would restore data.
+
+For `metrics4_view`, run these read-only queries on one metrics replica using the same `team_id`, `window_start`, and `window_end` parameters.
+Pass the time parameters as UTC strings.
+Use a short window within retention, after the metrics4 cutover, and leave time for ingestion to catch up.
+Repeat with a window before the deployment and one wholly after it.
+
+```sql
+WITH
+    toDateTime64({window_start:String}, 6, 'UTC') AS window_start,
+    toDateTime64({window_end:String}, 6, 'UTC') AS window_end
+SELECT
+    sum(arrayCount(t -> t >= window_start AND t < window_end, timestamp_arr)) AS source_points,
+    sum(arrayCount(
+        (t, v) -> t >= window_start AND t < window_end
+            AND reinterpretAsUInt64(v) = 9218868437227405314,
+        timestamp_arr, value_arr
+    )) AS stale_markers,
+    source_points - stale_markers AS expected_visible_points
+FROM posthog.metrics4_samples
+WHERE team_id = {team_id:Int32}
+    AND time_bucket >= toStartOfHour(window_start)
+    AND time_bucket < window_end
+SETTINGS max_execution_time = 30, max_threads = 2, max_bytes_to_read = 40000000000;
+```
+
+```sql
+WITH
+    toDateTime64({window_start:String}, 6, 'UTC') AS window_start,
+    toDateTime64({window_end:String}, 6, 'UTC') AS window_end
+SELECT
+    count() AS visible_points,
+    countIf(reinterpretAsUInt64(value) = 9218868437227405314) AS visible_stale_markers
+FROM posthog.metrics4_view
+WHERE team_id = {team_id:Int32}
+    AND time_bucket >= toStartOfHour(window_start)
+    AND time_bucket < window_end
+    AND timestamp >= window_start AND timestamp < window_end
+SETTINGS max_execution_time = 30, max_threads = 2, max_bytes_to_read = 40000000000;
+```
+
+The check passes when `visible_points` equals `expected_visible_points`, both are nonzero, and `visible_stale_markers` is zero.
+An empty window gives no evidence that reads work.
+If counts differ, repeat the same window to rule out late arrivals or replica lag, then investigate any persistent difference.
+Keep separate timestamp predicates for separate windows so the query can prune old data.
+Also exercise the affected application query and page; matching row counts alone does not prove they work.
+
 ## Ingestion layer
 
 We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. The way to do that is to:
