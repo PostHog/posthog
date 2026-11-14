@@ -1147,6 +1147,84 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
 
+    def _email_sender(self, *, verified: bool) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": verified},
+        )
+
+    def _email_flow(self, sender_from: dict) -> dict:
+        sync_template_to_db(_email_function_template())
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = sender_from
+        hog_flow, action = self._create_hog_flow_with_action({"template_id": "template-email", "inputs": inputs})
+        action["type"] = "function_email"
+        action["name"] = "Welcome email"
+        return hog_flow
+
+    @parameterized.expand(
+        [
+            ("unverified_sender", "unverified", "isn't verified yet"),
+            ("deleted_sender", "deleted", "no longer exists"),
+            ("unverified_sender_in_rotation", "rotation", "isn't verified yet"),
+        ]
+    )
+    def test_going_live_refuses_an_email_sender_that_cannot_send(self, _name, case, fragment):
+        verified = self._email_sender(verified=True)
+        unverified = self._email_sender(verified=False)
+        sender_from = {
+            "unverified": {"integrationId": unverified.id},
+            "deleted": {"integrationId": unverified.id + 1000},
+            "rotation": {"integrationId": verified.id, "integrationIds": [unverified.id]},
+        }[case]
+        hog_flow = self._email_flow(sender_from)
+
+        created_live = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+        draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"})
+        assert draft.status_code == 201, draft.json()
+        enabled = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}
+        )
+
+        for response in (created_live, enabled):
+            assert response.status_code == 400, response.json()
+            assert '"Welcome email" step' in response.json()["detail"]
+            assert fragment in response.json()["detail"]
+        assert HogFlow.objects.get(pk=draft.json()["id"]).status == HogFlow.State.DRAFT
+
+    def test_live_workflow_keeps_its_stored_sender_but_cannot_publish_a_new_one_that_cannot_send(self):
+        stored_sender = self._email_sender(verified=False)
+        new_sender = self._email_sender(verified=False)
+        hog_flow = self._email_flow({"integrationId": stored_sender.id})
+        live = HogFlow.objects.create(
+            team=self.team, name="Live flow", actions=hog_flow["actions"], status=HogFlow.State.ACTIVE
+        )
+
+        resaved = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}", {"actions": hog_flow["actions"]}
+        )
+        assert resaved.status_code == 200, resaved.json()
+
+        hog_flow["actions"][1]["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": new_sender.id}
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}", {"actions": hog_flow["actions"], "stage_draft": True}
+        )
+        assert staged.status_code == 200, staged.json()
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
+        ):
+            token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish", {}).json()[
+                "confirm_token"
+            ]
+        published = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish", {"confirm": True, "confirm_token": token}
+        )
+
+        assert published.status_code == 400, published.json()
+        assert "isn't verified yet" in published.json()["detail"]
+
     def test_fixed_template_id_is_inferred_from_step_type(self):
         # template_id on fixed-template steps is a constant of the step type; omitting the
         # constant used to bounce the create with "Template not found".

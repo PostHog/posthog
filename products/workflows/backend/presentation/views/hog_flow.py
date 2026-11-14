@@ -89,7 +89,7 @@ from posthog.plugins.plugin_server_api import (
 from posthog.scopes import scopes_not_covered
 from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
-from posthog.utils import relative_date_parse_with_delta_mapping
+from posthog.utils import absolute_uri, relative_date_parse_with_delta_mapping
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
@@ -280,6 +280,7 @@ from products.workflows.backend.facade.sandbox_email import (
     check_sandbox_sender_available,
     has_verified_own_sender,
     own_only_settings,
+    own_sender_verification,
     provision_sandbox_sender,
     require_sandbox_runtime,
     sandbox_adoption_enabled,
@@ -4065,6 +4066,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # encrypted_inputs rather than persisting recovered secrets to the live actions blob.
             data["actions"] = actions
 
+        if status == HogFlowState.ACTIVE and not is_draft and get_team is not None:
+            activating = instance is None or instance.status != HogFlowState.ACTIVE
+            if activating or "actions" in data:
+                # Only the live steps' senders are kept: a draft saved by the lenient builder never passed this check.
+                kept = None if activating or instance is None else _live_email_sender_ids(instance)
+                _refuse_unusable_email_senders(actions, team_id=get_team().id, kept_sender_ids=kept)
+
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
         trigger_actions = [action for action in actions if action.get("type") == "trigger"]
 
@@ -4428,6 +4436,60 @@ def _patched_sender_ids(email_patch: Any) -> list[Any]:
     sender = email_patch.get("from") if isinstance(email_patch, dict) else None
     rotation = (sender.get("integrationIds") if isinstance(sender, dict) else None) or []
     return [_patched_sender_id(email_patch), *(rotation if isinstance(rotation, list) else [rotation])]
+
+
+def _sender_id(value: Any) -> Any:
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return value
+
+
+def _email_step_sender_ids(action: Any) -> list[Any]:
+    if not isinstance(action, dict) or action.get("type") != "function_email":
+        return []
+    email_input = ((action.get("config") or {}).get("inputs") or {}).get("email")
+    value = email_input.get("value") if isinstance(email_input, dict) else None
+    return [_sender_id(sender_id) for sender_id in _patched_sender_ids(value) if sender_id not in (None, "")]
+
+
+def _live_email_sender_ids(instance: WorkflowEditState) -> dict[str, set[Any]]:
+    return {
+        stored_action["id"]: set(_email_step_sender_ids(stored_action))
+        for stored_action in instance.actions or []
+        if isinstance(stored_action, dict) and stored_action.get("id")
+    }
+
+
+def _refuse_unusable_email_senders(
+    actions: list[Any], *, team_id: int, kept_sender_ids: Optional[dict[str, set[Any]]] = None
+) -> None:
+    """Refuse email steps whose sender can't send, as the send path would fail on every run.
+
+    ``kept_sender_ids`` holds the senders each step of a live workflow already stores. Those stay accepted,
+    so a workflow with several broken steps can be fixed one step at a time.
+    """
+    named = [(step_action, _email_step_sender_ids(step_action)) for step_action in actions]
+    if not any(sender_ids for _, sender_ids in named):
+        return
+    verification = own_sender_verification(team_id)
+    problems: list[str] = []
+    for step_action, sender_ids in named:
+        kept = (kept_sender_ids or {}).get(step_action.get("id"), set())
+        for sender_id in sender_ids:
+            if sender_id in kept or verification.get(sender_id):
+                continue
+            step = step_action.get("name") or "Email"
+            if sender_id in verification:
+                url = absolute_uri(f"/project/{team_id}/workflows/channels/email/{sender_id}")
+                problems.append(
+                    f'The "{step}" step sends from a sender whose domain isn\'t verified yet, so its emails '
+                    f"would fail. Verify the domain at {url}, or choose a verified sender."
+                )
+            else:
+                problems.append(f'The "{step}" step uses an email sender that no longer exists. Choose another sender.')
+            break
+    if problems:
+        raise serializers.ValidationError({"actions": " ".join(problems)})
 
 
 def _all_verified(sender_ids: list[Any], verified: frozenset[int]) -> bool:

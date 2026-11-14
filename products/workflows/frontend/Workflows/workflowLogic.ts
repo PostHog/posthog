@@ -47,7 +47,7 @@ import {
 } from '../Broadcasts/broadcastLifecycle'
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
-import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import { readySandboxSender } from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
@@ -3616,7 +3616,8 @@ function getSaveQueue(
 function senderErrors(
     action: EmailStepAction,
     emailValue: any,
-    templating: string | undefined
+    templating: string | undefined,
+    integrations: IntegrationType[] | null
 ): Pick<EmailFieldErrors, 'from'> {
     if (action.type === 'email_sandbox') {
         return {}
@@ -3624,9 +3625,31 @@ function senderErrors(
     return {
         from: !emailValue?.from?.integrationId
             ? 'Choose an email sender, or connect a new one'
-            : (getTemplatingError(emailValue?.from?.email, templating) ??
+            : (unusableSenderError(emailValue.from, integrations) ??
+              getTemplatingError(emailValue?.from?.email, templating) ??
               getTemplatingError(emailValue?.from?.name, templating)),
     }
+}
+
+// Mirrors the backend check that refuses enabling or publishing a step whose sender can't send.
+function unusableSenderError(from: any, integrations: IntegrationType[] | null): string | undefined {
+    if (!integrations) {
+        return undefined
+    }
+    const rotation = Array.isArray(from?.integrationIds) ? from.integrationIds : []
+    for (const senderId of [from?.integrationId, ...rotation]) {
+        if (senderId === undefined || senderId === null || senderId === '') {
+            continue
+        }
+        const sender = integrations.find((integration) => integration.id === Number(senderId))
+        if (!sender || sender.kind !== 'email') {
+            return 'This sender no longer exists. Choose another sender.'
+        }
+        if (!isVerifiedEmailSender(sender)) {
+            return "This sender's domain isn't verified yet, so its emails would fail. Verify the domain, or choose a verified sender."
+        }
+    }
+    return undefined
 }
 
 export const workflowLogic = kea<workflowLogicType>([
@@ -4407,7 +4430,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 subject: !emailValue?.subject
                                     ? 'Add a subject line'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
-                                ...senderErrors(action, emailValue, emailTemplating),
+                                ...senderErrors(action, emailValue, emailTemplating, integrations),
                                 to: !emailValue?.to?.email
                                     ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
@@ -4423,6 +4446,16 @@ export const workflowLogic = kea<workflowLogicType>([
                                 // always lacks a sender) reads as clean.
                                 if (saveAttemptedActionIds?.includes(action.id)) {
                                     result.emailErrors = emailErrors
+                                } else if (
+                                    action.type === 'function_email' &&
+                                    action.config.inputs?.email?.value?.from?.integrationId
+                                ) {
+                                    // A picked sender that can't send is no template-start gap, so it shows
+                                    // straight away, also on a live workflow whose emails are failing now.
+                                    const unusable = unusableSenderError(emailValue?.from, integrations)
+                                    if (unusable) {
+                                        result.emailErrors = { from: unusable }
+                                    }
                                 }
                             }
                         } else if (isFunctionAction(action) && action.config.template_id === 'template-native-push') {

@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -342,6 +344,33 @@ describe('workflowLogic email step "from" validation', () => {
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
         expect(result?.valid).toBe(valid)
         expect(result?.emailErrors ?? {}).toEqual(errors)
+    })
+
+    it.each([
+        ['an unverified sender', { integrationId: 43 }, "This sender's domain isn't verified yet"],
+        ['a deleted sender', { integrationId: 99 }, 'This sender no longer exists'],
+        ['an unverified sender in the rotation', { integrationId: 42, integrationIds: [42, 43] }, "isn't verified yet"],
+    ])('flags %s on the step before any save attempt', async (_name, fromValue, message) => {
+        const senders = [
+            { id: 42, kind: 'email', config: { verified: true, email: 'hi@example.com' } },
+            { id: 43, kind: 'email', config: { verified: false, email: 'hi@unverified.example.com' } },
+        ]
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(fromValue),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+                '/api/projects/:team_id/integrations/': { results: senders, next: null },
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.valid).toBe(false)
+        expect(result?.emailErrors?.from).toContain(message)
     })
 
     it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {
