@@ -946,14 +946,21 @@ class UserSerializer(serializers.ModelSerializer):
 
         # `/api/users/@me/` has no tenant target, so `APIScopePermission` leaves a credential confined to
         # some organizations free to read the user's current project and organization in any other one.
-        if data.get("team") is not None and not credential_admits_team(
+        current_team_outside_reach = data.get("team") is not None and not credential_admits_team(
             request, data["team"]["id"], data["team"]["organization"]
-        ):
+        )
+        if current_team_outside_reach:
             data["team"] = None
         if data.get("organization") is not None and not credential_admits_organization(
             request, data["organization"]["id"]
         ):
             data["organization"] = None
+        # Clients such as the setup agent take `team` as the project to work in. A credential that reaches
+        # one project names that project without doubt. With several, any pick could send a client's
+        # writes to a project the user did not choose, so `team` stays null.
+        if current_team_outside_reach and (sole_team := self._sole_reachable_team(instance, request)) is not None:
+            data["team"] = TeamBasicSerializer(sole_team, context=self.context).data
+            data["organization"] = OrganizationSerializer(sole_team.organization, context=self.context).data
         scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
         if scoped_teams and (organization := data.get("organization")) is not None:
             organization["teams"] = [team for team in organization.get("teams") or [] if team["id"] in scoped_teams]
@@ -974,6 +981,20 @@ class UserSerializer(serializers.ModelSerializer):
                 data["shortcut_position"] = ShortcutPosition.ABOVE.value
 
         return data
+
+    def _sole_reachable_team(self, user: User, request: Request) -> Team | None:
+        reachable_organizations = get_request_reachable_organization_ids(request)
+        if reachable_organizations is None:
+            return None
+        candidates = user.teams.filter(organization_id__in=reachable_organizations)
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams:
+            candidates = candidates.filter(id__in=scoped_teams)
+        blocked_organizations = get_ip_blocked_organization_ids(request)
+        if blocked_organizations:
+            candidates = candidates.exclude(organization_id__in=blocked_organizations)
+        teams = list(candidates.select_related("organization")[:2])
+        return teams[0] if len(teams) == 1 else None
 
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):

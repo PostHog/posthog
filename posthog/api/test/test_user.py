@@ -16,7 +16,7 @@ from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
@@ -39,6 +39,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant,
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -425,30 +426,54 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is False
         assert response.json()["is_impersonated"] is False
 
-    @parameterized.expand([("scoped_organizations",), ("scoped_teams",)])
-    def test_me_with_a_key_scoped_to_one_organization_hides_the_others(self, scope_field: str) -> None:
+    @parameterized.expand(
+        [
+            ("one_organization", "organization", False, True),
+            ("one_team", "team", False, True),
+            ("two_teams", "two_teams", False, False),
+            ("one_team_in_an_ip_blocked_organization", "team", True, False),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_me_with_a_scoped_key_hides_other_organizations_and_names_a_sole_reachable_project(
+        self, _name: str, scope: str, ip_blocked: bool, names_the_reachable_project: bool
+    ) -> None:
         other_organization, _, other_team = Organization.objects.bootstrap(self.user)
         self.user.current_team = other_team
         self.user.current_organization = other_organization
         self.user.save()
+        if ip_blocked:
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+            )
+        scope_fields: dict[str, dict[str, list]] = {
+            "organization": {"scoped_organizations": [str(self.organization.id)]},
+            "team": {"scoped_teams": [self.team.id]},
+            "two_teams": {"scoped_teams": [self.team.id, self.new_project.id]},
+        }
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
             label="Scoped key",
             secure_value=hash_key_value(token),
             scopes=["user:read"],
-            scoped_organizations=[str(self.organization.id)] if scope_field == "scoped_organizations" else [],
-            scoped_teams=[self.team.id] if scope_field == "scoped_teams" else [],
+            **scope_fields[scope],
         )
         self.client.logout()
 
-        response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token}"})
+        response = self.client.get(
+            "/api/users/@me/", headers={"authorization": f"Bearer {token}"}, REMOTE_ADDR="198.51.100.7"
+        )
 
         assert response.status_code == 200, response.content
         body = response.json()
-        assert body["team"] is None
-        assert body["organization"] is None
-        assert [organization["id"] for organization in body["organizations"]] == [str(self.organization.id)]
+        if names_the_reachable_project:
+            assert body["team"]["id"] == self.team.id
+            assert body["organization"]["id"] == str(self.organization.id)
+        else:
+            assert body["team"] is None
+            assert body["organization"] is None
+        assert str(other_organization.id) not in [organization["id"] for organization in body["organizations"]]
 
     def _authenticate_with_scoped_key(self, **scope: list) -> None:
         token = generate_random_token_personal()
@@ -473,7 +498,7 @@ class TestUserAPI(APIBaseTest):
 
         assert switch.status_code == 400, switch.content
         assert me.status_code == 200, me.content
-        assert me.json()["team"] is None
+        assert me.json()["team"]["id"] == self.team.id
         assert [team["id"] for team in me.json()["organization"]["teams"]] == [self.team.id]
 
     def test_switching_organization_with_a_team_scoped_key_picks_a_scoped_project(self) -> None:
