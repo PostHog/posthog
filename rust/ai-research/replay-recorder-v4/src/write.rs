@@ -913,6 +913,73 @@ mod tests {
                 "{lines}"
             );
         }
+        // The block still holds the earlier copies of a repeated key, so each one is replaced, in either order.
+        let style_sheet = r#"{"type":2,"timestamp":1,"data":{"node":{"type":0,"id":1,"childNodes":[{"type":2,"tagName":"style","attributes":{},"id":3,"childNodes":[{"type":3,"textContent":"","id":4}]}]}}}"#;
+        for (first, last) in [(public, signed), (signed, public)] {
+            for events in [
+                format!(
+                    r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"src":"{first}","src":"{last}"}}}}]}}}}]"#
+                ),
+                format!(
+                    r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[{{"parentId":1,"node":{{"type":2,"tagName":"img","attributes":{{"src":"{first}","src":"{last}"}},"childNodes":[],"id":5}}}}],"removes":[],"texts":[],"attributes":[]}}}}]"#
+                ),
+                format!(
+                    r#"[{{"type":2,"timestamp":1,"data":{{"node":{{"type":0,"id":1,"childNodes":[{{"type":2,"tagName":"picture","attributes":{{}},"id":2,"childNodes":[{{"type":2,"tagName":"source","attributes":{{"srcset":"{first} 1x","srcset":"{last} 1x"}},"childNodes":[],"id":3}}]}}]}}}}}}]"#
+                ),
+                format!(
+                    r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[{{"parentId":1,"node":{{"type":2,"tagName":"div","attributes":{{"style":"background:url({first})","style":"background:url({last})"}},"childNodes":[],"id":5}}}}],"removes":[],"texts":[],"attributes":[]}}}}]"#
+                ),
+                format!(
+                    r#"[{{"type":2,"timestamp":1,"data":{{"node":{{"type":0,"id":1,"childNodes":[{{"type":2,"tagName":"style","attributes":{{}},"id":3,"childNodes":[{{"type":3,"textContent":".a{{background:url({first})}}","textContent":".a{{background:url({last})}}","id":4}}]}}]}}}}}}]"#
+                ),
+                format!(
+                    r#"[{style_sheet},{{"type":3,"timestamp":2,"data":{{"source":0,"adds":[],"removes":[],"attributes":[],"texts":[{{"id":4,"value":".a{{background:url({first})}}","value":".a{{background:url({last})}}"}}]}}}}]"#
+                ),
+                format!(
+                    r#"[{{"type":3,"timestamp":1,"data":{{"source":8,"id":3,"replaceSync":".a{{background:url({first})}}","replaceSync":".a{{background:url({last})}}"}}}}]"#
+                ),
+            ] {
+                let lines = stored_lines(&events);
+                assert!(
+                    lines.contains(&reference) && !lines.contains("X-Amz-Signature"),
+                    "{lines}"
+                );
+            }
+            // A link gets no reference, so each copy keeps its URL without the credential.
+            for tag in ["a", "video"] {
+                let attribute = if tag == "a" { "href" } else { "src" };
+                let events = format!(
+                    r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[{{"parentId":1,"node":{{"type":2,"tagName":"{tag}","attributes":{{"{attribute}":"{first}","{attribute}":"{last}"}},"childNodes":[],"id":5}}}}],"removes":[],"texts":[],"attributes":[]}}}}]"#
+                );
+                let lines = stored_lines(&events);
+                assert!(
+                    lines.contains("bucket.s3.amazonaws.com/avatar.png")
+                        && !lines.contains("X-Amz-Signature"),
+                    "{lines}"
+                );
+            }
+        }
+        // A URL with an inline image in its path is one URL, so the slot gets its reference, which leaves out the
+        // fragment. The same holds for a host the URL parser reads in another form. A srcset reads the comma of such a
+        // URL as malformed, so it keeps no candidate.
+        for url in [
+            "https://cdn.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret",
+            "https://%63dn.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret",
+            "https://ç.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret",
+        ] {
+            for attributes in [json!({"src": url}), json!({"srcset": format!("{url} 1x")})] {
+                let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "removes": [], "texts": [], "attributes": [],
+                    "adds": [{"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": attributes, "childNodes": [], "id": 5}}]}}])
+                .to_string();
+                let lines = stored_lines(&events);
+                assert!(
+                    !lines.is_empty()
+                        && !lines.contains("access_token")
+                        && !lines.contains("example.com"),
+                    "{lines}"
+                );
+            }
+        }
         // Each slot loses its credential, also an escaped font URL of a bundled family, which names no URL. v4 stores
         // pages unscrubbed, so a copy of the URL outside a URL slot, here in `alt`, keeps its text.
         let font = |family: &str, host: &str| {

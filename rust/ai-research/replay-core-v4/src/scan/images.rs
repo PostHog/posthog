@@ -545,9 +545,13 @@ fn read_data_uri(
     if subtype.starts_with("svg") && payload_is_markup(bytes, payload_start, base64) {
         return DataUri::Svg;
     }
+    // A browser drops a data URL's fragment before it decodes the payload, so the fragment is no part of the image, and
+    // it leaves the block with the image.
     if !base64 {
         let end = uri_end(bytes, start, payload_start);
-        let replacement = match &bytes[payload_start..end] {
+        let payload_end =
+            memchr::memchr(b'#', &bytes[payload_start..end]).map_or(end, |at| payload_start + at);
+        let replacement = match &bytes[payload_start..payload_end] {
             [] => return DataUri::NotImage,
             raw => match percent_decoded(raw) {
                 Some(image) => sink.take(image),
@@ -557,20 +561,24 @@ fn read_data_uri(
         return DataUri::Replaced { replacement, end };
     }
     let run_end = base64_run_end(bytes, payload_start);
-    let (end, readable) = if continues_past(bytes, run_end) {
+    let (payload_end, readable) = if continues_past(bytes, run_end) {
         wrapped_end(bytes, run_end)
     } else {
         (run_end, true)
     };
-    if end == payload_start {
+    if payload_end == payload_start {
         return DataUri::NotImage;
     }
     let replacement = if !readable {
         sink.decline(ImageDecline::Undecodable)
-    } else if end == run_end {
-        sink.take_base64(&bytes[payload_start..end])
+    } else if payload_end == run_end {
+        sink.take_base64(&bytes[payload_start..payload_end])
     } else {
-        sink.take_base64(&wrapped_payload(bytes, payload_start, end))
+        sink.take_base64(&wrapped_payload(bytes, payload_start, payload_end))
+    };
+    let end = match bytes.get(payload_end) {
+        Some(b'#') => uri_end(bytes, start, payload_end),
+        _ => payload_end,
     };
     DataUri::Replaced { replacement, end }
 }
@@ -875,6 +883,27 @@ mod tests {
             (
                 r#"{"srcset":""#,
                 format!("data:image/png,{percent}"),
+                r#" 2x, https://example.com/a.png 1x"}"#,
+            ),
+            // A browser reads a data URL without its fragment, so the fragment leaves with the image.
+            (
+                r#"{"src":""#,
+                format!("data:image/png;base64,{base64}#access_token=secret"),
+                r#""}"#,
+            ),
+            (
+                r#"{"style":"background:url("#,
+                format!("data:image/png,{percent}#access_token=secret"),
+                r#") no-repeat"}"#,
+            ),
+            (
+                r#"{"textContent":".a{background:url(\""#,
+                format!("data:image/png;base64,{head}\\n{tail}#access_token=secret"),
+                r#"\")}"}"#,
+            ),
+            (
+                r#"{"srcset":""#,
+                format!("data:image/png;base64,{base64}#access_token=secret"),
                 r#" 2x, https://example.com/a.png 1x"}"#,
             ),
             // CSS escapes in the header, with each backslash doubled by JSON.
