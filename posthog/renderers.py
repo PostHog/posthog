@@ -5,6 +5,7 @@ from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers import orjson_wide_ints
 
 CleaningMarker = bool | dict[int, "CleaningMarker"]
 
@@ -31,7 +32,7 @@ class SafeJSONRenderer(JSONRenderer):
             option |= orjson.OPT_INDENT_2
 
         try:
-            return orjson.dumps(data, default=JSONEncoder().default, option=option)
+            return orjson_wide_ints.dumps(data, default=JSONEncoder().default, option=option)
         except orjson.JSONEncodeError as e:
             # orjson caps nesting at 255 levels, while stdlib json is bounded only by the
             # interpreter's recursion limit, so a deep but finite payload can still be served.
