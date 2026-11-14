@@ -62,12 +62,20 @@ export function ReleaseTrackLabel({
                 <LinkPrimitive
                     to={lane.href}
                     title={lane.title}
-                    className="shrink-0 truncate text-xs text-foreground hover:underline"
+                    className={cn(
+                        'truncate text-xs text-foreground hover:underline',
+                        variant === 'inline' ? 'min-w-0' : 'shrink-0'
+                    )}
                 >
                     {lane.title}
                 </LinkPrimitive>
                 {detail && (
-                    <Text size="xxs" variant="muted" className="truncate" title={detail}>
+                    <Text
+                        size="xxs"
+                        variant="muted"
+                        className={cn('truncate', variant === 'inline' && 'min-w-0 shrink-[100]')}
+                        title={detail}
+                    >
                         {detail}
                     </Text>
                 )}
@@ -78,7 +86,7 @@ export function ReleaseTrackLabel({
                 </Text>
             )}
             {actions && (
-                <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/track:opacity-100">
+                <span className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover/track:opacity-100">
                     {actions}
                 </span>
             )}

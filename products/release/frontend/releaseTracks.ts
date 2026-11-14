@@ -123,7 +123,8 @@ export function todayScrollLeft(
 ): number | null {
     const visible = viewportWidth - stickyWidth
     const todayX = x(today.toISOString(), scale) + scale.day / 2
-    return todayX > visible - scale.day ? Math.max(0, todayX - visible * PAST_SHARE) : null
+    const left = todayX - visible * PAST_SHARE
+    return left > 0 ? left : null
 }
 
 export function linkedKeys(row: ReleaseRow, related: TrackRelated | undefined): Set<string> {

@@ -122,9 +122,9 @@ describe('todayScrollLeft', () => {
     const today = dayjs('2026-11-11T12:00:00Z')
 
     it.each([
-        ['leaves the calendar alone while today is in view', today, 400, 100, null],
+        ['leaves the calendar alone while today sits in the left part of the view', today, 400, 100, null],
+        ['moves today off the right edge even when it is visible', today, 220, 100, 27],
         ['scrolls today into view past the sticky column', today, 200, 100, 40],
-        ['never scrolls before the start of the window', scale.start, 110, 100, 0],
     ])('%s', (_name, day, viewportWidth, stickyWidth, expected) => {
         expect(todayScrollLeft(scale, viewportWidth, stickyWidth, day)).toBe(expected)
     })
