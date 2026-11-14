@@ -2,24 +2,32 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from urllib.parse import urlparse
 
+from django.db import connection
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import tldextract
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
+from products.aeo.backend.brand import SEGMENT_SQL, brand_names, segment_sql_params
 from products.aeo.backend.engines import is_target_url, own_domains_key, target_position
 from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
+    COMPETITOR_CANDIDATE_DAYS,
+    BrandedSegment,
     BrandKind,
     BrandSource,
     BrandStatus,
     BrandSyncResult,
+    CompetitorCandidate,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck
+from products.aeo.backend.rankings import word_pattern
 
 # Community, review and media sites that engines cite for every topic. They are sources, not companies we compete with.
 PUBLISHER_DOMAINS = frozenset(
@@ -212,3 +220,87 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
     # A concurrent sync may insert the same domain first; its row wins.
     AEOBrand.objects.for_team(team_id, canonical=True).bulk_create(new_brands, ignore_conflicts=True)
     return BrandSyncResult(domains=len(domains), created=len(new_brands))
+
+
+# Answers to non-branded prompts that cite each brand's domain or a subdomain, and answers whose text has one of
+# the brand's names as a word. The name regex runs only for brands that some answer cites, so a large catalog of
+# uncited suggestions costs no regex work. Placeholder names are often common words, so a match needs both signals.
+_COMPETITOR_CANDIDATES_SQL = f"""
+    WITH answered AS MATERIALIZED (
+        SELECT check_row.answer_text, check_row.top_cited_domains
+        FROM posthog_aeo_citation_check AS check_row
+        WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+            AND {SEGMENT_SQL}
+    ),
+    citing AS (
+        SELECT brand.domain, brand.pattern, count(*) AS answers
+        FROM answered
+        CROSS JOIN unnest(%s::text[], %s::text[]) AS brand(domain, pattern)
+        WHERE jsonb_typeof(answered.top_cited_domains) = 'array'
+            AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(answered.top_cited_domains) AS host
+                WHERE lower(host) = brand.domain OR right(lower(host), length(brand.domain) + 1) = '.' || brand.domain
+            )
+        GROUP BY brand.domain, brand.pattern
+    ),
+    counted AS (
+        SELECT citing.domain, citing.answers AS citing,
+            count(*) FILTER (WHERE answered.answer_text ~* citing.pattern) AS naming
+        FROM citing CROSS JOIN answered
+        GROUP BY citing.domain, citing.answers
+    )
+    SELECT domain, naming, citing
+    FROM counted
+    WHERE naming > 0
+    ORDER BY least(naming, citing) DESC, greatest(naming, citing) DESC, domain
+    LIMIT %s
+"""
+
+
+def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandidate]:
+    """Suggested brands that answers to non-branded prompts in the last `COMPETITOR_CANDIDATE_DAYS` days both
+    name and cite, ranked by the weaker of the two counts. Reads stored checks only."""
+    team_id = resolve_effective_team_id(team_id)
+    own = own_domains(team_id)
+    # The project's own brand on another domain (example.de for example.com) is not a competitor.
+    own_names = set(brand_names(own))
+    suggested = (
+        AEOBrand.objects.for_team(team_id)
+        .filter(status=BrandStatus.SUGGESTED)
+        .exclude(kind=BrandKind.OWN)
+        .exclude(domain__in=own)
+        .only("id", "name", "domain", "aliases")
+    )
+    brands: dict[str, AEOBrand] = {}
+    patterns: list[str] = []
+    for brand in suggested:
+        names = tuple(name for name in [brand.name, *(brand.aliases or [])] if isinstance(name, str) and name.strip())
+        if names and brand.name.strip().lower() not in own_names:
+            brands[brand.domain] = brand
+            patterns.append(word_pattern(names))
+    if not brands:
+        return []
+    since = timezone.now() - dt.timedelta(days=COMPETITOR_CANDIDATE_DAYS)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            _COMPETITOR_CANDIDATES_SQL,
+            [
+                team_id,
+                since,
+                *segment_sql_params(BrandedSegment.NON_BRANDED, own),
+                list(brands),
+                patterns,
+                limit,
+            ],
+        )
+        rows = cursor.fetchall()
+    return [
+        CompetitorCandidate(
+            brand_id=str(brands[domain].id),
+            name=brands[domain].name,
+            domain=domain,
+            answers_naming=naming,
+            answers_citing=citing,
+        )
+        for domain, naming, citing in rows
+    ]

@@ -10,10 +10,15 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
-from products.aeo.backend.catalog import recompute_own_citations, registrable_domain, sync_brands_from_run
-from products.aeo.backend.engines import MAX_URLS_PER_CHECK, own_domains_key
+from products.aeo.backend.catalog import (
+    competitor_candidates,
+    recompute_own_citations,
+    registrable_domain,
+    sync_brands_from_run,
+)
+from products.aeo.backend.engines import MAX_URLS_PER_CHECK, own_domains_key, top_domains
 from products.aeo.backend.facade.api import list_domains_across_teams
-from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus
+from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, CompetitorCandidate
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
 from products.aeo.backend.test.factories import create_brand, create_citation_check, create_own_brand
 
@@ -230,6 +235,91 @@ class TestSyncBrandsFromRun(BaseTest):
     )
     def test_registrable_domain(self, _name: str, url: str, expected: str | None) -> None:
         assert registrable_domain(url) == expected
+
+
+class TestCompetitorCandidates(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.prompt = AEOPrompt.objects.for_team(self.team.id).create(
+            team=self.team, prompt="which lighting tools?", prompt_hash="h", prompt_source=AEOPrompt.Source.MANUAL
+        )
+        create_own_brand(self.team, "example.com")
+
+    def _brand(self, name: str, domain: str, *, status: BrandStatus = BrandStatus.SUGGESTED) -> AEOBrand:
+        return AEOBrand.objects.for_team(self.team.id).create(
+            team=self.team, name=name, domain=domain, status=status, source=BrandSource.CITATIONS
+        )
+
+    def _answer(
+        self, text: str, hosts: list[str], *, prompt_text: str = "which lighting tools?", days_ago: int = 0
+    ) -> None:
+        cited_urls = [f"https://{host}/page" for host in hosts]
+        check = AEOCitationCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            prompt=self.prompt,
+            run_id=uuid.uuid4(),
+            prompt_text=prompt_text,
+            prompt_source=self.prompt.prompt_source,
+            prompt_hash=self.prompt.prompt_hash,
+            engine="claude-web-search",
+            model="claude",
+            answer_text=text,
+            cited_urls=cited_urls,
+            top_cited_domains=top_domains(cited_urls),
+        )
+        AEOCitationCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            created_at=timezone.now() - dt.timedelta(days=days_ago)
+        )
+
+    def test_ranks_suggested_brands_that_non_branded_answers_both_name_and_cite(self) -> None:
+        lantern = self._brand("Lantern", "lantern.example.org")
+        beacon = self._brand("Beacon", "beacon.example.org")
+        self._brand("Harbor", "harbor.example.org")
+        self._brand("Summit", "summit.example.org")
+        self._brand("Rival", "rival.example.org", status=BrandStatus.CONFIRMED)
+        self._brand("Quiet", "quiet.example.org", status=BrandStatus.IGNORED)
+        self._brand("Example", "example.de")
+        self._answer(
+            "Lantern, Beacon, Summit, Rival, Quiet and Example all work. Harborview too.",
+            [
+                "lantern.example.org",
+                "beacon.example.org",
+                "harbor.example.org",
+                "rival.example.org",
+                "quiet.example.org",
+                "example.de",
+            ],
+        )
+        self._answer("Lantern is popular in harbors.", ["docs.lantern.example.org", "beacon.example.org"])
+        self._answer("Try lantern.", ["beacon.example.org"])
+        self._answer(
+            "Lantern and Beacon.",
+            ["lantern.example.org", "beacon.example.org"],
+            prompt_text="is example better than lantern?",
+        )
+        self._answer("Beacon.", ["beacon.example.org"], days_ago=8)
+
+        candidates = competitor_candidates(self.team.id, limit=20)
+
+        assert candidates == [
+            CompetitorCandidate(
+                brand_id=str(lantern.id),
+                name="Lantern",
+                domain="lantern.example.org",
+                answers_naming=3,
+                answers_citing=2,
+            ),
+            CompetitorCandidate(
+                brand_id=str(beacon.id),
+                name="Beacon",
+                domain="beacon.example.org",
+                answers_naming=1,
+                answers_citing=3,
+            ),
+        ]
+        assert [candidate.domain for candidate in competitor_candidates(self.team.id, limit=1)] == [
+            "lantern.example.org"
+        ]
 
 
 class TestListDomainsAcrossTeams(BaseTest):

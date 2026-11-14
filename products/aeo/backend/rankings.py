@@ -173,7 +173,7 @@ def get_rankings(
     domain_urls = citations.urls_per_domain([domain for domain, _ in top_domains])
     target_domain = registrable_domain(target_domains[0].lower()) if target_domains else None
     brands = ([(target_domain, brand_regex(target_domains), True)] if target_domain else []) + [
-        (domain, _word_pattern(confirmed[domain] if domain in confirmed else (_brand_name(domain),)), False)
+        (domain, word_pattern(confirmed[domain] if domain in confirmed else (_brand_name(domain),)), False)
         for domain in competitors
     ]
     brand_days = _brand_days(
@@ -315,7 +315,7 @@ def _confirmed_competitors(team_id: int) -> dict[str, tuple[str, ...]]:
     }
 
 
-def _word_pattern(names: tuple[str, ...]) -> str:
+def word_pattern(names: tuple[str, ...]) -> str:
     """Postgres regex (for `~*`) matching any of the names as whole words. The boundaries are any non-word
     character or the text's ends, so a name that ends in punctuation (`Yahoo!`) still matches."""
     return r"(^|\W)(" + "|".join(re.escape(name.strip().lower()) for name in names if name.strip()) + r")(\W|$)"
