@@ -14,8 +14,9 @@ interface QuillTicketComposerProps {
     placeholder?: string
     buttonText?: string
     minRows?: number
-    /** Seeds the editor once at mount, e.g. from a prefilled "Contact support" call to action. */
+    /** Seeds the editor once at mount, e.g. from a saved draft or a prefilled "Contact support" call to action. */
     draftContent?: JSONContent | string | null
+    onDraftChange?: (content: JSONContent | null) => void
     autoFocus?: boolean
 }
 
@@ -30,6 +31,7 @@ export function QuillTicketComposer({
     buttonText = 'Send',
     minRows = 3,
     draftContent,
+    onDraftChange,
     autoFocus = false,
 }: QuillTicketComposerProps): JSX.Element {
     const editorRef = useRef<RichContentEditorType | null>(null)
@@ -49,6 +51,13 @@ export function QuillTicketComposer({
         })
     }
 
+    const handleUpdate = (empty: boolean): void => {
+        setIsEmpty(empty)
+        if (onDraftChange && editorRef.current) {
+            onDraftChange(empty ? null : editorRef.current.getJSON())
+        }
+    }
+
     return (
         <div className="flex flex-col gap-2">
             <SupportEditor
@@ -62,7 +71,7 @@ export function QuillTicketComposer({
                         setIsEmpty(false)
                     }
                 }}
-                onUpdate={setIsEmpty}
+                onUpdate={handleUpdate}
                 onPressCmdEnter={submit}
                 onUploadingChange={setIsUploading}
                 disabled={sending}

@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { DRAFT_KEY_PREFIX } from 'lib/components/Support/supportTicketDraftStorage'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -74,6 +75,7 @@ describe('userLogic', () => {
                 for (const teamId of [1, 2]) {
                     sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, teamId, 'new')?.set({ q: 'SELECT unfinished' })
                 }
+                localStorage.setItem(`${DRAFT_KEY_PREFIX}user-1:ticket:t1`, '{"content":{},"updatedAt":0}')
                 localStorage.setItem('theme', 'dark')
                 sessionStorage.setItem('other-session-state', 'keep')
 

@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { clearSupportTicketDrafts } from 'lib/components/Support/supportTicketDraftStorage'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -704,6 +705,7 @@ export const userLogic = kea<userLogicType>([
             // Drop the address a signup or login attempt stored for the verify page
             clearPendingVerificationEmail()
             clearSQLEditorDrafts()
+            clearSupportTicketDrafts()
 
             // OAuth mode: there's no local Django session to end — just drop the stored cloud
             // token and return to the local login. (A cross-origin /logout POST would do nothing.)

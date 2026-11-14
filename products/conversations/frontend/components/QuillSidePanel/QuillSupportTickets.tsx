@@ -7,15 +7,15 @@ import { QuillTicket } from './QuillTicket'
 import { QuillTicketsList } from './QuillTicketsList'
 
 export function QuillSupportTickets(): JSX.Element {
-    const { view, newTicketDraftRevision } = useValues(sidepanelTicketsLogic)
+    const { view, composerRevision } = useValues(sidepanelTicketsLogic)
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
 
     return (
         <>
             {view === 'list' && <QuillTicketsList />}
             {view === 'ticket' && <QuillTicket />}
-            {/* Keyed on the draft revision, so a prefill injected while the composer is open remounts the editor. */}
-            {view === 'new' && <QuillNewTicket key={newTicketDraftRevision} />}
+            {/* Keyed on the composer revision, so a prefill or discard while the composer is open remounts the editor. */}
+            {view === 'new' && <QuillNewTicket key={composerRevision} />}
             {view === 'restore' && !hasIdentityMode && <QuillRestoreTickets />}
         </>
     )
