@@ -218,15 +218,14 @@ class AircallPaginator(BasePaginator):
             self._has_next_page = True
 
 
-def validate_credentials(api_id: str, api_token: str) -> bool:
-    """Confirm the API key pair is valid. /v1/ping is a cheap authenticated probe."""
-    ok, _status = validate_via_probe(
+def validate_credentials(api_id: str, api_token: str) -> tuple[bool, int | None]:
+    """Probe the API key pair and return (is_valid, status). /v1/ping is a cheap authenticated probe."""
+    return validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_token,)),
         f"{AIRCALL_BASE_URL}/ping",
         headers={"Accept": "application/json"},
         auth=HTTPBasicAuth(api_id, api_token),
     )
-    return ok
 
 
 def _client_config(api_id: str, api_token: str, paginator: BasePaginator) -> ClientConfig:
