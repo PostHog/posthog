@@ -84,6 +84,7 @@ check_ready() {
     pnpm --version
     sqlx --version
     "$repo/bin/hogli" --help >/dev/null
+    phrocs --version >/dev/null
     docker info >/dev/null
     aws sts get-caller-identity >/dev/null
 }
@@ -94,6 +95,7 @@ verify_inputs
 install_node_and_pnpm
 install_sqlx_cli
 install_uv_and_python
+bash "$repo/tools/phrocs/install.sh"
 pnpm --dir "$repo" install --frozen-lockfile
 start_poolers
 check_ready
