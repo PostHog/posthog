@@ -306,5 +306,19 @@ describe('workflowAgentContext', () => {
             expect(items.find((item) => item.type === 'skill')?.dismissible).toBe(false)
             expect(items.some((item) => item.value?.includes('workflows-create'))).toBe(true)
         })
+
+        it('tells the agent to create the draft in the picked folder, with the folder name kept out of its instructions', () => {
+            const items = buildNewWorkflowComposerContext('Billing/Cards')
+            const instructions = items.filter((item) => item.type === 'instructions').map((item) => item.value)
+
+            expect(instructions.some((value) => value?.includes('as folder on workflows-create'))).toBe(true)
+            expect(instructions.some((value) => value?.includes('Billing/Cards'))).toBe(false)
+            expect(items).toContainEqual(
+                expect.objectContaining({ type: 'new_workflow_folder', value: 'Billing/Cards' })
+            )
+            expect(
+                buildNewWorkflowComposerContext().some((item) => item.value?.includes('as folder on workflows-create'))
+            ).toBe(false)
+        })
     })
 })

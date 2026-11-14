@@ -14,6 +14,8 @@ import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { newWorkflowFolder } from '../newWorkflowFolder'
+import { newWorkflowLogic } from '../newWorkflowLogic'
 import { FOLDER_REQUEST_TIMEOUT_MS, workflowFoldersLogic } from './workflowFoldersLogic'
 import { FIXTURE_WORKFLOWS, paginated } from './workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
@@ -89,6 +91,26 @@ describe('workflowFoldersLogic', () => {
         logic = workflowFoldersLogic()
         logic.mount()
     }
+
+    it('creates a new workflow in the open folder, and stops once the list closes', async () => {
+        const newWorkflow = newWorkflowLogic()
+        newWorkflow.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openFolder('Billing/Cards')
+        await expectLogic(newWorkflow, () => newWorkflow.actions.createEmptyWorkflow()).toFinishAllListeners()
+        expect(newWorkflowFolder()).toBe('Billing/Cards')
+
+        logic.unmount()
+        router.actions.push(urls.workflows())
+        await expectLogic(newWorkflow, () => newWorkflow.actions.createEmptyWorkflow()).toFinishAllListeners()
+        expect(newWorkflowFolder()).toBeNull()
+        newWorkflow.unmount()
+        // A fresh list for `afterEach` to unmount.
+        initKeaTests()
+        logic = workflowFoldersLogic()
+        logic.mount()
+    })
 
     it('opens a project folder with counted subfolders and only its direct workflows', async () => {
         await expectLogic(logic).toFinishAllListeners()
@@ -874,6 +896,22 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
     })
 
+    it.each(['in', 'path', 'folder', 'Folder'])('restores a project folder from %s: in the URL', async (key) => {
+        logic.unmount()
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: `${key}:Billing status:active` })
+        logic = workflowFoldersLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(workflowsListV2Logic.values.value.filters).toEqual([
+            { facet: 'in', value: 'Billing', negated: false },
+            { facet: 'status', value: 'active', negated: false },
+        ])
+        expect(router.values.searchParams.q).toBe('in:Billing status:active')
+    })
+
     it('reveals the scoped folder and its subfolders when opened from a link', async () => {
         logic.unmount()
         projectTreeDataLogic.mount()
@@ -1015,12 +1053,14 @@ describe('workflowFoldersLogic', () => {
     it('searches through subfolders while retaining the exact case-sensitive scope', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing')
+        expect(logic.values.folderCounts.Billing).toBe(3)
         logic.actions.setValue({
             filters: [{ facet: 'in', value: 'Billing', negated: false }],
             text: FIXTURE_WORKFLOWS[1].name ?? '',
         })
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
         expect(logic.values.childFolders).toEqual([])
+        expect(logic.values.folderCounts.Billing).toBe(1)
         logic.actions.setValue({
             filters: [{ facet: 'in', value: 'billing', negated: false }],
             text: FIXTURE_WORKFLOWS[1].name ?? '',

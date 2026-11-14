@@ -1,6 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -158,6 +161,23 @@ describe('workflowLogic broadcast suggestion on create', () => {
             expect(router.values.location.pathname).toMatch(new RegExp(`${path}$`))
         }
     )
+
+    it.each([
+        { name: 'with project folders on', flags: true, folder: '007' },
+        { name: 'with project folders off', flags: false, folder: undefined },
+    ])('sends the folder from the URL with a new workflow $name', async ({ flags, folder }) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: flags })
+        router.actions.push('/workflows/new/workflow', { _create_in_folder: '007' })
+        logic.actions.setWorkflowValues({
+            name: 'Welcome',
+            actions: [trigger('event'), email, exit],
+            edges: emailEdges,
+        })
+        await expectLogic(logic, () => {
+            logic.actions.submitWorkflow()
+        }).toFinishAllListeners()
+        expect(createdBodies[0]._create_in_folder).toBe(folder)
+    })
 
     it('creates nothing when the user closes the dialog', async () => {
         jest.mocked(confirmCreateAsBroadcast).mockResolvedValue(null)

@@ -50,6 +50,13 @@ const FACETS: FacetDefinition<Item>[] = [
         emptyLabel: 'Health shows once run metrics load',
     },
     {
+        key: 'folder',
+        label: 'Folder',
+        description: 'Exact folder name',
+        caseSensitive: true,
+        getValues: (item) => [item.name],
+    },
+    {
         key: 'team',
         label: 'Team',
         description: 'Known once teams load',
@@ -169,19 +176,19 @@ describe('facetSearchBarLogic', () => {
         const facets: FacetDefinition<Item>[] = [
             ...FACETS,
             {
-                key: 'folder',
-                label: 'Folder',
-                description: 'Exact folder',
+                key: 'squad',
+                label: 'Squad',
+                description: 'Exact squad name',
                 caseSensitive: true,
                 getValues: (item) => [item.name === 'Welcome' ? 'Billing' : 'billing'],
             },
         ]
-        const draftCountsIn = (folder: string): [string, number | undefined][] => {
+        const draftCountsIn = (squad: string): [string, number | undefined][] => {
             logic = facetSearchBarLogic({
                 id: 'test',
                 facets,
                 items: ITEMS,
-                value: { filters: [{ facet: 'folder', value: folder, negated: false }], text: '' },
+                value: { filters: [{ facet: 'squad', value: squad, negated: false }], text: '' },
                 onChange,
                 matchesText,
             })
@@ -255,6 +262,12 @@ describe('facetSearchBarLogic', () => {
             [{ facet: 'status', value: 'active', negated: true }],
             'wel ',
         ],
+        [
+            'a case-sensitive value in its own case',
+            'folder:Sync',
+            [{ facet: 'folder', value: 'Sync', negated: false }],
+            '',
+        ],
     ])('commits %s that names exactly one option without Space', (_, typed, filters, input) => {
         mountWith({ filters: [], text: '' })
         logic.actions.setInput(typed)
@@ -266,6 +279,7 @@ describe('facetSearchBarLogic', () => {
         ['the start of several values', [], 'status:a'],
         ['a value another value starts with', [], 'sends:deals'],
         ['a value in an open quote', [], 'sends:"Deals for you'],
+        ['a case-sensitive value in another case', [], 'folder:sync'],
         ['a value that is already a pill', [{ facet: 'status', value: 'draft', negated: false }], 'status:draft'],
         [
             'a value a pill already resolves to',

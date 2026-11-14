@@ -1,58 +1,51 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
 
 import { AutomationEmptyState } from '../../setupGuide/AutomationEmptyState'
 import { AutomationSuggestionBanner } from '../../setupGuide/AutomationSuggestionBanner'
 import { MessagingSetupReminderBanner } from '../../setupGuide/MessagingSetupReminderBanner'
 import { workflowLogic } from '../workflowLogic'
-import { serializeFacetQuery } from './FacetSearchBar/facetQuery'
 import { FacetSearchBar } from './FacetSearchBar/FacetSearchBar'
-import { buildWorkflowsListV2Columns } from './workflowsListV2Columns'
+import { WorkflowFolderContents } from './WorkflowFolderContents'
+import { WorkflowFolderSidebar } from './WorkflowFolderSidebar'
+import { workflowFoldersLogic } from './workflowFoldersLogic'
+import { WorkflowFolderToolbar } from './WorkflowFolderToolbar'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
-
-const PAGE_SIZE = 100
 
 export function WorkflowsListV2(): JSX.Element {
     const {
-        rows,
-        filteredRows,
-        facets,
-        matchesText,
-        value,
         listLoaded,
         listComplete,
         loadingMoreWorkflows,
         workflowsLoading,
         loadFailed,
         loadErrorDetail,
-        shownColumns,
         serverSearchStatus,
-        isUnfilteredAutomationView,
         hasHealthFilter,
-        metricsLoaded,
         metricsStatus,
     } = useValues(workflowsListV2Logic)
-    const { setValue, loadWorkflows, loadMetrics, clearFilters } = useActions(workflowsListV2Logic)
-    // A new filter starts again on page one, as the flag-off list does.
-    const filterKey = `${serializeFacetQuery(value.filters)}\n${value.text}`
-    const [pageForFilter, setPageForFilter] = useState({ filterKey, page: 1 })
-    if (pageForFilter.filterKey !== filterKey) {
-        // Store the reset too: clearing a filter brings back an earlier key, which must not bring back its page.
-        setPageForFilter({ filterKey, page: 1 })
-    }
-    const currentPage = pageForFilter.filterKey === filterKey ? pageForFilter.page : 1
+    const { setValue, loadWorkflows, loadMetrics } = useActions(workflowsListV2Logic)
+    const {
+        browserLoadFailed,
+        browserReadyLoading,
+        folderFacets,
+        folderSearchItems,
+        folderMatchesText,
+        displayedValue,
+        showsAutomationSetup,
+    } = useValues(workflowFoldersLogic)
 
     useOnMountEffect(() => {
         // Leaving the new-workflow scene keeps its logic mounted, so drop it here as WorkflowsTable does.
         workflowLogic.findMounted({ id: 'new' })?.unmount()
     })
 
-    const renderLoadError = (title: string): JSX.Element => (
+    const { loadBrowser } = useActions(workflowFoldersLogic)
+    const metricsFailed = hasHealthFilter && metricsStatus === 'failed'
+    const renderWorkflowsLoadError = (title: string): JSX.Element => (
         <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
             <span className="font-semibold">{title}</span>
             {loadErrorDetail && <span className="text-secondary">{loadErrorDetail}</span>}
@@ -67,75 +60,24 @@ export function WorkflowsListV2(): JSX.Element {
             </LemonButton>
         </div>
     )
-
-    const renderBody = (): JSX.Element => {
+    const renderLoadError = (): JSX.Element => {
         if (loadFailed && !listLoaded) {
-            return renderLoadError("Couldn't load workflows")
-        }
-        const searchPending = serverSearchStatus === 'pending'
-        const healthPending = hasHealthFilter && !metricsLoaded
-        if (hasHealthFilter && metricsStatus === 'failed') {
-            return (
-                <>
-                    {loadFailed && !listComplete && renderLoadError("Couldn't load all workflows")}
-                    <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
-                        <span>Couldn't load run metrics for these health filters</span>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={loadMetrics}
-                            data-attr="workflows-list-v2-metrics-retry"
-                        >
-                            Retry
-                        </LemonButton>
-                    </div>
-                </>
-            )
-        }
-        // Rows on pages still to come, or on a page that failed, could match, so nothing is empty yet.
-        if (listComplete && filteredRows.length === 0 && isUnfilteredAutomationView && !searchPending) {
-            return <AutomationEmptyState />
-        }
-        if (listComplete && rows.length > 0 && filteredRows.length === 0 && !searchPending && !healthPending) {
-            return (
-                <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
-                    <span>No workflows match these filters</span>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={clearFilters}
-                        data-attr="workflows-list-v2-clear-filters"
-                    >
-                        Clear filters
-                    </LemonButton>
-                </div>
-            )
+            return renderWorkflowsLoadError("Couldn't load workflows")
         }
         return (
             <>
-                {loadFailed && !listComplete && renderLoadError("Couldn't load all workflows")}
-                <LemonTable
-                    size="small"
-                    dataSource={filteredRows}
-                    // Until the server search answers, a match in an email body can still add rows.
-                    loading={
-                        !listLoaded ||
-                        searchPending ||
-                        healthPending ||
-                        (loadingMoreWorkflows && filteredRows.length === 0)
-                    }
-                    rowKey="id"
-                    columns={buildWorkflowsListV2Columns(shownColumns, metricsStatus === 'failed')}
-                    // Client-side pages stay out of the URL; `page` there is an old list param.
-                    pagination={{
-                        pageSize: PAGE_SIZE,
-                        currentPage,
-                        onPageChange: (page) => setPageForFilter({ filterKey, page }),
-                    }}
-                    nouns={['workflow', 'workflows']}
-                    emptyState={listComplete ? 'No workflows yet' : 'None of the workflows loaded so far match'}
-                />
-                {loadingMoreWorkflows && <div className="text-xs text-secondary">Loading more workflows…</div>}
+                {loadFailed && !listComplete && renderWorkflowsLoadError("Couldn't load all workflows")}
+                <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
+                    <span>Couldn't load run metrics for these health filters</span>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={loadMetrics}
+                        data-attr="workflows-list-v2-metrics-retry"
+                    >
+                        Retry
+                    </LemonButton>
+                </div>
             </>
         )
     }
@@ -144,12 +86,12 @@ export function WorkflowsListV2(): JSX.Element {
         <div className="flex flex-col gap-3 min-w-0" data-attr="workflows-list-v2">
             <MessagingSetupReminderBanner />
             <FacetSearchBar
-                facets={facets}
-                items={rows}
-                value={value}
+                facets={folderFacets}
+                items={folderSearchItems}
+                value={displayedValue}
                 onChange={setValue}
-                matchesText={matchesText}
-                placeholder="Search workflows, or filter with status:, owner:, health: and more"
+                matchesText={folderMatchesText}
+                placeholder="Search workflows and email templates, or filter with in:, status:, kind: and more"
                 dataAttr="workflows-search"
             />
             {serverSearchStatus === 'failed' && (
@@ -157,7 +99,41 @@ export function WorkflowsListV2(): JSX.Element {
                     Couldn't search step names and email content. Showing matches on name and description only.
                 </div>
             )}
-            {renderBody()}
+            <div className="flex flex-col gap-3 @min-[48rem]/main-content:flex-row min-w-0 min-h-[calc(100vh-20rem)]">
+                <WorkflowFolderSidebar />
+                <div className="min-w-0 flex-1 @container">
+                    <WorkflowFolderToolbar />
+                    {browserLoadFailed && (
+                        <div
+                            className="flex flex-col items-center gap-2 border rounded p-4 mb-2 text-center"
+                            data-attr="workflows-folders-load-failed"
+                        >
+                            <span>Couldn't load project folders, so every workflow is listed without its folder.</span>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => loadBrowser()}
+                                loading={browserReadyLoading}
+                            >
+                                Retry
+                            </LemonButton>
+                        </div>
+                    )}
+                    {(loadFailed && !listLoaded) || metricsFailed ? (
+                        renderLoadError()
+                    ) : showsAutomationSetup ? (
+                        <AutomationEmptyState />
+                    ) : (
+                        <>
+                            {loadFailed && !listComplete && renderWorkflowsLoadError("Couldn't load all workflows")}
+                            <WorkflowFolderContents />
+                            {loadingMoreWorkflows && (
+                                <div className="text-xs text-secondary mt-1">Loading more workflows…</div>
+                            )}
+                        </>
+                    )}
+                </div>
+            </div>
             <AutomationSuggestionBanner />
         </div>
     )
