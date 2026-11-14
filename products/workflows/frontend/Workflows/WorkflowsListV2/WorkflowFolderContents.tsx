@@ -52,7 +52,7 @@ export function WorkflowFolderContents(): JSX.Element {
     const { setValue } = useActions(workflowsListV2Logic)
     const {
         shownColumns,
-        metricsLoading,
+        metricsStatus,
         listLoaded,
         listComplete,
         serverSearchStatus,
@@ -65,6 +65,10 @@ export function WorkflowFolderContents(): JSX.Element {
     // A new folder or filter starts again on page one, as the flag-off list does.
     const filterKey = `${currentFolder ?? ''}\n${serializeFacetQuery(value.filters)}\n${value.text}`
     const [pageForFilter, setPageForFilter] = useState({ filterKey, page: 1 })
+    if (pageForFilter.filterKey !== filterKey) {
+        // Store the reset too: clearing a filter brings back an earlier key, which must not bring back its page.
+        setPageForFilter({ filterKey, page: 1 })
+    }
     const currentPage = pageForFilter.filterKey === filterKey ? pageForFilter.page : 1
     const { searchParams } = useValues(router)
     // The table keeps its own sort after a header click, so the address drives it too, or Back would leave the table
@@ -85,7 +89,10 @@ export function WorkflowFolderContents(): JSX.Element {
         ...childFolders.map((folder) => ({ ...folder, kind: 'folder' as const, id: `folder:${folder.path}` })),
         ...folderFileRows,
     ]
-    const columns: LemonTableColumns<ContentsRow> = buildWorkflowsListV2Columns(shownColumns, metricsLoading).map(
+    const columns: LemonTableColumns<ContentsRow> = buildWorkflowsListV2Columns(
+        shownColumns,
+        metricsStatus === 'failed'
+    ).map(
         (column): LemonTableColumn<ContentsRow, keyof ContentsRow | undefined> => ({
             key: column.key,
             title: column.title,
