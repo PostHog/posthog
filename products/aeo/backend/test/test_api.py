@@ -54,6 +54,7 @@ class TestAEOPromptAPI(APIBaseTest):
         cited_urls: list[str] | None = None,
         search_queries: list[str] | None = None,
         mode: str = "web_search",
+        names_brand: bool | None = None,
     ) -> str:
         with team_scope(self.team.pk):
             prompt = AEOPrompt.objects.get(id=prompt_id)
@@ -73,6 +74,7 @@ class TestAEOPromptAPI(APIBaseTest):
                 target_best_position=position,
                 check_failed=check_failed,
                 answer_text=answer_text,
+                names_brand=names_brand,
                 cited_urls=cited_urls or [],
                 top_cited_domains=top_domains(cited_urls or []),
                 search_queries=search_queries or [],
@@ -636,6 +638,8 @@ class TestAEOPromptAPI(APIBaseTest):
             ("brand_case_ignored", {"answer_text": "EXAMPLE ships session replay."}, 1),
             ("brand_inside_another_word", {"answer_text": "Counterexample: nothing fits."}, 0),
             ("cited_without_the_name_in_the_text", {"cited": True, "answer_text": "See [1]."}, 1),
+            ("stored_flag_set", {"names_brand": True, "answer_text": "Nothing about the brand."}, 1),
+            ("stored_flag_decides_over_the_text", {"names_brand": False, "answer_text": "Try Example."}, 0),
             ("failed_check", {"check_failed": True}, 0),
         ]
     )
@@ -663,6 +667,9 @@ class TestAEOPromptAPI(APIBaseTest):
                 AEOCitationCheck.objects.filter(answer_text__contains=text).update(
                     brand_sentiment=label, brand_sentiment_score=score
                 )
+            AEOCitationCheck.objects.filter(id=scored).update(
+                brand_sentiment_sentences=[{"start": 0, "end": 17, "label": "positive", "score": 0.9}]
+            )
 
         create_own_brand(self.team, "example.com")
 
@@ -678,6 +685,11 @@ class TestAEOPromptAPI(APIBaseTest):
             **{check["id"]: (check["brand_sentiment"], check["brand_sentiment_score"]) for check in checks[1:]},
         }
         assert [check["brand_sentiment"] for check in checks] == ["positive", "negative", None]
+        assert [check["brand_sentiment_sentences"] for check in checks] == [
+            [{"start": 0, "end": 17, "label": "positive", "score": 0.9}],
+            [],
+            [],
+        ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_stats_rank_engine_consensus_and_search_words_over_the_window(self) -> None:

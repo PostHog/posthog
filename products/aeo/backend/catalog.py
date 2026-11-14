@@ -10,6 +10,7 @@ import tldextract
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
+from products.aeo.backend.brand import names_brand
 from products.aeo.backend.engines import is_target_url, own_domains_key, target_position
 from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
@@ -104,11 +105,12 @@ def recompute_own_citations(team_id: int) -> int:
 def _recompute_with(team_id: int, domains: list[str]) -> int:
     key = own_domains_key(domains)
     checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
-    # exclude() keeps the null keys of checks recorded before the key existed.
+    # exclude() keeps the null keys of checks recorded before the key existed. A check on the current
+    # key that has no `names_brand` yet was recorded before that column existed, and is filled here too.
     stale = (
         checks.filter(check_failed=False)
-        .exclude(own_domains_key=key)
-        .only("id", "cited_urls", "cited", "target_urls", "target_best_position", "own_domains_key")
+        .exclude(own_domains_key=key, names_brand__isnull=False)
+        .only("id", "cited_urls", "cited", "target_urls", "target_best_position", "own_domains_key", "answer_text")
         .order_by("id")
     )
     changed = 0
@@ -120,13 +122,16 @@ def _recompute_with(team_id: int, domains: list[str]) -> int:
         kept: list[AEOCitationCheck] = []
         for check in page:
             citations_moved = _recompute_check(check, domains)
-            # A keyed check was scored for a different set of own brands, even when its citations match both.
+            check.names_brand = names_brand(check.answer_text, domains)
+            # A check keyed for other own brands was scored for them, even when its citations match both.
             # A check from before the key existed was scored for the domains it was cited against.
-            if check.own_domains_key is not None or citations_moved:
+            # A check already on the current key is only here to get its `names_brand`.
+            if check.own_domains_key != key and (check.own_domains_key is not None or citations_moved):
                 # The next sentiment run scores a cleared check again when it names the current brand and
                 # falls inside the run's backlog window.
                 check.brand_sentiment = None
                 check.brand_sentiment_score = None
+                check.brand_sentiment_sentences = None
                 rescored.append(check)
             else:
                 kept.append(check)
@@ -156,13 +161,14 @@ def _recompute_check(check: AEOCitationCheck, domains: list[str]) -> bool:
     return moved
 
 
-_CITATION_FIELDS = ["cited", "target_urls", "target_best_position", "own_domains_key"]
+_CITATION_FIELDS = ["cited", "target_urls", "target_best_position", "own_domains_key", "names_brand"]
+_SENTIMENT_FIELDS = ["brand_sentiment", "brand_sentiment_score", "brand_sentiment_sentences"]
 
 
 def _write_recomputed(
     checks: QuerySet[AEOCitationCheck], rescored: list[AEOCitationCheck], kept: list[AEOCitationCheck]
 ) -> None:
-    checks.bulk_update(rescored, [*_CITATION_FIELDS, "brand_sentiment", "brand_sentiment_score"])
+    checks.bulk_update(rescored, [*_CITATION_FIELDS, *_SENTIMENT_FIELDS])
     # Sentiment is left out, so a score written meanwhile for these checks survives.
     checks.bulk_update(kept, _CITATION_FIELDS)
 
