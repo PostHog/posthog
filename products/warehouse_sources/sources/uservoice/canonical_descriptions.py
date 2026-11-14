@@ -114,4 +114,52 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             name="Name of the label.",
         ),
     },
+    "supporters": {
+        "description": "A user's support (vote) for a suggestion. `links.suggestion` and `links.user` join it to the suggestions and users tables.",
+        "docs_url": _DOCS_URL,
+        "columns": _columns(
+            channel="Channel through which the support was given.",
+            how="How the support was captured.",
+            importance_score="Importance the supporter gave to the suggestion.",
+            is_subscribed="Whether the supporter receives updates on the suggestion.",
+            comments_count="Number of comments the supporter left on the suggestion.",
+            requests_count="Number of feedback requests attached to this support.",
+        ),
+    },
+    "features": {
+        "description": "A roadmap feature that groups related suggestions. `links.suggestions` lists the suggestions it rolls up.",
+        "docs_url": _DOCS_URL,
+        "columns": _columns(
+            name="Name of the feature.",
+            description="Description of the feature.",
+            position="Sort position of the feature.",
+            suggestions_count="Number of suggestions linked to the feature.",
+            supporting_users_count="Number of users who support the linked suggestions.",
+            supporting_accounts_count="Number of accounts that support the linked suggestions.",
+            supporter_revenue="Total revenue of the supporting accounts.",
+            supporter_mrr_cents="Total monthly recurring revenue of the supporting accounts, in cents.",
+        ),
+    },
+    "categories": {
+        "description": "A category inside a forum that suggestions are filed under.",
+        "docs_url": _DOCS_URL,
+        "columns": _columns(
+            name="Name of the category.",
+            position="Sort position of the category in its forum.",
+            suggestions_count="Number of suggestions in the category.",
+            open_suggestions_count="Number of open suggestions in the category.",
+        ),
+    },
+    "status_updates": {
+        "description": "A status change on a suggestion and the message sent to its supporters. `links.old_status` and `links.new_status` give the transition.",
+        "docs_url": _DOCS_URL,
+        "columns": _columns(
+            body="Text of the status update message.",
+            html_body="HTML body of the status update message.",
+            supporters_notified="Whether the suggestion's supporters were notified.",
+            mail_sent_count="Number of notification emails sent.",
+            mail_opened_count="Number of notification emails opened.",
+            mail_clicked_count="Number of notification emails clicked.",
+        ),
+    },
 }
