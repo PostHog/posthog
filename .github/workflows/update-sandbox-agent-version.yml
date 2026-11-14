@@ -379,17 +379,22 @@ jobs:
               run: |
                   ts="${INPUT_TS:-$PARENT_TS}"
                   echo "ts=$ts" >> "$GITHUB_OUTPUT"
-                  printf '%s' "$ts" > .sandbox-agent-slack-thread
 
-            # cd-sandbox-base-image.yml restores this on the merge commit to post that the version is live.
-            - name: Cache the Slack thread for the merge notice
-              if: github.ref == 'refs/heads/master' && steps.state.outputs.action == 'bump' && steps.thread.outputs.ts != ''
+            - name: Record the Slack thread on the pull request
+              if: steps.state.outputs.action == 'bump' && steps.thread.outputs.ts != ''
               continue-on-error: true
-              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
-              uses: actions/cache/save@v5.0.3
-              with:
-                  path: .sandbox-agent-slack-thread
-                  key: sandbox-agent-slack-${{ steps.resolve.outputs.latest }}
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR: ${{ steps.pr.outputs.number }}
+                  TS: ${{ steps.thread.outputs.ts }}
+              run: |
+                  if ! [[ "$TS" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                    echo "::warning::The Slack thread timestamp is malformed, so the merge notice starts its own thread"
+                    exit 0
+                  fi
+                  gh pr view "$PR" --json body --jq .body > body.md
+                  printf '\n<!-- sandbox-agent-slack-thread: %s -->\n' "$TS" >> body.md
+                  gh pr edit "$PR" --body-file body.md
 
             - name: Wait for the image smoke on the bump commit
               id: smoke
