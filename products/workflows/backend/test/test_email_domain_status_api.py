@@ -638,6 +638,19 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         assert "10.0.0.53" not in self.world.dns.queried_addresses
 
 
+def _add_sender(test: "TestEmailDomainStatusChaos", email: str) -> Any:
+    return test.client.post(
+        f"/api/projects/{test.team.id}/integrations",
+        {"kind": "email", "config": {"email": email, "name": "Other", "provider": "ses"}},
+        format="json",
+    )
+
+
+def _verify_after_mail_from_expired(test: "TestEmailDomainStatusChaos") -> Any:
+    test.world.ses.identities[DOMAIN].mail_from_setup_expired = True
+    return test.verify(test.sender)
+
+
 class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -671,14 +684,12 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
         [
             ("verify_identity", "ses.verify_domain_identity", lambda test: test.verify(test.sender)),
             ("verify_dkim", "ses.verify_domain_dkim", lambda test: test.verify(test.sender)),
+            ("verify_restarts_mail_from", "ses.set_identity_mail_from_domain", _verify_after_mail_from_expired),
+            ("add_sender", "ses.verify_domain_identity", lambda test: _add_sender(test, f"other@{DOMAIN}")),
             (
-                "add_sender",
-                "ses.verify_domain_identity",
-                lambda test: test.client.post(
-                    f"/api/projects/{test.team.id}/integrations",
-                    {"kind": "email", "config": {"email": f"other@{DOMAIN}", "name": "Other", "provider": "ses"}},
-                    format="json",
-                ),
+                "add_sender_on_new_domain",
+                "ses.set_identity_mail_from_domain",
+                lambda test: _add_sender(test, f"hello@send.{ROOT_DOMAIN}"),
             ),
             (
                 "change_mail_from",
@@ -694,6 +705,7 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
     def test_ses_denying_domain_setup_answers_400_with_a_next_step(
         self, _name: str, operation: str, send: Callable[["TestEmailDomainStatusChaos"], Any]
     ) -> None:
+        senders_before = list(Integration.objects.filter(kind="email").values("id", "config"))
         self.world.faults.inject(operation, AwsFault.ACCESS_DENIED)
 
         response = send(self)
@@ -702,7 +714,7 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
             status.HTTP_400_BAD_REQUEST,
             "Our email provider refused to set up this domain. Contact support for help.",
         )
-        assert self.is_verified(self.sender) is False
+        assert list(Integration.objects.filter(kind="email").values("id", "config")) == senders_before
 
     @parameterized.expand(
         product(
