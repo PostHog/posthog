@@ -1,7 +1,7 @@
 import { EXIT_CODE } from '../runner/status'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
-import { lease, manifestOf, release, sweepExpired } from './lease'
+import { lease, manifestOf, release } from './lease'
 import { githubOrigin } from './origin'
 import { CloudProfile, REGION, RunInputs, loadCloudProfile, loadRunInputs } from './profile'
 
@@ -10,7 +10,7 @@ export type { Controller } from './admission'
 const USAGE = [
     'Usage:',
     '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile>',
-    '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> (<run id> | --expired)',
+    '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> <run id>',
 ].join('\n')
 
 function defaultController(): Controller {
@@ -26,9 +26,6 @@ function defaultController(): Controller {
 
 async function run(controller: Controller, loaded: RunInputs): Promise<number> {
     const bucket = loaded.profile.baseline.evidenceBucket
-    for (const problem of await sweepExpired(controller, bucket)) {
-        controller.warn(problem)
-    }
     const admission = await admit(controller, loaded.profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
@@ -45,13 +42,7 @@ async function run(controller: Controller, loaded: RunInputs): Promise<number> {
 
 async function cleanup(controller: Controller, profile: CloudProfile, target: string): Promise<number> {
     const bucket = profile.baseline.evidenceBucket
-    if (target === '--expired') {
-        const problems = await sweepExpired(controller, bucket)
-        problems.forEach((problem) => controller.warn(problem))
-        return problems.length > 0 ? EXIT_CODE.invalid : EXIT_CODE.passed
-    } else {
-        await release(controller, bucket, await manifestOf(controller, bucket, target))
-    }
+    await release(controller, bucket, await manifestOf(controller, bucket, target))
     return EXIT_CODE.passed
 }
 

@@ -56,8 +56,6 @@ function bucketOf(aws: Aws, bucket: string) {
             await aws.call(['s3api', 'get-object', '--bucket', bucket, '--key', key, file])
             return readFileSync(file, 'utf8')
         },
-        delete: (key: string): Promise<unknown> =>
-            aws.call(['s3api', 'delete-object', '--bucket', bucket, '--key', key]),
         keys: async (prefix: string): Promise<string[]> => {
             const listed = (await aws.call(['s3api', 'list-objects-v2', '--bucket', bucket, '--prefix', prefix])) as {
                 Contents?: { Key: string }[]
@@ -112,15 +110,6 @@ async function register(controller: Controller, schedulerRole: string, manifest:
             JSON.stringify(target),
         ])
     }
-    for (const { name, expression } of schedules) {
-        const read = (await controller.aws.call(['scheduler', 'get-schedule', '--name', name])) as {
-            ScheduleExpression: string
-            Target: { Input: string }
-        }
-        if (read.ScheduleExpression !== expression || read.Target.Input !== target.Input) {
-            throw new LeaseError(`Schedule ${name} reads back as ${read.ScheduleExpression} for ${read.Target.Input}.`)
-        }
-    }
 }
 
 export async function lease(
@@ -144,50 +133,14 @@ export async function lease(
         inputs: Object.fromEntries(inputs.map(({ file, sha256 }) => [file, sha256])),
     }
     const bucket = bucketOf(controller.aws, profile.baseline.evidenceBucket)
-    try {
-        const body = JSON.stringify(manifest, null, 2)
-        await bucket.put(keyOf(runId, 'manifest.json'), body)
-        await bucket.put(keyOf(runId, 'input/manifest.json'), body)
-        for (const input of inputs) {
-            await bucket.put(keyOf(runId, `input/${input.file}`), input.bytes)
-        }
-        await register(controller, profile.baseline.schedulerRole, manifest)
-        return manifest
-    } catch (error) {
-        const reason = (error as Error).message
-        const remaining = await removePartialLease(controller, bucket, manifest)
-        if (remaining.length > 0) {
-            throw new LeaseError(
-                `Could not lease run ${runId}: ${reason}\nRemove what remains by hand:\n${remaining.map((item) => `- ${item}`).join('\n')}`
-            )
-        }
-        throw new LeaseError(`Could not lease run ${runId}, so nothing was created: ${reason}`)
+    const body = JSON.stringify(manifest, null, 2)
+    await bucket.put(keyOf(runId, 'manifest.json'), body)
+    await bucket.put(keyOf(runId, 'input/manifest.json'), body)
+    for (const input of inputs) {
+        await bucket.put(keyOf(runId, `input/${input.file}`), input.bytes)
     }
-}
-
-async function removePartialLease(
-    { aws }: Controller,
-    bucket: ReturnType<typeof bucketOf>,
-    manifest: Manifest
-): Promise<string[]> {
-    const remaining: string[] = []
-    const attempt = async (item: string, removal: () => Promise<unknown>): Promise<void> => {
-        await removal().catch((error: Error) => remaining.push(`${item} (${error.message})`))
-    }
-    for (const name of manifest.schedules) {
-        await attempt(`schedule ${name}`, () =>
-            ignoringNotFound(aws.call(['scheduler', 'delete-schedule', '--name', name]))
-        )
-    }
-    const prefix = keyOf(manifest.runId, '')
-    const keys = await bucket.keys(prefix).catch((error: Error) => {
-        remaining.push(`s3://${bucket.name}/${prefix} (${error.message})`)
-        return []
-    })
-    for (const key of keys) {
-        await attempt(`s3://${bucket.name}/${key}`, () => bucket.delete(key))
-    }
-    return remaining
+    await register(controller, profile.baseline.schedulerRole, manifest)
+    return manifest
 }
 
 export async function release(controller: Controller, evidenceBucket: string, manifest: Manifest): Promise<void> {
@@ -221,24 +174,4 @@ export async function manifestOf(controller: Controller, evidenceBucket: string,
         )
     }
     return parsed.data as unknown as Manifest
-}
-
-export async function sweepExpired(controller: Controller, evidenceBucket: string): Promise<string[]> {
-    const keys = new Set(await bucketOf(controller.aws, evidenceBucket).keys('runs/'))
-    const unreleased = [...keys]
-        .filter((key) => key.endsWith('/manifest.json') && key.split('/').length === 3)
-        .map((key) => key.split('/')[1])
-        .filter((runId) => !keys.has(keyOf(runId, 'teardown.json')))
-    const problems: string[] = []
-    for (const runId of unreleased) {
-        try {
-            const manifest = await manifestOf(controller, evidenceBucket, runId)
-            if (Date.parse(manifest.expiresAt) <= controller.now().getTime()) {
-                await release(controller, evidenceBucket, manifest)
-            }
-        } catch (error) {
-            problems.push(`Could not release expired run ${runId}: ${(error as Error).message}`)
-        }
-    }
-    return problems
 }

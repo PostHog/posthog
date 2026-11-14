@@ -9,25 +9,13 @@ type Schedule = { expression: string; target: { Arn: string; RoleArn: string; In
 export type FakeCloudOptions = {
     now: () => Date
     account?: string
-    expiration?: Date | string | null
     role?: string
     session?: string
-    ssoSession?: string
-    sourceProfile?: string
-    orderable?: string[]
-    denied?: string[]
 }
-
-const ACTION_OF: Record<string, string> = {
-    's3api list-objects-v2': 's3:ListBucket',
-    'resourcegroupstaggingapi get-resources': 'tag:GetResources',
-}
-
-const IAM_PREFIX: Record<string, string> = { s3api: 's3', sts: 'sts', configure: 'sts' }
 
 function actionOf(service: string, operation: string): string {
     const pascal = operation.replace(/(^|-)([a-z0-9])/g, (_, __, letter: string) => letter.toUpperCase())
-    return ACTION_OF[`${service} ${operation}`] ?? `${IAM_PREFIX[service] ?? service}:${pascal}`
+    return `${service}:${pascal}`
 }
 
 function flagsOf(args: string[]): { flags: Map<string, string>; positionals: string[] } {
@@ -62,23 +50,15 @@ export class FakeCloud implements Aws {
     readonly objects = new Map<string, string>()
     readonly schedules = new Map<string, Schedule>()
     readonly deleteStackRequests: { stackName: string; at: string }[] = []
-    expiration: Date | string | null
     role: string
     session: string
-    ssoSession: string | undefined
-    readonly orderable: string[]
-    readonly denied: Set<string>
     private readonly failures = new Map<string, number>()
     private readonly calls = new Map<string, number>()
 
     constructor(private readonly options: FakeCloudOptions) {
         this.account = options.account ?? '000000000000'
-        this.expiration = options.expiration === undefined ? null : options.expiration
         this.role = options.role ?? 'scenario-run-controller'
         this.session = options.session ?? 'person'
-        this.ssoSession = options.ssoSession
-        this.orderable = options.orderable ?? ['db.r8g.2xlarge', 'db.serverless']
-        this.denied = new Set(options.denied ?? [])
     }
 
     failOnCall(operation: string, nth: number = 1): void {
@@ -119,24 +99,7 @@ export class FakeCloud implements Aws {
         if (this.failures.get(operation) === count) {
             throw serviceError(operation, 'InternalFailure', 'injected by the fake cloud')
         }
-        const action = actionOf(service, operation)
-        if (this.denied.has(action)) {
-            throw serviceError(operation, 'AccessDeniedException', `User is not authorized to perform: ${action}`)
-        }
         return this.answer(service, operation, flags, positionals)
-    }
-
-    private configured(key: string, profile: string | undefined): string {
-        const value =
-            key === 'source_profile'
-                ? this.options.sourceProfile
-                : this.options.sourceProfile === undefined || profile === this.options.sourceProfile
-                  ? this.ssoSession
-                  : undefined
-        if (value === undefined) {
-            throw new AwsError(['configure', 'get', key], 1, '')
-        }
-        return value
     }
 
     private answer(service: string, operation: string, flags: Map<string, string>, positionals: string[]): unknown {
@@ -147,45 +110,6 @@ export class FakeCloud implements Aws {
                     Arn: `arn:aws:sts::${this.account}:assumed-role/${this.role}/${this.session}`,
                     UserId: 'AROAEXAMPLE:person',
                 }
-            case 'configure get':
-                return this.configured(positionals[0], flags.get('profile'))
-            case 'configure export-credentials':
-                return {
-                    Version: 1,
-                    AccessKeyId: 'ASIAEXAMPLE',
-                    SecretAccessKey: 'example-secret',
-                    SessionToken: 'example-token',
-                    ...(this.expiration
-                        ? {
-                              Expiration:
-                                  this.expiration instanceof Date ? this.expiration.toISOString() : this.expiration,
-                          }
-                        : {}),
-                }
-            case 'rds describe-orderable-db-instance-options':
-                return {
-                    OrderableDBInstanceOptions: this.orderable
-                        .filter((instanceClass) => instanceClass === flags.get('db-instance-class'))
-                        .map((instanceClass) => ({
-                            Engine: flags.get('engine'),
-                            EngineVersion: flags.get('engine-version'),
-                            DBInstanceClass: instanceClass,
-                        })),
-                }
-            case 'cloudformation describe-stacks':
-                throw serviceError(
-                    operation,
-                    'ValidationError',
-                    `Stack with id ${flags.get('stack-name')} does not exist`
-                )
-            case 'ssm get-command-invocation':
-                throw serviceError(operation, 'InvocationDoesNotExist', 'no such invocation')
-            case 'cloudwatch get-metric-data':
-                return { MetricDataResults: [] }
-            case 'logs filter-log-events':
-                return { events: [] }
-            case 'resourcegroupstaggingapi get-resources':
-                return { ResourceTagMappingList: [] }
             case 's3api put-object':
                 this.objects.set(flags.get('key')!, readFileSync(flags.get('body')!, 'utf8'))
                 return { ETag: '"etag"' }
@@ -197,9 +121,6 @@ export class FakeCloud implements Aws {
                 writeFileSync(positionals[0], body)
                 return { ContentLength: body.length }
             }
-            case 's3api delete-object':
-                this.objects.delete(flags.get('key')!)
-                return null
             case 's3api list-objects-v2': {
                 const keys = [...this.objects.keys()].filter((key) => key.startsWith(flags.get('prefix') ?? '')).sort()
                 return keys.length === 0 ? null : { Contents: keys.map((Key) => ({ Key })) }
@@ -220,23 +141,6 @@ export class FakeCloud implements Aws {
                     target: parseJSON(flags.get('target')!) as Schedule['target'],
                 })
                 return { ScheduleArn: `arn:aws:scheduler:us-east-1:${this.account}:schedule/default/${name}` }
-            }
-            case 'scheduler get-schedule': {
-                const schedule = this.schedules.get(flags.get('name')!)
-                if (!schedule) {
-                    throw serviceError(
-                        operation,
-                        'ResourceNotFoundException',
-                        `Schedule ${flags.get('name')} does not exist.`
-                    )
-                }
-                return {
-                    Name: flags.get('name'),
-                    ScheduleExpression: schedule.expression,
-                    ScheduleExpressionTimezone: 'UTC',
-                    ActionAfterCompletion: 'DELETE',
-                    Target: schedule.target,
-                }
             }
             case 'scheduler delete-schedule':
                 if (!this.schedules.delete(flags.get('name')!)) {
