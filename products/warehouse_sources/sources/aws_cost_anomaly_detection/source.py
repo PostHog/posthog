@@ -8,11 +8,15 @@ from products.warehouse_sources.sources.aws_cost_anomaly_detection.aws_cost_anom
     validate_credentials as validate_aws_cost_anomaly_detection_credentials,
 )
 from products.warehouse_sources.sources.aws_cost_anomaly_detection.settings import (
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
@@ -21,14 +25,15 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSource,
     ResumableSourceManager,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
     SourceInputs,
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    aws_auth_endpoint_reasons,
+    aws_auth_field,
     build_endpoint_schemas,
     detect,
+    resolve_aws_credentials,
 )
 
 
@@ -48,12 +53,17 @@ class AwsCostAnomalyDetectionSource(
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Cost_Explorer_Service.html"
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
+    credential_kind = "aws-cost-anomaly-detection"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSCOSTANOMALYDETECTION
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
             "AWS Cost Anomaly Detection request failed: UnrecognizedClientException": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
             "AWS Cost Anomaly Detection request failed: InvalidClientTokenId": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
             "AWS Cost Anomaly Detection request failed: SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
@@ -61,7 +71,6 @@ class AwsCostAnomalyDetectionSource(
             "AWS Cost Anomaly Detection request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
             "AWS Cost Anomaly Detection request failed: AccessDeniedException": "These AWS credentials are missing Cost Explorer permissions. Grant ce:GetAnomalies, ce:GetAnomalyMonitors and ce:GetAnomalySubscriptions to the IAM user or role.",
             "AWS Cost Anomaly Detection request failed: DataUnavailableException": "AWS has no Cost Explorer data for this account yet. Enable Cost Explorer in the AWS console, then try again in up to 24 hours once AWS has prepared the data.",
-            "AWS access key ID and secret access key are required": "Enter both an AWS access key ID and a secret access key.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -89,10 +98,12 @@ class AwsCostAnomalyDetectionSource(
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return False, str(error)
         return validate_aws_cost_anomaly_detection_credentials(
-            config.aws_access_key_id,
-            config.aws_secret_access_key,
-            config.aws_session_token,
+            credentials,
             schema_name=schema_name,
         )
 
@@ -103,10 +114,12 @@ class AwsCostAnomalyDetectionSource(
         endpoints: list[str],
         api_version: str | None = None,
     ) -> dict[str, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return aws_auth_endpoint_reasons(error, endpoints)
         return probe_endpoint_permissions(
-            config.aws_access_key_id,
-            config.aws_secret_access_key,
-            config.aws_session_token,
+            credentials,
             endpoints,
         )
 
@@ -122,9 +135,7 @@ class AwsCostAnomalyDetectionSource(
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_cost_anomaly_detection_source(
-            aws_access_key_id=config.aws_access_key_id,
-            aws_secret_access_key=config.aws_secret_access_key,
-            aws_session_token=config.aws_session_token,
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             endpoint=inputs.schema_name,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
@@ -142,7 +153,7 @@ class AwsCostAnomalyDetectionSource(
             label="AWS Cost Anomaly Detection",
             caption="""Sync the cost anomalies AWS detected on your account into the PostHog Data warehouse.
 
-Create an IAM user or role with the `ce:GetAnomalies`, `ce:GetAnomalyMonitors` and `ce:GetAnomalySubscriptions` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+Create an IAM user or role with the `ce:GetAnomalies`, `ce:GetAnomalyMonitors` and `ce:GetAnomalySubscriptions` permissions. Connect with the IAM role, or paste an access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
 Cost Explorer has to be enabled once in the AWS console, and it can take up to 24 hours before data is ready. AWS keeps anomalies for 90 days, so that is as far back as a first sync reaches. You only see the monitors and subscriptions created by the account you connect, so connect the management (payer) account for organization-wide coverage.""",
             iconPath="/static/services/aws_cost_anomaly_detection.png",
@@ -152,31 +163,7 @@ Cost Explorer has to be enabled once in the AWS console, and it can take up to 2
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Only for temporary credentials. Session tokens expire after a few hours, so scheduled syncs will fail once the token expires. Use a permanent access key (starts with AKIA) for recurring imports.",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                 ],
             ),
         )

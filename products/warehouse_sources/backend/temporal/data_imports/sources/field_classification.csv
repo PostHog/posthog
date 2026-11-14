@@ -94,15 +94,15 @@ Aviator,api_token,,,,,aviator
 Awin,api_token region,,,,,awin
 AwsAthena,aws_access_key_id aws_secret_access_key aws_session_token aws_region database workgroup output_location,,,,,aws-athena
 AwsBatch,aws_auth region,aws_auth=role,,,,aws-batch
-AwsBudgets,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-budgets
+AwsBudgets,aws_auth,aws_auth=role,,,,aws-budgets
 AwsCloudTrail,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-cloud-trail
 AwsCloudformation,,,,,,aws-cloudformation
 AwsComputeOptimizer,aws_auth region,aws_auth=role,,,,aws-compute-optimizer
 AwsConfig,aws_auth region,aws_auth=role,,,,aws-config
 AwsConnect,,,,,,aws-connect
-AwsCostAndUsageReport,aws_access_key_id aws_secret_access_key aws_session_token aws_region bucket,,,prefix export_name first_billing_period,,aws-cost-and-usage-report
-AwsCostAnomalyDetection,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-cost-anomaly-detection
-AwsCostExplorer,aws_access_key_id aws_secret_access_key aws_session_token,,,start_date,,aws-cost-explorer
+AwsCostAndUsageReport,aws_auth aws_region bucket,aws_auth=role,,prefix export_name first_billing_period,,aws-cost-and-usage-report
+AwsCostAnomalyDetection,aws_auth,aws_auth=role,,,,aws-cost-anomaly-detection
+AwsCostExplorer,aws_auth,aws_auth=role,,start_date,,aws-cost-explorer
 AwsDocumentDB,connection_string database_name,,,,,aws-documentdb
 AwsGlueDataCatalog,aws_auth aws_region,aws_auth=role,,,,aws-glue-data-catalog
 AwsGuardduty,aws_auth aws_region,aws_auth=role,,,,aws-guardduty
@@ -110,7 +110,7 @@ AwsHealth,,,,,,aws-health
 AwsIamAccessAnalyzer,aws_auth region,aws_auth=role,,,,aws-iam-access-analyzer
 AwsInspector,aws_auth region,aws_auth=role,,,,aws-inspector
 AwsMacie,aws_auth region,aws_auth=role,,,,aws-macie
-AwsOrganizations,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-organizations
+AwsOrganizations,aws_auth,aws_auth=role,,,,aws-organizations
 AwsRdsPerformanceInsights,,,,,,aws-rds-performance-insights
 AwsS3Tables,,,,,,aws-s3-tables
 AwsSagemaker,aws_auth region,aws_auth=role,,,,aws-sagemaker
