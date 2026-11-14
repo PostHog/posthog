@@ -1,12 +1,22 @@
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
-import { Claim, Committed, Recalled, Run, RunIntake, keyedRunId } from '../../intake/run-intake'
+import {
+    Claim,
+    Committed,
+    Produced,
+    Recalled,
+    Run,
+    RunIntake,
+    carriesSecret,
+    keyedRunId,
+} from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
 import {
     CyclotronJobInvocation,
@@ -64,6 +74,13 @@ const CLOCK_SKEW_MARGIN_MS = 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 const RUN_SCOPE = 'transactional-email'
+const ASYNC_REFUSAL_BUDGET_MS = 1_000
+
+const refusalFailOpenCounter = new Counter({
+    name: 'cdp_transactional_email_refusal_fail_open_total',
+    help: 'Async-mode sends accepted without their refusal checks, because the lookups failed or ran past their budget, by reason.',
+    labelNames: ['reason'] as const,
+})
 
 // A keyed id holds no time, so a keyed send is dated by its trigger event, which every reschedule carries along.
 const createdAtOf = (messageId: string, event?: { timestamp?: unknown } | null): Date =>
@@ -149,6 +166,25 @@ const isSkippedSendRefusal = (
     refusal === 'recipient_suppressed' ||
     refusal === 'recipient_unreachable'
 
+// The intake consumer counts the queued email and writes its status once it inserts the run, so a retry counts once.
+const producedResult = (
+    produced: Produced,
+    invocationId: string,
+    scheduledAt: Date | null,
+    replyFields: Record<string, number>
+): TransactionalSendResult => {
+    switch (produced) {
+        case 'accepted':
+            return { outcome: 'queued', invocationId, scheduledAt: scheduledAt?.toISOString() ?? null, replyFields }
+        case 'unavailable':
+            return { outcome: 'intake_unavailable' }
+        case 'too_large':
+            return { refused: { status: 413, body: { error: 'message_too_large' } } }
+        case 'invalid':
+            return { outcome: 'invalid_request' }
+    }
+}
+
 const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefined => {
     const firstScheduledAt = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.firstScheduledAt
     return firstScheduledAt ? DateTime.fromSQL(firstScheduledAt, { zone: 'utc' }) : job.queueScheduledAt
@@ -219,7 +255,10 @@ export class TransactionalSends {
         stages.start('idempotency')
         let recalled: Recalled
         try {
-            recalled = await this.deps.runIntake.recall(claim)
+            recalled =
+                this.deps.runIntake.modeOf(teamId) === 'async'
+                    ? await this.deps.runIntake.recallWithin(claim, 'transactional-email')
+                    : await this.deps.runIntake.recall(claim)
         } catch (error) {
             logger.error('🔑', 'Transactional email claim lookup failed', {
                 error: error instanceof Error ? error.message : String(error),
@@ -288,6 +327,9 @@ export class TransactionalSends {
         const run: Run = claim
             ? { kind: 'transactional-email', invocation, claim: { fingerprint: claim.fingerprint } }
             : { kind: 'transactional-email', invocation }
+        // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer. A
+        // sensitive send stays synchronous, so its login code or reset link never reaches Kafka.
+        const isAsync = this.deps.runIntake.modeOf(team.id) === 'async' && !carriesSecret(invocation)
         const leaseToken = randomUUID()
         const releaseKey = async (): Promise<void> => {
             if (idempotencyKey) {
@@ -336,9 +378,12 @@ export class TransactionalSends {
         let committed: Committed
         try {
             stages.start('checks')
+            const recipients = transactionalEmailRecipients(request)
             const refusal = tooFarAhead
                 ? 'invalid_scheduled_at'
-                : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request), senderKind)
+                : isAsync
+                  ? await this.refusalWithinBudget(team.id, hogFlow, recipients, senderKind)
+                  : await this.refusal(team.id, hogFlow, recipients, senderKind)
             if (refusal) {
                 await releaseKey()
                 if (isSkippedSendRefusal(refusal)) {
@@ -378,7 +423,6 @@ export class TransactionalSends {
                     attachment_bytes: accepted.accepted.attachmentBytes,
                 }
             }
-            stages.start('queue_insert')
             invocation.state.statusAt = statusAt.toISOString()
             if (idempotencyKey) {
                 invocation.state.idempotencyKey = {
@@ -389,6 +433,30 @@ export class TransactionalSends {
                     ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),
                 }
             }
+            if (isAsync) {
+                stages.start('intake_produce')
+                const produced = await this.deps.runIntake.produce(run)
+                if (produced !== 'accepted') {
+                    await releaseKey()
+                } else if (idempotencyKey) {
+                    // Recorded as a synchronous insert records it, so before the consumer claims the run a reused key
+                    // is refused and a retry replays its attachment totals.
+                    stages.start('idempotency')
+                    await idempotencyKeys.markQueued(
+                        team.id,
+                        idempotencyKey,
+                        fingerprint,
+                        invocation.id,
+                        leaseToken,
+                        attachmentTotals,
+                        scheduledAt?.toISOString(),
+                        scheduledAt ? new Date(Date.now() + MAX_SCHEDULE_AHEAD_MS + CLOCK_SKEW_MARGIN_MS) : undefined,
+                        senderKind
+                    )
+                }
+                return producedResult(produced, invocation.id, scheduledAt, attachmentTotals)
+            }
+            stages.start('queue_insert')
             committed = (await this.deps.runIntake.launch([run], { wait: 'committed' }))[0]
         } catch (error) {
             await releaseKey()
@@ -524,6 +592,38 @@ export class TransactionalSends {
         invocation.queue = 'email'
         invocation.queuePriority = EMAIL_QUEUE_PRIORITY[PRIORITY_CLASS]
         return invocation
+    }
+
+    // In async mode a slow lookup fails open, because the email worker repeats those checks before it sends. The
+    // quota is the exception: the worker does not check it, so it is still checked when the others fail open.
+    private async refusalWithinBudget(
+        teamId: number,
+        hogFlow: HogFlow,
+        recipients: string[],
+        senderKind: SenderKind | undefined
+    ): Promise<TransactionalSendRefusal | null> {
+        let timer: NodeJS.Timeout | undefined
+        const late = new Promise<'late'>(
+            (resolve) => (timer = setTimeout(() => resolve('late'), ASYNC_REFUSAL_BUDGET_MS))
+        )
+        try {
+            const refusal = await Promise.race([this.refusal(teamId, hogFlow, recipients, senderKind), late])
+            if (refusal !== 'late') {
+                return refusal
+            }
+            refusalFailOpenCounter.labels({ reason: 'late' }).inc()
+        } catch (error) {
+            refusalFailOpenCounter.labels({ reason: 'error' }).inc()
+            logger.warn('⚠️', 'Transactional email refusal lookups failed, accepting the send', {
+                team_id: teamId,
+                error: error instanceof Error ? error.message : String(error),
+            })
+        } finally {
+            clearTimeout(timer)
+        }
+        return (await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)).isLimited
+            ? 'quota_limited'
+            : null
     }
 
     // The email worker skips a send for these reasons too, but only after the caller has its answer. Checking them
