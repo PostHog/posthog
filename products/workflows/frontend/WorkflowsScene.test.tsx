@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { DndContext, MouseSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -15,7 +16,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import type { HogFlowListSummaryApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowListSummaryApi, WorkflowViewUpdateApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { workflowFoldersLogic } from './Workflows/WorkflowsListV2/workflowFoldersLogic'
 import {
@@ -25,6 +26,7 @@ import {
     paginated,
 } from './Workflows/WorkflowsListV2/workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './Workflows/WorkflowsListV2/workflowsListV2Logic'
+import { workflowsSavedViewsLogic } from './Workflows/WorkflowsListV2/workflowsSavedViewsLogic'
 import { workflowsLogic } from './Workflows/workflowsLogic'
 import { WorkflowsScene } from './WorkflowsScene'
 
@@ -71,13 +73,210 @@ describe('WorkflowsScene', () => {
                 },
                 '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
                 '/api/projects/:team_id/file_system/': () => [200, paginated([])],
+                '/api/projects/:team_id/workflow_views/': () => [200, paginated([])],
             },
+            post: { '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}] },
         })
         initKeaTests()
         router.actions.push(urls.workflows())
     })
 
     afterEach(() => cleanup())
+
+    it('distinguishes view filters from additions and explains why a built-in view cannot be updated', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { view: 'drafts', q: 'status:draft trigger:event' })
+        const user = userEvent.setup()
+        render(
+            <Provider>
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
+            </Provider>
+        )
+        // The scene loads the list, the folders and the saved views before the view pills render, which can take
+        // longer than the default one second wait on a busy runner.
+        await waitFor(
+            () => expect(document.querySelector('[data-attr="workflows-combined-reset-view"]')).not.toBeNull(),
+            { timeout: 5000 }
+        )
+        const update = screen.getByText('Update view').closest('button')!
+        expect(update).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByText('Status: Draft').closest('.inline-flex')).toHaveClass(
+            'bg-fill-secondary',
+            'text-secondary'
+        )
+        expect(screen.getByText('Trigger: Event').closest('.inline-flex')).toHaveClass('bg-accent-highlight-secondary')
+        await user.hover(update)
+        expect(
+            await screen.findByText("Built-in views can't be changed. Save as a new view instead.")
+        ).toBeInTheDocument()
+        await user.click(screen.getByLabelText('Remove view filter Status: Draft'))
+        expect(screen.queryByText('Status: Draft')).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="workflows-combined-view-modified"]')).not.toBeNull()
+        await user.click(
+            Array.from(document.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent?.startsWith('All'))!
+        )
+        expect(screen.getByText('Trigger: Event').closest('.inline-flex')).toHaveClass('bg-accent-highlight-secondary')
+        expect(screen.queryByText('Status: Draft')).not.toBeInTheDocument()
+        await user.click(document.querySelector('[data-attr="workflows-combined-reset-view"]')!)
+        expect(screen.queryByText('Trigger: Event')).not.toBeInTheDocument()
+    }, 15000)
+
+    it.each([200, 500])(
+        'updates the active saved view and releases its loading state after HTTP %s',
+        async (status) => {
+            const saved = {
+                id: '00000000-0000-4000-8000-000000000009',
+                name: 'Event drafts',
+                version: 1,
+                default_key: null,
+                deleted: false,
+                created_at: '',
+                updated_at: '',
+                state: {
+                    filters: [{ facet: 'status' as const, value: 'draft', negated: false }],
+                    text: '',
+                    columns: ['owner'],
+                },
+            }
+            let release: () => void = () => {}
+            const pending = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            const writes: unknown[] = []
+            useMocks({
+                get: { '/api/projects/:team_id/workflow_views/': () => [200, paginated([saved])] },
+                post: { '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}] },
+                patch: {
+                    '/api/projects/:team_id/workflow_views/:id/': async ({ request }) => {
+                        const body = (await request.json()) as WorkflowViewUpdateApi
+                        writes.push(body)
+                        await pending
+                        return status === 200 ? [200, { ...saved, ...body, version: 2 }] : [500, {}]
+                    },
+                },
+            })
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT!,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT!.resource_access_control!,
+                    hog_flow: AccessControlLevel.Editor,
+                },
+            }
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+            router.actions.push(urls.workflows(), {
+                view: saved.id,
+                q: 'status:draft trigger:event',
+                columns: 'trigger',
+            })
+            const user = userEvent.setup()
+            render(
+                <Provider>
+                    <DndContext>
+                        <WorkflowsScene />
+                    </DndContext>
+                </Provider>
+            )
+            const update = (await screen.findByText('Update view')).closest('button')!
+            await user.click(update)
+            await waitFor(() => expect(writes).toHaveLength(1))
+            expect(update).toHaveAttribute('aria-disabled', 'true')
+            expect(update).toHaveClass('LemonButton--loading')
+            await user.click(update)
+            expect(writes).toHaveLength(1)
+            await act(async () => {
+                release()
+            })
+            await waitFor(() => expect(workflowsSavedViewsLogic.values.saving).toBe(false))
+            expect(writes).toEqual([
+                {
+                    version: 1,
+                    state: {
+                        filters: [
+                            { facet: 'status', value: 'draft', negated: false },
+                            { facet: 'trigger', value: 'event', negated: false },
+                        ],
+                        text: '',
+                        columns: ['trigger'],
+                    },
+                },
+            ])
+            const updated = status === 200
+            expect(document.querySelector('[data-attr="workflows-combined-view-modified"]') !== null).toBe(!updated)
+            expect(document.querySelector('[data-attr="workflows-combined-reset-view"]') !== null).toBe(!updated)
+            expect(
+                screen.getByText('Trigger: Event').closest('.inline-flex')!.classList.contains('bg-fill-secondary')
+            ).toBe(updated)
+            const updateAfterSave = document.querySelector('[data-attr="workflows-combined-update-view"]')
+            expect(
+                updateAfterSave && {
+                    disabled: updateAfterSave.getAttribute('aria-disabled'),
+                    loading: updateAfterSave.classList.contains('LemonButton--loading'),
+                }
+            ).toEqual(updated ? null : { disabled: 'false', loading: false })
+        }
+    )
+
+    it.each([
+        [400, true],
+        [201, false],
+    ])(
+        'keeps the save as dialog open with the typed name only while saving fails, after HTTP %s',
+        async (status, keepsOpen) => {
+            useMocks({
+                get: { '/api/projects/:team_id/workflow_views/': () => [200, paginated([])] },
+                post: {
+                    '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}],
+                    '/api/projects/:team_id/workflow_views/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        return status === 201
+                            ? [
+                                  201,
+                                  {
+                                      ...body,
+                                      id: '00000000-0000-4000-8000-00000000000a',
+                                      version: 1,
+                                      default_key: null,
+                                  },
+                              ]
+                            : [400, { detail: 'Name unavailable' }]
+                    },
+                },
+            })
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT!,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT!.resource_access_control!,
+                    hog_flow: AccessControlLevel.Editor,
+                },
+            }
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+            router.actions.push(urls.workflows(), { view: 'drafts', q: 'status:draft trigger:event' })
+            const user = userEvent.setup()
+            render(
+                <Provider>
+                    <DndContext>
+                        <WorkflowsScene />
+                    </DndContext>
+                </Provider>
+            )
+            await waitFor(() =>
+                expect(document.querySelector('[data-attr="workflows-combined-save-as-new"]')).not.toBeNull()
+            )
+            await user.click(document.querySelector('[data-attr="workflows-combined-save-as-new"]')!)
+            const name = await screen.findByPlaceholderText('For example: Webinar emails')
+            await user.type(name, 'Event drafts{Enter}')
+
+            await waitFor(() => expect(workflowsSavedViewsLogic.values.saving).toBe(false))
+            if (keepsOpen) {
+                expect(name).toBeInTheDocument()
+                expect(name).toHaveValue('Event drafts')
+                await user.click(screen.getByText('Cancel'))
+            }
+            await waitFor(() => expect(name).not.toBeInTheDocument())
+        }
+    )
 
     it('waits for metrics while pages load, and keeps the page retry beside a metrics failure', async () => {
         const answerLaterPage: ((status: number, body: unknown) => void)[] = []
@@ -126,6 +325,39 @@ describe('WorkflowsScene', () => {
         act(() => answerLaterPage[1](500, { detail: 'Boom' }))
         await waitFor(() => expect(document.body).toHaveTextContent("Couldn't load all workflows"))
         expect(metricsRetry()).not.toBeNull()
+    })
+
+    it('shows no rows until the saved view from a view link applies', async () => {
+        let release: () => void = () => {}
+        const viewsAnswer = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/workflow_views/': async () => {
+                    await viewsAnswer
+                    return [200, paginated([])]
+                },
+            },
+            post: { '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}] },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { view: 'drafts' })
+        render(
+            <Provider>
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
+            </Provider>
+        )
+        await waitFor(() => expect(workflowsListV2Logic.values.listLoaded).toBe(true))
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="workflows-list-v2-views-loading"]')).not.toBeNull()
+        )
+        expect(shownRowNames()).toEqual([])
+
+        release()
+        await waitFor(() => expect(shownRowNames()).toEqual(['Renewal reminder', 'Sync accounts to CRM']))
     })
 
     it('keeps the Customer.io import next to the folder view', async () => {
@@ -373,22 +605,19 @@ describe('WorkflowsScene', () => {
     })
 
     it.each([
-        ['shows Owner when no columns are saved', null, ['', 'Name', 'Status', 'Owner', 'Updated', '', '']],
+        ['shows Owner when the link names no columns', null, ['', 'Name', 'Status', 'Owner', 'Updated', '', '']],
         [
-            'ignores a saved column the list no longer has',
+            'ignores a linked column the list no longer has',
             ['health', 'tags'],
             ['', 'Name', 'Status', 'Health', 'Updated', '', ''],
         ],
         ['shows Kind beside the name', ['type', 'owner'], ['', 'Name', 'Kind', 'Status', 'Owner', 'Updated', '', '']],
     ])('%s', async (_, savedColumns, expectedHeaders) => {
-        if (savedColumns) {
-            localStorage.setItem(
-                'products.workflows.frontend.workflowsListV2Logic.visibleColumns',
-                JSON.stringify(savedColumns)
-            )
-        }
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
-        router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+        router.actions.push(urls.workflows(), {
+            q: 'in:Unfiled',
+            ...(savedColumns ? { columns: savedColumns.join(',') } : {}),
+        })
         render(
             <Provider>
                 <DndContext>

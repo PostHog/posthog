@@ -99,6 +99,7 @@ export interface workflowsSavedViewsLogicValues {
     viewCounts: Record<string, number>
     viewFilters: FacetFilter[]
     views: WorkflowSavedView[]
+    viewsResolving: boolean
     writeDisabledReason: string | undefined
 }
 
@@ -236,6 +237,12 @@ export interface workflowsSavedViewsLogicMeta {
         ) => FacetFilter[]
         enabled: (featureFlags: FeatureFlagsSet, receivedFeatureFlags: boolean) => boolean
         available: (enabled: boolean, savedViews: WorkflowViewApi[] | null) => boolean
+        viewsResolving: (
+            enabled: boolean,
+            savedViews: WorkflowViewApi[] | null,
+            savedViewsLoadFailed: boolean,
+            searchParams: Record<string, any>
+        ) => boolean
         writeDisabledReason: (savedViews: WorkflowViewApi[] | null) => string | undefined
         views: (savedViews: WorkflowViewApi[] | null) => WorkflowSavedView[]
         activeView: (views: WorkflowSavedView[], activeViewId: string) => WorkflowSavedView
@@ -464,6 +471,18 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         available: [
             (s) => [s.enabled, s.savedViews],
             (enabled: boolean, savedViews: WorkflowViewApi[] | null): boolean => enabled && savedViews !== null,
+        ],
+        // Only a link that names a saved view has state to apply once the views load. The plain list shows
+        // its rows at once, so a slow or failing views request never hides them.
+        viewsResolving: [
+            (s) => [s.enabled, s.savedViews, s.savedViewsLoadFailed, router.selectors.searchParams],
+            (
+                enabled: boolean,
+                savedViews: WorkflowViewApi[] | null,
+                loadFailed: boolean,
+                searchParams: Record<string, any>
+            ): boolean =>
+                enabled && savedViews === null && !loadFailed && !!searchParams.view && searchParams.view !== 'all',
         ],
         writeDisabledReason: [
             // Views live on the owning project, so its access decides, not a child environment's own rules.
