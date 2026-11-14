@@ -44,8 +44,6 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 MODULE = "products.experiments.backend.temporal.scheduled_recalculation_activities"
-# The activity resolves these at call time from their own module, to break an import cycle.
-RECALCULATION = "products.experiments.backend.recalculation"
 
 # Unwrap the database_sync_to_async_pool decorator so the bodies run synchronously in the test
 # transaction, matching test_recalculation_activities.py.
@@ -233,7 +231,7 @@ class TestScheduledRecalculationActivities(BaseTest):
 
     @parameterized.expand([("legacy", False), ("within_deadline", True)])
     def test_start_creates_a_row_and_dispatches_the_workflow(self, _name: str, with_deadline: bool):
-        with patch(f"{RECALCULATION}.start_metrics_recalculation_workflow") as dispatch:
+        with patch(f"{MODULE}.start_metrics_recalculation_workflow") as dispatch:
             result = _start_recalculation(
                 self.experiment.id, 2, timezone.now() + timedelta(minutes=1) if with_deadline else None
             )
@@ -257,7 +255,7 @@ class TestScheduledRecalculationActivities(BaseTest):
                 status=ExperimentMetricsRecalculation.Status.IN_PROGRESS,
                 started_at=timezone.now(),
             )
-        with patch(f"{RECALCULATION}.start_metrics_recalculation_workflow") as dispatch:
+        with patch(f"{MODULE}.start_metrics_recalculation_workflow") as dispatch:
             result = _start_recalculation(self.experiment.id, 2)
         assert result.started is False
         assert result.skip_reason == SKIP_ACTIVE_RUN
@@ -265,8 +263,8 @@ class TestScheduledRecalculationActivities(BaseTest):
 
     def test_start_skips_when_request_recalculation_reports_an_existing_run(self):
         with (
-            patch(f"{RECALCULATION}.request_recalculation", return_value={"id": uuid4(), "is_existing": True}),
-            patch(f"{RECALCULATION}.start_metrics_recalculation_workflow") as dispatch,
+            patch(f"{MODULE}.request_recalculation", return_value={"id": uuid4(), "is_existing": True}),
+            patch(f"{MODULE}.start_metrics_recalculation_workflow") as dispatch,
         ):
             result = _start_recalculation(self.experiment.id, 2)
         assert result.started is False
@@ -277,7 +275,7 @@ class TestScheduledRecalculationActivities(BaseTest):
         # The row rollback belongs to start_metrics_recalculation_workflow. What this activity owes
         # is an honest result: no started event for a workflow that never started.
         with (
-            patch(f"{RECALCULATION}.start_metrics_recalculation_workflow", side_effect=RuntimeError("temporal down")),
+            patch(f"{MODULE}.start_metrics_recalculation_workflow", side_effect=RuntimeError("temporal down")),
             patch(f"{MODULE}.capture_started") as started_event,
         ):
             result = _start_recalculation(self.experiment.id, 2)
@@ -296,7 +294,7 @@ class TestScheduledRecalculationActivities(BaseTest):
         # Discovery runs before the exposure query, so the experiment can stop in between.
         self.experiment.end_date = timezone.now()
         self.experiment.save()
-        with patch(f"{RECALCULATION}.start_metrics_recalculation_workflow") as dispatch:
+        with patch(f"{MODULE}.start_metrics_recalculation_workflow") as dispatch:
             result = _start_recalculation(self.experiment.id, 2)
         assert result.started is False
         dispatch.assert_not_called()
@@ -308,8 +306,8 @@ def test_start_picked_up_after_deadline_does_not_create_a_run(seconds_late):
     with (
         time_machine.travel(deadline + timedelta(seconds=seconds_late), tick=False),
         patch(f"{MODULE}.close_old_connections"),
-        patch(f"{RECALCULATION}.request_recalculation") as request,
-        patch(f"{RECALCULATION}.start_metrics_recalculation_workflow") as dispatch,
+        patch(f"{MODULE}.request_recalculation") as request,
+        patch(f"{MODULE}.start_metrics_recalculation_workflow") as dispatch,
     ):
         result = _start_recalculation_raw(1, 2, deadline)
     assert result.started is False

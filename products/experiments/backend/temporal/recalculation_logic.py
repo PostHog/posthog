@@ -52,6 +52,7 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.recalculation import _activity_task_queue, recalculation_clickhouse_user
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     CAPACITY_RETRY_BACKOFF_COEFFICIENT,
@@ -178,9 +179,6 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
     with team_scope(state.team_id, canonical=True):
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
-
-        # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
-        from products.experiments.backend.recalculation import _activity_task_queue  # noqa: PLC0415
 
         # The same flag check as the start step, so an organization off the flag (or a failed check) keeps the
         # AUTO mode on the run's queue and pays for no routing.
@@ -860,9 +858,6 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 experiment=experiment,
                 team_experiments_config=team_config,
             )
-
-            # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
-            from products.experiments.backend.recalculation import recalculation_clickhouse_user  # noqa: PLC0415
 
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
             # expensive without reverse-engineering the trigger string.
