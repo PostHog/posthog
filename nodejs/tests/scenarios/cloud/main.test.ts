@@ -950,6 +950,13 @@ describe('cloud controller', () => {
             'invalid',
             'could not read the runner scorecard',
         ],
+        [
+            'a passed scorecard from a runner that then exited invalid',
+            { card: { exitCode: 2, runnerStatus: 'passed' } },
+            () => undefined,
+            'invalid',
+            'the runner exited 2 after it saved a passed scorecard',
+        ],
     ])('judges the run on %s and publishes it', async (_, cloudOptions, arrange, status, reason) => {
         const { controller } = prepare({ cloud: cloudOptions, env: api.credentials })
         arrange(cloud)

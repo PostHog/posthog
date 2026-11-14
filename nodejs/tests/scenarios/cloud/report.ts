@@ -209,6 +209,10 @@ export async function report(
     const to = controller.now().getTime()
     const reasons = [...end.reasons]
     const host = await attempt(reasons, 'could not read the runner scorecard', () => hostScorecardOf(evidence, runId))
+    const exitsOfSaved: number[] = host ? [EXIT_CODE[host.event.status], EXIT_CODE.writeFailed] : []
+    if (host && !exitsOfSaved.includes(end.exitCode)) {
+        reasons.push(`the runner exited ${end.exitCode} after it saved a ${host.event.status} scorecard`)
+    }
     const t0 = host?.timeline.find(({ valve }) => valve === FAILOVER_VALVE)?.intentAt
     if (host?.event.status === 'passed' && !t0) {
         reasons.push(`the runner recorded no ${FAILOVER_VALVE} request (intentAt), so the reader was not judged`)
