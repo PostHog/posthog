@@ -4090,7 +4090,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     {**base, **{field: data[field] for field in WORKFLOW_RUN_FIELDS if field in data}},
                     stored,
                     getattr(self, "_typed_secrets", {}),
-                    live_secrets_only=bool(self.context.get("live_secrets_only")),
+                    # A live write without actions keeps the live secrets, whatever the draft holds.
+                    live_secrets_only=bool(self.context.get("live_secrets_only"))
+                    or (not self.context.get("saves_to_draft") and "actions" not in data),
                     template_cache=self.context.setdefault("_hogflow_template_cache", {}),
                     supplies_variables=variables_supplied,
                 )
