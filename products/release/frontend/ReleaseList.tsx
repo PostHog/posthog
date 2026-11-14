@@ -135,14 +135,18 @@ function sortValue(row: ReleaseRow, columnId: string): string {
 }
 
 function sortRows(rows: ReleaseRow[], sorting: SortingState): ReleaseRow[] {
-    const [sort] = sorting
-    if (!sort) {
+    if (!sorting.length) {
         return rows
     }
-    const direction = sort.desc ? -1 : 1
-    return [...rows].sort(
-        (a, b) => direction * sortValue(a, sort.id).localeCompare(sortValue(b, sort.id), undefined, { numeric: true })
-    )
+    return [...rows].sort((a, b) => {
+        for (const sort of sorting) {
+            const order = sortValue(a, sort.id).localeCompare(sortValue(b, sort.id), undefined, { numeric: true })
+            if (order) {
+                return sort.desc ? -order : order
+            }
+        }
+        return 0
+    })
 }
 
 function ReleaseListContent(): JSX.Element {
