@@ -1,0 +1,252 @@
+import { ApiError } from 'lib/api-error'
+
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import type { WorkflowViewApi, WorkflowViewFilterApi, WorkflowViewStateApi } from '../../generated/api.schemas'
+import { WorkflowViewFacetEnumApi } from '../../generated/api.schemas'
+import {
+    FacetDefinition,
+    FacetFilter,
+    FacetSearchValue,
+    createFacetMatcher,
+    facetFilterKey,
+    resolvedFacetFilterKey,
+    serializeFacetQuery,
+} from './FacetSearchBar/facetQuery'
+import type { MatchesText } from './FacetSearchBar/facetQuery'
+import type { WorkflowFolderFileRow } from './workflowFoldersLogic'
+import {
+    folderFileFacets,
+    folderFileMatchesText,
+    isFolderScope,
+    searchesAcrossFolders,
+    withoutFolderScope,
+    workflowFolderFacet,
+} from './workflowListFacets'
+import { DEFAULT_COLUMNS, OPTIONAL_COLUMNS, OptionalColumn } from './workflowListLabels'
+import type { WorkflowListRow } from './workflowListRows'
+import { MIN_SERVER_SEARCH_LENGTH, type ServerSearchResult } from './workflowsListV2Logic'
+
+export type WorkflowSavedView = Pick<WorkflowViewApi, 'id' | 'name' | 'state' | 'version' | 'default_key'> & {
+    builtIn?: boolean
+}
+
+export const BUILT_IN_WORKFLOW_VIEWS: WorkflowSavedView[] = [
+    {
+        id: 'all',
+        name: 'All',
+        state: { filters: [], text: '', columns: DEFAULT_COLUMNS },
+        version: 0,
+        default_key: null,
+        builtIn: true,
+    },
+    {
+        id: 'needs-attention',
+        name: 'Needs attention',
+        state: {
+            filters: [
+                { facet: 'health', value: 'failing', negated: false },
+                { facet: 'status', value: 'active', negated: false },
+            ],
+            text: '',
+            columns: ['last_7_days', 'health'],
+        },
+        version: 0,
+        default_key: null,
+        builtIn: true,
+    },
+    {
+        id: 'drafts',
+        name: 'Drafts',
+        state: { filters: [{ facet: 'status', value: 'draft', negated: false }], text: '', columns: DEFAULT_COLUMNS },
+        version: 0,
+        default_key: null,
+        builtIn: true,
+    },
+]
+
+export function normalizeViewColumns(columns: readonly string[]): OptionalColumn[] {
+    return OPTIONAL_COLUMNS.filter((column) => columns.includes(column))
+}
+
+export function workflowViewValue(state: WorkflowViewStateApi): FacetSearchValue {
+    return {
+        filters: state.filters.map((filter) => ({ ...filter, negated: filter.negated ?? false })),
+        text: state.text,
+    }
+}
+
+export function filtersOutsideFolder(filters: FacetFilter[]): FacetFilter[] {
+    return filters.filter((filter) => !isFolderScope(filter))
+}
+
+export function savedViewChanges(
+    view: WorkflowSavedView,
+    value: FacetSearchValue,
+    columns: OptionalColumn[]
+): string[] {
+    const signature = (filters: FacetSearchValue['filters']): string =>
+        filtersOutsideFolder(filters)
+            .map((filter) => serializeFacetQuery([filter]))
+            .sort()
+            .join(' ')
+    const changes: string[] = []
+    if (signature(workflowViewValue(view.state).filters) !== signature(value.filters)) {
+        changes.push('filters')
+    }
+    if (view.state.text !== value.text.trim()) {
+        changes.push('search')
+    }
+    if (normalizeViewColumns(view.state.columns).join(',') !== columns.join(',')) {
+        changes.push('columns')
+    }
+    return changes
+}
+
+export function workflowViewState(value: FacetSearchValue, columns: OptionalColumn[]): WorkflowViewStateApi {
+    const allowed = Object.values(WorkflowViewFacetEnumApi)
+    const filters = filtersOutsideFolder(value.filters).filter(
+        (filter): filter is FacetFilter & { facet: WorkflowViewFilterApi['facet'] } =>
+            allowed.some((facet) => facet === filter.facet)
+    )
+    return { filters, text: value.text.trim(), columns }
+}
+
+function resolvedValue<TItem>(facets: FacetDefinition<TItem>[], filter: FacetFilter): string {
+    return resolvedFacetFilterKey(facets, { ...filter, negated: false })
+}
+
+export function mergeAddedFilters<TItem>(
+    viewFilters: FacetFilter[],
+    added: FacetFilter[],
+    facets: FacetDefinition<TItem>[]
+): FacetFilter[] {
+    const overrides = (addedFilter: FacetFilter, viewFilter: FacetFilter): boolean =>
+        addedFilter.facet === viewFilter.facet &&
+        ((!addedFilter.negated && !viewFilter.negated) ||
+            resolvedValue(facets, addedFilter) === resolvedValue(facets, viewFilter))
+    const kept = viewFilters.filter((viewFilter) => !added.some((filter) => overrides(filter, viewFilter)))
+    return [...kept, ...added]
+}
+
+export function addedFiltersAfterEdit<TItem>(
+    previousFilters: FacetFilter[],
+    previouslyAdded: FacetFilter[],
+    filters: FacetFilter[],
+    facets: FacetDefinition<TItem>[]
+): FacetFilter[] {
+    const key = (filter: FacetFilter): string => facetFilterKey(filter, facets)
+    const previousKeys = new Set(previousFilters.map(key))
+    const addedKeys = new Set(previouslyAdded.map(key))
+    return filters.filter((filter) => addedKeys.has(key(filter)) || !previousKeys.has(key(filter)))
+}
+
+export function filtersFromView<TItem>(
+    viewFilters: FacetFilter[],
+    added: FacetFilter[],
+    filters: FacetFilter[],
+    facets: FacetDefinition<TItem>[]
+): FacetFilter[] {
+    const key = (filter: FacetFilter): string => facetFilterKey(filter, facets)
+    const viewKeys = new Set(viewFilters.map(key))
+    const addedKeys = new Set(added.map(key))
+    return filters.filter((filter) => viewKeys.has(key(filter)) && !addedKeys.has(key(filter)))
+}
+
+export function savedViewFileCounts(
+    views: WorkflowSavedView[],
+    files: WorkflowFolderFileRow[],
+    facets: FacetDefinition<WorkflowListRow>[],
+    placements: Record<string, FileSystemEntry> | null,
+    matchesText: MatchesText<WorkflowListRow>,
+    serverSearch: ServerSearchResult | null,
+    metricsLoaded: boolean
+): Record<string, number> {
+    const fileMatchesText = folderFileMatchesText(matchesText)
+    // Building the facets walks every row. A view searches either the opened folder or every folder, so each of
+    // those two scopes is built once for all views.
+    const byScope = new Map<boolean, FacetDefinition<WorkflowFolderFileRow>[]>()
+    const facetsFor = (searching: boolean): FacetDefinition<WorkflowFolderFileRow>[] => {
+        let scoped = byScope.get(searching)
+        if (!scoped) {
+            scoped = folderFileFacets([workflowFolderFacet(placements, searching), ...facets], searching)
+            byScope.set(searching, scoped)
+        }
+        return scoped
+    }
+    return Object.fromEntries(
+        views.flatMap((view) => {
+            if (!metricsLoaded && view.state.filters.some((filter) => filter.facet === 'health')) {
+                return []
+            }
+            const text = view.state.text.trim()
+            if (text.length >= MIN_SERVER_SEARCH_LENGTH && (serverSearch?.text !== text || serverSearch.failed)) {
+                return []
+            }
+            const value = workflowViewValue(view.state)
+            const matches = createFacetMatcher(
+                withoutFolderScope(value),
+                facetsFor(searchesAcrossFolders(value)),
+                fileMatchesText
+            )
+            return [[view.id, files.filter(matches).length]]
+        })
+    )
+}
+
+export type SavedViewAction = 'save-as' | 'update' | 'rename' | 'delete' | 'restore' | 'reset'
+
+export function isMissingViewError(error: unknown): boolean {
+    return error instanceof ApiError && error.status === 404
+}
+
+export const PENDING_ACTION_REASONS: Record<SavedViewAction, string> = {
+    'save-as': 'Saving the new view',
+    update: 'Updating the view',
+    rename: 'Renaming the view',
+    delete: 'Deleting the view',
+    restore: 'Restoring My workflows',
+    reset: 'Loading the latest version of the view',
+}
+
+export function savedViewFailureMessage(action: SavedViewAction, viewName: string, error: unknown): string {
+    return `${failedActionMessage(action, viewName)} ${failureReason(action, error)}`
+}
+
+function failedActionMessage(action: SavedViewAction, viewName: string): string {
+    const messages: Record<SavedViewAction, string> = {
+        'save-as': "Couldn't save the new view.",
+        update: `Couldn't update ${viewName}.`,
+        rename: `Couldn't rename ${viewName}.`,
+        delete: `Couldn't delete ${viewName}.`,
+        restore: "Couldn't restore My workflows.",
+        reset: `Couldn't load the latest version of ${viewName}.`,
+    }
+    return messages[action]
+}
+
+function failureReason(action: SavedViewAction, error: unknown): string {
+    const status = error instanceof ApiError ? error.status : undefined
+    if (status === 403) {
+        return action === 'reset'
+            ? 'You need viewer access to workflows to see shared views.'
+            : 'You need editor access to workflows to change shared views.'
+    }
+    if (status === 404) {
+        return action === 'update'
+            ? 'It was deleted by someone else. Your changes are still here. Save them as a new view to keep them.'
+            : 'It was deleted by someone else.'
+    }
+    if (status === 409) {
+        return action === 'update'
+            ? 'This view changed since you opened it. Your changes are still here. Save them as a new view or reset to the latest version.'
+            : 'This view changed since you opened it. Reset to the latest version and try again.'
+    }
+    if (error instanceof ApiError && status === 400 && error.detail) {
+        return error.detail
+    }
+    if (status === undefined) {
+        return 'Check your connection and try again.'
+    }
+    return 'PostHog ran into a problem. Try again in a moment.'
+}

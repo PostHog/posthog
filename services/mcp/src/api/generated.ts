@@ -86130,7 +86130,7 @@ export namespace Schemas {
          */
       text: string;
       /**
-         * Visible optional workflow columns in display order.
+         * Visible optional workflow columns. The list always shows them in the same fixed order.
          * @maxItems 6
          */
       columns: WorkflowViewColumnEnum[];

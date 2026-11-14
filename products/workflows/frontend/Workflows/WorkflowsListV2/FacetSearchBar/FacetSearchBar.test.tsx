@@ -6,7 +6,7 @@ import { useState } from 'react'
 
 import { initKeaTests } from '~/test/init'
 
-import { FacetDefinition, FacetSearchValue, serializeFacetQuery } from './facetQuery'
+import { FacetDefinition, FacetFilter, FacetSearchValue, serializeFacetQuery } from './facetQuery'
 import { FacetSearchBar } from './FacetSearchBar'
 
 interface Item {
@@ -39,13 +39,19 @@ const ITEMS: Item[] = [
     { name: 'Promo', status: 'archived', subjects: [] },
 ]
 
+const FOLDER_FACETS: FacetDefinition<Item>[] = [
+    { key: 'in', label: 'Folder', description: 'Exact folder', caseSensitive: true, getValues: () => [] },
+]
+
 const matchesText = (item: Item, text: string): boolean => item.name.toLowerCase().includes(text.toLowerCase())
 
 function Harness({
     initial,
+    viewFilters,
     facets = FACETS,
 }: {
     initial: FacetSearchValue
+    viewFilters?: FacetFilter[]
     facets?: FacetDefinition<Item>[]
 }): JSX.Element {
     const [value, setValue] = useState(initial)
@@ -55,6 +61,7 @@ function Harness({
                 facets={facets}
                 items={ITEMS}
                 value={value}
+                viewFilters={viewFilters}
                 onChange={setValue}
                 matchesText={matchesText}
                 placeholder="Search"
@@ -99,8 +106,8 @@ describe('FacetSearchBar', () => {
     })
     afterEach(() => cleanup())
 
-    const setup = (initial: FacetSearchValue = { filters: [], text: '' }): void => {
-        render(<Harness initial={initial} />)
+    const setup = (initial: FacetSearchValue = { filters: [], text: '' }, viewFilters?: FacetFilter[]): void => {
+        render(<Harness initial={initial} viewFilters={viewFilters} />)
     }
 
     it('Tab and → take the first filter row, never the search row', async () => {
@@ -329,6 +336,20 @@ describe('FacetSearchBar', () => {
         expect(input()).toHaveFocus()
     })
 
+    it('marks only the pill that matches a view filter in a case-sensitive facet', () => {
+        const fromView: FacetFilter = { facet: 'in', value: 'Archive', negated: true }
+        const other: FacetFilter = { facet: 'in', value: 'archive', negated: true }
+        render(
+            <Harness
+                initial={{ filters: [fromView, other], text: '' }}
+                viewFilters={[fromView]}
+                facets={FOLDER_FACETS}
+            />
+        )
+        expect(document.querySelector('[aria-label="Remove view filter Folder is not: Archive"]')).not.toBeNull()
+        expect(document.querySelector('[aria-label="Remove filter Folder is not: archive"]')).not.toBeNull()
+    })
+
     it('removes only the pill clicked, and keeps the other pill in place, when two differ only in case', async () => {
         const folder: FacetDefinition<Item> = {
             key: 'folder',
@@ -360,12 +381,17 @@ describe('FacetSearchBar', () => {
     })
 
     it('exposes the combobox, labels each pill remove button, and keeps the values out of autocapture', async () => {
-        setup({ filters: [{ facet: 'status', value: 'draft', negated: true }], text: '' })
+        const fromView: FacetFilter = { facet: 'status', value: 'active', negated: false }
+        setup({ filters: [{ facet: 'status', value: 'draft', negated: true }, fromView], text: '' }, [fromView])
         expect(input()).toHaveAttribute('role', 'combobox')
         expect(input()).toHaveAttribute('aria-expanded', 'false')
         const remove = document.querySelector('[aria-label="Remove filter Status is not: Draft"]')
         expect(remove?.closest('.ph-no-capture')).not.toBeNull()
         expect(document.querySelector('[title="Status is not: Draft"]')?.closest('.ph-no-capture')).not.toBeNull()
+        expect(document.querySelector('[aria-label="Remove view filter Status: Active"]')).not.toBeNull()
+        expect(document.querySelector('[title="Status: Active, from the view"]')).toHaveTextContent(
+            'Status: Active, from the view'
+        )
 
         await clickInput()
         await typeText('status:')

@@ -304,6 +304,7 @@ describe('WorkflowsScene', () => {
         expect(input).toHaveValue('')
     })
 
+    // Each step renders a full page of 100 rows, which runs past Jest's default 5 second limit on slower CI runners.
     it('pages past the first 100 rows, and a new or cleared filter starts again on page one', async () => {
         workflows = Array.from({ length: 250 }, (_, i) =>
             buildWorkflowRow({
@@ -337,7 +338,7 @@ describe('WorkflowsScene', () => {
 
         act(() => workflowsListV2Logic.actions.setValue({ filters: scope, text: '' }))
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000 even'))
-    })
+    }, 15000)
 
     it('keeps the sort order when a filter changes', async () => {
         workflows = Array.from({ length: 6 }, (_, i) =>

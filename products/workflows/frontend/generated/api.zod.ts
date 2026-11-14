@@ -3346,7 +3346,7 @@ export const WorkflowViewsCreateBody = /* @__PURE__ */ zod.object({
                         )
                 )
                 .max(workflowViewsCreateBodyStateOneColumnsMax)
-                .describe('Visible optional workflow columns in display order.'),
+                .describe('Visible optional workflow columns. The list always shows them in the same fixed order.'),
         })
         .describe('Saved filters, text search, and visible columns.'),
 })
@@ -3409,7 +3409,7 @@ export const WorkflowViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         )
                 )
                 .max(workflowViewsPartialUpdateBodyStateOneColumnsMax)
-                .describe('Visible optional workflow columns in display order.'),
+                .describe('Visible optional workflow columns. The list always shows them in the same fixed order.'),
         })
         .optional()
         .describe('Replacement filters, text search, and visible columns.'),

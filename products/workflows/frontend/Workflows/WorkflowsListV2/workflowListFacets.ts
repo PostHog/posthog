@@ -3,7 +3,8 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { UserBasicApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import type { FacetDefinition } from './FacetSearchBar/facetQuery'
+import type { FacetDefinition, FacetFilter, FacetSearchValue, MatchesText } from './FacetSearchBar/facetQuery'
+import type { WorkflowFolderFileRow } from './workflowFoldersLogic'
 import { HEALTH_TAGS, STATUS_LABELS, TRIGGER_LABELS, TYPE_LABELS } from './workflowListLabels'
 import { WorkflowListRow, creatorHandle } from './workflowListRows'
 
@@ -56,6 +57,46 @@ export function workflowFolderFacet(
             return !entry || entry.shortcut ? ['Unfiled'] : folderScopes(parentPath(entry.path), includeDescendants)
         },
     }
+}
+
+export const isFolderScope = (filter: FacetFilter): boolean => filter.facet === 'in' && !filter.negated
+
+export function withoutFolderScope(value: FacetSearchValue): FacetSearchValue {
+    return { ...value, filters: value.filters.filter((filter) => !isFolderScope(filter)) }
+}
+
+/** Text or any filter other than an opened folder searches every folder, not only the opened one. */
+export function searchesAcrossFolders(value: FacetSearchValue): boolean {
+    return !!value.text.trim() || value.filters.some((filter) => !isFolderScope(filter))
+}
+
+/** The list facets for the folder view, which also lists email templates. */
+export function folderFileFacets(
+    facets: FacetDefinition<WorkflowListRow>[],
+    searching: boolean
+): FacetDefinition<WorkflowFolderFileRow>[] {
+    return facets.map((facet) => ({
+        ...facet,
+        getValues: (item: WorkflowFolderFileRow): string[] =>
+            item.kind === 'workflow'
+                ? facet.getValues(item.row)
+                : facet.key === 'kind'
+                  ? ['email-template']
+                  : facet.key === 'in'
+                    ? folderScopes(parentPath(item.path), searching)
+                    : [],
+    }))
+}
+
+export function folderFileMatchesText(matchesText: MatchesText<WorkflowListRow>): MatchesText<WorkflowFolderFileRow> {
+    return (item, text) =>
+        item.kind === 'workflow'
+            ? matchesText(item.row, text)
+            : text
+                  .toLowerCase()
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .every((word) => item.name.toLowerCase().includes(word))
 }
 
 /** Every word of the text must appear in the name or description. */

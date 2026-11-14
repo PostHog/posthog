@@ -47,9 +47,18 @@ import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-
 
 import { newWorkflowLogic } from '../newWorkflowLogic'
 import { createFacetMatcher, type FacetDefinition, type MatchesText } from './FacetSearchBar/facetQuery'
-import type { FacetFilter, FacetSearchValue } from './FacetSearchBar/facetQuery'
+import type { FacetSearchValue } from './FacetSearchBar/facetQuery'
 import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
-import { ancestorFolders, displayedFolder, folderScopes, workflowFolderFacet } from './workflowListFacets'
+import {
+    ancestorFolders,
+    displayedFolder,
+    folderFileFacets,
+    folderFileMatchesText,
+    isFolderScope,
+    searchesAcrossFolders,
+    withoutFolderScope,
+    workflowFolderFacet,
+} from './workflowListFacets'
 import type { WorkflowListRow } from './workflowListRows'
 import { addListQueryFacet, type ServerSearchStatus, workflowsListV2Logic } from './workflowsListV2Logic'
 
@@ -131,7 +140,11 @@ export interface workflowFoldersLogicActions {
     setListFolder: (folder: string | null) => {
         folder: string | null
     } // newWorkflowLogic
-    setValue: (value: FacetSearchValue) => {
+    setValue: (
+        value: FacetSearchValue,
+        fromUrl?: boolean | undefined
+    ) => {
+        fromUrl: boolean
         value: FacetSearchValue
     } // workflowsListV2Logic
     cancelFolderDraft: () => {
@@ -628,12 +641,6 @@ function treeFolderId(folder: string | null): string {
 }
 
 // A folder pill opens its folder instead of filtering rows; a negated one still filters.
-const isFolderScope = (filter: FacetFilter): boolean => filter.facet === 'in' && !filter.negated
-
-function withoutFolderScope(value: FacetSearchValue): FacetSearchValue {
-    return { ...value, filters: value.filters.filter((filter) => !isFolderScope(filter)) }
-}
-
 function isInScope(parent: string, folder: string | null, searching: boolean): boolean {
     const scope = folder ?? ''
     return searching ? !scope || parent === scope || parent.startsWith(`${scope}/`) : parent === scope
@@ -1092,11 +1099,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 matchesText: MatchesText<WorkflowListRow>
             ): WorkflowListRow[] => rows.filter(createFacetMatcher(withoutFolderScope(value), facets, matchesText)),
         ],
-        hasActiveQuery: [
-            (s) => [s.value],
-            (value: FacetSearchValue): boolean =>
-                !!value.text.trim() || value.filters.some((filter) => !isFolderScope(filter)),
-        ],
+        hasActiveQuery: [(s) => [s.value], (value: FacetSearchValue): boolean => searchesAcrossFolders(value)],
         // The folder contents hold the inline name field of a new folder, so an open draft keeps them on screen.
         showsAutomationSetup: [
             (s) => [s.listComplete, s.isUnfilteredAutomationView, s.filteredRows, s.serverSearchStatus, s.folderDraft],
@@ -1240,30 +1243,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             (
                 facets: FacetDefinition<WorkflowListRow>[],
                 searching: boolean
-            ): FacetDefinition<WorkflowFolderFileRow>[] =>
-                facets.map((facet) => ({
-                    ...facet,
-                    getValues: (item: WorkflowFolderFileRow): string[] =>
-                        item.kind === 'workflow'
-                            ? facet.getValues(item.row)
-                            : facet.key === 'kind'
-                              ? ['email-template']
-                              : facet.key === 'in'
-                                ? folderScopes(parentPath(item.path), searching)
-                                : [],
-                })),
+            ): FacetDefinition<WorkflowFolderFileRow>[] => folderFileFacets(facets, searching),
         ],
         folderMatchesText: [
             (s) => [s.matchesText],
             (matchesText: MatchesText<WorkflowListRow>): MatchesText<WorkflowFolderFileRow> =>
-                (item, text) =>
-                    item.kind === 'workflow'
-                        ? matchesText(item.row, text)
-                        : text
-                              .toLowerCase()
-                              .split(/\s+/)
-                              .filter(Boolean)
-                              .every((word) => item.name.toLowerCase().includes(word)),
+                folderFileMatchesText(matchesText),
         ],
         displayedValue: [
             (s) => [s.value],

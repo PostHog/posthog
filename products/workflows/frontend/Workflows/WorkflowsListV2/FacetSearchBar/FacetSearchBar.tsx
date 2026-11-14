@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -25,6 +26,7 @@ export interface FacetSearchBarProps<TItem> {
     /** Loaded items. Suggestions and their counts come from these; the bar never fetches. */
     items: TItem[]
     value: FacetSearchValue
+    viewFilters?: FacetFilter[]
     onChange: (value: FacetSearchValue) => void
     matchesText: MatchesText<TItem>
     /** Shown while no pill is set. */
@@ -42,6 +44,7 @@ export function FacetSearchBar<TItem>({
     facets,
     items,
     value,
+    viewFilters = [],
     onChange,
     matchesText,
     placeholder,
@@ -216,16 +219,26 @@ export function FacetSearchBar<TItem>({
                             <IconSearch className="text-secondary shrink-0" />
                             {value.filters.map((filter) => {
                                 const label = pillLabel(facets, filter)
+                                const fromView = viewFilters.some(
+                                    (viewFilter) =>
+                                        facetFilterKey(viewFilter, facets) === facetFilterKey(filter, facets)
+                                )
                                 return (
                                     <LemonSnack
                                         key={facetFilterKey(filter, facets)}
-                                        closeLabel={`Remove filter ${label}`}
+                                        closeLabel={`Remove ${fromView ? 'view filter' : 'filter'} ${label}`}
                                         onClose={() => removePill(filter)}
-                                        title={label}
+                                        title={fromView ? `${label}, from the view` : label}
                                         data-attr={`${dataAttr}-pill`}
-                                        className="ph-no-capture max-w-80"
+                                        className={clsx(
+                                            'ph-no-capture max-w-80',
+                                            fromView && 'bg-fill-secondary text-secondary'
+                                        )}
                                     >
-                                        <span className={filter.negated ? 'text-danger' : undefined}>{label}</span>
+                                        <span className={filter.negated && !fromView ? 'text-danger' : undefined}>
+                                            {label}
+                                        </span>
+                                        {fromView && <span className="sr-only">, from the view</span>}
                                     </LemonSnack>
                                 )
                             })}

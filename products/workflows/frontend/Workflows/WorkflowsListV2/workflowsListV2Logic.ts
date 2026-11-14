@@ -18,6 +18,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { isUUIDLike } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -69,7 +70,7 @@ import { WorkflowListRow, buildWorkflowListRows } from './workflowListRows'
 
 const WORKFLOWS_PAGE_TYPES = LIST_TYPES.join(',')
 const PAGE_LIMIT = 500
-const MIN_SERVER_SEARCH_LENGTH = 3
+export const MIN_SERVER_SEARCH_LENGTH = 3
 const SERVER_SEARCH_DEBOUNCE_MS = 300
 // The generated client has no timeout, so a stalled page would leave the list loading with no way to retry.
 export const SUMMARY_REQUEST_TIMEOUT_MS = 10_000
@@ -96,6 +97,7 @@ const LEGACY_FACET_PARAMS: { param: string; facet: string; isValid: (value: stri
 ]
 const LEGACY_FILTER_PARAMS = [...LEGACY_FACET_PARAMS.map(({ param }) => param), 'tags', 'search']
 const LEGACY_PARAMS = [...LEGACY_FILTER_PARAMS, 'page']
+const LIST_PARAMS = ['view', 'q', 'text', 'columns', 'added', 'typed']
 
 // Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
 const QUERY_FACETS = buildWorkflowListFacets([])
@@ -189,10 +191,10 @@ function withFacetParams(searchParams: Record<string, unknown>, value: FacetSear
     delete next.text
     const q = serializeFacetQuery(value.filters)
     const text = value.text.trim()
-    if (q) {
+    if (q || searchParams.view) {
         next.q = q
     }
-    if (text) {
+    if (text || searchParams.view) {
         next.text = text
     }
     return next
@@ -214,11 +216,14 @@ function legacyParamsToValue(searchParams: Record<string, unknown>): FacetSearch
     return { filters, text: rawSearchParam('search') }
 }
 
+/** A link without list params, such as the sidebar entry, opens the list as the viewer left it. */
+function opensBare(searchParams: Record<string, unknown>): boolean {
+    return ![...LIST_PARAMS, ...LEGACY_PARAMS].some((param) => param in searchParams)
+}
+
 /** The kept filters come back only when the list opens without filters in the URL. */
 function restoresKeptFilters(searchParams: Record<string, unknown>, kept: FacetSearchValue): boolean {
-    const urlHasFilters =
-        'q' in searchParams || 'text' in searchParams || LEGACY_PARAMS.some((param) => param in searchParams)
-    return !urlHasFilters && (kept.filters.length > 0 || !!kept.text)
+    return opensBare(searchParams) && (kept.filters.length > 0 || !!kept.text)
 }
 
 /** An old filter link can also arrive while the list is open. A later `page` param alone is not one. */
@@ -265,6 +270,7 @@ export interface workflowsListV2LogicValues {
     filteredRows: WorkflowListRow[]
     hasHealthFilter: boolean
     isUnfilteredAutomationView: boolean
+    keptSearch: Record<string, string>
     listComplete: boolean
     listLoaded: boolean
     loadErrorDetail: string | null
@@ -379,6 +385,9 @@ export interface workflowsListV2LogicActions {
         serverSearch: ServerSearchResult | null
         payload?: string
     }
+    setKeptSearch: (search: Record<string, string>) => {
+        search: Record<string, string>
+    }
     setRowActionPending: (
         id: string,
         action: WorkflowRowAction | null
@@ -386,8 +395,15 @@ export interface workflowsListV2LogicActions {
         action: WorkflowRowAction | null
         id: string
     }
-    setValue: (value: FacetSearchValue) => {
+    setValue: (
+        value: FacetSearchValue,
+        fromUrl?: boolean
+    ) => {
+        fromUrl: boolean
         value: FacetSearchValue
+    }
+    setVisibleColumns: (columns: OptionalColumn[]) => {
+        columns: ('created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type')[]
     }
     showLoadedWorkflows: (workflows: HogFlowListSummaryApi[]) => {
         workflows: HogFlowListSummaryApi[]
@@ -442,10 +458,12 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         refreshWorkflows: true,
         loadMetrics: true,
         showLoadedWorkflows: (workflows: HogFlowListSummaryApi[]) => ({ workflows }),
-        setValue: (value: FacetSearchValue) => ({ value }),
+        setValue: (value: FacetSearchValue, fromUrl: boolean = false) => ({ value, fromUrl }),
         clearFilters: true,
         toggleColumn: (column: OptionalColumn) => ({ column }),
         resetColumns: true,
+        setVisibleColumns: (columns: OptionalColumn[]) => ({ columns }),
+        setKeptSearch: (search: Record<string, string>) => ({ search }),
         patchWorkflow: (id: string, patch: Partial<HogFlowListSummaryApi>) => ({ id, patch }),
         removeWorkflow: (id: string) => ({ id }),
         setRowActionPending: (id: string, action: WorkflowRowAction | null) => ({ id, action }),
@@ -571,6 +589,13 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 clearFilters: () => EMPTY_VALUE,
             },
         ],
+        keptSearch: [
+            {} as Record<string, string>,
+            buildUserScopedPersistenceConfig('workflows_list_v2_search__'),
+            {
+                setKeptSearch: (_, { search }) => search,
+            },
+        ],
         requestedSearchText: [
             null as string | null,
             {
@@ -611,6 +636,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                         ? state.filter((c) => c !== column)
                         : OPTIONAL_COLUMNS.filter((c) => c === column || state.includes(c)),
                 resetColumns: () => DEFAULT_COLUMNS,
+                setVisibleColumns: (_, { columns }) => OPTIONAL_COLUMNS.filter((column) => columns.includes(column)),
             },
         ],
         pendingRowActions: [
@@ -767,8 +793,10 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 cache.searchAbort?.abort()
                 writeUrl()
             },
-            setValue: ({ value }) => {
-                writeUrl()
+            setValue: ({ value, fromUrl }) => {
+                if (!fromUrl || rawSearchParam('q') !== serializeFacetQuery(value.filters)) {
+                    writeUrl()
+                }
                 const text = value.text.trim()
                 if (text.length < MIN_SERVER_SEARCH_LENGTH) {
                     cache.searchAbort?.abort()
@@ -873,12 +901,27 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             const opening = !cache.opened
             cache.opened = true
             const { pathname } = router.values.location
+            if (opening && opensBare(searchParams) && Object.keys(values.keptSearch).length > 0) {
+                router.actions.replace(pathname, { ...searchParams, ...values.keptSearch }, hashParams)
+                return
+            }
             if (opening && restoresKeptFilters(searchParams, values.value)) {
                 router.actions.replace(pathname, withFacetParams(searchParams, values.value), hashParams)
-            } else if (isLegacyLink(searchParams, opening)) {
+                return
+            }
+            if (isLegacyLink(searchParams, opening)) {
                 router.actions.replace(pathname, migrateLegacyLink(searchParams, current), hashParams)
-            } else if (!sameFacetValue(current, values.value)) {
-                actions.setValue(current)
+                return
+            }
+            if (!sameFacetValue(current, values.value)) {
+                actions.setValue(current, true)
+            }
+            const raw = new URLSearchParams(router.values.location.search)
+            const search = Object.fromEntries(
+                LIST_PARAMS.filter((param) => raw.has(param)).map((param) => [param, raw.get(param) ?? ''])
+            )
+            if (!objectsEqual(search, values.keptSearch)) {
+                actions.setKeptSearch(search)
             }
         }
         return {
