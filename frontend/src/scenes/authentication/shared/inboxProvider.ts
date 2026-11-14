@@ -1,7 +1,3 @@
-import posthog from 'posthog-js'
-
-import { type AuthStep, pendingOAuthConnectionProperties } from './authStepViewed'
-
 /** The webmail a verification email went to, detected by the backend when it sends a code.
  * pinned: values of `inbox_provider` in the signup and login responses (posthog/inbox_providers.py) */
 export type InboxProvider = 'gmail' | 'outlook' | 'microsoft_365' | 'yahoo' | 'icloud' | 'proton'
@@ -11,9 +7,8 @@ type InboxProviderLink = {
     url: (email: string | null) => string
 }
 
-// Gmail searches every folder, including spam, for mail from the last hour, so the code shows
-// at the top even when a filter moved it. `authuser` opens the account the code went to when the
-// browser is signed in to more than one Google account.
+// Searches every folder, spam included, so a filtered code still shows. `authuser` picks the
+// account the code went to when the browser holds several Google accounts.
 const GMAIL_RECENT_MAIL_SEARCH = '#search/in%3Aanywhere+newer_than%3A1h'
 
 const INBOX_PROVIDER_LINKS: Record<InboxProvider, InboxProviderLink> = {
@@ -36,9 +31,4 @@ export function parseInboxProvider(value: unknown): InboxProvider | null {
 export function inboxProviderLink(provider: InboxProvider, email: string | null): { name: string; url: string } {
     const link = INBOX_PROVIDER_LINKS[provider]
     return { name: link.name, url: link.url(email) }
-}
-
-export function captureOpenInboxClicked(provider: InboxProvider, step: AuthStep): void {
-    // pinned: analytics event and property names
-    posthog.capture('open inbox clicked', { inbox_provider: provider, step, ...pendingOAuthConnectionProperties() })
 }

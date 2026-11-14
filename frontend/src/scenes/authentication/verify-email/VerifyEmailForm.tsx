@@ -173,7 +173,6 @@ function CheckYourInbox(): JSX.Element {
     // address the signup or login form stored in this browser. It stays unset in a different browser.
     const pendingVerification = getPendingVerification(uuid)
     const verificationEmail = user?.pending_email ?? user?.email ?? pendingVerification?.email ?? undefined
-    const inboxProvider = verificationEmailSent ? (pendingVerification?.inboxProvider ?? null) : null
 
     return (
         <div className="flex flex-col items-center text-center">
@@ -212,7 +211,7 @@ function CheckYourInbox(): JSX.Element {
                 </p>
             )}
             <OpenInboxButton
-                provider={inboxProvider}
+                provider={pendingVerification?.inboxProvider ?? null}
                 email={verificationEmail ?? null}
                 step="verify_email"
                 className="mb-2.5"

@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import type { AuthStep } from './authStepViewed'
-import { type InboxProvider, captureOpenInboxClicked, inboxProviderLink } from './inboxProvider'
+import { type AuthStep, pendingOAuthConnectionProperties } from './authStepViewed'
+import { type InboxProvider, inboxProviderLink } from './inboxProvider'
 
 // pinned: autocapture selectors
 const DATA_ATTR: Record<OpenInboxButtonProps['step'], string> = {
@@ -23,8 +24,7 @@ export interface OpenInboxButtonProps {
 export function OpenInboxButton({ provider, email, step, className }: OpenInboxButtonProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    // Read the flag only when there is a button to show, so the experiment exposes only the
-    // people whose inbox the backend recognized. Reading it records an exposure.
+    // Reading the flag records an exposure, so only people with a recognized inbox read it.
     if (!provider || featureFlags[FEATURE_FLAGS.OPEN_INBOX_BUTTON] !== 'test') {
         return null
     }
@@ -39,7 +39,14 @@ export function OpenInboxButton({ provider, email, step, className }: OpenInboxB
             className={className}
             to={url}
             targetBlank
-            onClick={() => captureOpenInboxClicked(provider, step)}
+            onClick={() =>
+                // pinned: analytics event and property names
+                posthog.capture('open inbox clicked', {
+                    inbox_provider: provider,
+                    step,
+                    ...pendingOAuthConnectionProperties(),
+                })
+            }
             data-attr={DATA_ATTR[step]}
         >
             {`Open ${name}`}

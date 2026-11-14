@@ -20,13 +20,10 @@ from posthog.security.oob_domains import matched_oob_domain
 
 logger = logging.getLogger(__name__)
 
-# The lookup runs while the code email sends, so the response only waits for whatever is left of
-# this budget after the send returns.
 LOOKUP_TIMEOUT_SECONDS = 0.3
 CACHE_SECONDS = 60 * 60 * 24
 
-# A thread per lookup would let a burst of signups start an unbounded number of threads. When the
-# pool is busy, a queued lookup runs out of budget and the page shows no button.
+# Bounded, so a burst of signups queues lookups, which run out of budget, instead of starting threads.
 _executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="inbox-provider")
 
 
@@ -59,9 +56,8 @@ _INBOX_PROVIDERS_BY_DOMAIN: dict[str, InboxProvider] = {
     "pm.me": InboxProvider.PROTON,
 }
 
-# Each marker is matched against the end of "." + the MX hostname, so the leading dot anchors it to
-# a label boundary. Outlook.com consumer domains use olc.protection.outlook.com, and Microsoft 365
-# tenants use mail.protection.outlook.com, which open different webmail sites.
+# The leading dot anchors each suffix to a label boundary. Outlook.com consumer mail and Microsoft 365
+# tenants open different webmail sites.
 _INBOX_PROVIDERS_BY_MX_MARKER: tuple[tuple[str, InboxProvider], ...] = (
     (".google.com", InboxProvider.GMAIL),
     (".googlemail.com", InboxProvider.GMAIL),
@@ -102,8 +98,7 @@ def _cache_key(domain: str) -> str:
 
 
 def _resolve_and_cache(domain: str) -> InboxProvider | None:
-    # The worker caches the answer itself, so an answer that arrives after the caller stopped
-    # waiting still saves the next lookup for this domain.
+    # Caching here keeps an answer that arrives after the caller stopped waiting.
     provider = detect_inbox_provider(_primary_mx_host(domain))
     try:
         cache.set(_cache_key(domain), provider or "", CACHE_SECONDS)
@@ -132,16 +127,14 @@ class InboxProviderLookup:
         try:
             if provider := _INBOX_PROVIDERS_BY_DOMAIN.get(domain):
                 return cls(resolved=provider)
-            # Only PostHog Cloud runs the experiment that shows the button, so a self-hosted
-            # instance skips the DNS query.
+            # Only Cloud runs the experiment that shows the button.
             if not domain or not is_cloud():
                 return cls()
             cached = cache.get(_cache_key(domain))
             if cached is not None:
                 return cls(resolved=InboxProvider(cached) if cached else None)
             if (oob_domain := matched_oob_domain(domain)) is not None:
-                # The lookup alone confirms the path to whoever runs the collaborator, so the name
-                # is refused rather than resolved.
+                # Resolving the name would itself confirm the path to whoever runs the collaborator.
                 logger.info("security.oob_domain_seen domain=%s guard=inbox_providers", oob_domain)
                 return cls()
             return cls(future=_executor.submit(_resolve_and_cache, domain))
