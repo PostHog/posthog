@@ -24,7 +24,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -54,9 +54,19 @@ import { WorkflowsTable } from './Workflows/WorkflowsTable'
 import { WorkflowTemplateTypeFilter, templateTypeForListType } from './Workflows/workflowTypeFilters'
 import { WorkflowsTemplates } from './WorkflowsTemplates'
 
-// Only teams with `workflows-list-v2` see the new list and its folders, so that code loads in its own chunk.
+// The list chunk keeps its logic here once loaded, so "New workflow" reads the list's kind without an import.
+let loadedListV2Logic: typeof import('./Workflows/WorkflowsListV2/workflowsListV2Logic').workflowsListV2Logic | null =
+    null
+
+// Only teams with `workflows-list-v2` see the new list, so that code loads in its own chunk.
 const WorkflowsListV2 = lazyWithRetry(() =>
-    import('./Workflows/WorkflowsListV2/WorkflowsListV2').then((m) => ({ default: m.WorkflowsListV2 }))
+    Promise.all([
+        import('./Workflows/WorkflowsListV2/WorkflowsListV2'),
+        import('./Workflows/WorkflowsListV2/workflowsListV2Logic'),
+    ]).then(([list, logic]) => {
+        loadedListV2Logic = logic.workflowsListV2Logic
+        return { default: list.WorkflowsListV2 }
+    })
 )
 const WorkflowsListV2ColumnsMenu = lazyWithRetry(() =>
     import('./Workflows/WorkflowsListV2/WorkflowsListV2ColumnsMenu').then((m) => ({
@@ -64,9 +74,9 @@ const WorkflowsListV2ColumnsMenu = lazyWithRetry(() =>
     }))
 )
 
-async function listV2TemplateTypeFilter(): Promise<WorkflowTemplateTypeFilter> {
-    const { workflowsListV2Logic } = await retryImport(() => import('./Workflows/WorkflowsListV2/workflowsListV2Logic'))
-    return workflowsListV2Logic.findMounted()?.values.templateTypeFilter ?? 'all'
+// Before the list chunk loads, no list is shown, so the chooser opens on all templates.
+function listV2TemplateTypeFilter(): WorkflowTemplateTypeFilter {
+    return loadedListV2Logic?.findMounted()?.values.templateTypeFilter ?? 'all'
 }
 
 // pinned: URL path segments under /workflows - renaming breaks bookmarks
@@ -248,7 +258,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         link: urls.workflows(),
     }
     const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
-    const onNewWorkflow = async (): Promise<void> => {
+    const onNewWorkflow = (): void => {
         void addProductIntent({
             product_type: ProductKey.WORKFLOWS,
             intent_context: ProductIntentContext.WORKFLOW_CREATED,
@@ -258,7 +268,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         setTypeFilter(
             currentTab === 'workflows'
                 ? listV2
-                    ? await listV2TemplateTypeFilter()
+                    ? listV2TemplateTypeFilter()
                     : templateTypeForListType(workflowsLogic.findMounted()?.values.filters.type ?? 'all')
                 : 'all'
         )
@@ -306,17 +316,13 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
                                 {todayRailNav ? (
-                                    <Button
-                                        data-attr="new-workflow"
-                                        onClick={() => void onNewWorkflow()}
-                                        variant="primary"
-                                    >
+                                    <Button data-attr="new-workflow" onClick={onNewWorkflow} variant="primary">
                                         New workflow
                                     </Button>
                                 ) : (
                                     <LemonButton
                                         data-attr="new-workflow"
-                                        onClick={() => void onNewWorkflow()}
+                                        onClick={onNewWorkflow}
                                         type="primary"
                                         size="small"
                                     >
