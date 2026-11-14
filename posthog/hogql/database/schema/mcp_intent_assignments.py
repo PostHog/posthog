@@ -7,6 +7,7 @@ from posthog.hogql.database.models import (
     EventsRetentionTable,
     FieldOrTable,
     FloatDatabaseField,
+    IntegerArrayDatabaseField,
     IntegerDatabaseField,
     LazyTable,
     LazyTableToAdd,
@@ -191,7 +192,9 @@ MCP_INTENT_CALLS_HOURLY_FIELDS: dict[str, FieldOrTable] = {
     ),
     "tool": StringDatabaseField(name="tool", nullable=False, description="Effective tool name."),
     "calls": IntegerDatabaseField(name="calls", nullable=False),
-    "sessions": IntegerDatabaseField(name="sessions", nullable=False, description="Distinct MCP conversations."),
+    "conversation_hashes": IntegerArrayDatabaseField(
+        name="conversation_hashes", nullable=False, description="cityHash64 of each distinct MCP conversation id."
+    ),
     "inserted_at": DateTimeDatabaseField(name="inserted_at", nullable=False),
 }
 
@@ -215,7 +218,9 @@ MCP_INTENT_TOPIC_DAILY_FIELDS: dict[str, FieldOrTable] = {
         name="topic_id", nullable=False, description="Intent topic id; empty when the intent had no topic yet."
     ),
     "calls": IntegerDatabaseField(name="calls", nullable=False),
-    "sessions": IntegerDatabaseField(name="sessions", nullable=False),
+    "conversation_hashes": IntegerArrayDatabaseField(
+        name="conversation_hashes", nullable=False, description="cityHash64 of each distinct MCP conversation id."
+    ),
     "outlier_calls": IntegerDatabaseField(name="outlier_calls", nullable=False),
     "intents": IntegerDatabaseField(name="intents", nullable=False, description="Distinct intent texts."),
     "inserted_at": DateTimeDatabaseField(name="inserted_at", nullable=False),

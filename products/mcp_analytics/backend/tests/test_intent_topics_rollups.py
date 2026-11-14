@@ -1,21 +1,26 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from posthog.schema import DateRange, MCPIntentTopicsQuery
+
 from posthog.hogql.query import execute_hogql_query
 
+from products.mcp_analytics.backend.hogql_queries.intent_topics import MCPIntentTopicsQueryRunner
 from products.mcp_analytics.backend.intent_hash import intent_hash
 from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls, fetch_hourly_calls
 from products.mcp_analytics.backend.intent_topics.rollups import insert_hourly_calls, rebuild_topic_daily
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests.intent_topics_helpers import recent_hour
 from products.mcp_analytics.backend.tests.test_intent_assignments_table import _insert_assignment
 
 OTHER_TEAM_ID = 10**9
-DAY = datetime(2026, 10, 19, 0, 0, tzinfo=UTC)
+DAY = recent_hour(days_ago=3).replace(hour=0)
 
 
 class TestFetchHourlyCalls(ClickhouseTestMixin, APIBaseTest):
-    def test_groups_by_hour_intent_and_tool_with_conversations(self) -> None:
-        for minute, session in ((5, "s1"), (10, "s1"), (70, "s2")):
+    def test_returns_complete_hours_by_intent_and_tool_with_distinct_conversations(self) -> None:
+        for minute, session in ((5, "s1"), (10, "s1"), (50, "s2"), (70, "s2"), (130, "s3")):
             _create_event(
                 team=self.team,
                 event="$mcp_tool_call",
@@ -36,33 +41,54 @@ class TestFetchHourlyCalls(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        rows = fetch_hourly_calls(self.team, since=DAY, until=DAY + timedelta(hours=2))
+        # The window starts and ends inside an hour: the first hour is read whole, the last one is left
+        # for the next run, so a later run never replaces a complete bucket with a partial one.
+        for page_size in (1, 50_000):
+            rows = fetch_hourly_calls(
+                self.team, since=DAY + timedelta(minutes=45), until=DAY + timedelta(minutes=150), page_size=page_size
+            )
 
-        h = intent_hash("plot signups")
-        assert [(r.hour.hour, r.hash == h, r.tool, r.calls, r.sessions) for r in rows] == [
-            (0, True, "query-funnel", 1, 1),
-            (0, True, "query-trends", 2, 1),
-            (1, True, "query-trends", 1, 1),
-        ]
+            assert [(r.hour.hour, r.hash, r.tool, r.calls, len(r.conversations)) for r in rows] == [
+                (0, intent_hash("plot signups"), "query-funnel", 1, 1),
+                (0, intent_hash("plot signups"), "query-trends", 3, 2),
+                (1, intent_hash("plot signups"), "query-trends", 1, 1),
+            ]
 
 
-class TestRebuildTopicDaily(ClickhouseTestMixin, APIBaseTest):
-    def _hourly(self, hour: int, hash_: str, tool: str, calls: int, sessions: int = 1) -> HourlyCalls:
-        return HourlyCalls(hour=DAY + timedelta(hours=hour), hash=hash_, tool=tool, calls=calls, sessions=sessions)
+class TestRebuildTopicDaily(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _hourly(
+        self, hour: int, hash_: str, tool: str, calls: int, conversations: tuple[int, ...] = (1,)
+    ) -> HourlyCalls:
+        return HourlyCalls(
+            hour=DAY + timedelta(hours=hour), hash=hash_, tool=tool, calls=calls, conversations=conversations
+        )
 
     def _daily(self) -> list[tuple]:
         return execute_hogql_query(
-            query="SELECT toString(day), tool, topic_id, calls, sessions, outlier_calls, intents FROM mcp_intent_topic_daily ORDER BY tool, topic_id",
+            query="""
+                SELECT toString(day), tool, topic_id, calls, length(conversation_hashes), outlier_calls, intents
+                FROM posthog.mcp_intent_topic_daily
+                ORDER BY tool, topic_id, inserted_at
+            """,
             team=self.team,
         ).results
 
-    def test_sums_calls_per_tool_and_topic_with_unassigned_and_outliers(self) -> None:
+    def _topic_calls(self) -> list[tuple]:
+        response = MCPIntentTopicsQueryRunner(
+            query=MCPIntentTopicsQuery(
+                dateRange=DateRange(date_from=DAY.date().isoformat(), date_to=DAY.date().isoformat())
+            ),
+            team=self.team,
+        ).calculate()
+        return [(t.topic_id, t.calls, t.sessions) for t in response.results]
+
+    def test_sums_calls_per_tool_and_topic_with_unassigned_outliers_and_distinct_conversations(self) -> None:
         insert_hourly_calls(
             self.team.pk,
             [
-                self._hourly(1, "h1", "query-trends", 3),
-                self._hourly(2, "h1", "query-trends", 2),
-                self._hourly(1, "h2", "query-trends", 4),
+                self._hourly(1, "h1", "query-trends", 3, conversations=(1,)),
+                self._hourly(2, "h1", "query-trends", 2, conversations=(1,)),
+                self._hourly(1, "h2", "query-trends", 4, conversations=(1, 2)),
                 self._hourly(1, "h3", "query-funnel", 1),
                 self._hourly(1, "h4", "query-trends", 7),
             ],
@@ -73,24 +99,50 @@ class TestRebuildTopicDaily(ClickhouseTestMixin, APIBaseTest):
         _insert_assignment(self.team.pk, "h3", "topic-b")
         _insert_assignment(OTHER_TEAM_ID, "h4", "topic-z")
 
-        rebuild_topic_daily(team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1))
+        rebuild_topic_daily(
+            team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
+        )
 
         assert self._daily() == [
-            ("2026-10-19", "query-funnel", "topic-b", 1, 1, 0, 1),
-            ("2026-10-19", "query-trends", "", 7, 1, 0, 1),
-            ("2026-10-19", "query-trends", "topic-a", 9, 3, 4, 2),
+            (DAY.date().isoformat(), "query-funnel", "topic-b", 1, 1, 0, 1),
+            (DAY.date().isoformat(), "query-trends", "", 7, 1, 0, 1),
+            (DAY.date().isoformat(), "query-trends", "topic-a", 9, 2, 4, 2),
         ]
 
-    def test_latest_assignment_wins_and_rebuild_replaces(self) -> None:
+    def test_reads_the_latest_hourly_version_and_rebuilds_whole_days(self) -> None:
+        insert_hourly_calls(self.team.pk, [self._hourly(1, "h1", "query-trends", 3)], now=DAY + timedelta(hours=2))
+        # A later sync re-reads the same complete hour after late events arrive.
+        insert_hourly_calls(self.team.pk, [self._hourly(1, "h1", "query-trends", 5)], now=DAY + timedelta(hours=3))
+        insert_hourly_calls(self.team.pk, [self._hourly(23, "h1", "query-trends", 1)], now=DAY + timedelta(hours=24))
+        _insert_assignment(self.team.pk, "h1", "topic-a")
+
+        rebuild_topic_daily(
+            team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
+        )
+        # The next nightly window overlaps only the last two hours of the day.
+        rebuild_topic_daily(
+            team_id=self.team.pk,
+            window_start=DAY + timedelta(hours=22),
+            window_end=DAY + timedelta(hours=48),
+            now=DAY + timedelta(days=2),
+        )
+
+        assert self._topic_calls() == [("topic-a", 6, 1)]
+
+    def test_reassigned_calls_move_between_topics_without_double_counting(self) -> None:
         insert_hourly_calls(self.team.pk, [self._hourly(1, "h1", "query-trends", 3)], now=DAY)
         _insert_assignment(self.team.pk, "h1", "topic-a", timestamp=DAY)
+        rebuild_topic_daily(
+            team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(hours=1)
+        )
         _insert_assignment(self.team.pk, "h1", "topic-b", timestamp=DAY + timedelta(days=1))
 
-        rebuild_topic_daily(team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1))
-        rebuild_topic_daily(team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1))
+        # A second rebuild inside the same second, as a refit followed by its reassignment can do.
+        rebuild_topic_daily(
+            team_id=self.team.pk,
+            window_start=DAY,
+            window_end=DAY + timedelta(days=1),
+            now=DAY + timedelta(hours=1, microseconds=500),
+        )
 
-        rows = execute_hogql_query(
-            query="SELECT topic_id, argMax(calls, inserted_at) FROM mcp_intent_topic_daily GROUP BY topic_id",
-            team=self.team,
-        ).results
-        assert rows == [("topic-b", 3)]
+        assert self._topic_calls() == [("topic-b", 3, 1)]
