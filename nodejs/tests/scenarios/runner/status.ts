@@ -95,19 +95,8 @@ export type Verdict = {
     exits: RoleExit[]
 }
 
-const appliedDuring = (entry: ValveTimelineEntry, at: string): boolean =>
-    entry.appliedAt !== undefined && entry.appliedAt <= at && (entry.releasedAt === undefined || at <= entry.releasedAt)
-
-function unexpectedExit(exit: RoleExit, timeline: ValveTimelineEntry[]): string {
-    const { role, at, code, signal } = exit
-    const applied = timeline.filter(
-        (entry) => (entry.target === role || entry.target === 'postgres') && appliedDuring(entry, at)
-    )
-    return [
-        `${nameOf(exit)} exited (${signal ?? `code ${code}`}) without a valve causing it`,
-        ...applied.map(({ valve, target }) => `while ${valve} on ${target} was applied`),
-    ].join(', ')
-}
+const unexpectedExit = (exit: RoleExit): string =>
+    `${nameOf(exit)} exited (${exit.signal ?? `code ${exit.code}`}) without a valve causing it`
 
 export function statusOf({ admissions, minOffered, units, down, convergence, invariants, timeline, exits }: Verdict): {
     status: Status
@@ -129,7 +118,7 @@ export function statusOf({ admissions, minOffered, units, down, convergence, inv
             statusReason: `the generator offered ${units.offeredUnits} of ${units.targetUnits} units, under minOffered ${minOffered}`,
         }
     }
-    const crashes = exits.filter(({ byValve }) => !byValve).map((exit) => unexpectedExit(exit, timeline))
+    const crashes = exits.filter(({ byValve }) => !byValve).map(unexpectedExit)
     const unobserved = timeline
         .filter(({ observedAt }) => observedAt === undefined)
         .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`)
