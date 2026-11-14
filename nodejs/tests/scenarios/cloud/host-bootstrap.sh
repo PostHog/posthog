@@ -10,6 +10,8 @@ PNPM_SHA256=358f7c59f6e25559547afdba47390591514e7a0886d00d8b1a80f33607a4e136
 RUST_TOOLCHAIN=1.91.1
 SQLX_CLI_VERSION=0.8.0
 UV_VERSION=0.13.4
+GO_VERSION=1.26.10
+GO_SHA256=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
 
 export HOME="${HOME:-/root}"
 export DEBIAN_FRONTEND=noninteractive
@@ -75,6 +77,13 @@ install_uv_and_python() {
     (cd "$repo" && uv sync --frozen)
 }
 
+install_phrocs() {
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+    echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum --check --strict
+    tar -xzf /tmp/go.tar.gz -C /usr/local
+    (cd "$repo/tools/phrocs" && GOTOOLCHAIN=local /usr/local/go/bin/go build -o /usr/local/bin/phrocs .)
+}
+
 start_poolers() {
     pnpm --dir "$repo/nodejs" exec tsx tests/scenarios/cloud/host-pooler.ts "$input/cloud-profile.yaml"
 }
@@ -95,7 +104,7 @@ verify_inputs
 install_node_and_pnpm
 install_sqlx_cli
 install_uv_and_python
-bash "$repo/tools/phrocs/install.sh"
+install_phrocs
 pnpm --dir "$repo" install --frozen-lockfile
 start_poolers
 check_ready
