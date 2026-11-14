@@ -171,7 +171,7 @@ export function TriggerGroupsEditor(): JSX.Element {
 
             <p className="text-xs text-muted">
                 Configure custom recording triggers with individual sampling rates per group. Recording will start if
-                any of the recording trigger groups match.
+                any of the recording trigger groups match. Groups apply to web and mobile.
             </p>
 
             {shouldShowMigrationBanner && (
@@ -416,10 +416,11 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                     <div className="mb-4">
                         <div className="flex items-center gap-2 justify-between mb-2">
                             <div>
-                                <LemonLabel>URL patterns (regex)</LemonLabel>
+                                <LemonLabel>URL or screen name patterns (regex)</LemonLabel>
                                 <p className="text-xs text-muted mt-0.5 mb-0">
-                                    Matches if the user visits a matching URL at any point during the session. For more
-                                    control, use a <strong>$pageview</strong> event trigger with property filters.
+                                    Matches if the user visits a matching URL (web) or screen name (mobile) at any point
+                                    during the session. For more control, use a <strong>$pageview</strong> (web) or{' '}
+                                    <strong>$screen</strong> (mobile) event trigger with property filters.
                                 </p>
                             </div>
                             <LemonButton
@@ -448,7 +449,9 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                     Patterns are wrapped in <code className="inline">^</code> and{' '}
                                     <code className="inline">$</code> and matched against the full URL, so a path on its
                                     own never matches. Write the full URL, e.g.{' '}
-                                    <code className="inline">https://example.com/checkout.*</code>
+                                    <code className="inline">https://example.com/checkout.*</code>. On mobile, patterns
+                                    match the full screen name, for example{' '}
+                                    <code className="inline">CheckoutScreen.*</code>.
                                 </LemonBanner>
                                 <LemonLabel>Matching regex:</LemonLabel>
                                 <div className="flex gap-2 mt-1">
@@ -470,7 +473,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                 {triggerGroup.urls.length > 0 && (
                                     <div className="mt-3 pt-3 border-t">
                                         <LemonLabel className="text-xs mb-1 block">
-                                            Test a full URL against existing patterns:
+                                            Test a full URL or screen name against existing patterns:
                                         </LemonLabel>
                                         <LemonInput
                                             value={testUrl}
@@ -492,8 +495,8 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                                     <span className="text-success">Matches at least one pattern</span>
                                                 ) : (
                                                     <span className="text-danger">
-                                                        Doesn't match any patterns. Patterns match the full URL, so a
-                                                        path on its own never matches.
+                                                        Doesn't match any patterns. Patterns match the full URL or
+                                                        screen name, so a path on its own never matches.
                                                     </span>
                                                 )}
                                             </div>

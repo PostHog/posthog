@@ -40,7 +40,7 @@ function ConditionRow({
 }: ConditionRowProps & { isFirst: boolean }): JSX.Element {
     const labels = {
         events: 'Event',
-        urls: 'User has visited URL matching pattern',
+        urls: 'User has visited URL or screen matching pattern',
         flag: 'Feature flag',
     }
 
