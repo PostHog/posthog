@@ -115,7 +115,12 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         assert "staking" in result.breaches[0]
         assert "Anomaly detected" in result.breaches[0]
         # "staking" is at index 1 in the breakdown results
-        assert result.triggered_metadata == {"detector_type": "zscore", "series_index": 1, "insight_id": 7}
+        assert result.triggered_metadata == {
+            "detector_type": "zscore",
+            "series_index": 1,
+            "breakdown_label": "staking",
+            "insight_id": 7,
+        }
 
     @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_does_not_fire_when_all_breakdowns_are_normal(self, mock_calc: MagicMock) -> None:

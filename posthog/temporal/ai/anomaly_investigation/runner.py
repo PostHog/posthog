@@ -28,6 +28,7 @@ from posthog.models import Team, User
 from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport, salvage_report
 from posthog.temporal.ai.anomaly_investigation.tools import (
+    AlertedSeries,
     FetchMetricSeriesArgs,
     InvestigationToolkit,
     RecentEventsArgs,
@@ -310,6 +311,7 @@ async def run_investigation(
     user: User,
     anomaly_context: Any,  # str or list[{type, ...}] LangChain content blocks
     alert: AlertConfiguration | None = None,
+    alerted: AlertedSeries | None = None,
     heartbeat: Callable[[], None] | None = None,
 ) -> InvestigationRunResult:
     """Drive the agent loop to completion and return the structured report.
@@ -323,7 +325,7 @@ async def run_investigation(
     # (Temporal workflow sandbox restrictions).
     from ee.hogai.llm import MaxChatAnthropic
 
-    toolkit = InvestigationToolkit(team=team, alert=alert)
+    toolkit = InvestigationToolkit(team=team, alert=alert, alerted=alerted)
     handlers: dict[str, ToolHandler] = {
         "run_hogql_query": lambda raw: toolkit.run_hogql_query(RunHogQLQueryArgs.model_validate(raw)),
         "top_breakdowns": lambda raw: toolkit.top_breakdowns(TopBreakdownArgs.model_validate(raw)),

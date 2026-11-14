@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import (
     BaseMathType,
+    Breakdown,
+    BreakdownFilter,
     ChartDisplayType,
     EventsNode,
     HogQLQuery,
@@ -15,12 +17,12 @@ from posthog.schema import (
 )
 
 from posthog.caching.insight_result import InsightResult
-from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
+from posthog.temporal.ai.anomaly_investigation.tools import AlertedSeries, _run_detector_simulation
 from posthog.temporal.ai.anomaly_investigation.workflow import (
     _build_multimodal_context,
     _evaluated_detector_type,
     _evaluated_insight,
-    _evaluated_series_index,
+    _evaluated_series,
     _restore_triggered_indices,
 )
 
@@ -31,6 +33,60 @@ from products.product_analytics.backend.facade.models import Insight
 def _trend_result(label: str, data: list[float]) -> dict[str, Any]:
     dates = [(date(2026, 7, 1) + timedelta(days=day)).isoformat() for day in range(len(data))]
     return {"data": data, "days": dates, "label": label}
+
+
+@pytest.mark.parametrize(
+    "alerted,expected_label",
+    [
+        pytest.param(
+            AlertedSeries(series_index=0, breakdown_label="gpt", breakdown_index=0),
+            "gpt",
+            id="label_beats_a_shifted_position",
+        ),
+        pytest.param(AlertedSeries(series_index=0, breakdown_index=1), "gpt", id="unlabelled_check_uses_position"),
+        pytest.param(
+            AlertedSeries(series_index=0, breakdown_label="retired-model", breakdown_index=0),
+            None,
+            id="label_no_longer_in_results",
+        ),
+    ],
+)
+@patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+def test_run_detector_simulation_returns_the_breakdown_value_that_fired(
+    mock_calculate: MagicMock, alerted: AlertedSeries, expected_label: str | None
+) -> None:
+    by_label = {"claude": [10.0, 11.0, 10.0, 9.0] * 9, "gpt": [100.0, 110.0, 100.0, 90.0] * 9}
+    mock_calculate.return_value = InsightResult(
+        result=[{**_trend_result(label, data), "breakdown_value": label} for label, data in by_label.items()],
+        columns=[],
+        timezone="UTC",
+        last_refresh=None,
+        cache_key="",
+        is_cached=False,
+    )
+    insight = MagicMock(spec=Insight)
+    insight.query = TrendsQuery(
+        series=[EventsNode(event="$ai_generation", math=BaseMathType.TOTAL)],
+        breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$ai_model")]),
+        trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        interval=IntervalType.DAY,
+    ).model_dump()
+    alert = MagicMock(spec=AlertConfiguration)
+    alert.insight = insight
+    alert.evaluation_delay_intervals = 0
+    alert.config = {"type": "TrendsAlertConfig", "series_index": 0}
+    alert.detector_config = {"type": "zscore", "threshold": 0.9, "window": 10}
+    alert.created_by = None
+
+    result = _run_detector_simulation(alert=alert, team=MagicMock(), date_from=None, alerted=alerted)
+
+    if expected_label is None:
+        assert result == "The breakdown value that fired is not in the insight's results now."
+    else:
+        assert not isinstance(result, str)
+        assert result["label"] == expected_label
+        assert result["data"] == by_label[expected_label][:-1]
+        assert result["interval"] == "day"
 
 
 @pytest.mark.parametrize("delay", [0, 1])
@@ -127,17 +183,26 @@ def test_run_detector_simulation_never_rescores_an_ai_alert(
 
 
 @pytest.mark.parametrize(
-    "triggered_metadata,expected_index",
-    [({"series_index": 1, "kind": "drop"}, 1), ({"kind": "drop"}, 2), ({"series_index": True}, 2)],
+    "triggered_metadata,expected",
+    [
+        ({"series_index": 1, "kind": "drop"}, AlertedSeries(series_index=1, breakdown_index=1)),
+        ({"kind": "drop"}, AlertedSeries(series_index=2)),
+        ({"series_index": True}, AlertedSeries(series_index=2)),
+        pytest.param(
+            {"series_index": 3, "breakdown_label": "gpt"},
+            AlertedSeries(series_index=2, breakdown_label="gpt", breakdown_index=3),
+            id="breakdown_check_position_is_not_a_query_series",
+        ),
+    ],
 )
-def test_investigation_reads_the_series_the_check_judged(triggered_metadata: dict, expected_index: int) -> None:
+def test_investigation_reads_the_series_the_check_judged(triggered_metadata: dict, expected: AlertedSeries) -> None:
     # The alert can be repointed while the investigation waits, so the check's own record wins.
     alert = MagicMock(spec=AlertConfiguration)
     alert.config = {"type": "TrendsAlertConfig", "series_index": 2}
     check = MagicMock(spec=AlertCheck)
     check.triggered_metadata = triggered_metadata
 
-    assert _evaluated_series_index(alert, check) == expected_index
+    assert _evaluated_series(alert, check) == expected
 
 
 @pytest.mark.parametrize(
