@@ -33,7 +33,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isEventsQuery } from '~/queries/utils'
+import { isEventsQuery, isHogQLAggregation } from '~/queries/utils'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
@@ -285,14 +285,24 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
         orderBy: [
             (s, p) => [p.query, s.sourceFeatures],
-            (query: DataTableNode, sourceFeatures: Set<QueryFeature>): string[] | null =>
-                sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
-                    ? 'orderBy' in query.source // might not be EventsQuery, but something else with orderBy
-                        ? ((query.source as EventsQuery).orderBy ?? null)
-                        : isEventsQuery(query.source)
-                          ? ['timestamp DESC']
-                          : null
-                    : null,
+            (query: DataTableNode, sourceFeatures: Set<QueryFeature>): string[] | null => {
+                if (!sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
+                    return null
+                }
+                // might not be EventsQuery, but something else with orderBy
+                const orderBy = (query.source as EventsQuery).orderBy
+                if (orderBy) {
+                    return orderBy
+                }
+                if (!isEventsQuery(query.source)) {
+                    return null
+                }
+                // An unset orderBy (the column configurator saves `orderBy: undefined`) gets the events
+                // query runner's default. That default is timestamp DESC only for a select with a
+                // timestamp column and no aggregation, so any other select gets no date separators.
+                const { select } = query.source
+                return select.includes('timestamp') && !select.some(isHogQLAggregation) ? ['timestamp DESC'] : null
+            },
             { resultEqualityCheck: objectsEqual },
         ],
         columnsInResponse: [
@@ -324,9 +334,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
                             return []
                         }
 
-                        const orderKey = orderBy?.[0]?.endsWith(' DESC')
-                            ? orderBy[0].replace(/ DESC$/, '')
-                            : orderBy?.[0]
+                        // "Sort descending" writes `<column>\n DESC` so a trailing `-- comment` can't swallow DESC
+                        const orderKey = orderBy?.[0]
+                            ? removeExpressionComment(orderBy[0].replace(/ DESC$/, ''))
+                            : undefined
                         const orderKeyIndex =
                             columnsInResponse?.findIndex(
                                 (column) =>
