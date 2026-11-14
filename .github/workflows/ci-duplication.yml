@@ -24,6 +24,7 @@ permissions:
 jobs:
     duplication:
         name: Duplication lint
+        if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'trunk-merge/')
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
