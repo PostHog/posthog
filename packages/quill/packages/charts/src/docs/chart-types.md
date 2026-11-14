@@ -105,6 +105,20 @@ The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
 `config.tooltip.valueFormatter` formats each statistic in the default tooltip, so it can match `yTickFormatter`.
 Boxes have a light tint of the series color, a thick median line, and whiskers in the axis color. Set `config.boxCornerRadius: 0` for square corners.
 
+## ViolinPlot
+
+The distribution of the raw observations behind each label: `{ values: number[] }` per label, so the chart derives the shape, the median and the mean itself.
+The outline is a Gaussian kernel density estimate with Silverman's bandwidth, scaled so every violin is as wide as its slot allows, so shapes compare by spread rather than by count.
+Each violin also shows one marker per observation (`config.showPoints: false` hides them), a median tick and a mean marker.
+The outline extends two bandwidths past the extreme values and stops at the edge of the value axis.
+With `yScaleType: 'log'` the density is estimated on log10 of the values and values that are not positive are left out.
+The estimate uses at most 1,000 values per violin and draws at most 500 markers, thinned evenly, so a large group stays cheap.
+Supports `config.legend` for grouped series. The value axis is always vertical.
+The default tooltip lists the count and the statistics; `config.tooltip.valueFormatter` formats the statistics but not the count. On a log axis the count and statistics cover the positive values only, matching what is drawn.
+The tooltip receives a `ViolinPlotTooltipContext`; `ViolinPlotTooltip` is the default.
+The layout of every violin is computed once per scale set, so hovering only looks one up. Do not change a datum's `values` in place; pass a new datum.
+Use `BoxPlot` instead when you only have pre-aggregated percentiles.
+
 ## Heatmap
 
 A 2D density grid: `xLabels` by `yLabels` (row 0 at the bottom), `cells[row][col]` counts mapped to color intensity on one accent.
