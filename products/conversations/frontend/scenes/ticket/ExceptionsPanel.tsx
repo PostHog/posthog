@@ -6,6 +6,8 @@ import { Query } from '~/queries/Query/Query'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { PersonsTabType } from '~/types'
 
+import { TicketSidebarWidgetTitle } from '../../components/TicketSidebarWidgetTitle/TicketSidebarWidgetTitle'
+
 interface ExceptionsPanelProps {
     exceptionsQuery: DataTableNode | null
     sessionId?: string
@@ -20,10 +22,9 @@ export function ExceptionsPanel({ exceptionsQuery, sessionId, distinctId }: Exce
                 {
                     key: 'exceptions',
                     header: (
-                        <>
-                            Exceptions
-                            {sessionId && <span className="text-muted-alt font-normal ml-1">(session)</span>}
-                        </>
+                        <TicketSidebarWidgetTitle widgetKey="exceptions">
+                            {sessionId && <span className="text-muted-alt font-normal">(session)</span>}
+                        </TicketSidebarWidgetTitle>
                     ),
                     content: (
                         <div>

@@ -4,6 +4,8 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 
 import { ActivityScope } from '~/types'
 
+import { TicketSidebarWidgetTitle } from '../../components/TicketSidebarWidgetTitle/TicketSidebarWidgetTitle'
+
 interface TicketActivityPanelProps {
     ticketId: string
 }
@@ -15,7 +17,7 @@ export function TicketActivityPanel({ ticketId }: TicketActivityPanelProps): JSX
             panels={[
                 {
                     key: 'ticket-activity',
-                    header: 'Ticket activity history',
+                    header: <TicketSidebarWidgetTitle widgetKey="activity" />,
                     content: (
                         <div className="max-h-96 overflow-auto">
                             <ActivityLog scope={ActivityScope.TICKET} id={ticketId} />

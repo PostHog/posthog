@@ -6,6 +6,8 @@ import { Query } from '~/queries/Query/Query'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { PersonsTabType } from '~/types'
 
+import { TicketSidebarWidgetTitle } from '../../components/TicketSidebarWidgetTitle/TicketSidebarWidgetTitle'
+
 interface RecentEventsPanelProps {
     eventsQuery: DataTableNode | null
     personLoading?: boolean
@@ -26,14 +28,13 @@ export function RecentEventsPanel({
                 {
                     key: 'recent-events',
                     header: (
-                        <>
-                            Recent events
+                        <TicketSidebarWidgetTitle widgetKey="recent_events">
                             {eventsQuery && (
-                                <span className="text-muted-alt font-normal ml-1">
+                                <span className="text-muted-alt font-normal">
                                     {sessionId ? '(session)' : '(±5 min)'}
                                 </span>
                             )}
-                        </>
+                        </TicketSidebarWidgetTitle>
                     ),
                     content: (
                         <div>

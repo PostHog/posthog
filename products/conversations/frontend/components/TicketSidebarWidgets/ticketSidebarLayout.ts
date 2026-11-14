@@ -1,4 +1,4 @@
-import { TicketSidebarConfiguration } from '~/queries/schema/schema-general'
+import { FileSystemIconType, TicketSidebarConfiguration } from '~/queries/schema/schema-general'
 
 // pinned: widget keys are stored in each user's saved layout on their account. Renaming one resets it.
 export type TicketSidebarWidgetKey =
@@ -15,6 +15,8 @@ export interface TicketSidebarWidgetDefinition {
     key: TicketSidebarWidgetKey
     title: string
     description: string
+    /** The icon of the product the widget shows data from, as the navigation shows it. */
+    iconType: FileSystemIconType
 }
 
 /** The order here is the default layout, and where a widget lands when a saved layout predates it. */
@@ -23,41 +25,49 @@ export const TICKET_SIDEBAR_WIDGETS: TicketSidebarWidgetDefinition[] = [
         key: 'related_groups',
         title: 'Related groups',
         description: 'Groups the customer belongs to, with revenue.',
+        iconType: 'group',
     },
     {
         key: 'staff_actions',
         title: 'Staff actions',
         description: 'Log in as the customer. Only visible to staff.',
+        iconType: 'user',
     },
     {
         key: 'ai_triage',
         title: 'AI triage',
         description: 'What the AI found when it triaged the ticket.',
+        iconType: 'conversations',
     },
     {
         key: 'session_recording',
         title: 'Session recording',
         description: 'The recording of the session the ticket came from.',
+        iconType: 'session_replay',
     },
     {
         key: 'recent_events',
         title: 'Recent events',
         description: 'Events from around the time the ticket was created.',
+        iconType: 'activity',
     },
     {
         key: 'exceptions',
         title: 'Exceptions',
         description: 'Exceptions from the session the ticket came from.',
+        iconType: 'error_tracking',
     },
     {
         key: 'previous_tickets',
         title: 'Previous tickets',
         description: 'Other tickets from the same customer.',
+        iconType: 'conversations',
     },
     {
         key: 'activity',
         title: 'Ticket activity history',
         description: 'Changes made to this ticket.',
+        iconType: 'team_activity',
     },
 ]
 

@@ -11,6 +11,7 @@ import { relatedGroupsLogic } from 'products/groups/frontend/logics/relatedGroup
 import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
 
 import { GroupRevenue } from '../../components/GroupRevenue/GroupRevenue'
+import { TicketSidebarWidgetTitle } from '../../components/TicketSidebarWidgetTitle/TicketSidebarWidgetTitle'
 import { creationGroupLogic } from './creationGroupLogic'
 import { resolveGroupRevenue } from './groupRevenue'
 import { groupRevenueLogic } from './groupRevenueLogic'
@@ -215,7 +216,7 @@ export function RelatedGroupsPanel({
             panels={[
                 {
                     key: 'related-groups',
-                    header: 'Related groups',
+                    header: <TicketSidebarWidgetTitle widgetKey="related_groups" />,
                     content,
                 },
             ]}

@@ -7,6 +7,7 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonMenu } from '@posthog/lemon-ui'
 
 import { TicketSidebarWidgetEditorRow } from '../TicketSidebarWidgetEditorRow/TicketSidebarWidgetEditorRow'
+import { TicketSidebarWidgetIcon } from '../TicketSidebarWidgetIcon/TicketSidebarWidgetIcon'
 import {
     TicketSidebarWidgetKey,
     TicketSidebarWidgetSlots,
@@ -67,6 +68,7 @@ export function TicketSidebarWidgetsEditor({ slots }: { slots: TicketSidebarWidg
                 placement="bottom-start"
                 items={addable.map((key) => ({
                     label: ticketSidebarWidget(key).title,
+                    icon: <TicketSidebarWidgetIcon widgetKey={key} />,
                     onClick: () => showWidget(key),
                 }))}
             >
