@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.aws_batch.aws_batch import (
 )
 from products.warehouse_sources.sources.aws_batch.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.aws_batch.settings import (
+    AWS_SESSION_ACTIONS,
     BATCH_API_VERSION,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
@@ -15,6 +16,9 @@ from products.warehouse_sources.sources.aws_batch.settings import (
     NON_RETRYABLE_ERRORS,
 )
 from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
@@ -29,8 +33,10 @@ from products.warehouse_sources.sources.sdk import (
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    aws_auth_field,
     build_endpoint_schemas,
     detect,
+    resolve_aws_credentials,
 )
 
 
@@ -50,12 +56,16 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
     default_version = BATCH_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/batch/latest/APIReference/Welcome.html"
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
+    credential_kind = "aws-batch"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSBATCH
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return dict(NON_RETRYABLE_ERRORS)
+        return {**AWS_AUTH_NON_RETRYABLE_ERRORS, **NON_RETRYABLE_ERRORS}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -78,7 +88,11 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, schema_name, self.resolve_api_version(api_version))
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsBatchResumeConfig]:
         return ResumableSourceManager(inputs, AwsBatchResumeConfig)
@@ -90,7 +104,11 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_batch_source(
-            config, inputs.schema_name, resumable_source_manager, self.resolve_api_version(inputs.api_version)
+            config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
+            inputs.schema_name,
+            resumable_source_manager,
+            self.resolve_api_version(inputs.api_version),
         )
 
     @property
@@ -106,7 +124,7 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
                 "Grant `batch:DescribeComputeEnvironments` and `batch:DescribeJobDefinitions` to read those tables. "
                 "Grant `batch:ListSchedulingPolicies` and `batch:DescribeSchedulingPolicies` to read scheduling policies. "
                 "Grant `batch:ListConsumableResources` and `batch:DescribeConsumableResource` to read consumable resources. "
-                "Enter an access key ID and secret access key. Add a session token for temporary credentials. "
+                "Connect with an IAM role, or with an access key ID and secret access key. Add a session token for temporary credentials. "
                 "All tables use full refresh so later job status changes remain visible. "
                 "The jobs and service jobs tables include jobs that AWS still retains in existing queues. "
                 "The job children table includes the children of array jobs and the nodes of multi-node parallel jobs."
@@ -117,31 +135,7 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="",
-                        secret=True,
-                        caption="Required for temporary credentials. Replace these credentials when the session token expires.",
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="region",
                         label="AWS region",

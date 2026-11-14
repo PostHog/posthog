@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -41,11 +40,13 @@ from products.warehouse_sources.sources.aws_waf.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     SourceResponse,
+    aws_redact_values,
     frozen,
     make_tracked_session,
     parse_datetime_value,
     probe_status_message,
     retry_with_deadline,
+    sign_aws_request,
 )
 
 if TYPE_CHECKING:
@@ -120,14 +121,13 @@ class AwsWafClient:
     def __init__(
         self,
         config: AwsWafSourceConfig,
+        credentials: Credentials,
         api_version: str = WAF_API_VERSION,
         service: AwsService = WAFV2_SERVICE,
         capture: bool = True,
     ) -> None:
         if api_version != WAF_API_VERSION:
             raise ValueError(f"Unsupported AWS WAF API version: {api_version}")
-        if not config.aws_access_key_id or not config.aws_secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
         if config.scope not in {"REGIONAL", "CLOUDFRONT"}:
             raise ValueError("Select REGIONAL or CLOUDFRONT for the AWS WAF scope.")
         if not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", config.aws_region):
@@ -137,16 +137,12 @@ class AwsWafClient:
         suffix = "amazonaws.com.cn" if self.region.startswith("cn-") else "amazonaws.com"
         self.service = service
         self.url = f"https://{service.signing_name}.{self.region}.{suffix}/"
-        self.signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            service.signing_name,
-            self.region,
-        )
+        self._credentials = credentials
         # WAF can throttle with HTTP 400, so one retry layer handles both HTTP statuses and AWS error codes.
         self.session = make_tracked_session(
             retry=Retry(total=0),
             capture=capture,
-            redact_values=tuple(value for value in (config.aws_secret_access_key, config.aws_session_token) if value),
+            redact_values=aws_redact_values(credentials),
         )
 
     def close(self) -> None:
@@ -169,7 +165,7 @@ class AwsWafClient:
                 "X-Amz-Target": f"{self.service.target_prefix}.{operation}",
             },
         )
-        self.signer.add_auth(request)
+        sign_aws_request(request, self._credentials, self.service.signing_name, self.region)
         response = self.session.post(
             self.url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False
         )
@@ -236,21 +232,24 @@ class AwsWafClient:
 
 
 def validate_credentials(
-    config: AwsWafSourceConfig, schema_name: str | None = None, api_version: str = WAF_API_VERSION
+    config: AwsWafSourceConfig,
+    credentials: Credentials,
+    schema_name: str | None = None,
+    api_version: str = WAF_API_VERSION,
 ) -> tuple[bool, str | None]:
     table = schema_name or "web_acls"
     if table not in TABLE_PERMISSIONS:
         return False, f"Unknown AWS WAF table: {schema_name}"
     try:
         # Sampled requests carry end-user headers, so they stay out of HTTP sample capture.
-        client = AwsWafClient(config, api_version, capture=table != SAMPLED_REQUESTS)
+        client = AwsWafClient(config, credentials, api_version, capture=table != SAMPLED_REQUESTS)
     except ValueError as error:
         return False, str(error)
     try:
         if schema_name is None:
             client.request("ListWebACLs", {"Scope": client.scope, "Limit": 1})
         else:
-            probe_table(client, config, table, api_version)
+            probe_table(client, config, credentials, table, api_version)
     except AwsWafError as error:
         if error.code in ACCESS_DENIED_CODES:
             if schema_name is None:
@@ -282,9 +281,11 @@ def sampled_metric_names(web_acl: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-def probe_table(client: AwsWafClient, config: AwsWafSourceConfig, table: str, api_version: str) -> None:
+def probe_table(
+    client: AwsWafClient, config: AwsWafSourceConfig, credentials: Credentials, table: str, api_version: str
+) -> None:
     if table == REQUEST_METRICS:
-        metrics_client = AwsWafClient(config, api_version, CLOUDWATCH_SERVICE)
+        metrics_client = AwsWafClient(config, credentials, api_version, CLOUDWATCH_SERVICE)
         try:
             metrics_client.request("ListMetrics", {"Namespace": METRICS_NAMESPACE})
         finally:
@@ -336,12 +337,13 @@ def iter_web_acls(
 
 def get_rows(
     config: AwsWafSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: "ResumableSourceManager[AwsWafResumeConfig]",
     api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
     state = manager.load_state() or AwsWafResumeConfig()
-    client = AwsWafClient(config, api_version)
+    client = AwsWafClient(config, credentials, api_version)
     marker = state.next_marker
     list_call = LIST_CALLS[endpoint]
     try:
@@ -394,9 +396,12 @@ def protected_resource_rows(
 
 
 def get_web_acl_resource_rows(
-    config: AwsWafSourceConfig, manager: "ResumableSourceManager[AwsWafResumeConfig]", api_version: str
+    config: AwsWafSourceConfig,
+    credentials: Credentials,
+    manager: "ResumableSourceManager[AwsWafResumeConfig]",
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
-    client = AwsWafClient(config, api_version)
+    client = AwsWafClient(config, credentials, api_version)
     try:
         # CloudFront distributions are listed by the CloudFront API, not by ListResourcesForWebACL.
         if client.scope != "REGIONAL":
@@ -465,6 +470,7 @@ def sampled_rows_for_web_acl(
 
 def get_sampled_request_rows(
     config: AwsWafSourceConfig,
+    credentials: Credentials,
     manager: "ResumableSourceManager[AwsWafResumeConfig]",
     api_version: str,
     last_value: Any,
@@ -476,7 +482,7 @@ def get_sampled_request_rows(
         start = watermark
     if start >= end:
         return
-    client = AwsWafClient(config, api_version, capture=False)
+    client = AwsWafClient(config, credentials, api_version, capture=False)
     try:
         yield from iter_web_acls(
             client, manager, lambda summary: sampled_rows_for_web_acl(client, manager, summary, start, end)
@@ -492,6 +498,7 @@ def metric_id(metric: dict[str, Any]) -> str:
 
 def get_request_metric_rows(
     config: AwsWafSourceConfig,
+    credentials: Credentials,
     manager: "ResumableSourceManager[AwsWafResumeConfig]",
     api_version: str,
     last_value: Any,
@@ -499,7 +506,7 @@ def get_request_metric_rows(
     end = utc_now()
     start = max(parse_datetime_value(last_value) or end - METRICS_HISTORY, end - METRICS_HISTORY)
     start = start.replace(minute=0, second=0, microsecond=0)
-    client = AwsWafClient(config, api_version, CLOUDWATCH_SERVICE)
+    client = AwsWafClient(config, credentials, api_version, CLOUDWATCH_SERVICE)
     try:
         metrics: list[dict[str, Any]] = []
         list_payload: dict[str, Any] = {"Namespace": METRICS_NAMESPACE}
@@ -572,22 +579,24 @@ def get_request_metric_rows(
 
 def iter_rows(
     config: AwsWafSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: "ResumableSourceManager[AwsWafResumeConfig]",
     api_version: str,
     incremental_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     if endpoint == WEB_ACL_RESOURCES:
-        return get_web_acl_resource_rows(config, manager, api_version)
+        return get_web_acl_resource_rows(config, credentials, manager, api_version)
     if endpoint == SAMPLED_REQUESTS:
-        return get_sampled_request_rows(config, manager, api_version, incremental_last_value)
+        return get_sampled_request_rows(config, credentials, manager, api_version, incremental_last_value)
     if endpoint == REQUEST_METRICS:
-        return get_request_metric_rows(config, manager, api_version, incremental_last_value)
-    return get_rows(config, endpoint, manager, api_version)
+        return get_request_metric_rows(config, credentials, manager, api_version, incremental_last_value)
+    return get_rows(config, credentials, endpoint, manager, api_version)
 
 
 def aws_waf_source(
     config: AwsWafSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: "ResumableSourceManager[AwsWafResumeConfig]",
     api_version: str = WAF_API_VERSION,
@@ -597,7 +606,7 @@ def aws_waf_source(
         raise ValueError(f"Unknown AWS WAF table: {endpoint}")
     return SourceResponse(
         name=endpoint,
-        items=lambda: iter_rows(config, endpoint, manager, api_version, incremental_last_value),
+        items=lambda: iter_rows(config, credentials, endpoint, manager, api_version, incremental_last_value),
         primary_keys=PRIMARY_KEYS[endpoint],
         sort_mode=None,
         on_complete=manager.clear_state,

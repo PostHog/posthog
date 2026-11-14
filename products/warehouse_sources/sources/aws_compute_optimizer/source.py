@@ -10,10 +10,14 @@ from products.warehouse_sources.sources.aws_compute_optimizer.canonical_descript
 from products.warehouse_sources.sources.aws_compute_optimizer.settings import (
     API_DOCS_URL,
     API_VERSION,
+    AWS_SESSION_ACTIONS,
     ENDPOINTS,
     ERROR_MESSAGES,
 )
 from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
@@ -28,8 +32,10 @@ from products.warehouse_sources.sources.sdk import (
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    aws_auth_field,
     build_endpoint_schemas,
     detect,
+    resolve_aws_credentials,
 )
 
 
@@ -53,12 +59,19 @@ class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig,
     default_version = API_VERSION
     api_docs_url = API_DOCS_URL
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
+    credential_kind = "aws-compute-optimizer"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSCOMPUTEOPTIMIZER
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS Compute Optimizer request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS Compute Optimizer request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -83,7 +96,11 @@ class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig,
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, schema_name, self.resolve_api_version(api_version))
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(
         self, inputs: SourceInputs
@@ -97,7 +114,11 @@ class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig,
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_compute_optimizer_source(
-            config, inputs.schema_name, resumable_source_manager, self.resolve_api_version(inputs.api_version)
+            config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
+            inputs.schema_name,
+            resumable_source_manager,
+            self.resolve_api_version(inputs.api_version),
         )
 
     @property
@@ -128,31 +149,7 @@ Each sync replaces the current recommendations. This source does not keep recomm
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        secret=True,
-                        placeholder="",
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        secret=True,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Required for temporary credentials. Update the credentials before the token expires.",
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="region",
                         label="AWS region",

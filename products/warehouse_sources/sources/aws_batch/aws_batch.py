@@ -6,7 +6,6 @@ from dataclasses import replace
 from typing import Any
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from botocore.session import Session
@@ -23,8 +22,10 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    aws_redact_values,
     frozen,
     make_tracked_session,
+    sign_aws_request,
 )
 
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
@@ -93,7 +94,9 @@ def error_for_response(response: requests.Response) -> AwsBatchError:
 
 
 class AwsBatchClient:
-    def __init__(self, config: AwsBatchSourceConfig, api_version: str = BATCH_API_VERSION) -> None:
+    def __init__(
+        self, config: AwsBatchSourceConfig, credentials: Credentials, api_version: str = BATCH_API_VERSION
+    ) -> None:
         if api_version != BATCH_API_VERSION:
             raise ValueError(f"Unsupported AWS Batch API version: {api_version}")
         if not _REGION.fullmatch(config.region):
@@ -102,18 +105,11 @@ class AwsBatchClient:
         self.url = f"https://batch.{config.region}.{suffix}"
         # REST-JSON has no version header. The pinned service model selects its request paths.
         self.model = Session().get_service_model("batch", api_version=api_version)
-        self.signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "batch",
-            config.region,
-        )
+        self.region = config.region
+        self._credentials = credentials
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(
-                value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     @retry(
@@ -126,7 +122,7 @@ class AwsBatchClient:
         url = self.url + self.model.operation_model(operation).http["requestUri"]
         body = json.dumps(payload).encode("utf-8")
         request = AWSRequest(method="POST", url=url, data=body, headers={"Content-Type": "application/json"})
-        self.signer.add_auth(request)
+        sign_aws_request(request, self._credentials, "batch", self.region)
         response = self.session.post(url, data=body, headers=dict(request.headers), timeout=60)
         if response.status_code >= 400:
             raise error_for_response(response)
@@ -299,6 +295,7 @@ def describe_page(
 
 def get_rows(
     config: AwsBatchSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: ResumableSourceManager[AwsBatchResumeConfig],
     api_version: str,
@@ -308,7 +305,7 @@ def get_rows(
     state = state or AwsBatchResumeConfig()
     if state.complete:
         return
-    client = AwsBatchClient(config, api_version)
+    client = AwsBatchClient(config, credentials, api_version)
     try:
         if endpoint == "job_children":
             yield from get_child_rows(client, config.region, manager, state)
@@ -360,15 +357,14 @@ def credential_error_message(error: AwsBatchError) -> str:
 
 def validate_credentials(
     config: AwsBatchSourceConfig,
+    credentials: Credentials,
     schema_name: str | None = None,
     api_version: str = BATCH_API_VERSION,
 ) -> tuple[bool, str | None]:
-    if not config.aws_access_key_id or not config.aws_secret_access_key:
-        return False, "Enter both an AWS access key ID and a secret access key."
     if schema_name is not None and schema_name not in AWS_BATCH_ENDPOINTS:
         return False, f"Unknown AWS Batch table: {schema_name}"
     try:
-        client = AwsBatchClient(config, api_version)
+        client = AwsBatchClient(config, credentials, api_version)
     except ValueError as error:
         return False, str(error)
     try:
@@ -412,6 +408,7 @@ def validate_credentials(
 
 def aws_batch_source(
     config: AwsBatchSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: ResumableSourceManager[AwsBatchResumeConfig],
     api_version: str = BATCH_API_VERSION,
@@ -421,7 +418,7 @@ def aws_batch_source(
         raise ValueError(f"Unknown AWS Batch table: {endpoint}")
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(config, endpoint, manager, api_version),
+        items=lambda: get_rows(config, credentials, endpoint, manager, api_version),
         primary_keys=[endpoint_config.primary_key],
         sort_mode=None,
         on_complete=manager.clear_state,

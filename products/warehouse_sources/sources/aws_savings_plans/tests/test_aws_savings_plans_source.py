@@ -17,8 +17,8 @@ from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, Sou
 def test_pipeline_passes_cursor_and_partition_settings(
     name: str, incremental: bool, start: str | None, partition: list[str] | None
 ) -> None:
-    config = AwsSavingsPlansSourceConfig(
-        aws_access_key_id="example", aws_secret_access_key="secret", start_date="2025-01-01"
+    config = AwsSavingsPlansSourceConfig.from_dict(
+        {"aws_access_key_id": "example", "aws_secret_access_key": "secret", "start_date": "2025-01-01"}
     )
     with time_machine.travel("2025-01-12", tick=False):
         result = SourceDriver(AwsSavingsPlansSource(), config).run(

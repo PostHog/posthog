@@ -8,6 +8,7 @@ import time_machine
 from unittest.mock import Mock, patch
 
 import requests
+from botocore.credentials import Credentials
 from botocore.session import Session
 
 from products.warehouse_sources.sources.aws_security_hub import aws_security_hub
@@ -31,6 +32,8 @@ from products.warehouse_sources.sources.sdk.testing import (
     scripted_network,
 )
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "fake-secret")
+
 VERSION = "2018-10-26"
 SUBSCRIPTION_A = "arn:aws:securityhub:eu-west-1:111111111111:subscription/example-standard/v/1.0.0"
 SUBSCRIPTION_B = "arn:aws:securityhub:eu-west-1:111111111111:subscription/other-standard/v/2.0.0"
@@ -48,11 +51,13 @@ def insight_results_path(insight_arn: str) -> str:
 
 
 def config(region: str = "eu-west-1", token: str | None = "fake-session-token") -> AwsSecurityHubSourceConfig:
-    return AwsSecurityHubSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="fake-secret",
-        aws_session_token=token,
-        region=region,
+    return AwsSecurityHubSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "fake-secret",
+            "aws_session_token": token,
+            "region": region,
+        }
     )
 
 
@@ -102,7 +107,9 @@ def test_signed_rest_requests(operation: str, method: str, path: str) -> None:
     payload = {"MaxResults": 100, "NextToken": "example/+="}
     redirect = ScriptedResponse(status=302, json={}, headers={"Location": "https://example.com/redirect"})
     with scripted_network([redirect]) as network:
-        AwsSecurityHubClient(config(), VERSION).request(operation, payload)
+        AwsSecurityHubClient(
+            config(), Credentials("AKIAEXAMPLE", "fake-secret", "fake-session-token"), VERSION
+        ).request(operation, payload)
     assert len(network.requests_log) == 1
     request = network.requests_log[0]
     assert request.method == method
@@ -125,7 +132,7 @@ def test_signed_rest_requests(operation: str, method: str, path: str) -> None:
 @pytest.mark.parametrize("region,suffix", [("us-east-1", "amazonaws.com"), ("cn-north-1", "amazonaws.com.cn")])
 def test_region_and_long_lived_credentials(region: str, suffix: str) -> None:
     with scripted_network([ScriptedResponse(json={})]) as network:
-        AwsSecurityHubClient(config(region, token=None), VERSION).request("GetInsights", {"MaxResults": 1})
+        AwsSecurityHubClient(config(region, token=None), CREDENTIALS, VERSION).request("GetInsights", {"MaxResults": 1})
     request = network.requests_log[0]
     assert request.url == f"https://securityhub.{region}.{suffix}/insights/get"
     assert "x-amz-security-token" not in request.headers
@@ -134,7 +141,7 @@ def test_region_and_long_lived_credentials(region: str, suffix: str) -> None:
 @pytest.mark.parametrize("region", ["us-east-1.example.com", "us-east-1/path", "", "https://example.com"])
 def test_invalid_region_never_sends_credentials(region: str) -> None:
     with scripted_network([]) as network:
-        success, message = validate_credentials(config(region), VERSION)
+        success, message = validate_credentials(config(region), CREDENTIALS, VERSION)
     assert not success
     assert message and "valid AWS region" in message
     assert network.requests_log == []
@@ -143,7 +150,7 @@ def test_invalid_region_never_sends_credentials(region: str) -> None:
 def test_unsupported_version_never_sends_request() -> None:
     with scripted_network([]) as network:
         with pytest.raises(ValueError, match="Unsupported AWS Security Hub API version"):
-            AwsSecurityHubClient(config(), "2099-01-01")
+            AwsSecurityHubClient(config(), CREDENTIALS, "2099-01-01")
     assert network.requests_log == []
 
 
@@ -155,7 +162,7 @@ def test_pagination_empty_pages_and_terminal_checkpoint(session: Mock, terminal_
         response({"Findings": [{"Id": "last"}], "NextToken": terminal_token}),
     ]
     resume = manager()
-    source = aws_security_hub_source(config(), "findings", VERSION, resume, False, None)
+    source = aws_security_hub_source(config(), CREDENTIALS, "findings", VERSION, resume, False, None)
     items = iter(cast(Iterable[Any], source.items()))
     assert next(items) == [{"id": "first", "created_at": dt.datetime(2025, 1, 1, tzinfo=dt.UTC)}]
     assert resume.save_state.call_args.args[0].next_token == "second"
@@ -278,7 +285,7 @@ def test_credential_validation(
     session: Mock, schema: str | None, code: str | None, message: str, success: bool, reason: str | None
 ) -> None:
     session.request.return_value = response({"message": message}, 403 if code else 200, code)
-    valid, error = validate_credentials(config(), VERSION, schema)
+    valid, error = validate_credentials(config(), CREDENTIALS, VERSION, schema)
     assert valid is success
     assert error is None if reason is None else reason in (error or "")
     assert session.request.call_count == 1
@@ -293,7 +300,7 @@ def test_permission_probes_do_not_hide_tables_on_transient_errors(failure: Excep
     else:
         script = always(failure)
     with scripted_network(script) as network:
-        assert probe_endpoint_permissions(config(), VERSION, ["findings"]) == {"findings": None}
+        assert probe_endpoint_permissions(config(), CREDENTIALS, VERSION, ["findings"]) == {"findings": None}
     assert network.requests_log
     assert {request.path for request in network.requests_log} == {"/findings"}
 
@@ -333,7 +340,7 @@ def test_permission_probe_names_missing_permission(
     endpoint: str, script: list[ScriptedResponse], missing: str | None, paths: list[str]
 ) -> None:
     with scripted_network(script) as network:
-        permissions = probe_endpoint_permissions(config(), VERSION, [endpoint])
+        permissions = probe_endpoint_permissions(config(), CREDENTIALS, VERSION, [endpoint])
     if missing:
         assert f"securityhub:{missing}" in (permissions[endpoint] or "")
     else:
@@ -510,9 +517,9 @@ def test_finding_identity_and_timestamps_survive_normalization() -> None:
 @pytest.mark.parametrize("missing_field", ["aws_access_key_id", "aws_secret_access_key"])
 def test_missing_credentials_do_not_send_request(missing_field: str) -> None:
     source_config = config()
-    setattr(source_config, missing_field, "")
+    setattr(source_config.aws_auth, missing_field, "")
     with scripted_network([]) as network:
-        valid, message = validate_credentials(source_config, VERSION)
+        valid, message = AwsSecurityHubSource().validate_credentials(source_config, team_id=1, api_version=VERSION)
     assert not valid
     assert message == "Enter both an AWS access key ID and a secret access key."
     assert network.requests_log == []
@@ -520,7 +527,7 @@ def test_missing_credentials_do_not_send_request(missing_field: str) -> None:
 
 def test_unknown_schema_does_not_send_request() -> None:
     with scripted_network([]) as network:
-        valid, message = validate_credentials(config(), VERSION, "unknown")
+        valid, message = validate_credentials(config(), CREDENTIALS, VERSION, "unknown")
     assert not valid
     assert message == "Unknown AWS Security Hub table: unknown"
     assert network.requests_log == []
@@ -528,7 +535,10 @@ def test_unknown_schema_does_not_send_request() -> None:
 
 def test_validation_network_error(session: Mock) -> None:
     session.request.side_effect = requests.Timeout()
-    assert validate_credentials(config(), VERSION) == (False, "Could not reach AWS Security Hub. Try again.")
+    assert validate_credentials(config(), CREDENTIALS, VERSION) == (
+        False,
+        "Could not reach AWS Security Hub. Try again.",
+    )
     session.close.assert_called_once()
 
 
