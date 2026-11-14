@@ -39,8 +39,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_MAX_INSTANCES,
-    MAX_EVALUATION_PERIODS,
     MAX_INSTANCES_CEILING,
+    MAX_SOURCE_EVALUATION_PERIODS,
     MAX_STORED_INTEGER,
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -382,12 +382,13 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
     )
     evaluation_periods = serializers.IntegerField(
         min_value=1,
-        max_value=MAX_EVALUATION_PERIODS,
-        help_text="Number of recent checks considered when deciding to fire.",
+        max_value=MAX_SOURCE_EVALUATION_PERIODS,
+        help_text="Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; "
+        "metrics alerts allow up to 60.",
     )
     datapoints_to_alarm = serializers.IntegerField(
         min_value=1,
-        max_value=MAX_EVALUATION_PERIODS,
+        max_value=MAX_SOURCE_EVALUATION_PERIODS,
         help_text="Number of breaching checks within evaluation_periods required to fire. "
         "Cannot exceed evaluation_periods.",
     )

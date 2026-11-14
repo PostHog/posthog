@@ -1,6 +1,6 @@
-import { buildFormDefaults, MetricsAlertFormType, toWritePayload } from './metricsAlertUtils'
+import { buildFormDefaults, MetricsAlertFormType, toWritePayload, validateForm } from './metricsAlertUtils'
 
-describe('toWritePayload', () => {
+describe('metricsAlertUtils', () => {
     const base: MetricsAlertFormType = {
         ...buildFormDefaults(null),
         name: ' Error rate ',
@@ -45,5 +45,16 @@ describe('toWritePayload', () => {
             grouping: expected.grouping,
         })
         expect(payload.source_config.condition).toEqual(expected.condition)
+    })
+
+    // The platform accepts up to 60 checks for a metrics alert, so the form must too.
+    it.each([
+        { periods: 60, error: undefined },
+        { periods: 61, error: 'Enter a number of checks from 1 to 60.' },
+    ])('validateForm on a window of $periods checks', ({ periods, error }) => {
+        const errors = validateForm({ ...base, evaluationPeriods: periods, datapointsToAlarm: periods })
+
+        expect(errors.evaluationPeriods).toEqual(error)
+        expect(errors.datapointsToAlarm).toEqual(error)
     })
 })

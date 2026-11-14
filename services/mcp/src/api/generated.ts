@@ -64431,15 +64431,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -69104,15 +69104,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -69167,15 +69167,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -72616,15 +72616,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -72679,15 +72679,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -90726,15 +90726,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -91181,15 +91181,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -91547,15 +91547,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -92175,15 +92175,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -92248,15 +92248,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -92333,15 +92333,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -97972,15 +97972,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -98035,15 +98035,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -98098,15 +98098,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -98163,15 +98163,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -98226,15 +98226,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -98289,15 +98289,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**

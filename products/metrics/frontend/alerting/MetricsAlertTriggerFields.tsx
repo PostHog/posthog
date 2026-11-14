@@ -9,7 +9,7 @@ import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDef
 import { MetricsPlatformAlertConditionKindEnumApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import { metricsAlertFormLogic } from './metricsAlertFormLogic'
-import { MetricsAlertFormErrors, OPERATOR_OPTIONS, finiteOrNull } from './metricsAlertUtils'
+import { MAX_METRICS_ALERT_CHECKS, MetricsAlertFormErrors, OPERATOR_OPTIONS, finiteOrNull } from './metricsAlertUtils'
 
 export function MetricsAlertTriggerFields({ thresholdError }: { thresholdError?: string }): JSX.Element {
     const { alertForm, alertFormErrors } = useValues(metricsAlertFormLogic)
@@ -89,7 +89,7 @@ export function MetricsAlertTriggerFields({ thresholdError }: { thresholdError?:
                         <LemonInput
                             type="number"
                             min={1}
-                            max={alertForm.evaluationPeriods ?? 10}
+                            max={alertForm.evaluationPeriods ?? MAX_METRICS_ALERT_CHECKS}
                             value={alertForm.datapointsToAlarm ?? undefined}
                             onChange={(value) => setAlertFormValue('datapointsToAlarm', finiteOrNull(value))}
                             className="w-16"
@@ -99,7 +99,7 @@ export function MetricsAlertTriggerFields({ thresholdError }: { thresholdError?:
                         <LemonInput
                             type="number"
                             min={1}
-                            max={10}
+                            max={MAX_METRICS_ALERT_CHECKS}
                             value={alertForm.evaluationPeriods ?? undefined}
                             onChange={(value) => {
                                 const periods = finiteOrNull(value)
