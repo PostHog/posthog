@@ -3646,16 +3646,14 @@ function senderErrors(
     }
 }
 
-function unusableSenderError(
-    action: HogFlowAction,
-    from: EmailTemplateFrom | undefined,
-    integrations: IntegrationType[] | null
-): string | undefined {
+function unusableSenderError(action: HogFlowAction, integrations: IntegrationType[] | null): string | undefined {
     if (action.type !== 'function_email' || !integrations) {
         return undefined
     }
+    const from: EmailTemplateFrom | undefined = action.config.inputs?.email?.value?.from
     for (const senderId of selectedSenderIds(from ?? {})) {
-        const sender = integrations.find((integration) => integration.id === Number(senderId))
+        // Compared as text, as the backend gate does, so "012" names no sender on either side.
+        const sender = integrations.find((integration) => String(integration.id) === String(senderId))
         if (!sender || sender.kind !== 'email') {
             return "This sender can't be found. Choose another sender."
         }
@@ -4450,7 +4448,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
                             }
 
-                            const unusableSender = unusableSenderError(action, emailValue?.from, integrations)
+                            const unusableSender = unusableSenderError(action, integrations)
                             emailErrors.from = unusableSender ?? emailErrors.from
 
                             const hasEmailErrors = Object.values(emailErrors).some((v) => !!v)
@@ -4593,10 +4591,7 @@ export const workflowLogic = kea<workflowLogicType>([
         awaitsSenderFix: [
             (s) => [s.workflow, s.integrations],
             (workflow: HogFlow, integrations: IntegrationType[] | null): boolean =>
-                workflow.actions.some(
-                    (action) =>
-                        !!unusableSenderError(action, (action.config as any)?.inputs?.email?.value?.from, integrations)
-                ),
+                workflow.actions.some((action) => !!unusableSenderError(action, integrations)),
         ],
         keepsLocalEditsOnExternalEdit: [
             (s) => [s.featureFlags],

@@ -3724,8 +3724,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def _stages_draft(self) -> bool:
         # stage_draft rides the raw request body rather than being a serializer field, mirroring
         # base_updated_at (see perform_update, which does the actual draft routing off it).
-        # Publish promotes the content to the live row, so it never counts as staging, whatever the body says.
-        if getattr(self.context.get("view"), "action", None) == "publish":
+        # Only perform_update honors the flag; every other action writes the live row whatever the body says.
+        if getattr(self.context.get("view"), "action", None) not in ("update", "partial_update"):
             return False
         request = self.context.get("request")
         return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
@@ -4443,20 +4443,7 @@ def _patched_sender_ids(email_patch: Any) -> list[Any]:
     return [_patched_sender_id(email_patch), *(rotation if isinstance(rotation, list) else [rotation])]
 
 
-def _sender_id(value: Any) -> int | None:
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    # isdigit alone accepts digits such as "²" that int() rejects, and int() refuses very long digit strings.
-    if isinstance(value, str) and value.isascii() and value.isdigit():
-        try:
-            return int(value)
-        except ValueError:
-            return None
-    # Any other shape names no sender the send path can load.
-    return None
-
-
-def _email_step_sender_ids(action: dict) -> list[int | None]:
+def _email_step_sender_ids(action: dict) -> list[str | None]:
     config = action.get("config") or {}
     if action.get("type") != "function_email" and config.get("template_id") != "template-email":
         return []
@@ -4468,7 +4455,12 @@ def _email_step_sender_ids(action: dict) -> list[int | None]:
     # The send path picks from the rotation alone when one is set.
     rotation = sender.get("integrationIds")
     configured = rotation if isinstance(rotation, list) and rotation else [sender.get("integrationId")]
-    return [_sender_id(sender_id) for sender_id in configured if sender_id not in (None, "")]
+    # A number or text names a sender by id; any other shape names none the send path can load.
+    return [
+        str(sender_id) if isinstance(sender_id, (int, str)) else None
+        for sender_id in configured
+        if sender_id not in (None, "")
+    ]
 
 
 def _refuse_unusable_email_senders(actions: list[dict], *, team_id: int) -> None:
@@ -6332,9 +6324,7 @@ class HogFlowViewSet(
         # the apply conflicts.
         rendered: Optional[_RenderedActionEmailDesign] = None
         if operations:
-            predicts_draft = self._is_mcp_request(request) and (
-                unlocked.status == HogFlowState.ACTIVE or unlocked.disabled_from_active
-            )
+            predicts_draft = self._stages_surgical_edit(unlocked)
             if predicts_draft and unlocked.draft:
                 render_base = list(unlocked.draft.get("actions") or [])
             else:

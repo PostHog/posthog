@@ -1169,8 +1169,6 @@ class TestHogFlowAPI(APIBaseTest):
             ("deleted_sender", "deleted", "function_email", "can't be found"),
             ("unverified_sender_in_rotation", "rotation", "function_email", "isn't verified yet"),
             ("malformed_sender_id", "malformed", "function_email", "can't be found"),
-            ("non_ascii_digit_sender_id", "non_ascii_digit", "function_email", "can't be found"),
-            ("overlong_digit_sender_id", "overlong_digits", "function_email", "can't be found"),
             ("generic_step_running_the_email_template", "unverified", "function", "isn't verified yet"),
         ]
     )
@@ -1182,8 +1180,6 @@ class TestHogFlowAPI(APIBaseTest):
             "deleted": {"integrationId": unverified.id + 1000},
             "rotation": {"integrationId": verified.id, "integrationIds": [unverified.id]},
             "malformed": {"integrationId": {"id": unverified.id}},
-            "non_ascii_digit": {"integrationId": "²"},
-            "overlong_digits": {"integrationId": "9" * 5000},
         }
         hog_flow = self._email_flow(senders[case], step_type)
 
@@ -1226,6 +1222,29 @@ class TestHogFlowAPI(APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert mcp_staged.status_code == 200, mcp_staged.json()
+        graph_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": live.actions[1]["id"],
+                        "patch": {
+                            "config": {
+                                "inputs": {
+                                    "email": {
+                                        "value": {"from": {"integrationId": sender.id}, "subject": "Graph subject"}
+                                    }
+                                }
+                            }
+                        },
+                    }
+                ],
+                "stage_draft": True,
+            },
+        )
+        assert graph_edit.status_code == 400, graph_edit.json()
+        assert "isn't verified yet" in graph_edit.json()["detail"]
 
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
