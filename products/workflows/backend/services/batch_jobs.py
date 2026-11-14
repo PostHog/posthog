@@ -18,7 +18,10 @@ from products.workflows.backend.facade.contracts import WorkflowBatchJob, Workfl
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
-from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import batch_job_audience_filters
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import (
+    batch_job_audience_filters,
+    dispatch_queued_no_resolver,
+)
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.services.batch_audience_cohorts import realtime_cohort_is_ready, sole_audience_cohort_id
 from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
@@ -41,6 +44,7 @@ def to_batch_job(job: HogFlowBatchJob) -> WorkflowBatchJob:
 
 def create_batch_job(
     *,
+    batch_job_id: UUID,
     team_id: int,
     hog_flow_id: UUID,
     created_by_id: int,
@@ -50,6 +54,7 @@ def create_batch_job(
 ) -> WorkflowBatchJob:
     """Save the job row. Its post_save receiver dispatches the run to the plugin server."""
     job = HogFlowBatchJob.objects.create(
+        id=batch_job_id,
         team_id=team_id,
         hog_flow_id=hog_flow_id,
         created_by_id=created_by_id,
@@ -58,6 +63,14 @@ def create_batch_job(
         **({} if status is None else {"status": status}),
     )
     return to_batch_job(job)
+
+
+def batch_run_may_send_after_failed_dispatch(
+    *, team_id: int, hog_flow_id: UUID, batch_job_id: UUID, dispatch_error: BaseException
+) -> bool:
+    """Whether a run whose save raised may still send: its job was saved, and the dispatch may have queued it."""
+    saved = HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id, hog_flow_id=hog_flow_id).exists()
+    return saved and not dispatch_queued_no_resolver(dispatch_error)
 
 
 def rate_limit_change_unpaces_batch(*, team_id: int, hog_flow_id: UUID, current: object, new: object) -> bool:
@@ -103,8 +116,8 @@ def set_batch_job_status(
     batch_job_id: UUID,
     status: HogFlowBatchJobState,
     from_statuses: Collection[HogFlowBatchJobState] | None = None,
-) -> None:
-    """Write the status. With from_statuses, only a job still in one of them changes."""
+) -> bool:
+    """Write the status and return whether a row changed. With from_statuses, only a job still in one of them changes."""
     jobs = HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id)
     if from_statuses is not None:
         jobs = jobs.filter(status__in=from_statuses)
@@ -112,6 +125,7 @@ def set_batch_job_status(
     updated = jobs.update(status=status, updated_at=timezone.now())
     if updated and status in TERMINAL_BATCH_JOB_STATES:
         _schedule_audience_snapshot_cleanup(team_id=team_id, batch_job_id=batch_job_id)
+    return bool(updated)
 
 
 TERMINAL_BATCH_JOB_STATES = {

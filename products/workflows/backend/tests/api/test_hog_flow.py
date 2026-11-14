@@ -17,6 +17,7 @@ from django.db import DatabaseError, connection
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -184,6 +185,14 @@ def _email_step(step_id: str, name: str, **email_value: Any) -> dict[str, Any]:
         "type": "function_email",
         "config": {"template_id": "template-email", "inputs": {"email": {"value": email_value}}},
     }
+
+
+def _fail_run_then_time_out(flow_id: str):
+    def side_effect():
+        HogFlowBatchJob.objects.filter(hog_flow_id=flow_id).update(status="failed")
+        raise requests.ReadTimeout("read timed out")
+
+    return side_effect
 
 
 class TestHogFlowAPI(APIBaseTest):
@@ -6235,6 +6244,39 @@ class TestHogFlowAPI(APIBaseTest):
         mock_create_invocation.assert_called_once()
         # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
+        entry = ActivityLog.objects.get(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
+        assert entry.user == self.user
+        assert entry.detail is not None
+        assert entry.detail["context"] == {
+            "batch_job_id": response.json()["id"],
+            "filters": response.json()["filters"],
+        }
+
+    @parameterized.expand(
+        [
+            ("no_response", lambda _flow_id: requests.ReadTimeout("read timed out"), True),
+            ("no_response_after_the_worker_failed_the_run", lambda flow_id: _fail_run_then_time_out(flow_id), True),
+            ("rejected", lambda _flow_id: requests.HTTPError("400", response=MagicMock(status_code=400)), False),
+            ("never_connected", lambda _flow_id: requests.ConnectTimeout("connect timed out"), False),
+        ]
+    )
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_logs_the_start_only_when_a_failed_dispatch_may_still_send(
+        self, _name, dispatch_error, start_logged, mock_create_invocation
+    ):
+        flow_id = self._create_active_hog_flow()
+        mock_create_invocation.return_value.raise_for_status.side_effect = dispatch_error(flow_id)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", {"variables": []})
+
+        assert response.status_code == 500
+        batch_job = HogFlowBatchJob.objects.get(hog_flow_id=flow_id)
+        entries = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
+        assert [entry.detail["context"]["batch_job_id"] for entry in entries if entry.detail] == (
+            [str(batch_job.id)] if start_logged else []
+        )
 
     @parameterized.expand([("on_realtime_pipeline", "all", 200), ("off_realtime_pipeline", "none", 400)])
     @patch(

@@ -141,6 +141,11 @@ def dispatch_batch_job(
     return response
 
 
+def dispatch_queued_no_resolver(error: BaseException) -> bool:
+    """A rejected dispatch, or one that never connected, queued no resolver. Any other failure may have queued one."""
+    return isinstance(error, requests.HTTPError | requests.ConnectTimeout)
+
+
 @receiver(post_save, sender=HogFlowBatchJob)
 def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
     if created:
@@ -166,9 +171,8 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
                 batch_job_id=instance.id,
                 error=str(e),
             )
-            # A rejected request or one that never connected queued no resolver, so nothing would ever move the
-            # run on. Any other failure may have queued one, so the run stays stoppable.
-            if isinstance(e, requests.HTTPError | requests.ConnectTimeout):
+            # Nothing would ever move such a run on; any other failure leaves it stoppable.
+            if dispatch_queued_no_resolver(e):
                 HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.FAILED)
                 instance.status = HogFlowBatchJobState.FAILED
             raise
