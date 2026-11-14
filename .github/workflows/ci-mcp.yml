@@ -492,8 +492,7 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
-            # Database setup does not need the binary, so compile while the database is prepared.
-            - name: Build Rust flags service in the background
+            - name: Build Rust flags service
               working-directory: rust
               env:
                   # Debug builds compile much faster than release.
@@ -505,17 +504,7 @@ jobs:
                   # produces. The integration tests need the service to run, not to be
                   # debuggable, so this drops both.
                   CARGO_PROFILE_DEV_DEBUG: '0'
-              run: |
-                  rm -f /tmp/rust-build.status
-                  # Redirected to a file, so the step does not hold the runner's stdout pipe
-                  # open and returns as soon as cargo is started.
-                  (
-                      status=0
-                      cargo build -p feature-flags || status=$?
-                      echo "$status" > /tmp/rust-build.status.tmp
-                      mv /tmp/rust-build.status.tmp /tmp/rust-build.status
-                  ) > /tmp/rust-build.log 2>&1 &
-                  echo "cargo build -p feature-flags started in the background"
+              run: cargo build -p feature-flags
 
             - name: Download MaxMind Database
               run: ./bin/download-mmdb
@@ -689,28 +678,6 @@ jobs:
 
             - name: Run ClickHouse migrations
               run: python manage.py migrate_clickhouse
-
-            # The verdict on the background build above. It sits next to the step that needs
-            # the binary, so a failure prints the cargo output where a reader looks for it.
-            - name: Wait for the Rust flags build
-              working-directory: rust
-              run: |
-                  for _ in $(seq 1 300); do
-                      [ -f /tmp/rust-build.status ] && break
-                      sleep 2
-                  done
-                  if [ ! -f /tmp/rust-build.status ]; then
-                      echo "::error::cargo build -p feature-flags did not finish within 10 minutes"
-                      tail -100 /tmp/rust-build.log || true
-                      exit 1
-                  fi
-                  status=$(cat /tmp/rust-build.status)
-                  if [ "$status" != "0" ]; then
-                      echo "::error::cargo build -p feature-flags failed with exit code $status"
-                      tail -100 /tmp/rust-build.log || true
-                      exit 1
-                  fi
-                  tail -3 /tmp/rust-build.log
 
             - name: Start Rust flags service
               working-directory: rust
