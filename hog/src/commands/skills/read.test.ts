@@ -10,6 +10,7 @@ import type {
     SkillsLibraryOptions,
 } from '@posthog/mcp/src/cli/library-types'
 
+import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { SKILL_COMMANDS } from '@/core/skill-commands'
 import { runHog, type HogRun } from '@/testing'
 
@@ -109,7 +110,7 @@ describe('hog skills read and search', () => {
     ])('hog skills %j asks the library for %j', async (argv, request) => {
         const skills = fakeSkills()
         const result = await runHog(['skills', ...argv], { env: { CLAUDECODE: '1' }, skills: skills.library })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(skills.calls).toEqual([request])
     })
 
@@ -124,7 +125,7 @@ describe('hog skills read and search', () => {
 
         const result = await runHog(['skills', ...argv], { env: { CLAUDECODE: '1' }, skills: skills.library })
 
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(skills.calls).toEqual([])
     })
 
@@ -133,7 +134,7 @@ describe('hog skills read and search', () => {
 
         const result = await read(['posthog:instrument-integration'], skills, 'person')
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toBe(`${SKILL_TEXT}\n`)
         expect(result.requests).toEqual([])
         expect(skills.options).toEqual([
@@ -176,31 +177,31 @@ describe('hog skills read and search', () => {
             { code: 'offline', message: "Couldn't download the PostHog skills.", assets: NETWORK },
             'skills_offline',
             'Check your internet connection, then run the command again.',
-            1,
+            EXIT_FAILURE,
         ],
         [
             { code: 'unknown_skill', message: 'Unknown skill: "nope".' },
             'unknown_skill',
             'Run `hog skills list` to see every skill.',
-            1,
+            EXIT_FAILURE,
         ],
         [
             { code: 'unknown_file', message: 'Unknown file: "nope.md".' },
             'unknown_file',
             'Run `hog skills read <skill>` to see the files in the skill.',
-            1,
+            EXIT_FAILURE,
         ],
         [
             { code: 'unavailable', message: 'This CLI serves PostHog skills only.' },
             'skills_unavailable',
             'Run `hog skills list` to see every skill.',
-            1,
+            EXIT_FAILURE,
         ],
         [
             { code: 'usage', message: 'Invalid line range 1:999. instrument-integration/SKILL.md has 3 lines.' },
             'invalid_read_command',
             'Run `hog skills read --help` to see how to read a skill.',
-            2,
+            EXIT_USAGE,
         ],
     ] as const)('a %j failure is the HogError %s', async (error, code, hint, exitCode) => {
         const result = await read(['instrument-integration', '--file', 'nope.md'], fakeSkills(error))
@@ -214,7 +215,7 @@ describe('hog skills read and search', () => {
 
         const result = await read(['funnels', '--lines', 'ten'], skills)
 
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error().code).toBe('invalid_input')
         expect(skills.calls).toEqual([])
     })

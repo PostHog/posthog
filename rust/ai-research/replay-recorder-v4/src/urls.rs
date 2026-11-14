@@ -10,6 +10,7 @@ use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::{checked_url, CanonicalUrl, Decline};
 use serde_json::{json, Value};
 
+use replay_core_v4::inspect::sketch::DistinctSketch;
 use replay_core_v4::inspect::stats::BlockStats;
 
 use crate::batch::Block;
@@ -33,6 +34,7 @@ pub struct FlushUrls {
 #[derive(Default)]
 struct BlockUrls {
     accepted_images: u32,
+    image_refs: DistinctSketch,
     unsent: Vec<usize>,
 }
 
@@ -51,6 +53,7 @@ impl FlushUrls {
                 for (url, asset, reference) in remote_urls(block, keys) {
                     if asset == UrlAsset::Image {
                         urls.accepted_images += 1;
+                        urls.image_refs.insert(&reference);
                     }
                     if already_sent(&reference) {
                         continue;
@@ -94,7 +97,8 @@ fn remote_urls(block: &Block, keys: &FlushKeys) -> Vec<(CanonicalUrl, UrlAsset, 
         .collect()
 }
 
-/// Builds one job per new remote image or font URL. Counts the image URLs of each block in the stats paired with it.
+/// Builds one job per new remote image or font URL. Counts the image URLs of each block, and adds their references to
+/// its image sketch, in the stats paired with it.
 /// `index` is the block's position in the blocks that `urls` was built from. `already_sent` names references this
 /// process sent or found fresh today.
 pub fn fetch_jobs<'b>(
@@ -108,6 +112,7 @@ pub fn fetch_jobs<'b>(
     for (index, block, stats) in blocks {
         let block_urls = &urls.blocks[index];
         stats.image_urls += block_urls.accepted_images;
+        stats.image_ref_sketch.merge(&block_urls.image_refs);
         for &position in &block_urls.unsent {
             let (url, asset, reference) = &urls.unsent[position];
             if seen[position] || already_sent(reference) {
