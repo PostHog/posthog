@@ -264,28 +264,3 @@ class TestInboxReportReadyEvent(BaseTest):
         assert [(event["report_id"], event["source_products"]) for event in inbox_report_ready_events(recovered)] == [
             (str(report.id), ["scout"])
         ]
-
-    def test_the_sweep_stops_checking_projects_once_its_time_runs_out(self):
-        other_team = Team.objects.create(organization=self.organization)
-        first = self._report()
-        later = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY, title="t", summary="s")
-        stale = timezone.now() - timedelta(hours=1)
-        SignalReport.objects.filter(id=first.id).update(ready_event_emitted_at=stale - timedelta(minutes=1))
-        SignalReport.objects.filter(id=later.id).update(ready_event_emitted_at=stale)
-        clock = [0.0]
-
-        def slow_flag_check(*args, **kwargs) -> bool:
-            clock[0] += timedelta(hours=1).total_seconds()
-            return True
-
-        with (
-            patch("products.signals.backend.inbox_report_events.time") as fake_time,
-            recorded_internal_events() as (sent, flag),
-        ):
-            fake_time.monotonic.side_effect = lambda: clock[0]
-            flag.side_effect = slow_flag_check
-            reconcile_stranded_ready_events()
-
-        later.refresh_from_db()
-        assert [event["report_id"] for event in inbox_report_ready_events(sent)] == [str(first.id)]
-        assert later.ready_event_emitted_at == stale

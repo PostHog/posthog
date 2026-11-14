@@ -1,4 +1,3 @@
-import time
 import uuid
 from datetime import datetime, timedelta
 from typing import TypedDict
@@ -9,7 +8,6 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from celery.exceptions import SoftTimeLimitExceeded
 from posthoganalytics import feature_enabled
 
 from posthog.dataclasses import frozen
@@ -40,7 +38,6 @@ _RETRY_DELAY_SECONDS = 60
 
 _STALE_CLAIM_AGE = timedelta(minutes=15)
 _RECONCILE_BATCH_SIZE = 200
-_SWEEP_TIME_BUDGET = timedelta(minutes=3)
 
 
 class InboxReportReadyProperties(TypedDict):
@@ -116,26 +113,17 @@ def _destinations_flag(team_id: int) -> bool | None:
 
 
 def reconcile_stranded_ready_events() -> None:
-    deadline = time.monotonic() + _SWEEP_TIME_BUDGET.total_seconds()
-    while True:
-        stranded = _stranded_claims()
-        flags: dict[int, bool | None] = {}
-        renewed: list[_ReadyEventClaim] = []
-        for claim, claimed_at in stranded:
-            if claim.team_id not in flags:
-                if time.monotonic() >= deadline:
-                    break
-                flags[claim.team_id] = _destinations_flag(claim.team_id)
-            destinations_enabled = flags[claim.team_id]
-            if destinations_enabled and report_is_hidden_from_inbox(claim.team_id, claim.report_id):
-                destinations_enabled = False
-            if _renew_stale_claim(
-                claim.team_id, claim.report_id, claimed_at, destinations_enabled=destinations_enabled
-            ):
-                renewed.append(claim)
-        _publish_ready_events(renewed)
-        if len(stranded) < _RECONCILE_BATCH_SIZE or time.monotonic() >= deadline:
-            return
+    flags: dict[int, bool | None] = {}
+    renewed: list[_ReadyEventClaim] = []
+    for claim, claimed_at in _stranded_claims():
+        if claim.team_id not in flags:
+            flags[claim.team_id] = _destinations_flag(claim.team_id)
+        destinations_enabled = flags[claim.team_id]
+        if destinations_enabled and report_is_hidden_from_inbox(claim.team_id, claim.report_id):
+            destinations_enabled = False
+        if _renew_stale_claim(claim.team_id, claim.report_id, claimed_at, destinations_enabled=destinations_enabled):
+            renewed.append(claim)
+    _publish_ready_events(renewed)
 
 
 def _stranded_claims() -> list[tuple[_ReadyEventClaim, datetime]]:
@@ -161,8 +149,6 @@ def _publish_ready_events(claims: list[_ReadyEventClaim]) -> None:
         return
     try:
         flush_internal_events_producer(_DELIVERY_TIMEOUT_SECONDS)
-    except SoftTimeLimitExceeded:
-        raise
     except Exception:
         logger.exception("inbox_report_ready_event_flush_failed", report_count=len(produced))
         return
@@ -181,8 +167,6 @@ def _produce_ready_event(claim: _ReadyEventClaim) -> ProduceResult | None:
                 uuid=str(uuid.uuid5(_INBOX_REPORT_EVENT_NAMESPACE, f"{claim.team_id}:{claim.report_id}")),
             ),
         )
-    except SoftTimeLimitExceeded:
-        raise
     except Exception:
         logger.exception("inbox_report_ready_event_failed", team_id=claim.team_id, report_id=claim.report_id)
         return None
@@ -194,8 +178,6 @@ def _confirm_delivery(claim: _ReadyEventClaim, delivery: ProduceResult) -> None:
     except TimeoutError:
         logger.warning("inbox_report_ready_event_delivery_pending", team_id=claim.team_id, report_id=claim.report_id)
         return
-    except SoftTimeLimitExceeded:
-        raise
     except Exception:
         logger.exception("inbox_report_ready_event_failed", team_id=claim.team_id, report_id=claim.report_id)
         return
