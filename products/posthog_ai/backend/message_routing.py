@@ -18,6 +18,7 @@ from django.db import transaction
 import structlog
 from pydantic import BaseModel
 from rest_framework import exceptions
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions import Conflict
 from posthog.models.user import User
@@ -383,7 +384,7 @@ class SandboxSession(BaseSandboxService):
         try:
             signal_task_followup_message(run.workflow_id, wrapped, artifact_ids=[])
         except Exception as e:
-            if reserved:
+            if reserved and isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
                 try:
                     tasks_facade.release_warm_task_run_reservation(run.id)
                 except Exception as release_error:

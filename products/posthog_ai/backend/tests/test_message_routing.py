@@ -5,7 +5,9 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import exceptions
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.models.user import User
@@ -323,11 +325,19 @@ class TestOpenSandboxMessage(APIBaseTest):
         run.refresh_from_db()
         assert run.state["await_user_message"] is True
 
-    def test_a_warm_run_stays_unclaimed_when_its_first_signal_fails(self):
+    @parameterized.expand(
+        [
+            ("workflow_not_found", RPCStatusCode.NOT_FOUND, False),
+            ("timed_out_maybe_after_delivery", RPCStatusCode.DEADLINE_EXCEEDED, True),
+        ]
+    )
+    def test_a_failed_first_signal_releases_the_warm_run_only_when_nothing_was_delivered(
+        self, _name: str, status: RPCStatusCode, still_claimed: bool
+    ):
         _, run = self._attach_warm_run()
 
         with (
-            patch(f"{ROUTING}.signal_task_followup_message", side_effect=RuntimeError("workflow gone")),
+            patch(f"{ROUTING}.signal_task_followup_message", side_effect=RPCError("signal failed", status, b"")),
             patch.object(TaskRun, "append_log"),
         ):
             with self.assertRaises(Conflict):
@@ -335,7 +345,7 @@ class TestOpenSandboxMessage(APIBaseTest):
 
         run.refresh_from_db()
         assert run.state["await_user_message"] is True
-        assert "warm_activation_started" not in run.state
+        assert bool(run.state.get("warm_activation_started")) is still_claimed
 
     def test_in_progress_followup_raises_conflict_when_signal_fails(self):
         task, run = self._stub_task()
