@@ -8,7 +8,6 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import UserSettingsHolder, settings
 from django.db import DatabaseError, connection
-from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -24,7 +23,6 @@ from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
-    HogFunctionRearrangeSerializer,
     comparable_content,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -3816,19 +3814,41 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.json()["execution_order"] == MAX_EXECUTION_ORDER
 
-    def test_rearrange_rejects_execution_order_above_column_max(self):
+    @parameterized.expand(
+        [
+            ("order_above_column_max", lambda id: {id: MAX_EXECUTION_ORDER + 1}, "less than or equal to"),
+            ("key_not_a_uuid", lambda id: {"not-a-uuid": 2}, "'not-a-uuid' is not a valid hog function UUID"),
+            ("same_id_in_two_cases", lambda id: {id.upper(): 2, id: 3}, "'{id}' is listed more than once"),
+        ]
+    )
+    def test_rearrange_rejects_invalid_orders_without_writing(self, _name, build_orders, expected_detail):
         function = HogFunction.objects.create(
             team=self.team, name="Transform", type="transformation", hog="return event", execution_order=1
         )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/rearrange/",
-            data={"orders": {str(function.id): MAX_EXECUTION_ORDER + 1}},
+            data={"orders": build_orders(str(function.id))},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_detail.format(id=function.id) in response.json()["detail"]
         function.refresh_from_db()
         assert function.execution_order == 1
+
+    def test_rearrange_updates_function_named_by_uppercase_id(self):
+        function = HogFunction.objects.create(
+            team=self.team, name="Transform", type="transformation", hog="return event", execution_order=1
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/rearrange/",
+            data={"orders": {str(function.id).upper(): 5}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        function.refresh_from_db()
+        assert function.execution_order == 5
 
     def test_create_in_folder(self):
         response = self.client.post(
@@ -4288,28 +4308,3 @@ class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "different types" in response.json()["detail"]
-
-
-class TestHogFunctionRearrangeSerializer(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("not_a_uuid", {"not-a-uuid": 1}, "not-a-uuid"),
-            (
-                "same_uuid_in_two_cases",
-                {"0193B5D6-6FF6-0000-4AE8-423DEE9BF14A": 1, "0193b5d6-6ff6-0000-4ae8-423dee9bf14a": 2},
-                "0193b5d6-6ff6-0000-4ae8-423dee9bf14a",
-            ),
-        ]
-    )
-    def test_rejects_invalid_keys(self, _name, orders, named_key):
-        serializer = HogFunctionRearrangeSerializer(data={"orders": orders})
-
-        assert not serializer.is_valid()
-        assert named_key in str(serializer.errors["orders"][0])
-
-    def test_normalizes_keys_to_canonical_uuid_form(self):
-        function_id = "0193B5D6-6FF6-0000-4AE8-423DEE9BF14A"
-        serializer = HogFunctionRearrangeSerializer(data={"orders": {function_id: 1}})
-
-        assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["orders"] == {function_id.lower(): 1}
