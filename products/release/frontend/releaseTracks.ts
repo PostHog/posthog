@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
-import type { RelatedInsight, RelatedSurvey } from './releaseRelatedLogic'
+import type { RelatedInsight, RelatedSurvey } from './releaseRelated'
 import { RolloutStep } from './releaseRollout'
 import {
     CALENDAR_DAYS_AFTER,
@@ -50,6 +50,90 @@ export const CALENDAR_SCALE = (): Scale => ({
 
 export function x(date: string, scale: Scale): number {
     return Math.max(0, Math.min(scale.days, dayjs(date).startOf('day').diff(scale.start, 'day'))) * scale.day
+}
+
+const LAST_STEP_MIN_WIDTH = 108
+const MIN_SEGMENT_WIDTH = 4
+
+export interface RolloutSegment {
+    step: RolloutStep
+    left: number
+    width: number
+    projected: boolean
+}
+
+export function rolloutSegments(steps: RolloutStep[], scale: Scale, today: dayjs.Dayjs): RolloutSegment[] {
+    const end = scale.days * scale.day
+    const windowEnd = scale.start.add(scale.days, 'day')
+    const todayX = x(today.toISOString(), scale) + scale.day / 2
+    const past = steps.filter((step) => !step.upcoming)
+    const upcoming = steps.filter((step) => step.upcoming)
+    const current = past[past.length - 1]
+    const raw = [
+        ...past.map((step) => ({
+            step,
+            from: step.from,
+            to: step === current ? today.toISOString() : step.to,
+            left: x(step.from, scale),
+            right: step === current ? todayX : x(step.to, scale),
+            projected: false,
+        })),
+        ...(current && upcoming.length
+            ? [
+                  {
+                      step: current,
+                      from: today.toISOString(),
+                      to: upcoming[0].from,
+                      left: todayX,
+                      right: x(upcoming[0].from, scale),
+                      projected: true,
+                  },
+              ]
+            : []),
+        ...upcoming.map((step, index) => {
+            const left = x(step.from, scale)
+            const next = upcoming[index + 1]
+            return {
+                step,
+                from: step.from,
+                to: next ? next.from : step.to,
+                left,
+                right: next ? x(next.from, scale) : Math.min(left + Math.max(3 * scale.day, LAST_STEP_MIN_WIDTH), end),
+                projected: false,
+            }
+        }),
+    ]
+    return raw
+        .filter(({ from, to }) => dayjs(from).isBefore(windowEnd) && !dayjs(to).isBefore(scale.start, 'day'))
+        .map(({ step, left, right, projected }) => ({
+            step,
+            left,
+            width: Math.max(right - left, MIN_SEGMENT_WIDTH),
+            projected,
+        }))
+}
+
+const PAST_SHARE = 0.65
+
+export function todayScrollLeft(
+    scale: Scale,
+    viewportWidth: number,
+    stickyWidth: number,
+    today: dayjs.Dayjs
+): number | null {
+    const visible = viewportWidth - stickyWidth
+    const todayX = x(today.toISOString(), scale) + scale.day / 2
+    const left = todayX - visible * PAST_SHARE
+    return left > 0 ? left : null
+}
+
+export function linkedKeys(row: ReleaseRow, related: TrackRelated | undefined): Set<string> {
+    return new Set([
+        ...row.flags.map((flag) => `flag:${flag.id}`),
+        ...row.broadcasts.map((broadcast) => `broadcast:${broadcast.id}`),
+        ...(related?.surveys ?? []).map((survey) => `survey:${survey.id}`),
+        ...(related?.insights ?? []).map((insight) => `insight:${insight.id}`),
+    ])
 }
 
 export type Lane =
@@ -228,7 +312,7 @@ export function sendLabel(event: ReleaseEvent): string {
     return event.upcoming ? 'Scheduled' : kind ? kind[0].toUpperCase() + kind.slice(1) : 'Sent'
 }
 
-export function laneHeight(_lane: Lane, detailed?: boolean): number {
+export function laneHeight(detailed?: boolean): number {
     return detailed ? DETAILED_LANE : LANE
 }
 

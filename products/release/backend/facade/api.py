@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
 from posthog.paging import Page, PageRequest
@@ -24,15 +24,17 @@ from ..logic import (
 from ..models import Release
 from . import contracts
 
+if TYPE_CHECKING:
+    from _typeshed import SupportsRichComparison
+
 ReleaseNotFoundError = contracts.ReleaseNotFoundError
-UnknownFeatureFlagsError = contracts.UnknownFeatureFlagsError
-UnknownBroadcastsError = contracts.UnknownBroadcastsError
-UnknownSurveysError = contracts.UnknownSurveysError
-UnknownInsightsError = contracts.UnknownInsightsError
+UnknownLinkedObjectsError = contracts.UnknownLinkedObjectsError
 ImportFlag = contracts.ImportFlag
 
 
 RESTRICTED_NAME = "Release of a restricted flag"
+
+T = TypeVar("T", bound="SupportsRichComparison")
 
 
 FlagVisibilityLookup = Callable[[list[int]], contracts.FlagVisibility]
@@ -55,6 +57,7 @@ class _Hidden:
     broadcasts: frozenset[UUID]
     surveys: frozenset[UUID]
     insights: frozenset[int]
+    survey_summaries: dict[UUID, contracts.LinkedSurveyDTO]
     insight_summaries: dict[int, contracts.LinkedInsightDTO]
     summaries: dict[UUID, contracts.LinkedBroadcastDTO]
 
@@ -65,11 +68,13 @@ def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
     survey_ids = sorted({survey_id for obj in releases for survey_id in obj.survey_ids}, key=str)
     insight_ids = sorted({insight_id for obj in releases for insight_id in obj.insight_ids})
     broadcasts = lookups.broadcasts(broadcast_ids)
+    surveys = lookups.surveys(survey_ids)
     insights = lookups.insights(insight_ids)
     return _Hidden(
         flags=lookups.flags(flag_ids).hidden,
         broadcasts=broadcasts.hidden,
-        surveys=frozenset(survey_ids) - lookups.surveys(survey_ids).visible,
+        surveys=frozenset(survey_ids) - surveys.visible,
+        survey_summaries={summary.id: summary for summary in surveys.summaries},
         insights=frozenset(insight_ids) - insights.visible,
         insight_summaries={summary.id: summary for summary in insights.summaries},
         summaries={summary.id: summary for summary in broadcasts.summaries},
@@ -92,6 +97,11 @@ def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
             if broadcast_id not in hidden.broadcasts and broadcast_id in hidden.summaries
         ],
         survey_ids=[survey_id for survey_id in obj.survey_ids if survey_id not in hidden.surveys],
+        surveys=[
+            hidden.survey_summaries[survey_id]
+            for survey_id in obj.survey_ids
+            if survey_id not in hidden.surveys and survey_id in hidden.survey_summaries
+        ],
         insight_ids=[insight_id for insight_id in obj.insight_ids if insight_id not in hidden.insights],
         insights=[
             hidden.insight_summaries[insight_id]
@@ -106,63 +116,25 @@ def _visible_dto(obj: Release, lookups: LinkLookups) -> contracts.ReleaseDTO:
     return _to_dto(obj, _hidden(lookups, [obj]))
 
 
-def _checked_flags(submitted: list[int], linked: list[int], lookup: FlagVisibilityLookup) -> list[int]:
-    linked_set = set(linked)
-    visibility = lookup(sorted(set(submitted) | linked_set))
-    unknown = sorted(
-        flag_id
-        for flag_id in set(submitted)
-        if flag_id in visibility.hidden or (flag_id not in visibility.linkable and flag_id not in linked_set)
-    )
-    if unknown:
-        raise contracts.UnknownFeatureFlagsError(unknown)
-    return [*submitted, *(flag_id for flag_id in linked if flag_id in visibility.hidden)]
-
-
-def _checked_broadcasts(submitted: list[UUID], linked: list[UUID], lookup: BroadcastVisibilityLookup) -> list[UUID]:
+def _checked(field: str, noun: str, submitted: list[T], linked: list[T], lookup: Callable[[list[T]], Any]) -> list[T]:
     linked_set = set(linked)
     visibility = lookup(sorted(set(submitted) | linked_set, key=str))
     unknown = sorted(
-        (
-            broadcast_id
-            for broadcast_id in set(submitted)
-            if broadcast_id in visibility.hidden
-            or (broadcast_id not in visibility.linkable and broadcast_id not in linked_set)
-        ),
-        key=str,
+        item
+        for item in set(submitted)
+        if item in visibility.hidden or (item not in visibility.linkable and item not in linked_set)
     )
     if unknown:
-        raise contracts.UnknownBroadcastsError(unknown)
-    return [*submitted, *(broadcast_id for broadcast_id in linked if broadcast_id in visibility.hidden)]
+        raise contracts.UnknownLinkedObjectsError(field, noun, unknown)
+    return [*submitted, *(item for item in linked if item in visibility.hidden)]
 
 
-def _checked_surveys(submitted: list[UUID], linked: list[UUID], lookup: SurveyVisibilityLookup) -> list[UUID]:
-    linked_set = set(linked)
-    visibility = lookup(sorted(set(submitted) | linked_set, key=str))
-    unknown = sorted(
-        (
-            survey_id
-            for survey_id in set(submitted)
-            if survey_id in visibility.hidden or (survey_id not in visibility.linkable and survey_id not in linked_set)
-        ),
-        key=str,
-    )
-    if unknown:
-        raise contracts.UnknownSurveysError(unknown)
-    return [*submitted, *(survey_id for survey_id in linked if survey_id in visibility.hidden)]
-
-
-def _checked_insights(submitted: list[int], linked: list[int], lookup: InsightVisibilityLookup) -> list[int]:
-    linked_set = set(linked)
-    visibility = lookup(sorted(set(submitted) | linked_set))
-    unknown = sorted(
-        insight_id
-        for insight_id in set(submitted)
-        if insight_id in visibility.hidden or (insight_id not in visibility.linkable and insight_id not in linked_set)
-    )
-    if unknown:
-        raise contracts.UnknownInsightsError(unknown)
-    return [*submitted, *(insight_id for insight_id in linked if insight_id in visibility.hidden)]
+_LINKED_FIELDS: tuple[tuple[str, str], ...] = (
+    ("feature_flag_ids", "flags"),
+    ("broadcast_ids", "broadcasts"),
+    ("survey_ids", "surveys"),
+    ("insight_ids", "insights"),
+)
 
 
 def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[contracts.ReleaseDTO]:
@@ -172,41 +144,29 @@ def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[con
 
 
 def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contracts.ReleaseDTO:
-    feature_flag_ids = _checked_flags(list(input.feature_flag_ids), [], lookups.flags)
-    broadcast_ids = _checked_broadcasts(list(input.broadcast_ids), [], lookups.broadcasts)
+    checked = {
+        field: _checked(field, noun, list(getattr(input, field)), [], getattr(lookups, noun))
+        for field, noun in _LINKED_FIELDS
+    }
     obj = logic.create_release(
         team_id=input.team_id,
         name=input.name,
         description=input.description,
         owner_id=input.owner_id,
-        feature_flag_ids=feature_flag_ids,
-        broadcast_ids=broadcast_ids,
-        survey_ids=_checked_surveys(list(input.survey_ids), [], lookups.surveys),
-        insight_ids=_checked_insights(list(input.insight_ids), [], lookups.insights),
+        **checked,
     )
     return _visible_dto(logic.get_release(input.team_id, obj.id), lookups)
 
 
 def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: LinkLookups) -> contracts.ReleaseDTO:
-    if {"feature_flag_ids", "broadcast_ids", "survey_ids", "insight_ids"} & changes.keys():
+    if {field for field, _ in _LINKED_FIELDS} & changes.keys():
         current = logic.get_release(team_id, release_id)
         changes = dict(changes)
-        if "feature_flag_ids" in changes:
-            changes["feature_flag_ids"] = _checked_flags(
-                list(changes["feature_flag_ids"]), list(current.feature_flag_ids), lookups.flags
-            )
-        if "broadcast_ids" in changes:
-            changes["broadcast_ids"] = _checked_broadcasts(
-                list(changes["broadcast_ids"]), list(current.broadcast_ids), lookups.broadcasts
-            )
-        if "survey_ids" in changes:
-            changes["survey_ids"] = _checked_surveys(
-                list(changes["survey_ids"]), list(current.survey_ids), lookups.surveys
-            )
-        if "insight_ids" in changes:
-            changes["insight_ids"] = _checked_insights(
-                list(changes["insight_ids"]), list(current.insight_ids), lookups.insights
-            )
+        for field, noun in _LINKED_FIELDS:
+            if field in changes:
+                changes[field] = _checked(
+                    field, noun, list(changes[field]), list(getattr(current, field)), getattr(lookups, noun)
+                )
     return _visible_dto(logic.update_release(team_id, release_id, changes), lookups)
 
 

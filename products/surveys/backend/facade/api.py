@@ -1,5 +1,9 @@
 from collections.abc import Collection
+from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
+
+from django.db.models import QuerySet
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.surveys.backend.desktop_feedback import (
@@ -22,6 +26,8 @@ from products.surveys.backend.responses.linked import (
 __all__ = [
     "DesktopFeedbackUnavailable",
     "existing_survey_ids",
+    "survey_summaries",
+    "SurveySummary",
     "LinkedResponseUnavailable",
     "LinkedSurveyAnswer",
     "LinkedSurveyResponse",
@@ -35,13 +41,41 @@ __all__ = [
 ]
 
 
+@dataclass(frozen=True)
+class SurveySummary:
+    id: UUID
+    name: str
+    created_at: datetime
+    start_date: datetime | None
+    end_date: datetime | None
+    linked_flag_id: int | None
+    archived: bool
+
+
 def existing_survey_ids(
     survey_ids: Collection[UUID],
     *,
     team_id: int,
     access_control: UserAccessControl | None = None,
 ) -> set[UUID]:
+    return set(
+        _linkable_surveys(survey_ids, team_id=team_id, access_control=access_control).values_list("id", flat=True)
+    )
+
+
+def survey_summaries(
+    survey_ids: Collection[UUID], *, team_id: int, access_control: UserAccessControl
+) -> list[SurveySummary]:
+    rows = _linkable_surveys(survey_ids, team_id=team_id, access_control=access_control).values(
+        "id", "name", "created_at", "start_date", "end_date", "linked_flag_id", "archived"
+    )
+    return [SurveySummary(**row) for row in rows]
+
+
+def _linkable_surveys(
+    survey_ids: Collection[UUID], *, team_id: int, access_control: UserAccessControl | None
+) -> QuerySet[Survey]:
     queryset = Survey.objects.filter(team_id=team_id, id__in=list(survey_ids)).exclude(product_tour__isnull=False)
     if access_control is not None:
         queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
-    return set(queryset.values_list("id", flat=True))
+    return queryset

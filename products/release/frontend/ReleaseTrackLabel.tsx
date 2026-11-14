@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+
 import { Text, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -32,37 +34,59 @@ function laneDetail(lane: Lane): string {
 export function ReleaseTrackLabel({
     lane,
     className,
-    detailed,
+    style,
+    variant = 'compact',
     actions,
 }: {
     lane: Lane
     className?: string
-    detailed?: boolean
+    style?: CSSProperties
+    variant?: 'compact' | 'detailed' | 'inline'
     actions?: JSX.Element
 }): JSX.Element {
-    const detail = detailed ? laneDetail(lane) : ''
+    const detail = variant === 'compact' ? '' : laneDetail(lane)
     return (
-        <div className={cn('flex items-center gap-2', className)} style={{ height: laneHeight(lane, detailed) }}>
+        <div
+            className={cn('flex items-center gap-2', className)}
+            style={{ ...style, height: variant === 'inline' ? undefined : laneHeight(variant === 'detailed') }}
+        >
             <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
                 {iconForType(LANE_ICON[lane.kind] as never)}
             </span>
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <LinkPrimitive to={lane.href} className="truncate text-xs text-foreground hover:underline">
+            <span
+                className={cn(
+                    'flex min-w-0 flex-1',
+                    variant === 'inline' ? 'items-baseline gap-1.5' : 'flex-col gap-0.5'
+                )}
+            >
+                <LinkPrimitive
+                    to={lane.href}
+                    title={lane.title}
+                    className={cn(
+                        'truncate text-xs text-foreground hover:underline',
+                        variant === 'inline' ? 'min-w-0' : 'shrink-0'
+                    )}
+                >
                     {lane.title}
                 </LinkPrimitive>
                 {detail && (
-                    <Text size="xxs" variant="muted" className="truncate" title={detail}>
+                    <Text
+                        size="xxs"
+                        variant="muted"
+                        className={cn('truncate', variant === 'inline' && 'min-w-0 shrink-[100]')}
+                        title={detail}
+                    >
                         {detail}
                     </Text>
                 )}
             </span>
-            {!detailed && !lane.live && (
+            {variant === 'compact' && !lane.live && (
                 <Text size="xs" variant="muted" className="shrink-0">
                     {statusLabel(lane.status)}
                 </Text>
             )}
             {actions && (
-                <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/track:opacity-100">
+                <span className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover/track:opacity-100">
                     {actions}
                 </span>
             )}
