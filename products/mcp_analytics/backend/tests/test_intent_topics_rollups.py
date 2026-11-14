@@ -66,6 +66,13 @@ class TestFetchHourlyCalls(ClickhouseTestMixin, APIBaseTest):
                 (1.0, intent_hash("plot signups"), "query-trends", 1, 1),
             ]
 
+        # One intent sent from many sessions must not grow a bucket without bound; the call count stays exact.
+        capped = fetch_hourly_calls(self.team, since=DAY, until=DAY + timedelta(hours=1), conversation_cap=1)
+        assert [(r.tool, r.calls, len(r.conversations)) for r in capped] == [
+            ("query-funnel", 1, 1),
+            ("query-trends", 3, 1),
+        ]
+
     def test_a_query_cut_short_by_a_limit_raises_instead_of_returning_partial_counts(self) -> None:
         # Partial counts would be written as a newer version of each bucket and replace the complete ones.
         with patch(
