@@ -101,6 +101,7 @@ import {
 import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from '../filters/matchingFilters'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
+import { canFinishWithoutReturn } from './hogCodeReturnPaths'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
 
 export interface HogFunctionConfigurationLogicProps {
@@ -333,6 +334,10 @@ export type SparklineData = {
     warning?: string
 }
 
+function isTransformationType(type: HogFunctionTypeType): boolean {
+    return type === 'transformation' || type === 'transformation_log'
+}
+
 // Helper function to check if code might return null/undefined
 export function mightDropEvents(code: string): boolean {
     const sanitizedCode = code
@@ -407,6 +412,7 @@ export interface hogFunctionConfigurationLogicValues {
     flagCallsOutsideEvents: PropertyGroupFilter | null
     hasGroupsAddon: boolean
     hasHadSubmissionErrors: boolean
+    hogCodeCanFinishWithoutReturn: boolean | null
     hogFunction: HogFunctionType | null
     hogFunctionLoading: boolean
     inputFormErrors: Record<string, string> | null
@@ -477,6 +483,9 @@ export interface hogFunctionConfigurationLogicActions {
         onContinue: () => void
         template: HogFunctionTemplateType
     } // destinationWorkflowSuggestionLogic
+    checkHogCodeReturnPaths: (hogCode: string) => {
+        hogCode: string
+    }
     clearFiltersDiff: () => {
         value: true
     }
@@ -621,6 +630,9 @@ export interface hogFunctionConfigurationLogicActions {
     }
     setConfigurationValues: (values: DeepPartial<HogFunctionConfigurationType>) => {
         values: DeepPartial<HogFunctionConfigurationType>
+    }
+    setHogCodeCanFinishWithoutReturn: (canFinishWithoutReturn: boolean | null) => {
+        canFinishWithoutReturn: boolean | null
     }
     setNewFilters: (newFilters: CyclotronJobFiltersType) => {
         newFilters: CyclotronJobFiltersType
@@ -847,7 +859,11 @@ export interface hogFunctionConfigurationLogicMeta {
             template: HogFunctionTemplateType | null
         ) => HogFunctionMappingTemplateType[]
         usesGroups: (configuration: HogFunctionConfigurationType) => boolean
-        mightDropEvents: (configuration: HogFunctionConfigurationType, type: HogFunctionTypeType) => boolean
+        mightDropEvents: (
+            configuration: HogFunctionConfigurationType,
+            type: HogFunctionTypeType,
+            hogCodeCanFinishWithoutReturn: boolean | null
+        ) => boolean
         currentHogCode: (newHogCode: string | null, configuration: HogFunctionConfigurationType) => string
         currentInputs: (
             newInputs: CyclotronJobInputSchemaType[] | null,
@@ -934,6 +950,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
         setNewHogCode: (newHogCode: string) => ({ newHogCode }),
         clearHogCodeDiff: true,
+        checkHogCodeReturnPaths: (hogCode: string) => ({ hogCode }),
+        setHogCodeCanFinishWithoutReturn: (canFinishWithoutReturn: boolean | null) => ({ canFinishWithoutReturn }),
         reportAIHogFunctionPrompted: true,
         reportAIHogFunctionAccepted: true,
         reportAIHogFunctionRejected: true,
@@ -1009,6 +1027,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             {
                 setNewHogCode: (_, { newHogCode }) => newHogCode,
                 clearHogCodeDiff: () => null,
+            },
+        ],
+        hogCodeCanFinishWithoutReturn: [
+            null as boolean | null,
+            {
+                setHogCodeCanFinishWithoutReturn: (_, { canFinishWithoutReturn }) => canFinishWithoutReturn,
             },
         ],
         oldFilters: [
@@ -1937,14 +1961,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         mightDropEvents: [
-            (s) => [s.configuration, s.type],
-            (configuration: HogFunctionConfigurationType, type: HogFunctionTypeType) => {
-                if (type !== 'transformation' && type !== 'transformation_log') {
+            (s) => [s.configuration, s.type, s.hogCodeCanFinishWithoutReturn],
+            (
+                configuration: HogFunctionConfigurationType,
+                type: HogFunctionTypeType,
+                hogCodeCanFinishWithoutReturn: boolean | null
+            ) => {
+                if (!isTransformationType(type)) {
                     return false
                 }
                 const hogCode = configuration.hog || ''
 
-                return mightDropEvents(hogCode)
+                return mightDropEvents(hogCode) || !!hogCodeCanFinishWithoutReturn
             },
         ],
 
@@ -2066,6 +2094,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
         reportAIHogFunctionInputsPromptOpen: () => {
             posthog.capture('ai_hog_function_inputs_prompt_open', { type: values.type })
+        },
+        checkHogCodeReturnPaths: async ({ hogCode }, breakpoint) => {
+            if (!isTransformationType(values.type)) {
+                actions.setHogCodeCanFinishWithoutReturn(null)
+                return
+            }
+            await breakpoint(300)
+            const canFinish = await canFinishWithoutReturn(hogCode)
+            breakpoint()
+            actions.setHogCodeCanFinishWithoutReturn(canFinish)
         },
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
@@ -2278,6 +2316,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
         },
         configuration: (configuration, oldConfiguration) => {
+            if (configuration?.hog !== oldConfiguration?.hog) {
+                actions.checkHogCodeReturnPaths(configuration?.hog ?? '')
+            }
             if (
                 typeof configuration?.filters?.source === 'string' &&
                 typeof oldConfiguration?.filters?.source === 'string' &&
