@@ -166,7 +166,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         )
         calcs = []
         for metric in metrics:
-            # Only a run on the activity queue flag uses the route that discovery set.
+            # Only a run that started with an activity_task_queue uses the route that discovery set.
             routed = bool(activity_task_queue and metric.task_queue)
             task_queue = metric.task_queue if routed else activity_task_queue
             # The activity and precompute queues have a fixed slot count, so a calc there waits for a slot instead

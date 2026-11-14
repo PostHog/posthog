@@ -113,7 +113,7 @@ class ExperimentMetricsRecalculationWorkflowInputs:
 
     recalculation_id: str  # UUID as string
     # Task queue for the metric calculation activity, chosen when the run starts so replay stays deterministic.
-    # None keeps the activity on the workflow's own queue.
+    # Every new run sets it. None keeps the activity on the workflow's own queue, for runs that started before.
     activity_task_queue: str | None = None
     # The key version that the run files its results under, chosen when the run is requested.
     calculation_key_version: int = 1
@@ -132,7 +132,8 @@ class ExperimentMetricToRecalculate:
     # "primary" or "secondary": the metric's role in the experiment, not its kind.
     role: str
     # The calc activity's queue and precompute mode, chosen at discovery. The workflow uses them only for a run
-    # that has an activity_task_queue. None keeps the run's activity_task_queue and the AUTO mode.
+    # that has an activity_task_queue, so a run that started without one keeps the workflow's queue. None keeps
+    # the run's activity_task_queue and the AUTO mode.
     task_queue: str | None = None
     precomputation_mode: PrecomputationMode | None = None
 

@@ -4,7 +4,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
-from django.conf import settings
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -20,10 +20,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.recalculation import (
-    RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG,
-    RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
-)
+from products.experiments.backend.recalculation import RECALCULATION_AGE_LIMIT_FEATURE_FLAG
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -91,11 +88,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, activity queue flag outcome, expected activity_task_queue, calculation key version of the team
-            ("activity_queue_flag_off", False, None, 1),
-            ("activity_queue_flag_on", True, settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE, 1),
-            ("activity_queue_flag_error", RuntimeError("flags down"), None, 1),
-            ("key_version_2", False, None, 2),
+            # name, activity queue, expected activity_task_queue, calculation key version of the team
+            ("key_version_1", "activity-q", "activity-q", 1),
+            ("key_version_2", "activity-q", "activity-q", 2),
+            ("single_queue_keeps_the_workflow_queue", "recalculation-q", None, 1),
         ]
     )
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
@@ -103,23 +99,17 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     def test_post_creates_and_starts_workflow(
         self,
         _name: str,
-        flag_outcome: bool | Exception,
+        activity_task_queue: str,
         expected_activity_task_queue: str | None,
         key_version: int,
         mock_run,
         mock_connect,
     ):
-        def evaluate_flag(key: str, *args, **kwargs) -> bool:
-            if key != RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG:
-                return False
-            if isinstance(flag_outcome, Exception):
-                raise flag_outcome
-            return flag_outcome
-
         exp = self._launched_experiment()
         with (
-            mock.patch(
-                "products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag
+            override_settings(
+                EXPERIMENTS_RECALCULATION_TASK_QUEUE="recalculation-q",
+                EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE=activity_task_queue,
             ),
             mock.patch(
                 "posthoganalytics.feature_enabled",
@@ -140,7 +130,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
                 calculation_key_version=key_version,
             ),
             id=f"experiment-metrics-recalculation-{body['id']}",
-            task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+            task_queue="recalculation-q",
         )
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
