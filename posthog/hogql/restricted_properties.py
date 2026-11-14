@@ -165,6 +165,8 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
         logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
         return ()
 
+    if isinstance(table, WebStatsDimensionalPreAggregatedTable | WebBouncesDimensionalPreAggregatedTable):
+        return WEB_DIMENSIONAL_MIRRORED_COLUMNS.get(column_name, ())
     source_property: str | None = None
     if isinstance(table, AiEventsTable):
         source_property = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
@@ -194,11 +196,13 @@ def wildcard_reads_restricted_mirrored_column(table_type: ast.Type, context: Hog
 
 
 def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, context: HogQLContext) -> bool:
-    """Whether a read of this stored column is masked because a property it copies is restricted."""
+    """Whether a read of this stored column masks to NULL because a property it copies is restricted."""
     source_properties = mirrored_properties_for_column(table_type, column_name, context)
-    return bool(source_properties) and not restricted_property_keys_for_table_type(table_type, context).isdisjoint(
-        source_properties
-    )
+    if not source_properties:
+        return False
+    restricted_keys = restricted_property_keys_for_table_type(table_type, context)
+    # A dotted source such as `metadata.backend` is restricted by its parent `metadata` too.
+    return any(key_read_overlaps_restriction(source_property, restricted_keys) for source_property in source_properties)
 
 
 def restricted_embedding_documents(

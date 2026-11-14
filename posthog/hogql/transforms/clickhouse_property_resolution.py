@@ -940,7 +940,7 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     source_properties = _mirrored_source_properties(field_type, context)
     restricted_keys = restricted_property_keys_for_table_type(field_type.table_type, context)
     if (
-        not restricted_keys.isdisjoint(source_properties)
+        any(source_property in restricted_keys for source_property in source_properties)
         if source_properties
         else restricted_key_path(node.keys, restricted_keys) is not None
     ):

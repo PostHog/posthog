@@ -232,6 +232,7 @@ export enum NodeKind {
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
     MCPMissingCapabilitiesQuery = 'MCPMissingCapabilitiesQuery',
+    MCPDashboardQuery = 'MCPDashboardQuery',
     MCPIntentTopicsQuery = 'MCPIntentTopicsQuery',
     MCPToolIntentProfileQuery = 'MCPToolIntentProfileQuery',
     MCPSimilarToolsQuery = 'MCPSimilarToolsQuery',
@@ -331,6 +332,7 @@ export type AnyDataNode =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPDashboardQuery
     | MCPIntentTopicsQuery
     | MCPToolIntentProfileQuery
     | MCPSimilarToolsQuery
@@ -477,6 +479,7 @@ export type QuerySchema =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPDashboardQuery
     | MCPIntentTopicsQuery
     | MCPToolIntentProfileQuery
     | MCPSimilarToolsQuery
