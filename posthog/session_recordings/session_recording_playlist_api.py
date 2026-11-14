@@ -556,8 +556,8 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
     def validate_filters(self, value: Any) -> Any:
         order = value.get("order") if isinstance(value, dict) else None
         # Saved filters are parsed into a RecordingsQuery on every server-side read, so an order it rejects breaks the playlist.
-        if order is not None and order not in {o.value for o in RecordingOrder}:
-            raise ValidationError(f"'{order}' is not a sort order recordings support.")
+        if order is not None and (not isinstance(order, str) or order not in {o.value for o in RecordingOrder}):
+            raise ValidationError(f"{order!r} is not a sort order recordings support.")
         experiment_exposure = value.get("experiment_exposure") if isinstance(value, dict) else None
         experiment_id = experiment_exposure.get("experiment_id") if isinstance(experiment_exposure, dict) else None
         if isinstance(experiment_id, int):
