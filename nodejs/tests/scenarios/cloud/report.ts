@@ -150,7 +150,7 @@ function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<str
     if (after.length === 0) {
         return { scalars, reason: 'no measured reader maximum from T0 on' }
     }
-    const above = before.filter(({ max }) => max > MIN_ACU)
+    const above = minutes.filter(({ at, max, avg }) => at < t0Minute && (max ?? avg ?? 0) > MIN_ACU)
     return above.length === 0
         ? { scalars }
         : { scalars, reason: `reader above 1 ACU before T0 (${above.map(({ at }) => iso(at)).join(', ')})` }
@@ -231,10 +231,17 @@ export async function report(
         reasons.push(judged.reason)
     }
     const leftovers = await receiptsOf(evidence, manifest).then(
-        (receipts) =>
-            (receipts.at(-1)?.resources ?? [])
-                .filter(({ state }) => state !== 'gone')
-                .map(({ type, id, state }) => `${type} ${id}: ${state}`),
+        (receipts) => {
+            const last = receipts.at(-1)
+            return last
+                ? [
+                      ...last.resources
+                          .filter(({ state }) => state !== 'gone')
+                          .map(({ type, id, state }) => `${type} ${id}: ${state}`),
+                      ...last.unlisted.map((source) => `unknown: could not list ${source}`),
+                  ]
+                : ['unknown: teardown saved no receipt']
+        },
         (error: Error) => [`unknown: the teardown receipt could not be read: ${error.message}`]
     )
     const cost = costOf(profile, (to - from) / HOUR_MS, capacity)

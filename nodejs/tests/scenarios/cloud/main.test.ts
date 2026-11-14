@@ -901,6 +901,21 @@ describe('cloud controller', () => {
             'reader above 1 ACU before T0',
         ],
         [
+            'a minute before T0 above 1 ACU whose maximum CloudWatch left out',
+            {
+                readerAcu: [
+                    ...minutes(-3, -3, 1, 1),
+                    { minute: -2, avg: 1.5 },
+                    ...minutes(-1, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'reader above 1 ACU before T0',
+        ],
+        [
             'a series that ends before T0',
             { readerAcu: minutes(-3, -1, 1, 1) },
             () => undefined,
@@ -1092,6 +1107,16 @@ describe('cloud controller', () => {
             'an unreadable receipt reports as unknown',
             (fake) => fake.failWhen('get-object', (args) => args.some((arg) => arg.includes('/receipts/'))),
             () => [expect.stringMatching(/^unknown: the teardown receipt could not be read/)],
+        ],
+        [
+            'a receipt teardown could not save reports as unknown',
+            (fake) => fake.failWhen('put-object', (args) => args.some((arg) => arg.includes('/receipts/'))),
+            () => [expect.stringMatching(/^unknown: teardown saved no receipt/)],
+        ],
+        [
+            'a listing teardown could not finish reports as unknown',
+            (fake) => fake.failOnCall('get-resources', 1),
+            () => expect.arrayContaining([expect.stringMatching(/^unknown: could not list /)]),
         ],
     ])('publishes an invalid run with what teardown left behind, which %s', async (_, arrange, leftovers) => {
         const { controller } = prepare({ cloud: { outlives: ['AWS::EC2::Volume'] }, env: api.credentials })
