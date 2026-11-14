@@ -876,9 +876,15 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   VERSION: ${{ steps.pin.outputs.version }}
               run: |
-                  body=$(gh pr list --repo PostHog/posthog --state merged --head "chore/bump-sandbox-agent-version-${VERSION}" \
-                    --json body,isCrossRepository --jq '[.[] | select(.isCrossRepository == false)][0].body // ""' || true)
-                  ts=$(sed -n 's/.*<!-- sandbox-agent-slack-thread: \([0-9]\{1,\}\.[0-9]\{1,\}\) -->.*/\1/p' <<< "$body" | head -n1)
+                  ts=""
+                  for repo in "$GITHUB_REPOSITORY" PostHog/posthog; do
+                    bodies=$(gh pr list --repo "$repo" --state merged --head "chore/bump-sandbox-agent-version-${VERSION}" \
+                      --json body,isCrossRepository --jq '.[] | select(.isCrossRepository == false) | .body' || true)
+                    ts=$(sed -n 's/.*<!-- sandbox-agent-slack-thread: \([0-9]\{1,\}\.[0-9]\{1,\}\) -->.*/\1/p' <<< "$bodies" | head -n1)
+                    if [ -n "$ts" ]; then
+                      break
+                    fi
+                  done
                   if [ -n "$ts" ]; then
                     printf '%s' "$ts" > .sandbox-agent-slack-thread
                   else
