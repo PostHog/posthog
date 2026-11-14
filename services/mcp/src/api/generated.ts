@@ -68068,6 +68068,19 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
     }
 
+    export interface LogsAlertCustomizeDestination {
+      /**
+         * The destination's `destinations[].id`. Use it for a destination with no HogFunctions.
+         * @nullable
+         */
+      destination_id?: string | null;
+      /**
+         * The destination's `destinations[].hog_function_ids`, for a destination that has HogFunctions.
+         * @maxItems 100
+         */
+      hog_function_ids?: string[];
+    }
+
     export interface LogsAlertDeleteDestination {
       /** HogFunction IDs to delete as one atomic destination group. */
       hog_function_ids?: string[];
@@ -68140,6 +68153,20 @@ export namespace Schemas {
       readonly error_message: string | null;
       /** @nullable */
       readonly query_duration_ms: number | null;
+    }
+
+    export interface LogsAlertResetDestination {
+      /**
+         * Every HogFunction of the customized destination, from `destinations[].hog_function_ids`.
+         * @minItems 1
+         * @maxItems 100
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface LogsAlertResetDestinationResponse {
+      /** The destination's new ID on the alerts platform, which now sends it. */
+      id: string;
     }
 
     export interface LogsAlertSimulateBucket {

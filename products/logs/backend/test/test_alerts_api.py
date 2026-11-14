@@ -1377,6 +1377,53 @@ class TestLogsAlertAPI(APIBaseTest):
         assert self._read_destinations(created["id"]) == []
         assert not HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).exists()
 
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
+    def test_a_destination_moves_between_its_row_and_hog_functions_through_customize_and_reset(
+        self, mock_report
+    ) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        assert created["platform_owned"] is True
+        hog_function_ids = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        ).json()["hog_function_ids"]
+        (copied,) = self._read_destinations(created["id"])
+
+        kept = self.client.post(
+            f"{self._destinations_url(created['id'])}customize/", {"destination_id": copied["id"]}, format="json"
+        )
+
+        assert kept.status_code == status.HTTP_200_OK, kept.json()
+        assert sorted(kept.json()["hog_function_ids"]) == sorted(hog_function_ids)
+        assert self._read_destinations(created["id"])[0]["id"] is None
+
+        reset = self.client.post(
+            f"{self._destinations_url(created['id'])}reset/", {"hog_function_ids": hog_function_ids}, format="json"
+        )
+
+        assert reset.status_code == status.HTTP_200_OK, reset.json()
+        (row_only,) = self._read_destinations(created["id"])
+        assert (row_only["id"], row_only["hog_function_ids"]) == (reset.json()["id"], [])
+
+        customized = self.client.post(
+            f"{self._destinations_url(created['id'])}customize/", {"destination_id": row_only["id"]}, format="json"
+        )
+
+        assert customized.status_code == status.HTTP_200_OK, customized.json()
+        (listed,) = self._read_destinations(created["id"])
+        assert (listed["id"], sorted(listed["hog_function_ids"])) == (
+            None,
+            sorted(customized.json()["hog_function_ids"]),
+        )
+        assert listed["webhook_url"] == "https://example.com"
+        assert [call.args[1] for call in mock_report.call_args_list[-3:]] == [
+            "logs alert destination customized",
+            "logs alert destination reset",
+            "logs alert destination customized",
+        ]
+
     def test_reading_an_alert_marks_only_the_destination_with_a_customized_function(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()

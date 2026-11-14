@@ -1,3 +1,5 @@
+import { urls } from 'scenes/urls'
+
 import {
     AlertDestinationsApi,
     DESTINATION_TYPE_OPTIONS,
@@ -5,7 +7,9 @@ import {
 import { PlatformAlertDestinationsLogicProps } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
 import {
     logsAlertsDestinationsCreate,
+    logsAlertsDestinationsCustomizeCreate,
     logsAlertsDestinationsDeleteCreate,
+    logsAlertsDestinationsResetCreate,
     logsAlertsRetrieve,
 } from 'products/logs/frontend/generated/api'
 import {
@@ -39,6 +43,19 @@ const LOGS_ALERT_DESTINATIONS_API: AlertDestinationsApi = {
                 ? { hog_function_ids: destination.hog_function_ids }
                 : { destination_ids: [destination.id] }
         ),
+    customize: async (projectId, alertId, destination) =>
+        (
+            await logsAlertsDestinationsCustomizeCreate(
+                projectId,
+                alertId,
+                destination.hog_function_ids?.length
+                    ? { hog_function_ids: destination.hog_function_ids }
+                    : { destination_id: destination.id }
+            )
+        ).hog_function_ids,
+    reset: (projectId, alertId, destination) =>
+        logsAlertsDestinationsResetCreate(projectId, alertId, { hog_function_ids: destination.hog_function_ids ?? [] }),
+    messageEditorUrl: (alertId, hogFunctionIds) => urls.logsAlertNotificationDetail(alertId, hogFunctionIds[0]),
 }
 
 export function logsAlertDestinationsLogicProps(alertId?: string): PlatformAlertDestinationsLogicProps {
