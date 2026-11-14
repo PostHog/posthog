@@ -815,12 +815,7 @@ describe('workflowsListV2Logic', () => {
             'Workflow "Renewal reminder" duplicated',
         ],
         ['fails', 500, [], /^Failed to duplicate workflow/],
-        [
-            'stalls',
-            null,
-            [],
-            'Failed to duplicate workflow: The server took too long to respond. Refresh the list before you try again.',
-        ],
+        ['stalls', null, [], 'Failed to duplicate workflow: The server took too long to respond. Try again.'],
     ])('sends one duplicate at a time and releases the row when the copy %s', async (_, status, posted, toast) => {
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
@@ -886,6 +881,55 @@ describe('workflowsListV2Logic', () => {
         expect(logic.values.pendingRowActions).toEqual({})
         expect(screen.queryByText(toast)).not.toBeNull()
         expect(retrieveSignals.map((signal) => signal.aborted)).toEqual([status === null])
+    })
+
+    it('keeps the row locked while a slow copy is still being created, so a second press makes no second copy', async () => {
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'loadMetricsSuccess'])
+
+        let answerCreate: () => void = () => {}
+        let posts = 0
+        const createSent = new Promise<void>((markSent) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_flows/summaries/': () => [200, paginated(FIXTURE_WORKFLOWS)],
+                    '/api/projects/:team_id/hog_flows/:id/': () => [
+                        200,
+                        { ...FIXTURE_WORKFLOWS[1], actions: RENEWAL_ACTIONS, edges: RENEWAL_EDGES },
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/hog_flows/': () =>
+                        new Promise((resolve) => {
+                            posts += 1
+                            answerCreate = () => resolve([200, { id: 'wf-copy' }])
+                            markSent()
+                        }),
+                },
+            })
+        })
+        const row = logic.values.rows.find((r) => r.id === 'wf-renewal')!
+
+        jest.useFakeTimers()
+        try {
+            logic.actions.duplicateWorkflow(row)
+            await createSent
+            await jest.advanceTimersByTimeAsync(2 * SUMMARY_REQUEST_TIMEOUT_MS)
+            expect(logic.values.pendingRowActions).toEqual({ 'wf-renewal': 'duplicate' })
+            logic.actions.duplicateWorkflow(row)
+        } finally {
+            jest.useRealTimers()
+        }
+        answerCreate()
+        await act(async () => {
+            await expectLogic(logic).toFinishAllListeners()
+        })
+        expect(posts).toEqual(1)
+        expect(logic.values.pendingRowActions).toEqual({})
+        expect(screen.queryByText('Workflow "Renewal reminder" duplicated')).not.toBeNull()
+        expect(screen.queryByText(/^Failed to duplicate workflow/)).toBeNull()
     })
 
     it('stops paging an older load once a newer load starts', async () => {
