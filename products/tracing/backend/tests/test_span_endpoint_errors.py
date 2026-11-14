@@ -179,3 +179,53 @@ class TestSpanQueryCachedResponse(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         cursor = json.loads(base64.b64decode(response.json()["nextCursor"]))
         self.assertEqual(cursor, {"timestamp": "2026-06-02T08:00:00.200000+00:00", **expected_secondary})
+
+    @parameterized.expand([("spans", False), ("summary", True)])
+    def test_trace_from_cached_string_timestamps(self, _name, summary):
+        rows = [
+            {
+                "trace_id": "abc123",
+                "span_id": span_id,
+                "parent_span_id": parent,
+                "name": name,
+                "service_name": "api",
+                "status_code": 0,
+                "timestamp": start,
+                "end_time": end,
+                "duration_nano": duration_nano,
+                "is_root_span": parent == "",
+                "attributes": {},
+                "events": [],
+            }
+            for span_id, parent, name, start, end, duration_nano in [
+                ("01", "", "GET /", "2026-06-02T08:00:00+00:00", "2026-06-02T08:00:00.100000+00:00", 100_000_000),
+                (
+                    "02",
+                    "01",
+                    "SELECT",
+                    "2026-06-02T08:00:00.020000+00:00",
+                    "2026-06-02T08:00:00.050000+00:00",
+                    30_000_000,
+                ),
+            ]
+        ]
+        now = dt.datetime.now(dt.UTC)
+        cached = CachedTraceSpansQueryResponse(
+            cache_key="key",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            timezone="UTC",
+            results=rows,
+        )
+        with patch("products.tracing.backend.presentation.views.TraceSpansQueryRunner.run", return_value=cached):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/tracing/spans/trace/abc123/",
+                {"summary": summary},
+                format="json",
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        if summary:
+            self.assertEqual(response.json()["summary"]["top_self_time"][0]["self_ms"], 70.0)
+        else:
+            self.assertEqual(response.json()["results"][0]["self_time_nano"], 70_000_000)

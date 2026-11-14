@@ -1337,6 +1337,11 @@ def _cursor_timestamp(value: dt.datetime | str) -> str:
     return value if isinstance(value, str) else value.isoformat()
 
 
+def _span_datetime(value: dt.datetime | str) -> dt.datetime:
+    # A cached response carries ISO strings. Self-time and the trace summary subtract these values, so they must be datetimes.
+    return dt.datetime.fromisoformat(value) if isinstance(value, str) else value
+
+
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
@@ -2149,6 +2154,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         all_results = list(response.results) if isinstance(response.results, list) else []
         has_more = len(all_results) > TRACE_SPANS_PAGE_SIZE
         results = all_results[:TRACE_SPANS_PAGE_SIZE]
+        for span in results:
+            span["timestamp"] = _span_datetime(span["timestamp"])
+            span["end_time"] = _span_datetime(span["end_time"])
 
         # Self-time needs a span's children present. On a paged (truncated) trace it overstates for
         # spans whose children fall on a later page — an accepted bound, same as the prior 2000 cap.
