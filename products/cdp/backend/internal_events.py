@@ -36,12 +36,9 @@ def is_reserved_internal_event(event_name: object) -> bool:
     return isinstance(event_name, str) and event_name in RESERVED_INTERNAL_EVENTS
 
 
-# Internal events that carry a product's data, keyed to the API scope object whose read access guards that data.
-# A destination on one of these sends the data out of PostHog. So a write to such a destination also needs
-# that read scope, and viewer access to the matching access control resource. Otherwise a member who cannot
-# read the data could point a webhook at it.
+# Internal events that carry a product's data, keyed to the scope object that guards reading it. A destination
+# on one can send that data out of PostHog, so working with it needs the same read access.
 INTERNAL_EVENT_READ_SCOPES: dict[str, str] = {
-    # Self-driving Inbox reports: `inbox:read`, and the `task` access control rules through `inbox`.
     "$signals_report_ready": "inbox",
 }
 
