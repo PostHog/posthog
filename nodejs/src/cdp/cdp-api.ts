@@ -157,6 +157,15 @@ const SAFE_CONTENT_TYPES = new Set([
     'image/webp',
 ])
 
+// A test invocation's error message can quote the sample event, so log the stack frames without the header that repeats it
+function stackFramesWithoutMessage(e: unknown): string | undefined {
+    if (!(e instanceof Error) || typeof e.stack !== 'string') {
+        return undefined
+    }
+    const header = String(e)
+    return e.stack.startsWith(header) ? e.stack.slice(header.length + 1) : undefined
+}
+
 function sanitizeContentType(contentType: string | undefined, fallback: string): string {
     if (!contentType) {
         return fallback
@@ -723,13 +732,6 @@ export class CdpApi {
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
             let { globals } = req.body
 
-            // Redact configuration: it carries function inputs (auth headers, API keys) that must not land in logs
-            logger.info('⚡️', 'Received invocation', {
-                id,
-                team_id,
-                body: { ...req.body, configuration: configuration ? '[redacted]' : undefined },
-            })
-
             const invocationID = invocation_id ?? new UUIDT().toString()
 
             // Check the invocationId is a valid UUID
@@ -737,6 +739,14 @@ export class CdpApi {
                 res.status(400).json({ error: 'Invalid invocation ID' })
                 return
             }
+
+            // Allowlist: the body carries secrets in inputs and customer data in the sample event
+            logger.info('⚡️', 'Received invocation', {
+                id,
+                team_id,
+                invocationId: invocationID,
+                mock_async_functions,
+            })
 
             const isNewFunction = req.params.id === 'new'
 
@@ -994,7 +1004,12 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Invalid function type' })
             }
         } catch (e) {
-            console.error(e)
+            logger.error('⚡️', 'Test invocation failed', {
+                id: req.params.id,
+                team_id: req.params.team_id,
+                error: e.name,
+                stack: stackFramesWithoutMessage(e),
+            })
             res.status(500).json({ errors: [e.message], request_origins: [...requestOrigins].sort() })
         } finally {
             await this.invocationResultsService.flush()
@@ -1007,13 +1022,6 @@ export class CdpApi {
             const { id, team_id } = req.params
             const { clickhouse_event, configuration, invocation_id, current_action_id, mock_async_functions } = req.body
 
-            // Redact configuration: it carries action inputs (auth headers, API keys) that must not land in logs
-            logger.info('⚡️', 'Received hogflow invocation', {
-                id,
-                team_id,
-                body: { ...req.body, configuration: configuration ? '[redacted]' : undefined },
-            })
-
             const invocationID = invocation_id ?? new UUIDT().toString()
 
             // Check the invocationId is a valid UUID
@@ -1021,6 +1029,14 @@ export class CdpApi {
                 res.status(400).json({ error: 'Invalid invocation ID' })
                 return
             }
+
+            logger.info('⚡️', 'Received hogflow invocation', {
+                id,
+                team_id,
+                invocationId: invocationID,
+                current_action_id,
+                mock_async_functions,
+            })
 
             const isNewHogFlow = req.params.id === 'new'
             const hogFlow = isNewHogFlow ? null : await this.hogFlowManager.getHogFlow(req.params.id)
@@ -1152,7 +1168,12 @@ export class CdpApi {
                 request_origins: [...requestOrigins].sort(),
             })
         } catch (e) {
-            console.error(e)
+            logger.error('⚡️', 'Test invocation failed', {
+                id: req.params.id,
+                team_id: req.params.team_id,
+                error: e.name,
+                stack: stackFramesWithoutMessage(e),
+            })
             res.status(500).json({ error: [e.message], request_origins: [...requestOrigins].sort() })
         }
     }
