@@ -81,6 +81,8 @@ export function loginFlow(
 
     return {
         ...loginWait(runtime, identity),
+        // A step-up adds scopes to a login the person already has, so they have an account.
+        signUp: requiredScopes.length === 0,
         start: () => startDeviceLogin(runtime, host, { scopes, requiredScopes, command, projectId }),
         reuse: (existing) =>
             existing.host === host &&

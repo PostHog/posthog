@@ -26,10 +26,10 @@ export function OfflineItemInspector({
 }): JSX.Element {
     const logic = offlineItemInspectorLogic(props)
     const drawerLogic = traceDrawerLogic({ listId: 'offline-experiment' })
-    const { isEnabled, openTraceId } = useValues(drawerLogic)
+    const { openTraceId } = useValues(drawerLogic)
     const { openRow } = useActions(drawerLogic)
     const openTrace = (event: MouseEvent<HTMLElement>, traceId: string): void => {
-        if (isEnabled && opensTraceDrawer(event, 'a', false)) {
+        if (opensTraceDrawer(event, 'a', false)) {
             event.preventDefault()
             openRow({ traceId, timestamp: null, stepId: null })
         }
@@ -63,7 +63,7 @@ export function OfflineItemInspector({
         loadOfflineResultPayload,
     } = useActions(logic)
     return (
-        <LemonModal isOpen={!isEnabled || !openTraceId} onClose={onClose} width="64rem" simple>
+        <LemonModal isOpen={!openTraceId} onClose={onClose} width="64rem" simple>
             <LemonModalHeader>
                 <h3 className="break-words pr-8">
                     {item?.case_key || item?.dataset_item_identifier || 'Experiment item'}

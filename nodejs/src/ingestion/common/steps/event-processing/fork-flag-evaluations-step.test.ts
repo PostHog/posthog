@@ -1,4 +1,6 @@
+import { readFileSync } from 'fs'
 import { DateTime } from 'luxon'
+import path from 'path'
 
 import { FlagEvaluationsOutput, IngestionWarningsOutput, RealtimeOnlyEventsOutput } from '~/common/outputs'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
@@ -10,6 +12,7 @@ import { FlagEvaluationsMode, ISOTimestamp, ProcessedEvent, ProjectId } from '~/
 
 import { EventToEmit } from './emit-event-step'
 import {
+    FLAG_EVALUATIONS_TTL_DAYS,
     ForkFlagEvaluationsStepInput,
     createForkFlagEvaluationsStep,
     flagEvaluationsEventsTotal,
@@ -183,6 +186,15 @@ describe('createForkFlagEvaluationsStep', () => {
     describe('flag_evaluations retention', () => {
         afterEach(() => {
             jest.useRealTimers()
+        })
+
+        it('mirrors ttl_days in posthog/models/flag_evaluations/crosslang/flag_evaluations.json', () => {
+            const shared = path.resolve(
+                __dirname,
+                '../../../../../../posthog/models/flag_evaluations/crosslang/flag_evaluations.json'
+            )
+
+            expect(FLAG_EVALUATIONS_TTL_DAYS).toBe(parseJSON(readFileSync(shared, 'utf8')).ttl_days)
         })
 
         it.each([

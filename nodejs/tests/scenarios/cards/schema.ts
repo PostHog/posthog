@@ -8,6 +8,7 @@ export const CdpRole = z.enum([
     'cdp-cyclotron-worker-email',
     'cdp-api',
     'cdp-cyclotron-v2-janitor',
+    'cdp-ses-webhooks',
 ])
 
 export const Named = z.object({ name: z.string(), params: z.record(z.string(), z.unknown()).default({}) }).strict()
@@ -16,7 +17,7 @@ export type Named = z.infer<typeof Named>
 export const RunningOnQueue = z
     .object({
         name: z.literal('running_on_queue', { error: 'running_on_queue is the only predicate' }),
-        params: z.object({ queue: z.string(), atLeast: z.number().int().min(1) }).strict(),
+        params: z.object({ queue: z.enum(['hogflow', 'email']), atLeast: z.number().int().min(1) }).strict(),
     })
     .strict()
 
@@ -57,11 +58,67 @@ export const Card = z
     .strict()
 export type Card = z.infer<typeof Card>
 
+export const BacklogQueue = z.enum(['hogflow', 'email'])
+
+const StateBytes = z
+    .object({
+        p50: z.number().int().min(1),
+        p90: z.number().int().min(1),
+        p99: z.number().int().min(1),
+    })
+    .strict()
+    .refine(({ p50, p90, p99 }) => p50 <= p90 && p90 <= p99, 'p50, p90 and p99 must not decrease')
+
+export const Backlog = z
+    .object({
+        teams: z.number().int().min(1),
+        jobs: z
+            .partialRecord(BacklogQueue, z.number().int().min(1))
+            .refine((jobs) => Object.keys(jobs).length > 0, 'name at least one queue'),
+        stateBytes: StateBytes,
+        compressibility: z.number().min(0).max(1),
+        parkFor: Duration,
+        tolerance: z.number().min(0).max(1),
+    })
+    .strict()
+export type Backlog = z.infer<typeof Backlog>
+
+export const Load = z
+    .object({
+        targets: z
+            .object({
+                claimsPerSecond: z.partialRecord(BacklogQueue, z.number().positive()),
+                newJobsPerSecond: z.number().positive().optional(),
+            })
+            .strict()
+            .refine(
+                ({ claimsPerSecond, newJobsPerSecond }) =>
+                    Object.keys(claimsPerSecond).length > 0 || newJobsPerSecond !== undefined,
+                'name at least one target'
+            ),
+        tolerance: z.number().min(0).max(1),
+    })
+    .strict()
+export type Load = z.infer<typeof Load>
+
+export const Host = z.object({ cpuCeiling: z.number().min(0).max(1) }).strict()
+export type Host = z.infer<typeof Host>
+
 export const Profile = z
     .object({
         name: z.string(),
         traffic: z.record(z.string(), z.unknown()).default({}),
         settings: z.record(z.string(), z.string()).default({}),
+        replicas: z
+            .partialRecord(CdpRole, z.number().int().min(1))
+            .refine((replicas) => (replicas['cdp-api'] ?? 1) === 1, {
+                message: 'cdp-api runs once, since every intake offer goes to replica 0',
+                path: ['cdp-api'],
+            })
+            .default({}),
+        backlog: Backlog.optional(),
+        load: Load.optional(),
+        host: Host.optional(),
     })
     .strict()
 export type Profile = z.infer<typeof Profile>

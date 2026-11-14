@@ -455,6 +455,22 @@ body:not(.storybook-test-runner) .LemonTable.LemonTable--sticky-header {
     }
 }
 
+.LemonTable--sticky-header-contained {
+    .LemonTable__content > table > thead {
+        position: sticky;
+        top: 0;
+        z-index: 7;
+
+        > tr > th {
+            background: var(--lemon-table-background-color);
+        }
+    }
+
+    &.LemonTable--loading .LemonTable__overlay {
+        z-index: 7;
+    }
+}
+
 .LemonTable__bulk-selection-reveal {
     display: grid;
     grid-template-rows: 0fr;

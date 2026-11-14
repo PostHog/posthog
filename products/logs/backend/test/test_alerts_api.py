@@ -229,10 +229,11 @@ class TestLogsAlertAPI(APIBaseTest):
         assert [(row["state"], row["next_check_at"]) for row in rows] == [
             ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
         ] * len(rows)
-        # One for the runtime, one for the history's ids and one for the control-plane changes' ids,
-        # whatever the page size. A list also reads the alerts with no logs row.
+        # Settings, runtime, history ids and control-change ids, whatever the page size. A list also
+        # reads which alerts the platform owns and the alerts with no logs row; a single alert also
+        # reads its destinations.
         platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
-        assert len(platform_reads) == (4 if action == "list" else 3)
+        assert len(platform_reads) == (6 if action == "list" else 5)
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
@@ -568,6 +569,15 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["first_enabled_at"] is not None
+        with team_scope(self.team.id):
+            (copy,) = list_configurations(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.LOGS.value],
+                limit=1,
+                offset=0,
+                legacy_configuration_id=UUID(alert_id),
+            ).configurations
+        assert copy.first_enabled_at == LogsAlertConfiguration.objects.get(id=alert_id).first_enabled_at
 
     def test_first_enabled_at_not_overwritten_on_subsequent_enable(self):
         created = self._create_via_api()
@@ -675,11 +685,95 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
 
+    UNSUPPORTED_NESTED_GROUP_CASES: list[tuple[str, dict[str, Any]]] = [
+        (
+            "log_resource_attribute",
+            {"key": "k8s.namespace.name", "value": ["prod"], "operator": "exact", "type": "log_resource_attribute"},
+        ),
+        ("log", {"key": "message", "value": "timeout", "operator": "icontains", "type": "log"}),
+    ]
+
+    @staticmethod
+    def _nested_group_filters(leaf: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": [{"type": "OR", "values": [leaf]}]}]}
+        }
+
+    @parameterized.expand(UNSUPPORTED_NESTED_GROUP_CASES)
+    def test_create_rejects_unsupported_nested_filter_group(self, leaf_type, leaf):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(filters=self._nested_group_filters(leaf)),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+        assert leaf_type in response.json()["detail"]
+        assert not LogsAlertConfiguration.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(UNSUPPORTED_NESTED_GROUP_CASES)
+    def test_patch_rejects_unsupported_nested_filter_group(self, leaf_type, leaf):
+        created = self._create_via_api()
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"filters": self._nested_group_filters(leaf)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+        assert leaf_type in response.json()["detail"]
+        assert LogsAlertConfiguration.objects.get(id=created["id"]).filters == {"severityLevels": ["error"]}
+
+    def test_patch_disables_stored_alert_with_unsupported_nested_filter_group(self):
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Stored before validation",
+            threshold_count=10,
+            filters=self._nested_group_filters(self.UNSUPPORTED_NESTED_GROUP_CASES[0][1]),
+            created_by=self.user,
+        )
+        response = self.client.patch(f"{self.base_url}{alert.id}/", {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.enabled is False
+
     @parameterized.expand(
         [
             ("severity_levels", {"severityLevels": ["error"]}),
             ("service_names", {"serviceNames": ["my-service"]}),
             ("filter_group", {"filterGroup": {"type": "AND", "values": []}}),
+            (
+                "nested_log_attribute_group",
+                {
+                    "filterGroup": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "OR",
+                                        "values": [
+                                            {
+                                                "key": "user.id",
+                                                "value": "u1",
+                                                "operator": "exact",
+                                                "type": "log_attribute",
+                                            },
+                                            {
+                                                "key": "user_id",
+                                                "value": "u1",
+                                                "operator": "exact",
+                                                "type": "log_attribute",
+                                            },
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
         ]
     )
     def test_create_accepts_valid_filter(self, _name, filters):
@@ -1253,6 +1347,35 @@ class TestLogsAlertAPI(APIBaseTest):
         body = response.content.decode()
         assert "password" not in body
         assert "token=secret" not in body
+
+    @parameterized.expand(
+        [
+            ("by_hog_function_ids", "hog_function_ids"),
+            ("by_destination_id", "destination_ids"),
+        ]
+    )
+    def test_a_destination_is_a_platform_row_beside_its_hog_functions_until_deleted(
+        self, _name: str, delete_by: str
+    ) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        hog_function_ids = create_response.json()["hog_function_ids"]
+
+        (destination,) = self._read_destinations(created["id"])
+        assert destination["id"] is not None
+        assert sorted(destination["hog_function_ids"]) == sorted(hog_function_ids)
+
+        named = hog_function_ids if delete_by == "hog_function_ids" else [destination["id"]]
+        response = self.client.post(self._destinations_delete_url(created["id"]), {delete_by: named}, format="json")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert self._read_destinations(created["id"]) == []
+        assert not HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).exists()
 
     def test_reading_an_alert_marks_only_the_destination_with_a_customized_function(self) -> None:
         self._sync_destination_templates()
@@ -2430,6 +2553,35 @@ class TestLogsAlertAPI(APIBaseTest):
     def _copy(self, alert_id: str) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):
             return platform_testing.copy_of(UUID(alert_id))
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_an_alert_the_platform_owns_reads_from_its_copy_not_its_logs_row(self, action: str) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        created = self._create_via_api()
+        assert created["platform_owned"] is True
+        LogsAlertConfiguration.objects.filter(id=created["id"]).update(
+            name="Only on the logs row",
+            enabled=False,
+            threshold_count=999,
+            state=LogsAlertConfiguration.State.SNOOZED,
+            snooze_until=timezone.now() + timedelta(hours=1),
+            first_enabled_at=None,
+            created_by=other_user,
+        )
+
+        if action == "list":
+            response = self.client.get(self.base_url)
+            (read,) = response.json()["results"]
+            by_row_creator = self.client.get(self.base_url, {"created_by": str(other_user.uuid)})
+            assert by_row_creator.json()["results"] == []
+        else:
+            response = self.client.get(f"{self.base_url}{created['id']}/")
+            read = response.json()
+
+        assert response.status_code == status.HTTP_200_OK
+        fields = ("name", "enabled", "threshold_count", "state", "snooze_until", "first_enabled_at", "created_at")
+        assert {field: read[field] for field in fields} == {field: created[field] for field in fields}
+        assert read["created_by"]["id"] == self.user.pk
 
     def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
         created = self._owned_by_the_platform()
@@ -3745,6 +3897,8 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
         LogsAlertConfiguration.objects.filter(pk=self.alert.pk).update(
             state="snoozed" if snooze_until is not None else "not_firing", snooze_until=snooze_until
         )
+        with team_scope(self.team.id):
+            platform_testing.set_snooze_until(platform_testing.copy_of(self.alert.id).id, snooze_until)
 
         [row] = self._rows("retrieve")
 
@@ -3752,6 +3906,18 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
             (iso(minutes_ago), state) for minutes_ago, state in expected
         ]
         assert row["state_timeline"][0]["state"] == "not_firing"
+
+    def test_timeline_keeps_a_snooze_that_began_before_the_window_and_expired_inside_it(self) -> None:
+        expired_at = self.now - timedelta(minutes=30)
+        with team_scope(self.team.id):
+            platform_testing.set_snooze_until(platform_testing.copy_of(self.alert.id).id, expired_at)
+
+        [row] = self._rows("retrieve")
+
+        assert [(i["start"], i["state"]) for i in row["state_timeline"]][1:] == [
+            (expired_at.isoformat().replace("+00:00", "Z"), "not_firing")
+        ]
+        assert row["state_timeline"][0]["state"] == "snoozed"
 
     def test_timeline_shows_a_reset_of_a_platform_broken_alert(self) -> None:
         with team_scope(self.team.id):
@@ -3772,15 +3938,28 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
         assert [interval["state"] for interval in row["state_timeline"]] == ["not_firing", "broken", "not_firing"]
 
-    def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
-        with patch(
-            "products.logs.backend.presentation.views.alerts_api.history_by_public_id",
-            side_effect=Exception("ClickHouse is down"),
-        ):
-            [row] = self._rows("list")
+    @parameterized.expand(
+        [
+            ("list", "history_by_public_id", ""),
+            ("retrieve", "platform_control_timelines", "{id}/"),
+            ("events", "platform_check_rows", "{id}/events/"),
+        ]
+    )
+    def test_a_clickhouse_failure_is_an_error_rather_than_the_logs_rows_history(
+        self, _name: str, failing_read: str, path: str
+    ) -> None:
+        with patch(f"{_ALERTS_API}.{failing_read}", side_effect=Exception("ClickHouse is down")):
+            response = self.client.get(self.base_url + path.format(id=self.alert.id))
 
-        assert row["last_checked_at"] == (self.now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
-        assert row["last_error_message"] == "Logs stack timeout"
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        assert response.json()["detail"] == "Couldn't load alert history. Try again in a minute."
+
+    def test_a_clickhouse_failure_does_not_fail_a_committed_edit(self) -> None:
+        with patch(f"{_ALERTS_API}.history_by_public_id", side_effect=Exception("ClickHouse is down")):
+            response = self.client.patch(f"{self.base_url}{self.alert.id}/", {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (response.json()["name"], response.json()["state_timeline"]) == ("Renamed", [])
 
     def _record_events_history(self) -> None:
         def at(minutes_after_cutover: int) -> datetime:
@@ -3840,22 +4019,6 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
             )
             for e in response.json()["results"]
         ] == expected
-
-    def test_events_fall_back_to_logs_rows_when_clickhouse_fails(self) -> None:
-        self._record_events_history()
-
-        with patch(
-            "products.logs.backend.presentation.views.alerts_api.platform_check_rows",
-            side_effect=Exception("ClickHouse is down"),
-        ):
-            response = self.client.get(f"{self.base_url}{self.alert.id}/events/")
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert [(e["kind"], e["state_after"]) for e in response.json()["results"]] == [
-            ("disable", "not_firing"),
-            ("check", "firing"),
-            ("check", "errored"),
-        ]
 
     def test_events_reject_a_page_ending_past_the_merge_bound(self) -> None:
         response = self.client.get(f"{self.base_url}{self.alert.id}/events/?offset=10000&limit=1")

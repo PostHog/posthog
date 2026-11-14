@@ -745,6 +745,8 @@ export class EmailTrackingService {
                         status: update.status,
                         reason: update.reason,
                         statusAt: new Date(update.timestamp),
+                        messageCreatedAt:
+                            update.messageCreatedAtMs === undefined ? undefined : new Date(update.messageCreatedAtMs),
                     })
                 }
             }
@@ -770,7 +772,8 @@ export class EmailTrackingService {
                             parsedTeamId,
                             emailAddresses,
                             diagnostic,
-                            bounceTimestamp
+                            bounceTimestamp,
+                            { eventId: envelope.MessageId }
                         )
                     }
                 }
