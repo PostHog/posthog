@@ -22,7 +22,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import CHQueryErrorQueryWasCancelled
+from posthog.errors import CHQueryErrorQueryWasCancelled, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks.calculate_cohort import (
     COHORT_BACKFILL_REFUSAL_OUTCOMES,
@@ -58,6 +58,8 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode, CohortType
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    PopulationEmptyResult,
+    PopulationMarkerClockSkew,
     StaticCohortReadBackIncomplete,
     count_cohort_members,
     delete_cohort_members_by_person_ids,
@@ -1367,6 +1369,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             # (exception raised, expected capture_exception call count)
             ("system_error", Exception("Simulated query processing error"), 1),
             ("user_query_error", QueryError("Unable to resolve field: distinct_ids"), 0),
+            ("empty_replace", PopulationEmptyResult("the replace query matched nobody"), 0),
         ]
     )
     def test_insert_cohort_from_query_only_captures_system_errors(
@@ -1490,6 +1493,20 @@ class TestCohortCalculationTasks(APIBaseTest):
                 QUERY_CH_INSERT_PATH,
                 PG_SYNC_PATH,
                 lambda: StaticCohortReadBackIncomplete("Read 0 of 1 rows"),
+            ),
+            (
+                "query_marker_clock_skew",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                PG_SYNC_PATH,
+                lambda: PopulationMarkerClockSkew("rows stamped 30s ahead of this host's clock"),
+            ),
+            (
+                "query_insert_status_unknown",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                PG_SYNC_PATH,
+                lambda: InternalCHQueryError("unknown status of insert", code=319),
             ),
         ]
     )
@@ -1787,8 +1804,10 @@ class TestCohortCalculationTasks(APIBaseTest):
             (cohort.is_calculating, cohort.pending_population_mode, cohort.population_marker),
             expected,
         )
-        # And no error row is left to show a failure banner on a cohort that never failed.
+        # And no error row is left to show a failure banner on a cohort that never failed, nor an open row that
+        # reads as a run still in flight.
         self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort, error_code__isnull=False).exists())
+        self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=True).exists())
 
     @parameterized.expand(
         [
@@ -1928,6 +1947,31 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort).exists())
 
+    def test_a_replace_retry_after_a_failed_insert_does_not_carry_a_marker(self) -> None:
+        # The insert's rows may be partly written at the old marker, so the retry must mint a fresh one, which puts
+        # those rows below its prune, instead of resuming at the old marker.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+
+        insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
+        try:
+            with (
+                patch(QUERY_CH_INSERT_PATH, side_effect=InternalCHQueryError("unknown status of insert", code=319)),
+                self.assertRaises(Retry) as scheduled,
+            ):
+                insert_cohort_from_query.run(cohort.id, self.team.pk)
+        finally:
+            insert_cohort_from_query.pop_request()
+
+        self.assertNotIn("replace_marker", scheduled.exception.sig.kwargs)
+        self.assertFalse(scheduled.exception.sig.kwargs["ch_insert_done"])
+
     def test_replace_retry_after_partial_postgres_prune_converges(self) -> None:
         # A retry after a partial Postgres prune converges both stores exact.
         kept, new, stale1, stale2 = (
@@ -2001,6 +2045,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         # Both stores end exact:
         self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {kept.id, new.id})
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 2)
+        self.assertEqual(cohort.count, 2)
 
         ch_rows = sync_execute(
             "SELECT person_id, count(), max(_timestamp) FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s GROUP BY person_id",
