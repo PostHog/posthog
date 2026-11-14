@@ -551,6 +551,11 @@ const shouldLoadUnfiledItems = (
     !values.unfiledItems &&
     !values.unfiledItemsLoading
 
+const withoutItems = <T extends { results: FileSystemEntry[] }>(state: T, items: FileSystemEntry[]): T => {
+    const ids = new Set(items.map((item) => item.id))
+    return { ...state, results: state.results.filter((result) => !ids.has(result.id)) }
+}
+
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
     props({} as ProjectTreeLogicProps),
@@ -758,6 +763,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
+                [projectTreeDataLogic.actionTypes.dropStaleItems]: (state, { items }) =>
+                    state.searchTerm && state.results.length > 0 ? withoutItems(state, items) : state,
                 deleteTypeAndRef: (state, { type, ref }) => {
                     return {
                         ...state,
@@ -804,6 +811,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
+                [projectTreeDataLogic.actionTypes.dropStaleItems]: (state, { items }) =>
+                    state.results.length > 0 ? withoutItems(state, items) : state,
                 deleteTypeAndRef: (state, { type, ref }) => {
                     return {
                         ...state,
@@ -1322,6 +1331,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.checkSelectedFolders()
         },
         deleteSavedItem: () => {
+            actions.checkSelectedFolders()
+        },
+        [projectTreeDataLogic.actionTypes.dropStaleItems]: () => {
             actions.checkSelectedFolders()
         },
         movedItem: () => {

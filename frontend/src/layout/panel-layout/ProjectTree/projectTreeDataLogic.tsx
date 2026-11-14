@@ -47,6 +47,7 @@ import {
     isFileSystemEntryTypeEnabled,
     isGroupViewShortcut,
     isPathUnder,
+    joinPath,
     matchesRefType,
     parentPath,
     refTypeParams,
@@ -114,6 +115,19 @@ interface MoveBatch {
 }
 
 let lastMoveBatchId = 0
+
+/** `state` without the records of the dropped folders among `items` and of every folder inside them. */
+function withoutDroppedFolders<T>(state: Record<string, T>, items: FileSystemEntry[]): Record<string, T> {
+    const dropped = new Set(
+        items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
+    )
+    return Object.fromEntries(
+        Object.entries(state).filter(([folder]) => {
+            const parts = splitPath(folder)
+            return !parts.some((_, index) => dropped.has(joinPath(parts.slice(0, index + 1))))
+        })
+    )
+}
 
 // Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
 // `orderedIds` is appended at the end so a partial input never silently drops items.
@@ -383,6 +397,9 @@ export interface projectTreeDataLogicActions {
     ) => {
         ref: string
         type: string
+    }
+    dropStaleItems: (items: FileSystemEntry[]) => {
+        items: FileSystemEntry[]
     }
     linkItem: (
         oldPath: string,
@@ -763,6 +780,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
+        // Drops cached copies that a full reload no longer lists at their path, in one update. Nothing is deleted on
+        // the server, so this is not a deleteSavedItem: listeners that react to a delete, such as removing a pin, must
+        // not run for it.
+        dropStaleItems: (items: FileSystemEntry[]) => ({ items }),
         deleteItem: (item: FileSystemEntry, projectTreeLogicKey: string) => ({ item, projectTreeLogicKey }),
         linkItem: (oldPath: string, newPath: string, force: boolean, projectTreeLogicKey: string) => ({
             oldPath,
@@ -1243,6 +1264,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
                     return newState
                 },
+                dropStaleItems: (state, { items }) => {
+                    const idsByFolder = new Map<string, Set<string>>()
+                    for (const item of items) {
+                        const folder = parentPath(item.path)
+                        idsByFolder.set(folder, (idsByFolder.get(folder) ?? new Set()).add(item.id))
+                    }
+                    const newState = { ...state }
+                    for (const [folder, ids] of idsByFolder) {
+                        if (newState[folder]) {
+                            newState[folder] = newState[folder].filter((item) => !ids.has(item.id))
+                        }
+                    }
+                    return withoutDroppedFolders(newState, items)
+                },
                 deleteTypeAndRef: (state, { type, ref }) => {
                     const newState = { ...state }
                     for (const [folder, files] of Object.entries(newState)) {
@@ -1300,6 +1335,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     const previousOffset = forceReload ? 0 : (state[folder] ?? 0)
                     return { ...state, [folder]: previousOffset + offsetIncrease }
                 },
+                dropStaleItems: (state, { items }) => withoutDroppedFolders(state, items),
                 pruneClosedFolders: (state, { expandedFolders }) => {
                     const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
                     const newState: Record<string, number> = {}
@@ -1321,6 +1357,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     [folder]: hasMore ? 'has-more' : 'loaded',
                 }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
+                dropStaleItems: (state, { items }) => withoutDroppedFolders(state, items),
                 pruneClosedFolders: (state, { expandedFolders }) => {
                     const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
                     const newState: Record<string, FolderState> = {}

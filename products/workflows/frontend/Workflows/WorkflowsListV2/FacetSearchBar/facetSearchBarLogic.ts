@@ -153,7 +153,7 @@ function splitLastToken(input: string): { rest: string; token: string } {
 }
 
 function valueKey(value: FacetSearchValue): string {
-    return JSON.stringify([value.filters.map(facetFilterKey), value.text])
+    return JSON.stringify([value.filters.map(({ facet, value: v, negated }) => [facet, v, negated]), value.text])
 }
 
 /** Hands a value to the parent and remembers it, so its echo back through the props is not taken for a reset. */
@@ -235,9 +235,10 @@ function facetTakesValue(countValuesIn: CountValuesIn): TakesValue {
         if (facet.freeTextValues) {
             return true
         }
-        const typed = [value, facet.resolveValue?.(value) ?? value].map((v) => v.toLowerCase())
+        const comparable = (text: string): string => (facet.caseSensitive ? text : text.toLowerCase())
+        const typed = [value, facet.resolveValue?.(value) ?? value].map(comparable)
         const known = [...(facet.pinnedValues ?? []), ...countValuesIn(EVERY_ITEM)(facet.key).map(({ value: v }) => v)]
-        return known.some((v) => typed.includes(v.toLowerCase()))
+        return known.some((v) => typed.includes(comparable(v)))
     }
 }
 
@@ -580,7 +581,10 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
                 // Typing a value keeps its scope, so each keystroke reuses the counts instead of walking every item.
                 const counters = new Map<string, (facetKey: string) => FacetValueCount[]>()
                 return (scope) => {
-                    const key = JSON.stringify([scope.filters.map(facetFilterKey), scope.text.trim()])
+                    const key = JSON.stringify([
+                        scope.filters.map((filter) => facetFilterKey(filter, facets)),
+                        scope.text.trim(),
+                    ])
                     let counter = counters.get(key)
                     if (!counter) {
                         counter = createFacetCounter(items, scope, facets, matchesText)
@@ -733,9 +737,9 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             }
         },
         removeFilter: ({ filter }) => {
-            const removed = facetFilterKey(filter)
+            const removed = facetFilterKey(filter, props.facets)
             emitChange(props, cache, {
-                filters: props.value.filters.filter((f) => facetFilterKey(f) !== removed),
+                filters: props.value.filters.filter((f) => facetFilterKey(f, props.facets) !== removed),
                 text: props.value.text,
             })
             reportFilterChange(props.id, 'removed', filter, 'remove button')

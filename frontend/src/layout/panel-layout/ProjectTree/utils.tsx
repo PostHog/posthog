@@ -726,6 +726,11 @@ export function appendResultsToFolders(
 
     // Track IDs we've already processed to avoid duplicates within the incoming results
     const processedIds = new Set<string>()
+    const positions = new Map<string, Map<string, number>>()
+    const staleIds = new Map<string, Set<string>>()
+    const cachedFolders = new Map(
+        Object.entries(folders).flatMap(([folder, files]) => files.map((file) => [file.id, folder] as const))
+    )
 
     for (const result of newResults) {
         // Skip items without IDs or that we've already processed in this batch
@@ -738,16 +743,27 @@ export function appendResultsToFolders(
         processedIds.add(result.id)
 
         const folder = parentPath(result.path)
-        if (newState[folder]) {
-            const existingItem = newState[folder].find((item) => item.id === result.id)
-            if (existingItem) {
-                newState[folder] = newState[folder].map((file) => (file.id === result.id ? result : file))
-            } else {
-                newState[folder] = [...newState[folder], result]
-            }
-        } else {
-            newState[folder] = [result]
+        const staleFolder = cachedFolders.get(result.id)
+        // A file has one path, so the copy cached at its old path is stale once it arrives at another.
+        if (staleFolder !== undefined && staleFolder !== folder) {
+            staleIds.set(staleFolder, (staleIds.get(staleFolder) ?? new Set()).add(result.id))
         }
+        cachedFolders.set(result.id, folder)
+        // Each folder is copied once and indexed by id, so merging thousands of files into one folder stays linear.
+        if (!positions.has(folder)) {
+            newState[folder] = [...(newState[folder] ?? [])]
+            positions.set(folder, new Map(newState[folder].map((file, index) => [file.id, index])))
+        }
+        const position = positions.get(folder)!
+        const index = position.get(result.id)
+        if (index === undefined) {
+            position.set(result.id, newState[folder].push(result) - 1)
+        } else {
+            newState[folder][index] = result
+        }
+    }
+    for (const [folder, ids] of staleIds) {
+        newState[folder] = newState[folder].filter((file) => !ids.has(file.id))
     }
     return newState
 }

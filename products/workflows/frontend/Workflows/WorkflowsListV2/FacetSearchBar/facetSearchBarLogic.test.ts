@@ -165,6 +165,39 @@ describe('facetSearchBarLogic', () => {
         expect(logic.values.suggestions.map((s) => s.label)).toEqual(['Archived'])
     })
 
+    it('counts a case-sensitive pill apart from the same value in another case', () => {
+        const facets: FacetDefinition<Item>[] = [
+            ...FACETS,
+            {
+                key: 'folder',
+                label: 'Folder',
+                description: 'Exact folder',
+                caseSensitive: true,
+                getValues: (item) => [item.name === 'Welcome' ? 'Billing' : 'billing'],
+            },
+        ]
+        const draftCountsIn = (folder: string): [string, number | undefined][] => {
+            logic = facetSearchBarLogic({
+                id: 'test',
+                facets,
+                items: ITEMS,
+                value: { filters: [{ facet: 'folder', value: folder, negated: false }], text: '' },
+                onChange,
+                matchesText,
+            })
+            logic.mount()
+            logic.actions.setInput('')
+            logic.actions.setInput('status:')
+            return logic.values.suggestions.map((s) => [s.label, s.count])
+        }
+
+        expect(draftCountsIn('Billing')).toEqual([['Active', 1]])
+        expect(draftCountsIn('billing')).toEqual([
+            ['Draft', 2],
+            ['Archived', 1],
+        ])
+    })
+
     it('offers "Not" values with how many rows they hide for a negated draft', () => {
         mountWith({ filters: [], text: '' })
         logic.actions.setInput('-status:')

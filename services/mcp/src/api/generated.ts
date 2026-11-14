@@ -54339,6 +54339,18 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface FileSystemFolderCount {
+      /** Folder path. An empty string is the project root. */
+      folder: string;
+      /** Files directly in this folder, not counting folders or shortcuts. */
+      count: number;
+    }
+
+    export interface FileSystemFolderCounts {
+      /** Each folder that directly holds a counted file. */
+      results: FileSystemFolderCount[];
+    }
+
     export interface FileSystemHomeFolder {
       /**
          * The user's home folder ID, or null if deleted.
@@ -139186,6 +139198,13 @@ export namespace Schemas {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean;
+    };
+
+    export type FileSystemFolderCountsRetrieveParams = {
+    /**
+     * Picks the files counted, as in the list.
+     */
+    search?: string;
     };
 
     export type FileSystemFrequentListParams = {
