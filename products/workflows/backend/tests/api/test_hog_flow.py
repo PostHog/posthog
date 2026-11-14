@@ -1202,6 +1202,7 @@ class TestHogFlowAPI(APIBaseTest):
         [
             ("rotation_replaces_an_unverified_single_sender", "rotation"),
             ("verified_sender_id_as_digit_string", "digit_string"),
+            ("verified_sender_id_as_integral_float", "integral_float"),
         ]
     )
     def test_going_live_accepts_a_sender_that_can_send(self, _name, case):
@@ -1210,6 +1211,7 @@ class TestHogFlowAPI(APIBaseTest):
         senders: dict[str, dict[str, Any]] = {
             "rotation": {"integrationId": unverified.id, "integrationIds": [verified.id]},
             "digit_string": {"integrationId": str(verified.id)},
+            "integral_float": {"integrationId": float(verified.id)},
         }
         hog_flow = self._email_flow(senders[case])
 

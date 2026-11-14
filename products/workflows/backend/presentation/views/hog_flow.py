@@ -4455,6 +4455,8 @@ def _email_step_sender_ids(action: dict) -> list[str | None]:
     # The send path picks from the rotation alone when one is set.
     rotation = sender.get("integrationIds")
     configured = rotation if isinstance(rotation, list) and rotation else [sender.get("integrationId")]
+    # JSON can carry an id as 42.0, which the send path reads as sender 42.
+    configured = [int(value) if isinstance(value, float) and value.is_integer() else value for value in configured]
     # A number or text names a sender by id; any other shape names none the send path can load.
     return [
         str(sender_id) if isinstance(sender_id, (int, str)) else None
