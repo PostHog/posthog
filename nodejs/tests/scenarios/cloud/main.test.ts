@@ -772,7 +772,7 @@ describe('cloud controller', () => {
             'stopped without reporting',
         ],
     ])('makes the run invalid and tears down when %s', async (_, setup, reason) => {
-        const { controller } = prepare(setup)
+        const { controller } = prepare({ ...setup, env: { ...setup.env, ...api.credentials } })
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
