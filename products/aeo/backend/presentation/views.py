@@ -30,6 +30,7 @@ from products.aeo.backend.facade.api import (
     MAX_PROMPT_LENGTH,
     MAX_SEARCH_PROMPTS,
     MAX_STATS_WORDS,
+    NEEDS_IMPROVEMENT_DAYS,
     archive_prompt,
     create_brand,
     create_visibility_dashboard,
@@ -233,8 +234,28 @@ class AEOPromptListQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Only list prompts that the engines answered in the last 30 days without citing a target domain. "
+            "Only list prompts that the engines answered in the last 'days' days without citing a target domain. "
             "Prompts with no answered check in that window are left out."
+        ),
+    )
+    days = serializers.IntegerField(
+        required=False,
+        default=NEEDS_IMPROVEMENT_DAYS,
+        min_value=1,
+        max_value=MAX_OVERVIEW_DAYS,
+        help_text=(
+            f"The window needs_improvement reads, in days ending now. Default {NEEDS_IMPROVEMENT_DAYS}, at most "
+            f"{MAX_OVERVIEW_DAYS}. Ignored unless needs_improvement is true."
+        ),
+    )
+    engine = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        max_length=64,
+        help_text=(
+            "With needs_improvement, only read the answers of this engine, for example 'claude-web-search'. "
+            "Ignored unless needs_improvement is true."
         ),
     )
     branded = serializers.BooleanField(
@@ -443,6 +464,10 @@ class AEOPromptStatsSerializer(DataclassSerializer):
 
 
 BRANDED_SEGMENT_ECHO_HELP = "Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested."
+ENGINE_ECHO_HELP = "The answer engine every count covers, as requested. Null when every engine counts."
+TOPIC_ECHO_HELP = (
+    "The prompt topic every count covers, as requested. Empty for prompts with no topic, null when every topic counts."
+)
 RATE_HELP = "Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered."
 SET_COUNTS_HELP = {
     "checks": {"help_text": "Checks in the window, failed ones included."},
@@ -576,6 +601,8 @@ class AEOPromptSetOverviewSerializer(DataclassSerializer):
                 "help_text": "Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention."
             },
             "branded": {"help_text": BRANDED_SEGMENT_ECHO_HELP},
+            "engine": {"help_text": ENGINE_ECHO_HELP},
+            "topic": {"help_text": TOPIC_ECHO_HELP},
             "branded_answers": {
                 "help_text": "Answered checks in the current window whose prompt named the brand, whatever 'branded' selects. The sample size behind the branded numbers."
             },
@@ -670,6 +697,8 @@ class AEOPromptSetRankingsSerializer(DataclassSerializer):
             "window_from": {"help_text": "First day of the current window, in the project's timezone."},
             "window_to": {"help_text": "Last day of the current window (today), in the project's timezone."},
             "branded": {"help_text": BRANDED_SEGMENT_ECHO_HELP},
+            "engine": {"help_text": ENGINE_ECHO_HELP},
+            "topic": {"help_text": TOPIC_ECHO_HELP},
             "answers": {"help_text": "Answered checks in the current window: the denominator of every share."},
             "competitors_confirmed": {
                 "help_text": "Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains."
@@ -677,7 +706,30 @@ class AEOPromptSetRankingsSerializer(DataclassSerializer):
         }
 
 
-class AEOPromptSetOverviewQuerySerializer(serializers.Serializer):
+class AEOCheckScopeQuerySerializer(serializers.Serializer):
+    """Narrows a set-level read to one engine or one topic. Every default keeps all checks."""
+
+    engine = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        max_length=64,
+        help_text="Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.",
+    )
+    topic = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        allow_blank=True,
+        max_length=PROMPT_TOPIC_MAX_LENGTH,
+        help_text=(
+            "Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks "
+            "under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic."
+        ),
+    )
+
+
+class AEOPromptSetOverviewQuerySerializer(AEOCheckScopeQuerySerializer):
     days = serializers.IntegerField(
         required=False,
         default=STATS_DAYS,
@@ -1061,7 +1113,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         query_serializer=AEOPromptListQuerySerializer,
         operation_id="aeo_prompts_list",
         summary="List AEO prompts",
-        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, by whether the prompt names the brand, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.",
+        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, by whether the prompt names the brand, or to the prompts that need improvement, optionally over 'days' days and one 'engine'. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.",
         responses={200: AEOPromptSerializer(many=True)},
         tags=["web_analytics"],
     )
@@ -1076,6 +1128,8 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             include_archived=request.validated_query_data["include_archived"],
             needs_improvement=request.validated_query_data["needs_improvement"],
             branded=request.validated_query_data.get("branded"),
+            needs_improvement_days=request.validated_query_data["days"],
+            needs_improvement_engine=request.validated_query_data["engine"],
         )
         paginator.set_count(count)
         page = self.paginate_queryset(prompts)
@@ -1206,7 +1260,8 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             "brand-mention rate, the same counts for the window before it, the current window split per answer "
             "engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Those counts "
             "cover web-search checks; a prompt's own stats split every engine, no-search ones included. Pass "
-            "'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not."
+            "'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, "
+            "'engine' to count one answer engine, and 'topic' to count one topic."
         ),
         responses={200: OpenApiResponse(response=AEOPromptSetOverviewSerializer)},
         tags=["web_analytics"],
@@ -1218,6 +1273,8 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             timezone_name=self.team.timezone,
             days=request.validated_query_data["days"],
             branded=BrandedSegment(request.validated_query_data["branded"]),
+            engine=request.validated_query_data["engine"],
+            topic=request.validated_query_data["topic"],
         )
         return Response(AEOPromptSetOverviewSerializer(overview).data)
 
@@ -1229,7 +1286,8 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             f"Gets how often AI answers named the project against its competitors over the last 'days' days (default "
             f"{STATS_DAYS}) in the project's timezone, with the same share for the window before, a daily series, and "
             "the domains and pages the engines cited most. Competitors are derived from the cited domains. Pass "
-            "'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not."
+            "'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, "
+            "'engine' to count one answer engine, and 'topic' to count one topic."
         ),
         responses={200: OpenApiResponse(response=AEOPromptSetRankingsSerializer)},
         tags=["web_analytics"],
@@ -1241,6 +1299,8 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             timezone_name=self.team.timezone,
             days=request.validated_query_data["days"],
             branded=BrandedSegment(request.validated_query_data["branded"]),
+            engine=request.validated_query_data["engine"],
+            topic=request.validated_query_data["topic"],
         )
         return Response(AEOPromptSetRankingsSerializer(rankings).data)
 
