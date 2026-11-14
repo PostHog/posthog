@@ -469,6 +469,7 @@ describe('cloud controller', () => {
     it.each<[string, Setup, string]>([
         ['the host writes its failed marker', { cloud: { host: 'failed' } }, 'host/bootstrap.log'],
         ['the host misses its bootstrap deadline', { cloud: { host: 'silent' } }, 'not ready within 30m'],
+        ['the host halts before it can report', { cloud: { host: 'halted' } }, 'terminated before it reported'],
         [
             'the host stays silent until the lease expires',
             {
