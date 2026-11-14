@@ -59,6 +59,8 @@ jobs:
               run: bash posthog/clickhouse/hcl/bin/install-hclexp
 
             - name: HCL schema guard (validate + drift)
+              env:
+                  HCLEXP_BIN: ${{ runner.temp }}/bin/hclexp
               run: bash posthog/clickhouse/hcl/check.sh
 
     # Cross-repo compose gate: posthog-cloud-infra composes vendored base layers
