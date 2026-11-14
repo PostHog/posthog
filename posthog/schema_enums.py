@@ -1257,6 +1257,7 @@ class DetectorType(StrEnum):
     OCSVM = "ocsvm"
     PCA = "pca"
     LLM = "llm"
+    FORECAST = "forecast"
 
 
 class DistanceFunc(StrEnum):
@@ -1727,6 +1728,24 @@ class FileSystemIconType(StrEnum):
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
+
+
+class ForecastDetectorBand(float, Enum):
+    NUMBER_0_8 = 0.8
+    NUMBER_0_9 = 0.9
+    NUMBER_0_98 = 0.98
+
+
+class ForecastDetectorDirection(StrEnum):
+    ABOVE = "above"
+    BELOW = "below"
+    BOTH = "both"
+
+
+class ForecastDetectorMode(StrEnum):
+    BAND = "band"
+    RELATIVE = "relative"
+    ABSOLUTE = "absolute"
 
 
 class FunnelConversionMetric(StrEnum):

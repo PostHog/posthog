@@ -81,6 +81,7 @@ export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
 export const alertsCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsCreateBodyDetectorConfigOneOnefiveTypeDefault = `forecast`
 export const alertsCreateBodyEvaluationDelayIntervalsMin = 0
 export const alertsCreateBodyEvaluationDelayIntervalsMax = 100
 
@@ -1275,6 +1276,31 @@ export const AlertsCreateBody = () => zod.object({
                             ),
                         type: zod.enum(['llm']).default(alertsCreateBodyDetectorConfigOneOnefourTypeDefault),
                     }),
+                    zod.object({
+                        absolute_threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe("Absolute mode: distance from the expected value, in the series' units"),
+                        band: zod
+                            .union([zod.union([zod.literal(0.8), zod.literal(0.9), zod.literal(0.98)]), zod.null()])
+                            .optional()
+                            .describe(
+                                'Forecast interval for band mode, and the range shown in every mode (default: 0.9)'
+                            ),
+                        direction: zod
+                            .union([zod.enum(['above', 'below', 'both']), zod.null()])
+                            .optional()
+                            .describe('Which side of the forecast can fire (default: both)'),
+                        mode: zod
+                            .union([zod.enum(['band', 'relative', 'absolute']), zod.null()])
+                            .optional()
+                            .describe('How the actual value is compared with the forecast (default: band)'),
+                        relative_threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Relative mode: fraction of the expected value. 1 = 100% away from expected'),
+                        type: zod.enum(['forecast']).default(alertsCreateBodyDetectorConfigOneOnefiveTypeDefault),
+                    }),
                 ])
                 .describe('Detector configuration types'),
             zod.null(),
@@ -1433,6 +1459,7 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsPartialUpdateBodyDetectorConfigOneOnefiveTypeDefault = `forecast`
 export const alertsPartialUpdateBodyEvaluationDelayIntervalsMin = 0
 export const alertsPartialUpdateBodyEvaluationDelayIntervalsMax = 100
 
@@ -2652,6 +2679,33 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             ),
                         type: zod.enum(['llm']).default(alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault),
                     }),
+                    zod.object({
+                        absolute_threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe("Absolute mode: distance from the expected value, in the series' units"),
+                        band: zod
+                            .union([zod.union([zod.literal(0.8), zod.literal(0.9), zod.literal(0.98)]), zod.null()])
+                            .optional()
+                            .describe(
+                                'Forecast interval for band mode, and the range shown in every mode (default: 0.9)'
+                            ),
+                        direction: zod
+                            .union([zod.enum(['above', 'below', 'both']), zod.null()])
+                            .optional()
+                            .describe('Which side of the forecast can fire (default: both)'),
+                        mode: zod
+                            .union([zod.enum(['band', 'relative', 'absolute']), zod.null()])
+                            .optional()
+                            .describe('How the actual value is compared with the forecast (default: band)'),
+                        relative_threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Relative mode: fraction of the expected value. 1 = 100% away from expected'),
+                        type: zod
+                            .enum(['forecast'])
+                            .default(alertsPartialUpdateBodyDetectorConfigOneOnefiveTypeDefault),
+                    }),
                 ])
                 .describe('Detector configuration types'),
             zod.null(),
@@ -2844,6 +2898,7 @@ export const alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsSimulateCreateBodyDetectorConfigOneOnefiveTypeDefault = `forecast`
 export const alertsSimulateCreateBodySeriesIndexDefault = 0
 export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
@@ -3872,6 +3927,29 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     .optional()
                     .describe('What counts as unusual or interesting for this metric, in your own words. Optional.'),
                 type: zod.enum(['llm']).default(alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault),
+            }),
+            zod.object({
+                absolute_threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe("Absolute mode: distance from the expected value, in the series' units"),
+                band: zod
+                    .union([zod.union([zod.literal(0.8), zod.literal(0.9), zod.literal(0.98)]), zod.null()])
+                    .optional()
+                    .describe('Forecast interval for band mode, and the range shown in every mode (default: 0.9)'),
+                direction: zod
+                    .union([zod.enum(['above', 'below', 'both']), zod.null()])
+                    .optional()
+                    .describe('Which side of the forecast can fire (default: both)'),
+                mode: zod
+                    .union([zod.enum(['band', 'relative', 'absolute']), zod.null()])
+                    .optional()
+                    .describe('How the actual value is compared with the forecast (default: band)'),
+                relative_threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Relative mode: fraction of the expected value. 1 = 100% away from expected'),
+                type: zod.enum(['forecast']).default(alertsSimulateCreateBodyDetectorConfigOneOnefiveTypeDefault),
             }),
         ])
         .describe('Detector configuration types')

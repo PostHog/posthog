@@ -78,9 +78,15 @@ class TestForecast(SimpleTestCase):
         assert send.call_count == 2
         assert set(result) == {item.item_id for item in series}
 
-    def test_no_gateway_raises_not_configured(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_gateway", {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": ""}),
+            ("remote_plain_http", {**GATEWAY, "AI_GATEWAY_URL": "http://ai-gateway.example.com/v1"}),
+        ]
+    )
+    def test_unusable_gateway_raises_not_configured(self, _name: str, configured: dict) -> None:
         with (
-            override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+            override_settings(**configured),
             patch.object(httpx.Client, "send") as send,
             self.assertRaises(ForecastNotConfiguredError),
         ):
@@ -118,7 +124,7 @@ class TestForecast(SimpleTestCase):
             _run(_series(1, length=5))
 
         assert raised.exception.status_code == status_code
-        assert raised.exception.retryable == (error is ForecastUnavailableError)
+        assert raised.exception.retryable == (error is not ForecastRejectedError)
 
     def test_rejection_carries_the_gateway_message(self) -> None:
         response = httpx.Response(400, json={"error": {"type": "invalid_request_error", "message": "too many tokens"}})

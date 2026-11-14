@@ -149,6 +149,9 @@ from posthog.schema_enums import (
     ExternalQueryStatus as ExternalQueryStatus,
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
+    ForecastDetectorBand as ForecastDetectorBand,
+    ForecastDetectorDirection as ForecastDetectorDirection,
+    ForecastDetectorMode as ForecastDetectorMode,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
     FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
@@ -6502,6 +6505,32 @@ class FileSystemImport(BaseModel):
         ),
     )
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
+
+
+class ForecastDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    absolute_threshold: float | None = Field(
+        default=None,
+        description=("Absolute mode: distance from the expected value, in the series' units"),
+    )
+    band: ForecastDetectorBand | None = Field(
+        default=None,
+        description=("Forecast interval for band mode, and the range shown in every mode (default: 0.9)"),
+    )
+    direction: ForecastDetectorDirection | None = Field(
+        default=None, description="Which side of the forecast can fire (default: both)"
+    )
+    mode: ForecastDetectorMode | None = Field(
+        default=None,
+        description=("How the actual value is compared with the forecast (default: band)"),
+    )
+    relative_threshold: float | None = Field(
+        default=None,
+        description=("Relative mode: fraction of the expected value. 1 = 100% away from expected"),
+    )
+    type: Literal["forecast"] = "forecast"
 
 
 class FormResumePayload(BaseModel):
@@ -36951,6 +36980,7 @@ class DetectorConfig(
         | OCSVMDetectorConfig
         | PCADetectorConfig
         | LLMDetectorConfig
+        | ForecastDetectorConfig
     ]
 ):
     root: (
@@ -36968,6 +36998,7 @@ class DetectorConfig(
         | OCSVMDetectorConfig
         | PCADetectorConfig
         | LLMDetectorConfig
+        | ForecastDetectorConfig
     ) = Field(..., description="Detector configuration types", discriminator="type")
 
 
