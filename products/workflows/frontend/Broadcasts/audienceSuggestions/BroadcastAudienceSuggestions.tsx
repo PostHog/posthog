@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { compactNumber } from 'lib/utils/numbers'
 
@@ -11,6 +12,7 @@ import { getFilterLabel } from '~/taxonomy/helpers'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { AudienceSuggestionApi } from '../../generated/api.schemas'
+import { onboardingWizardUrl } from '../../setupGuide/wizard/onboardingWizardSteps'
 import { broadcastAudienceSuggestionsLogic } from './broadcastAudienceSuggestionsLogic'
 
 const LOADING_CARD_COUNT = 3
@@ -46,6 +48,7 @@ function audienceRule(suggestion: AudienceSuggestionApi): JSX.Element {
 export function BroadcastAudienceSuggestions(): JSX.Element | null {
     const { suggestions, generating, creatingId } = useValues(broadcastAudienceSuggestionsLogic)
     const { pickSuggestion } = useActions(broadcastAudienceSuggestionsLogic)
+    const { integrations } = useValues(integrationsLogic)
     const editorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Workflow,
         AccessControlLevel.Editor
@@ -55,6 +58,10 @@ export function BroadcastAudienceSuggestions(): JSX.Element | null {
     if (!generating && suggestions.length === 0) {
         return null
     }
+    // Until the integrations load, nothing says the sender is missing.
+    const senderMissing =
+        integrations !== null &&
+        !integrations.some((integration) => integration.kind === 'email' && integration.config?.verified === true)
 
     return (
         <div className="flex flex-col gap-2 mb-4" data-attr="broadcast-audience-suggestions">
@@ -67,6 +74,23 @@ export function BroadcastAudienceSuggestions(): JSX.Element | null {
                     </LemonTag>
                 </Tooltip>
             </div>
+            <p className="mb-0 text-sm text-secondary">
+                Pick an audience and AI writes the email, styled like your last broadcast or a saved template when you
+                have one. You check it before it sends.
+            </p>
+            {senderMissing && (
+                <LemonBanner
+                    type="info"
+                    action={{
+                        children: 'Set up email',
+                        to: onboardingWizardUrl('broadcast', { entry: 'broadcast_audience_suggestions' }),
+                        disabledReason: editorDisabledReason ?? undefined,
+                        'data-attr': 'broadcast-audience-suggestions-set-up-email',
+                    }}
+                >
+                    To send one of these, set up an email sender on your own domain first.
+                </LemonBanner>
+            )}
             <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-2">
                 {generating && suggestions.length === 0
                     ? Array.from({ length: LOADING_CARD_COUNT }, (_, index) => (
@@ -101,7 +125,7 @@ export function BroadcastAudienceSuggestions(): JSX.Element | null {
                                       onClick={() => pickSuggestion(suggestion)}
                                       data-attr="broadcast-audience-suggestion-use"
                                   >
-                                      Write a broadcast
+                                      Draft the email
                                   </LemonButton>
                               </div>
                           </LemonCard>

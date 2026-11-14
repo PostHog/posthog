@@ -225,33 +225,71 @@ describe('broadcastWizardLogic', () => {
             step: 'content',
         },
         { link: 'no email', email: undefined, verified: true, step: 'content' },
-    ])('opens a link with $link on the $step step without creating a draft', async ({ email, verified, step }) => {
-        const createDraft = jest.fn()
-        useMocks({
-            get: {
-                '/api/projects/:team_id/integrations/': {
-                    results: [{ id: 1, kind: 'email', config: { verified } }],
-                    count: 1,
+        {
+            link: 'an AI draft that arrives and one verified sender',
+            email: undefined,
+            verified: true,
+            step: 'review',
+            aiDraftBy: 'ai',
+        },
+        {
+            link: 'an AI draft that falls back to an empty template',
+            email: undefined,
+            verified: true,
+            step: 'content',
+            aiDraftBy: 'template',
+        },
+    ])(
+        'opens a link with $link on the $step step without creating a draft',
+        async ({ email, verified, step, aiDraftBy }) => {
+            const createDraft = jest.fn()
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': {
+                        results: [{ id: 1, kind: 'email', config: { verified } }],
+                        count: 1,
+                    },
                 },
-            },
-            post: { '/api/projects/:team_id/hog_flows/': () => createDraft() },
-        })
-        logic.unmount()
-        router.actions.push(
-            urlForNewBroadcastWithAudience({ properties: LOCAL_AUDIENCE, source: 'error_tracking', email })
-        )
-        logic = broadcastWizardLogic({ id: 'new' })
-        logic.mount()
-        integrationsLogic.mount()
+                post: {
+                    '/api/projects/:team_id/hog_flows/': () => createDraft(),
+                    '/api/projects/:team_id/workflow_email_drafts/': {
+                        subject: aiDraftBy === 'ai' ? 'Written by the model' : '',
+                        preheader: '',
+                        html: aiDraftBy === 'ai' ? '<p>Hi there,</p>\n<p>Second paragraph.</p>' : '',
+                        text: aiDraftBy === 'ai' ? 'Hi there,\n\nSecond paragraph.' : '',
+                        generated_by: aiDraftBy ?? 'ai',
+                        template_reason: aiDraftBy === 'template' ? 'model_error' : null,
+                    },
+                },
+            })
+            logic.unmount()
+            router.actions.push(
+                urlForNewBroadcastWithAudience({
+                    properties: LOCAL_AUDIENCE,
+                    source: 'error_tracking',
+                    email,
+                    draftSource: aiDraftBy ? { source: 'cohort', source_id: '7' } : undefined,
+                })
+            )
+            logic = broadcastWizardLogic({ id: 'new' })
+            logic.mount()
+            integrationsLogic.mount()
 
-        await expectLogic(logic, () => {
-            integrationsLogic.actions.loadIntegrations()
-        }).toDispatchActions(['landOnStep'])
+            await expectLogic(logic, () => {
+                integrationsLogic.actions.loadIntegrations()
+            }).toDispatchActions(['landOnStep'])
+            if (aiDraftBy === 'ai') {
+                // The applied draft starts a brand lookup, which must not outlive this test.
+                await expectLogic(logic).toDispatchActions(['loadEmailBrandSuccess'])
+            }
 
-        expect(logic.values.currentStep).toEqual(step)
-        expect(logic.values.email.subject).toEqual(email?.subject ?? '')
-        expect(createDraft).not.toHaveBeenCalled()
-    })
+            expect(logic.values.currentStep).toEqual(step)
+            expect(logic.values.email.subject).toEqual(
+                aiDraftBy === 'ai' ? 'Written by the model' : (email?.subject ?? '')
+            )
+            expect(createDraft).not.toHaveBeenCalled()
+        }
+    )
 
     it.each([
         { case: 'untouched', edit: null, fallback: null, subject: 'Written by the model', status: 'applied' },

@@ -1925,6 +1925,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             if (!cache.landOnPrefilledStep || values.integrations === null || values.integrationsLoading) {
                 return
             }
+            // A drafted email can complete the content step, so the landing waits for it.
+            if (cache.landingAwaitsAiDraft) {
+                return
+            }
             if (!values.currentTeam) {
                 return
             }
@@ -2814,6 +2818,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     })),
 
     listeners(({ actions, values, cache }) => ({
+        // Registered after the listener that applies the draft, so the landing sees the drafted email.
+        loadAiEmailDraftSuccess: () => {
+            if (cache.landingAwaitsAiDraft) {
+                cache.landingAwaitsAiDraft = false
+                actions.landOnPrefilledStep()
+            }
+        },
+        loadAiEmailDraftFailure: () => {
+            if (cache.landingAwaitsAiDraft) {
+                cache.landingAwaitsAiDraft = false
+                actions.landOnPrefilledStep()
+            }
+        },
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
             actions.loadChannelReach(null)
@@ -2908,8 +2925,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         }
         // The link stays in the URL until the draft exists, so a reload before Continue opens the same prefill.
         actions.loadBlastRadius()
-        actions.landOnPrefilledStep()
         const draftSource = parseEmailDraftSource(draftSourceParam)
+        cache.landingAwaitsAiDraft = !!draftSource && !email
+        actions.landOnPrefilledStep()
         if (draftSource) {
             actions.loadAiEmailDraft(draftSource)
             if (!email) {
