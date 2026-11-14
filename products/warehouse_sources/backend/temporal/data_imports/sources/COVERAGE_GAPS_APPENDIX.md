@@ -13148,10 +13148,10 @@ Today (10): `bare_metals`, `billing_history`, `block_storage`, `instances`, `inv
 
 Diffed against: <https://raw.githubusercontent.com/vultr/api-postman-collection/master/postman/schemas/schema.json>
 
-- [ ] `GET /v2/billing/invoices/{invoice-id}/items` — invoice line items — the per-resource cost breakdown behind the invoices we already sync (high)
-- [ ] `GET /v2/plans and /v2/plans-metal` — lookup resolving the plan id on every instance and bare metal, giving vCPU/RAM/price per row (high)
-- [ ] `GET /v2/regions` — lookup resolving the region code carried on instances, blocks, snapshots and load balancers (high)
-- [ ] `GET /v2/instances/{instance-id}/bandwidth` — daily in/out bandwidth per instance, the main usage time series for cost attribution (high)
+- [x] `GET /v2/billing/invoices/{invoice-id}/items` — invoice line items — the per-resource cost breakdown behind the invoices we already sync (high)
+- [x] `GET /v2/plans and /v2/plans-metal` — lookup resolving the plan id on every instance and bare metal, giving vCPU/RAM/price per row (high)
+- [x] `GET /v2/regions` — lookup resolving the region code carried on instances, blocks, snapshots and load balancers (high)
+- [x] `GET /v2/instances/{instance-id}/bandwidth` — daily in/out bandwidth per instance, the main usage time series for cost attribution (high)
 - [ ] `GET /v2/bare-metals/{baremetal-id}/bandwidth` — same daily usage time series for bare metal servers (medium)
 - [ ] `GET /v2/account` — account balance, pending charges and last payment — the headline billing figures (medium)
 - [ ] `GET /v2/os` — lookup resolving os_id on instances, bare metals and snapshots (medium)
