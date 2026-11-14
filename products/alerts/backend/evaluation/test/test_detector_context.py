@@ -1,3 +1,4 @@
+import math
 from datetime import UTC, datetime
 from typing import Any
 
@@ -6,12 +7,13 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+from parameterized import parameterized
 
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
-from products.alerts.backend.evaluation.detector import _earlier_flags, evaluate_with_detector
+from products.alerts.backend.evaluation.detector import _earlier_flags, _score_series, evaluate_with_detector
 from products.alerts.backend.judge import (
     EarlierFlag,
     JudgeAttribution,
@@ -212,6 +214,55 @@ class TestLLMVerdictReachesTheCheck:
         series, _ = _RecordingJudge.seen[0]
         assert 'Alerted values: column "failures"' in series.metric_description
         assert "the rows were reversed, so the last value is the latest" in series.metric_description
+
+
+SMOOTHED_VELOCITY = {"type": "zscore", "window": 30, "preprocessing": {"diffs_n": 1, "smooth_n": 3}}
+SMOOTHED_VELOCITY_OR_MAD = {"type": "ensemble", "operator": "or", "detectors": [SMOOTHED_VELOCITY, {"type": "mad"}]}
+SPIKE_INDEX = 40
+
+
+def _spike_series(after_spike: list[float]) -> ComparableSeries:
+    history = [round(100 + 4 * math.sin(i * 1.3)) for i in range(SPIKE_INDEX)]
+    values = [*history, 200.0, *after_spike]
+    points = [SeriesPoint(date=f"bucket-{i}", value=float(v)) for i, v in enumerate(values)]
+    return ComparableSeries(label="signed_up", points=points, current_index=len(points) - 1)
+
+
+def _evaluate_series(series: ComparableSeries, detector_config: dict[str, Any]) -> Any:
+    return evaluate_with_detector(ExtractionResult(series=[series], interval_type=None), detector_config)
+
+
+class TestSmoothingEcho:
+    @parameterized.expand([("zscore", SMOOTHED_VELOCITY), ("ensemble", SMOOTHED_VELOCITY_OR_MAD)])
+    def test_a_spike_fires_once_and_not_again_when_it_leaves_the_smoothing_window(
+        self, _name: str, detector_config: dict[str, Any]
+    ) -> None:
+        spike = _evaluate_series(_spike_series([]), detector_config)
+        echo = _evaluate_series(_spike_series([100, 96, 98]), detector_config)
+
+        assert spike.breaches and spike.triggered_points == [SPIKE_INDEX]
+        assert echo.breaches == []
+        assert echo.triggered_points is None
+        # Only the flag changes. The score stays what the detector gave, so the check still shows it.
+        assert echo.anomaly_scores is not None and echo.anomaly_scores[-1] > 0.95
+
+    def test_a_real_drop_on_the_echo_bucket_still_fires(self) -> None:
+        result = _evaluate_series(_spike_series([100, 96, 40]), SMOOTHED_VELOCITY)
+
+        assert result.breaches
+        assert result.triggered_points == [SPIKE_INDEX + 3]
+
+    def test_simulate_marks_the_spike_and_not_its_echo(self) -> None:
+        scored = _score_series(
+            _spike_series([100, 96, 98, 101]),
+            SMOOTHED_VELOCITY,
+            every_point=True,
+            series_context=MagicMock(spec=SeriesContext),
+            attribution=MagicMock(),
+        )
+
+        assert scored.detection is not None
+        assert [i for i in scored.detection.triggered_indices if i >= SPIKE_INDEX] == [SPIKE_INDEX]
 
 
 class TestEarlierFlags(BaseTest):

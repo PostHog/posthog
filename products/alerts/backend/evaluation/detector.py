@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Optional, cast
@@ -24,7 +25,7 @@ from posthog.tasks.alerts.detector import (
     _prepare_series,
     min_points_to_evaluate,
 )
-from posthog.tasks.alerts.detectors import DetectionResult, get_detector
+from posthog.tasks.alerts.detectors import BaseDetector, DetectionResult, get_detector
 from posthog.tasks.alerts.metric_definition import MetricDateRange, describe_metric_definition
 from posthog.tasks.alerts.trends import (
     TrendResult,
@@ -389,12 +390,62 @@ def _score_series(
         )
     detector = get_detector(detector_config)
     detection = detector.detect_batch(data) if every_point else detector.detect(data)
+    detection = _drop_smoothing_echoes(detector, detector_config, data, detection, every_point=every_point)
     return _ScoredSeries(
         data=data,
         detection=detection,
         persisted_metadata={},
         breach_suffix=_ensemble_suffix(detection) if detector_type_str == "ensemble" else "",
     )
+
+
+def _smoothing_echo_lags(detector_config: dict[str, Any]) -> set[int]:
+    lags: set[int] = set()
+    for config in (detector_config, *(detector_config.get("detectors") or [])):
+        preprocessing = config.get("preprocessing") or {}
+        smooth_n = preprocessing.get("smooth_n") or 0
+        if smooth_n > 1 and preprocessing.get("diffs_n"):
+            lags.add(smooth_n)
+    return lags
+
+
+def _drop_smoothing_echoes(
+    detector: BaseDetector,
+    detector_config: dict[str, Any],
+    data: np.ndarray,
+    detection: DetectionResult,
+    *,
+    every_point: bool,
+) -> DetectionResult:
+    """Do not fire again when a flagged spike leaves the smoothing window.
+
+    A trailing average over n buckets followed by a first difference scores (x[t] - x[t-n]) / n.
+    So one spike gives two large values: one when it arrives, and one n buckets later when it
+    leaves the window, even if x[t] is back to normal. A flag at t is that echo when the bucket
+    n earlier was flagged and the detector does not flag t after that bucket is set to the
+    median of the n buckets before it. The scores stay as the detector gave them, because the
+    detectors are shared with signals and only the flag is this consumer's decision.
+    """
+    lags = _smoothing_echo_lags(detector_config)
+    if not lags or not detection.triggered_indices:
+        return detection
+    flagged = set(detection.triggered_indices)
+
+    def is_echo(index: int, lag: int) -> bool:
+        spike = index - lag
+        if spike < lag:
+            return False
+        spike_flagged = spike in flagged if every_point else detector.detect(data[: spike + 1]).is_anomaly
+        if not spike_flagged:
+            return False
+        without_spike = data[: index + 1].astype(float)
+        without_spike[spike] = float(np.median(data[spike - lag : spike]))
+        return not detector.detect(without_spike).is_anomaly
+
+    kept = [i for i in detection.triggered_indices if not any(is_echo(i, lag) for lag in lags)]
+    if len(kept) == len(detection.triggered_indices):
+        return detection
+    return dataclasses.replace(detection, is_anomaly=bool(kept), triggered_indices=kept)
 
 
 # The breach message a person reads names the detector. Every statistical type is already
