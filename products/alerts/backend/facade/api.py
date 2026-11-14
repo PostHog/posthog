@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Collection, Iterable, Iterator
 from datetime import datetime, timedelta
 from itertools import islice
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -113,6 +113,35 @@ def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
         return team_id
     # An alert with no insight row carries its platform alert's id.
     return native_configuration_team_id(configuration_id=alert_id, source_kind=SourceKind.INSIGHT)
+
+
+def search_insight_alerts(
+    *,
+    project_id: int,
+    query: str | None,
+    access_control: UserAccessControl,
+    limit: int,
+    with_access_levels: bool = False,
+    include_count: bool = True,
+) -> tuple[list[dict[str, Any]], int]:
+    """Ranked full-text search over a project's insight alerts by name, in the result shape of core search.
+
+    Each result's id is the alert's public id, and an alert the platform holds shows its settings and
+    state from the platform. Without a query the alerts come in name order. `include_count=False`
+    reports a total of 0.
+    """
+    # Deferred: `alert_search` reads the cutover module, which imports `posthog.tasks.alerts.utils`, and
+    # that module imports this facade.
+    from products.alerts.backend import alert_search  # noqa: PLC0415
+
+    return alert_search.search_insight_alerts(
+        project_id=project_id,
+        query=query,
+        access_control=access_control,
+        limit=limit,
+        with_access_levels=with_access_levels,
+        include_count=include_count,
+    )
 
 
 def _insight_owned_rows() -> QuerySet[AlertConfiguration]:

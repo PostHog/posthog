@@ -1131,6 +1131,23 @@ class EnabledNativeConfiguration:
 
 
 @frozen
+class HeldAlertSearchMatch:
+    """One alert the platform holds the settings of, as a source's search shows it: an alert with no
+    source row, or a copy the platform owns."""
+
+    public_id: UUID
+    team_id: int
+    name: str
+    enabled: bool
+    # What the source's own read gates check, such as the insight an insight alert watches.
+    source_config: dict[str, Any]
+    check_interval_minutes: int
+    snooze_until: datetime | None
+    # The full-text rank of the name, or None when the search had no query.
+    rank: float | None
+
+
+@frozen
 class PlatformAlertConfigurationView:
     """One configuration and its instances, as a reader outside this product sees them.
 
