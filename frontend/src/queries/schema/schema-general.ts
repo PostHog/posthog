@@ -194,7 +194,6 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     SessionQuery = 'SessionQuery',
-    TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
@@ -302,7 +301,6 @@ export type AnyDataNode =
     | TracesQuery
     | TraceQuery
     | SessionQuery
-    | TraceNeighborsQuery
     | VectorSearchQuery
     | InboxUsageQuery
     | UsageMetricsQuery
@@ -444,7 +442,6 @@ export type QuerySchema =
     | TracesQuery
     | TraceQuery
     | SessionQuery
-    | TraceNeighborsQuery
     | VectorSearchQuery
 
     // Customer analytics
@@ -568,7 +565,7 @@ export interface HogQLQueryModifiers {
     sessionTimestampBufferMinutes?: integer
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean
-    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
     personIdPushdown?: boolean
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
     negatedPersonFiltersNotIn?: boolean
@@ -764,8 +761,15 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    /**
+     * Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own.
+     * True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`.
+     * Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.
+     */
     hasMore?: boolean
+    /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
     limit?: integer
+    /** Rows skipped before the default row limit applied. */
     offset?: integer
 }
 
@@ -793,6 +797,11 @@ export interface HogQLVariable {
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
+    /**
+     * The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response,
+     * or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit.
+     * With `sendRawQuery`, no default limit applies and `hasMore` is not set.
+     */
     query: string
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
@@ -2100,6 +2109,7 @@ export interface ResultCustomizationByPosition extends ResultCustomizationBase {
 
 export interface ResultCustomizationByValue extends ResultCustomizationBase {
     customColor?: string
+    label?: string
     assignmentBy: ResultCustomizationBy.Value
 }
 
@@ -5102,6 +5112,13 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
+export interface ErrorTrackingIssueTagFilter {
+    /** Key of the tag definition. */
+    key: string
+    /** True matches the issues the tag is applied to. False matches every other issue. */
+    applied: boolean
+}
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     /** Filter to a specific error tracking issue by ID. */
@@ -5116,6 +5133,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
+    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    issueTag?: ErrorTrackingIssueTagFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -5319,6 +5338,17 @@ export type ErrorTrackingIssueStatus = 'archived' | 'active' | 'resolved' | 'pen
 /** @title ErrorTrackingQueryStatus */
 export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
 
+export interface ErrorTrackingIssueTag {
+    /** Key of the tag definition. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+    source?: string | null
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -5330,6 +5360,8 @@ export interface ErrorTrackingRelationalIssue {
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
     cohort?: ErrorTrackingIssueCohort
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTag[] | null
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
@@ -5828,6 +5860,9 @@ export interface MetricsDisplaySettings {
      * @default latest
      * @deprecated Use `reduce`. */
     statSummary?: MetricsStatSummary
+    /** `stat` display only: whether a graph of the series shows under the value.
+     * @default true */
+    statSparkline?: boolean
     /** How scalar panels and legend calcs collapse a series to one number.
      * @default last */
     reduce?: MetricsReducer
@@ -7206,6 +7241,7 @@ export type ExperimentExposureHealthFindingActionKind =
     | 'edit_exposure_criteria'
     | 'adjust_distribution'
     | 'use_first_seen_variant'
+    | 'move_start_date'
 
 /** A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`. */
 export interface ExperimentExposureHealthFinding {
@@ -8541,38 +8577,9 @@ export interface SessionQuery extends DataNode<SessionQueryResponse> {
     includeSentiment?: boolean
 }
 
-export interface TraceNeighborsQueryResponse {
-    /** ID of the newer trace (chronologically after current) */
-    newerTraceId?: string
-    /** Timestamp of the newer trace */
-    newerTimestamp?: string
-    /** ID of the older trace (chronologically before current) */
-    olderTraceId?: string
-    /** Timestamp of the older trace */
-    olderTimestamp?: string
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTiming[]
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarning[]
-}
-
-export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {
-    kind: NodeKind.TraceNeighborsQuery
-    /** ID of the current trace to find neighbors for */
-    traceId: string
-    /** Timestamp of the current trace to find neighbors for */
-    timestamp: string
-    dateRange?: DateRange
-    filterTestAccounts?: boolean
-    filterSupportTraces?: boolean
-    /** Properties configurable in the interface */
-    properties?: AnyPropertyFilter[]
-}
-
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
 export type CachedSessionQueryResponse = CachedQueryResponse<SessionQueryResponse>
-export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
@@ -9342,6 +9349,11 @@ export interface MarketingAnalyticsRecommendationsQuery extends DataNode<Marketi
     /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
     sources?: MarketingAnalyticsRecommendationsSource[]
     /**
+     * Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.
+     * @default false
+     */
+    includeResolved?: boolean
+    /**
      * Resource names of the Google Ads conversion actions that count as conversions, such as
      * `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an
      * account with none of them counts its primary actions. Selected actions count every conversion, including
@@ -9377,6 +9389,34 @@ export interface MarketingAnalyticsRecommendationStep {
     url?: string | null
     /** The words in `text` that link to `url`, usually the section name. */
     linkText?: string | null
+}
+
+// A const array, not a single-value union, so the Python schema gets a StrEnum the model choices can derive from.
+export const MARKETING_ANALYTICS_RECOMMENDATION_SOURCE_TYPES = ['google_ads'] as const
+export type MarketingAnalyticsRecommendationIdentitySourceType =
+    (typeof MARKETING_ANALYTICS_RECOMMENDATION_SOURCE_TYPES)[number]
+
+/** What a dismissal or an applied mark keys on. A client sends this object as is as the `identity` of a resolution in the recommendation resolutions API. */
+export interface MarketingAnalyticsRecommendationIdentity {
+    rule: MarketingAnalyticsRecommendationRule
+    /** The ad platform the ids belong to. */
+    source_type: MarketingAnalyticsRecommendationIdentitySourceType
+    /** The Google Ads account id. Empty when the recommendation is not tied to one account. */
+    customer_id: string
+    /** The Google Ads campaign id. Empty when the recommendation is not about one campaign. */
+    campaign_id: string
+    /** The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject. */
+    subject: string
+}
+
+export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
+
+export interface MarketingAnalyticsRecommendationResolution {
+    /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
+    id: string
+    resolution: MarketingAnalyticsRecommendationResolutionState
+    /** When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp. */
+    resolved_at: string
 }
 
 /**
@@ -9425,6 +9465,11 @@ export interface MarketingAnalyticsRecommendation {
     subject: string
     /** The campaign a search term recommendation applies to, when it applies to one. */
     campaign?: string | null
+    identity: MarketingAnalyticsRecommendationIdentity
+    /** Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is. */
+    key: string
+    /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
+    resolution?: MarketingAnalyticsRecommendationResolution | null
     action: string
     reason: string
     /** Monthly money impact in the account currency. Null when the rule has no money impact. */

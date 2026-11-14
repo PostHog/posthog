@@ -77,7 +77,7 @@ from posthog.hogql.resolver_utils import (
     suggested_field_fix,
     zero_argument_function_call,
 )
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swap_flag_calls, swaps_flag_calls
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FlagCallScope, swap_flag_calls, swaps_flag_calls
 from posthog.hogql.transforms.grouped_clauses import raise_on_whole_document_grouping
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
@@ -1521,7 +1521,7 @@ class Resolver(CloningVisitor):
                 self.join_sources = outer_join_sources
             return resolved
 
-        chosen_body = swap_flag_calls(body, self.context, resolve, view_name=view_name).source
+        chosen_body = swap_flag_calls(body, self.context, resolve, scope=FlagCallScope.view(view_name)).source
         self._flag_call_view_bodies[key] = chosen_body
         return clone_expr(chosen_body)
 
@@ -2799,9 +2799,15 @@ class Resolver(CloningVisitor):
                         expression = ast.Call(name="tupleElement", args=[expression, ast.Constant(value=member)])
                     return self.visit(expression)
             if next_chain == "..":  # only support one level of ".."
-                previous_types.pop()
-                previous_types.pop()
-                loop_type = previous_types[-1]
+                del previous_types[-2:]
+                if previous_types:
+                    loop_type = previous_types[-1]
+                elif isinstance(loop_type, ast.VirtualTableType):
+                    loop_type = loop_type.table_type
+                else:
+                    raise QueryError(f"Cannot use '..' after '{'.'.join(str(c) for c in resolved_chain)}'")
+                if not chain_to_parse:
+                    raise QueryError("Expected a field after '..'")
                 next_chain = chain_to_parse.pop(0)
 
             try:

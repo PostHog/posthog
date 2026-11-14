@@ -2268,9 +2268,6 @@
                     "$ref": "#/definitions/SessionQuery"
                 },
                 {
-                    "$ref": "#/definitions/TraceNeighborsQuery"
-                },
-                {
                     "$ref": "#/definitions/VectorSearchQuery"
                 },
                 {
@@ -5787,6 +5784,7 @@
                 "estimate_replay_vision_scanner",
                 "label_replay_vision_observation",
                 "analyze_replay_vision_impact",
+                "get_replay_vision_observation_stats",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -11909,6 +11907,7 @@
                     "type": "array"
                 },
                 "hasMore": {
+                    "description": "Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.",
                     "type": "boolean"
                 },
                 "hogql": {
@@ -11923,7 +11922,8 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
                 },
                 "metadata": {
                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -11938,7 +11938,8 @@
                     "type": "string"
                 },
                 "offset": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Rows skipped before the default row limit applied."
                 },
                 "query": {
                     "description": "Input query string",
@@ -18217,79 +18218,6 @@
             ],
             "type": "object"
         },
-        "CachedTraceNeighborsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "newerTimestamp": {
-                    "description": "Timestamp of the newer trace",
-                    "type": "string"
-                },
-                "newerTraceId": {
-                    "description": "ID of the newer trace (chronologically after current)",
-                    "type": "string"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "olderTimestamp": {
-                    "description": "Timestamp of the older trace",
-                    "type": "string"
-                },
-                "olderTraceId": {
-                    "description": "ID of the older trace (chronologically before current)",
-                    "type": "string"
-                },
-                "query_metadata": {
-                    "type": "object"
-                },
-                "query_scan": {
-                    "$ref": "#/definitions/QueryScanSummary",
-                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
-            "type": "object"
-        },
         "CachedTraceQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -22859,6 +22787,7 @@
                                     "type": "array"
                                 },
                                 "hasMore": {
+                                    "description": "Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.",
                                     "type": "boolean"
                                 },
                                 "hogql": {
@@ -22866,7 +22795,8 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/integer",
+                                    "description": "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
                                 },
                                 "metadata": {
                                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -22877,7 +22807,8 @@
                                     "description": "Modifiers used when performing the query"
                                 },
                                 "offset": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/integer",
+                                    "description": "Rows skipped before the default row limit applied."
                                 },
                                 "query": {
                                     "description": "Input query string",
@@ -27164,6 +27095,20 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": [
@@ -27448,6 +27393,20 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
@@ -27894,6 +27853,44 @@
             "title": "ErrorTrackingIssueStatus",
             "type": "string"
         },
+        "ErrorTrackingIssueTag": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "description": "What the tag means, for a tooltip.",
+                    "type": "string"
+                },
+                "key": {
+                    "description": "Key of the tag definition.",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Short name of the tag.",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null.",
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["key", "label", "description"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueTagFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "applied": {
+                    "description": "True matches the issues the tag is applied to. False matches every other issue.",
+                    "type": "boolean"
+                },
+                "key": {
+                    "description": "Key of the tag definition.",
+                    "type": "string"
+                }
+            },
+            "required": ["key", "applied"],
+            "type": "object"
+        },
         "ErrorTrackingOrderBy": {
             "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "severity"],
             "title": "ErrorTrackingOrderBy",
@@ -28001,6 +27998,17 @@
                 "issueId": {
                     "description": "Filter to a specific error tracking issue by ID.",
                     "type": "string"
+                },
+                "issueTag": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
@@ -28242,6 +28250,20 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
@@ -30083,7 +30105,13 @@
             "type": "object"
         },
         "ExperimentExposureHealthFindingActionKind": {
-            "enum": ["open_feature_flag", "edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
+            "enum": [
+                "open_feature_flag",
+                "edit_exposure_criteria",
+                "adjust_distribution",
+                "use_first_seen_variant",
+                "move_start_date"
+            ],
             "type": "string"
         },
         "ExperimentExposureHealthFindingCode": {
@@ -33962,6 +33990,7 @@
                     "description": "Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL."
                 },
                 "query": {
+                    "description": "The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response, or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit. With `sendRawQuery`, no default limit applies and `hasMore` is not set.",
                     "type": "string"
                 },
                 "response": {
@@ -34090,7 +34119,7 @@
                     "type": "string"
                 },
                 "personIdPushdown": {
-                    "description": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+                    "description": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join.",
                     "type": "boolean"
                 },
                 "personsArgMaxVersion": {
@@ -34202,6 +34231,7 @@
                     "type": "array"
                 },
                 "hasMore": {
+                    "description": "Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.",
                     "type": "boolean"
                 },
                 "hogql": {
@@ -34209,7 +34239,8 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
                 },
                 "metadata": {
                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -34220,7 +34251,8 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "offset": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Rows skipped before the default row limit applied."
                 },
                 "query": {
                     "description": "Input query string",
@@ -41717,6 +41749,9 @@
                 "currency": {
                     "type": ["string", "null"]
                 },
+                "identity": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentity"
+                },
                 "impact": {
                     "description": "Monthly money impact in the account currency. Null when the rule has no money impact.",
                     "type": ["number", "null"]
@@ -41727,11 +41762,26 @@
                 "impactType": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationImpactType"
                 },
+                "key": {
+                    "description": "Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is.",
+                    "type": "string"
+                },
                 "level": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
                 },
                 "reason": {
                     "type": "string"
+                },
+                "resolution": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationResolution"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied."
                 },
                 "rule": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
@@ -41748,7 +41798,17 @@
                     "type": "string"
                 }
             },
-            "required": ["rule", "level", "subject", "action", "reason", "impactDirection", "impactType"],
+            "required": [
+                "rule",
+                "level",
+                "subject",
+                "identity",
+                "key",
+                "action",
+                "reason",
+                "impactDirection",
+                "impactType"
+            ],
             "type": "object"
         },
         "MarketingAnalyticsRecommendationCpa": {
@@ -41790,6 +41850,37 @@
             "enum": ["target_cpa", "campaign", "account"],
             "type": "string"
         },
+        "MarketingAnalyticsRecommendationIdentity": {
+            "additionalProperties": false,
+            "description": "What a dismissal or an applied mark keys on. A client sends this object as is as the `identity` of a resolution in the recommendation resolutions API.",
+            "properties": {
+                "campaign_id": {
+                    "description": "The Google Ads campaign id. Empty when the recommendation is not about one campaign.",
+                    "type": "string"
+                },
+                "customer_id": {
+                    "description": "The Google Ads account id. Empty when the recommendation is not tied to one account.",
+                    "type": "string"
+                },
+                "rule": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
+                },
+                "source_type": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentitySourceType",
+                    "description": "The ad platform the ids belong to."
+                },
+                "subject": {
+                    "description": "The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject.",
+                    "type": "string"
+                }
+            },
+            "required": ["rule", "source_type", "customer_id", "campaign_id", "subject"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationIdentitySourceType": {
+            "enum": ["google_ads"],
+            "type": "string"
+        },
         "MarketingAnalyticsRecommendationImpactDirection": {
             "enum": ["save", "gain", "invest", "keep"],
             "type": "string"
@@ -41800,6 +41891,28 @@
         },
         "MarketingAnalyticsRecommendationLevel": {
             "enum": ["account", "campaign", "search_term"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationResolution": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "The resolution id. Delete it through the resolutions API to show the recommendation again.",
+                    "type": "string"
+                },
+                "resolution": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationResolutionState"
+                },
+                "resolved_at": {
+                    "description": "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp.",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "resolution", "resolved_at"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationResolutionState": {
+            "enum": ["dismissed", "applied"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationRule": {
@@ -41873,6 +41986,11 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "includeResolved": {
+                    "default": false,
+                    "description": "Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsRecommendationsQuery",
@@ -45376,6 +45494,11 @@
                     "default": "last",
                     "description": "How scalar panels and legend calcs collapse a series to one number."
                 },
+                "statSparkline": {
+                    "default": true,
+                    "description": "`stat` display only: whether a graph of the series shows under the value.",
+                    "type": "boolean"
+                },
                 "statSummary": {
                     "$ref": "#/definitions/MetricsStatSummary",
                     "default": "latest",
@@ -46346,7 +46469,6 @@
                 "TracesQuery",
                 "TraceQuery",
                 "SessionQuery",
-                "TraceNeighborsQuery",
                 "VectorSearchQuery",
                 "DocumentSimilarityQuery",
                 "UsageMetricsQuery",
@@ -48901,6 +49023,7 @@
                             "type": "array"
                         },
                         "hasMore": {
+                            "description": "Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.",
                             "type": "boolean"
                         },
                         "hogql": {
@@ -48908,7 +49031,8 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/integer",
+                            "description": "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
                         },
                         "metadata": {
                             "$ref": "#/definitions/HogQLMetadataResponse",
@@ -48919,7 +49043,8 @@
                             "description": "Modifiers used when performing the query"
                         },
                         "offset": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/integer",
+                            "description": "Rows skipped before the default row limit applied."
                         },
                         "query": {
                             "description": "Input query string",
@@ -52041,6 +52166,7 @@
                             "type": "array"
                         },
                         "hasMore": {
+                            "description": "Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.",
                             "type": "boolean"
                         },
                         "hogql": {
@@ -52048,7 +52174,8 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/integer",
+                            "description": "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
                         },
                         "metadata": {
                             "$ref": "#/definitions/HogQLMetadataResponse",
@@ -52059,7 +52186,8 @@
                             "description": "Modifiers used when performing the query"
                         },
                         "offset": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/integer",
+                            "description": "Rows skipped before the default row limit applied."
                         },
                         "query": {
                             "description": "Input query string",
@@ -55697,42 +55825,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "newerTimestamp": {
-                            "description": "Timestamp of the newer trace",
-                            "type": "string"
-                        },
-                        "newerTraceId": {
-                            "description": "ID of the newer trace (chronologically after current)",
-                            "type": "string"
-                        },
-                        "olderTimestamp": {
-                            "description": "Timestamp of the older trace",
-                            "type": "string"
-                        },
-                        "olderTraceId": {
-                            "description": "ID of the older trace (chronologically before current)",
-                            "type": "string"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -58975,9 +59067,6 @@
                     "$ref": "#/definitions/SessionQuery"
                 },
                 {
-                    "$ref": "#/definitions/TraceNeighborsQuery"
-                },
-                {
                     "$ref": "#/definitions/VectorSearchQuery"
                 },
                 {
@@ -59715,6 +59804,9 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "label": {
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],
@@ -61706,8 +61798,10 @@
             "enum": [
                 "app_mentions:read",
                 "assistant:write",
+                "canvases:read",
                 "canvases:write",
                 "channels:history",
+                "channels:join",
                 "channels:manage",
                 "channels:read",
                 "chat:write",
@@ -61728,10 +61822,6 @@
                 "users:read",
                 "users:read.email"
             ],
-            "type": "string"
-        },
-        "SlackIntegrationScopeInReview": {
-            "enum": ["canvases:read", "channels:join"],
             "type": "string"
         },
         "SlashCommandName": {
@@ -63480,91 +63570,6 @@
                 }
             },
             "required": ["events"],
-            "type": "object"
-        },
-        "TraceNeighborsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "filterSupportTraces": {
-                    "type": "boolean"
-                },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
-                "kind": {
-                    "const": "TraceNeighborsQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "properties": {
-                    "description": "Properties configurable in the interface",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "response": {
-                    "$ref": "#/definitions/TraceNeighborsQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "timestamp": {
-                    "description": "Timestamp of the current trace to find neighbors for",
-                    "type": "string"
-                },
-                "traceId": {
-                    "description": "ID of the current trace to find neighbors for",
-                    "type": "string"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "timestamp", "traceId"],
-            "type": "object"
-        },
-        "TraceNeighborsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "newerTimestamp": {
-                    "description": "Timestamp of the newer trace",
-                    "type": "string"
-                },
-                "newerTraceId": {
-                    "description": "ID of the newer trace (chronologically after current)",
-                    "type": "string"
-                },
-                "olderTimestamp": {
-                    "description": "Timestamp of the older trace",
-                    "type": "string"
-                },
-                "olderTraceId": {
-                    "description": "ID of the older trace (chronologically before current)",
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
             "type": "object"
         },
         "TraceOrderColumn": {

@@ -490,11 +490,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLlmAnalytics,
         inMenu: false,
     },
-    [NodeKind.TraceNeighborsQuery]: {
-        name: 'AI observability trace neighbors',
-        icon: IconLlmAnalytics,
-        inMenu: false,
-    },
     [NodeKind.TraceQuery]: {
         name: 'AI observability trace',
         icon: IconLlmAnalytics,

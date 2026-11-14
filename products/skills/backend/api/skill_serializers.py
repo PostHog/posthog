@@ -222,7 +222,7 @@ class LLMSkillSearchQuerySerializer(serializers.Serializer):
         min_length=1,
         max_length=200,
         trim_whitespace=True,
-        help_text="Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.",
+        help_text="Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.",
     )
 
 
