@@ -113,7 +113,13 @@ def extract_model_name_from_where(node: Optional[ast.Expr]) -> Optional[str]:
     return None
 
 
-def intent_embedding_predicates(context: Optional[HogQLContext]) -> list[ast.Expr]:
+def intent_embedding_predicates(table: Table, context: Optional[HogQLContext]) -> list[ast.Expr]:
+    # Deferred because restricted_properties imports this module.
+    from posthog.hogql.restricted_properties import restricted_embedding_documents  # noqa: PLC0415
+
+    # A masked row still shows that the sync stored a new intent, which confirms a guessed text, so drop the rows.
+    if context is not None and restricted_embedding_documents(ast.TableType(table=table), "content", context):
+        return [parse_expr("product != 'mcp_analytics' OR document_type != 'mcp-intent'")]
     source = parse_expr("parseDateTimeBestEffort(JSONExtractString(metadata, 'source_min_timestamp'))")
     eligibility = parse_expr("isNotNull({source})", placeholders={"source": source})
     if context is not None and context.events_retention_months is not None:
@@ -152,7 +158,7 @@ class ModelSpecificEmbeddingTable(Table):
         return f"document_embeddings_{self.model_name.replace('-', '_')}"
 
     def get_predicates(self, context: Optional[HogQLContext] = None) -> list[ast.Expr]:
-        return intent_embedding_predicates(context)
+        return intent_embedding_predicates(self, context)
 
 
 HOGQL_EMBEDDING_TABLES = {
@@ -243,4 +249,4 @@ class RawDocumentEmbeddingsTable(Table):
         return "raw_document_embeddings"
 
     def get_predicates(self, context: Optional[HogQLContext] = None) -> list[ast.Expr]:
-        return intent_embedding_predicates(context)
+        return intent_embedding_predicates(self, context)

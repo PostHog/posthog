@@ -382,7 +382,7 @@ class TestIntentEmbeddingsAccess(ClickhouseTestMixin, APIBaseTest):
 
         predicates = [f"{content} = 'list flags'", f"{document_id} = '{intent}'", f"{embedding}[1] = 1"]
 
-        assert rows() == sorted([("fp-1", "TypeError in checkout", 256), (None, None, 0)], key=str)
+        assert rows() == [("fp-1", "TypeError in checkout", 256)]
         assert [matches(p) for p in predicates] == [0, 0, 0]
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
