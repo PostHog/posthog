@@ -593,6 +593,7 @@ pub async fn export_vercel_logs_http(
             timestamps_overridden,
             None,
             None,
+            None,
         )
         .await
     {

@@ -452,14 +452,15 @@ pub fn export_success_response(headers: &HeaderMap) -> Response {
 
 // Forwarded unchecked, because only the logs consumer knows the team the token resolves to.
 const INTERNAL_LOGS_HTTP_HEADER: &str = "x-posthog-internal";
-const MAX_INTERNAL_LOGS_SIGNATURE_LEN: usize = 256;
+const LOGS_SIGNATURE_HTTP_HEADER: &str = "x-posthog-signature";
+const MAX_SIGNATURE_HEADER_LEN: usize = 256;
 
-fn internal_logs_signature(headers: &HeaderMap) -> Option<&str> {
+fn bounded_signature<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers
-        .get(INTERNAL_LOGS_HTTP_HEADER)?
+        .get(name)?
         .to_str()
         .ok()
-        .filter(|signature| signature.len() <= MAX_INTERNAL_LOGS_SIGNATURE_LEN)
+        .filter(|signature| signature.len() <= MAX_SIGNATURE_HEADER_LEN)
 }
 
 #[instrument(skip_all, fields(
@@ -573,7 +574,8 @@ pub async fn export_logs_http(
             body.len() as u64,
             timestamps_overridden,
             backfill_params.backfill_days,
-            internal_logs_signature(&headers),
+            bounded_signature(&headers, INTERNAL_LOGS_HTTP_HEADER),
+            bounded_signature(&headers, LOGS_SIGNATURE_HTTP_HEADER),
         )
         .await
     {
@@ -996,29 +998,35 @@ mod tests {
     }
 
     #[test]
-    fn internal_logs_signature_forwards_only_a_bounded_header() {
-        let at_cap = "a".repeat(MAX_INTERNAL_LOGS_SIGNATURE_LEN);
-        let over_cap = "a".repeat(MAX_INTERNAL_LOGS_SIGNATURE_LEN + 1);
-        for (case, value, expected) in [
-            (
-                "a signature",
-                Some("v1.hog_flow.abc"),
-                Some("v1.hog_flow.abc"),
-            ),
-            (
-                "a signature at the cap",
-                Some(at_cap.as_str()),
-                Some(at_cap.as_str()),
-            ),
-            ("a signature over the cap", Some(over_cap.as_str()), None),
-            ("no header", None, None),
-        ] {
-            let mut headers = HeaderMap::new();
-            if let Some(value) = value {
-                headers.insert(INTERNAL_LOGS_HTTP_HEADER, value.parse().unwrap());
-            }
+    fn signature_headers_forward_only_a_bounded_value() {
+        let at_cap = "a".repeat(MAX_SIGNATURE_HEADER_LEN);
+        let over_cap = "a".repeat(MAX_SIGNATURE_HEADER_LEN + 1);
+        for name in [INTERNAL_LOGS_HTTP_HEADER, LOGS_SIGNATURE_HTTP_HEADER] {
+            for (case, value, expected) in [
+                (
+                    "a signature",
+                    Some("v1.hog_flow.abc"),
+                    Some("v1.hog_flow.abc"),
+                ),
+                (
+                    "a signature at the cap",
+                    Some(at_cap.as_str()),
+                    Some(at_cap.as_str()),
+                ),
+                ("a signature over the cap", Some(over_cap.as_str()), None),
+                ("no header", None, None),
+            ] {
+                let mut headers = HeaderMap::new();
+                if let Some(value) = value {
+                    headers.insert(name, value.parse().unwrap());
+                }
 
-            assert_eq!(internal_logs_signature(&headers), expected, "{case}");
+                assert_eq!(
+                    bounded_signature(&headers, name),
+                    expected,
+                    "{name}: {case}"
+                );
+            }
         }
     }
 
