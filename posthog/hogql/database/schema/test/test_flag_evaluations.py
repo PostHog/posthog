@@ -1123,10 +1123,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "select_star_excluding_flag_calls",
                 "SELECT * FROM events WHERE event != '$feature_flag_called' AND timestamp >= now() - INTERVAL 7 DAY",
             ),
+            # A query that mixes flag calls with other events reads the union unless FLAG_EVALUATIONS_UNION_DISABLED is on.
             (
-                "select_star_of_flag_calls_and_other_events",
+                "select_star_of_flag_calls_and_other_events_with_the_union_disabled",
                 "SELECT * FROM events WHERE event IN ('$feature_flag_called', '$pageview') "
                 "AND timestamp >= now() - INTERVAL 7 DAY",
+                True,
             ),
             (
                 "flag_call_filter_on_a_joined_table",
@@ -1135,9 +1137,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "ON e.distinct_id = d.id WHERE d.event = '$feature_flag_called' AND timestamp >= now() - INTERVAL 7 DAY",
             ),
             (
-                "flag_calls_and_other_events_next_to_a_join",
+                "flag_calls_and_other_events_next_to_a_join_with_the_union_disabled",
                 f"SELECT count() FROM events AS e JOIN {PROBE_DISTINCT_IDS} ON e.distinct_id = d.id "
                 "WHERE event IN ('$feature_flag_called', '$pageview') AND timestamp >= now() - INTERVAL 7 DAY",
+                True,
             ),
             (
                 "cte_named_posthog_events",
@@ -1147,26 +1150,29 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_query_that_does_not_read_only_flag_calls_from_events_is_unchanged_once_events_gets_no_flag_calls(
-        self, _name: str, query: str
+        self, _name: str, query: str, union_disabled: bool = False
     ):
-        assert self._query_events(query).clickhouse == self._query_events(query, rewrite=False).clickhouse
+        with override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", union_disabled):
+            assert self._query_events(query).clickhouse == self._query_events(query, rewrite=False).clickhouse
 
     @parameterized.expand(
         [
             ("saved_expression", _create_flag_calls_expression),
-            ("inline_cohort", _create_flag_calls_cohort),
+            # The inline cohort mixes flag calls with other events, so it reads the union unless the union is disabled.
+            ("inline_cohort_with_the_union_disabled", _create_flag_calls_cohort, True),
         ]
     )
     def test_scan_that_the_resolver_adds_reads_events_once_events_gets_no_flag_calls(
-        self, _name: str, create_query: Callable[[Team], str]
+        self, _name: str, create_query: Callable[[Team], str], union_disabled: bool = False
     ):
         query = create_query(self.team)
         modifiers = HogQLQueryModifiers(inlineCohortCalculation=InlineCohortCalculation.ALWAYS)
 
-        assert (
-            self._query_events(query, modifiers=modifiers).clickhouse
-            == self._query_events(query, rewrite=False, modifiers=modifiers).clickhouse
-        )
+        with override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", union_disabled):
+            assert (
+                self._query_events(query, modifiers=modifiers).clickhouse
+                == self._query_events(query, rewrite=False, modifiers=modifiers).clickhouse
+            )
 
     def test_query_reading_event_that_another_source_has_raises_instead_of_reading_flag_evaluations(self):
         query = (
@@ -1293,7 +1299,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 },
                 "SELECT distinct_id FROM calls",
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                ["events-distinct-id"],
+                ["probe-distinct-id"],
             ),
             (
                 "mode_2_body_with_a_cte_named_events",

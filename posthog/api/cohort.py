@@ -148,7 +148,10 @@ from products.cohorts.backend.realtime_state import (
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import (
+    flag_calls_only_in_flag_evaluations,
+    get_flag_evaluations_read_mode,
+)
 from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
@@ -2013,7 +2016,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # legacy groups in place.
         existing_properties = _flat_properties(self._effective_filters_after_update({}))
         added = _added_unsupported_hidden_event_reference(new_properties, existing_properties, team)
-        if added is None and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
+        if added is None and flag_calls_only_in_flag_evaluations(team):
             added = self._added_realtime_flag_call_criterion(attrs, new_properties, existing_properties, team)
         if added is not None:
             raise ValidationError(
@@ -2027,7 +2030,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         """A flag-call criterion that a save puts on a realtime cohort, or None.
 
         On FLAG_EVALUATIONS_ONLY, events holds no flag calls, and cohort-seeder backfills a realtime cohort from
-        events. A new or edited criterion starts a backfill, and so does a cohort that becomes realtime.
+        events. A new or edited criterion starts a backfill, and so does a cohort that becomes realtime. The native JSON
+        events table holds no flag calls either, so its teams get the same refusal.
         """
         if not self._saves_realtime_cohort(attrs, team):
             return None

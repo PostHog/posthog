@@ -508,6 +508,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 reads_forced_to_events=True,
             ),
             ("only_mode", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+            param(
+                "only_mode_with_the_union_flag_off",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                union_flag_enabled=False,
+            ),
+            param(
+                "only_mode_with_the_union_disabled",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                union_disabled=True,
+            ),
             # The switch skips FLAG_EVALUATIONS_ONLY, whose flag calls are no longer in events.
             param(
                 "only_mode_with_reads_forced_to_events",
@@ -535,6 +547,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         include_flag_evaluations_table: bool | None = None,
         union_flag_enabled: bool = True,
         table_in_catalog: bool = True,
+        union_disabled: bool = False,
     ) -> None:
         enabled_flags = {"hogql-flag-calls-union"} if union_flag_enabled else set()
         OrganizationFeatureFlagsConfig.objects.update_or_create(
@@ -545,6 +558,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             override_settings(DEBUG=debug),
             self.is_cloud(cloud),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
+            override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", union_disabled),
             patch(
                 "posthog.hogql.database.database.feature_enabled_or_false",
                 side_effect=lambda key, *args, **kwargs: key in enabled_flags,
@@ -556,10 +570,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert database.organization_reads_flag_calls_from_flag_evaluations is expected
         assert database.has_table(["posthog", "flag_evaluations"]) is table_in_catalog
-        # The build reads the union flag only when the table gate is on, and the override skips that gate.
-        union_expected = table_in_catalog and union_flag_enabled and include_flag_evaluations_table is None
+        # The build adds the union table only when the table gate is on. The override skips that gate.
+        union_expected = table_in_catalog and include_flag_evaluations_table is None and not union_disabled
         assert database.flag_calls_union_enabled is union_expected
         assert database.has_table(["posthog", "events_with_flag_calls"]) is union_expected
+        assert database.flag_calls_union_opted_in is (
+            union_expected and union_flag_enabled and expected and mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
         context = HogQLContext(team_id=self.team.pk, database=database)
         assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)
 

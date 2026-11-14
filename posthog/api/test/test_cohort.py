@@ -4950,7 +4950,7 @@ email@example.org,
                 "event",
                 [_FLAG_CALLED_CRITERION],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+                None,
             ),
             (
                 "multiple_times",
@@ -4963,13 +4963,13 @@ email@example.org,
                     }
                 ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+                None,
             ),
             (
                 "did_not_complete_event",
                 [_PAGEVIEW_CRITERION, {**_FLAG_CALLED_CRITERION, "negation": True}],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+                None,
             ),
             (
                 "multiple_times_without_flag_key",
@@ -4982,7 +4982,8 @@ email@example.org,
                     }
                 ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                _FLAG_CALL_KEY_REFUSAL,
+                # The native JSON events table reads every flag call through the union, which needs no flag key.
+                {False: _FLAG_CALL_KEY_REFUSAL, True: None},
             ),
             (
                 "any_flag_in_flag_evaluations_only_mode",
@@ -5106,7 +5107,12 @@ email@example.org,
         )
 
         self.assertEqual(response.status_code, 400, response.json())
-        self.assertIn(_FLAG_CALL_KEY_REFUSAL, response.json()["detail"])
+        # The legacy group saves as a realtime cohort. The native JSON events table holds no flag calls, so its teams
+        # get the realtime refusal that mode 2 gets.
+        expected_refusal = (
+            _FLAG_CALL_REALTIME_REFUSAL if use_new_events_schema(self.team.id) else _FLAG_CALL_KEY_REFUSAL
+        )
+        self.assertIn(expected_refusal, response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -5114,7 +5120,7 @@ email@example.org,
                 "adds_within_retention",
                 [_PAGEVIEW_CRITERION],
                 [_PAGEVIEW_CRITERION, _FLAG_CALLED_CRITERION],
-                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+                None,
             ),
             (
                 "adds_past_retention",
@@ -5144,13 +5150,13 @@ email@example.org,
                 "adds_beside_unresolvable",
                 [_FLAG_CALLED_UNRESOLVABLE_CRITERION],
                 [_FLAG_CALLED_UNRESOLVABLE_CRITERION, _FLAG_CALLED_CRITERION],
-                _FLAG_CALL_KEY_REFUSAL,
+                {False: _FLAG_CALL_KEY_REFUSAL, True: None},
             ),
             (
                 "adds_unresolvable_flag_calls_in_another_criterion",
                 [_FLAG_CALLED_CRITERION],
                 [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
-                {False: _FLAG_CALL_SQL_EXPRESSION_REFUSAL, True: _FLAG_CALL_KEY_REFUSAL},
+                _FLAG_CALL_SQL_EXPRESSION_REFUSAL,
             ),
             (
                 "keeps_unresolvable_flag_calls_in_another_criterion",
