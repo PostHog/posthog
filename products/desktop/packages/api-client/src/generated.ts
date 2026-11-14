@@ -7500,6 +7500,7 @@ export namespace Schemas {
         | "jira"
         | "pinterest-ads"
         | "pardot"
+        | "oura-ring"
         | "customerio-app"
         | "customerio-webhook"
         | "customerio-track"
