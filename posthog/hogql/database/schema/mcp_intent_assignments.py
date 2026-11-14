@@ -47,14 +47,6 @@ MCP_INTENT_ASSIGNMENTS_FIELDS: dict[str, FieldOrTable] = {
     "calls_in_run": IntegerDatabaseField(
         name="calls_in_run", nullable=False, description="Calls carrying this intent when it was embedded."
     ),
-    "tool": StringDatabaseField(
-        name="tool", nullable=False, description="Top tool for this intent when it was embedded."
-    ),
-    "source_min_timestamp": DateTimeDatabaseField(
-        name="source_min_timestamp",
-        nullable=True,
-        description="Earliest event contributing to the assignment payload and call count; NULL when unknown.",
-    ),
     "timestamp": DateTimeDatabaseField(
         name="timestamp", nullable=False, description="When the assignment was made; the newest row per intent wins."
     ),
