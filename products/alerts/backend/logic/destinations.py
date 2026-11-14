@@ -22,10 +22,6 @@ from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.alerts.backend.facade.contracts import AlertInternalEvent, AlertInternalEventsNotDelivered
 from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, url_hostname
-from products.alerts_platform.backend.facade.api import (
-    link_source_destination,
-    source_destinations_without_hog_functions,
-)
 from products.alerts_platform.backend.facade.contracts import (
     ActiveAlertDestination,
     AlertDestinationConfig,
@@ -306,6 +302,12 @@ def rebuild_source_destination_hog_functions(
     HogFunctions its source's route would create for it, and links the row to them. Returns the rows
     rebuilt. Call it in the caller's transaction, because a refused row raises
     `AlertDestinationValidationError` after earlier rows were written."""
+    # The platform facade pulls the query stack, and `AppConfig.ready()` loads this module.
+    from products.alerts_platform.backend.facade.api import (  # noqa: PLC0415
+        link_source_destination,
+        source_destinations_without_hog_functions,
+    )
+
     rebuilt: list[UUID] = []
     for destination in source_destinations_without_hog_functions(team_id=team_id, public_id=alert_id):
         # A row delivery disabled stays off on the source too, rather than sending again after the handback.
