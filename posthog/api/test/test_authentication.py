@@ -67,6 +67,7 @@ from posthog.helpers.user_devices import (
     build_known_device_cookie_value,
     has_valid_known_device_cookie,
 )
+from posthog.inbox_providers import InboxProvider
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
@@ -614,10 +615,12 @@ class TestLoginAPI(APIBaseTest):
         # route to /verify_email/<uuid> where the code entry form lives.
         self.user.is_email_verified = False
         self.user.save()
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        with patch.dict("posthog.inbox_providers._INBOX_PROVIDERS_BY_DOMAIN", {"posthog.com": InboxProvider.GMAIL}):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "verify_email_pending")
         self.assertEqual(response.json()["detail"], str(self.user.uuid))
+        self.assertEqual(response.json()["extra"]["inbox_provider"], "gmail")
         mock_send_code.assert_called_once()
 
         response = self.client.get("/api/users/@me/")

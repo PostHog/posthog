@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
+import { getPendingVerification } from 'scenes/authentication/shared/verificationCode'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -213,6 +214,48 @@ describe('passkeyLogic', () => {
                 email: 'user@example.com',
                 sso_enforcement: 'google-oauth2',
             })
+        })
+    })
+    describe('unverified account', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+
+        beforeEach(() => {
+            ;(startAuthentication as jest.Mock).mockResolvedValue({ id: 'cred-1', response: {} })
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [],
+                            userVerification: 'required',
+                        },
+                    ],
+                    '/api/webauthn/login/complete/': () => [
+                        401,
+                        { code: 'verify_email_pending', detail: 'user-uuid', extra: { inbox_provider: 'gmail' } },
+                    ],
+                },
+            })
+            initKeaTests()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            sessionStorage.clear()
+            jest.clearAllMocks()
+        })
+
+        it('keeps the inbox provider for the verify email page', async () => {
+            logic.actions.beginPasskeyLogin()
+            await expectLogic(logic).toDispatchActions(['startPasskeyAuthenticationFailure'])
+
+            expect(getPendingVerification('user-uuid')).toEqual({ email: null, inboxProvider: 'gmail' })
         })
     })
 })

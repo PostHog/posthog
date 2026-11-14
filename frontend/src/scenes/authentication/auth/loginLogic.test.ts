@@ -186,7 +186,14 @@ describe('loginLogic', () => {
                 get: { '/api/users/@me/': () => [200, {}] },
                 post: {
                     '/api/login/precheck': () => [200, { saml_available: false }],
-                    '/api/login': () => [401, { code: 'code_based_verification_required', detail: 'user@example.com' }],
+                    '/api/login': () => [
+                        401,
+                        {
+                            code: 'code_based_verification_required',
+                            detail: 'user@example.com',
+                            extra: { inbox_provider: 'gmail' },
+                        },
+                    ],
                     '/api/login/code-based-verification': () => [200, { success: true }],
                     '/api/login/code-based-verification/resend': () => [
                         429,
@@ -213,6 +220,7 @@ describe('loginLogic', () => {
 
             expect(logic.values.codeVerificationRequired).toBe(true)
             expect(logic.values.codeVerificationEmail).toBe('user@example.com')
+            expect(logic.values.codeVerificationInboxProvider).toBe('gmail')
             expect(logic.values.generalError).toBe(null)
             expect(logic.values.codeResendAttempted).toBe(false)
 
@@ -224,6 +232,7 @@ describe('loginLogic', () => {
             logic.actions.exitCodeVerification()
             expect(logic.values.codeVerificationRequired).toBe(false)
             expect(logic.values.codeVerificationEmail).toBe(null)
+            expect(logic.values.codeVerificationInboxProvider).toBe(null)
             expect(logic.values.codeResendAttempted).toBe(false)
         })
 

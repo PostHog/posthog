@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import * as jackDawsonPng from '@posthog/brand/hoggies/png/jack-dawson'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -12,8 +12,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
+import { OpenInboxButton } from 'scenes/authentication/shared/OpenInboxButton'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
-import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { getPendingVerification, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
 
@@ -21,7 +23,7 @@ import { type VerifyEmailReason, verifyEmailLogic } from './verifyEmailLogic'
 
 const HedgehogExplorer = pngHoggie(explorerPng)
 const HedgehogJackDawson = pngHoggie(jackDawsonPng)
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogMailbox = pngHoggie(mailboxPng)
 
 const CHECKLIST = [
     'Wait 5 minutes, some email providers take a beat',
@@ -170,7 +172,8 @@ function CheckYourInbox(): JSX.Element {
     // The address that received the code. This is the new address if an email change is pending,
     // else the account address. Without a session, for example on a fresh signup, the page uses the
     // address the signup or login form stored in this browser. It stays unset in a different browser.
-    const verificationEmail = user?.pending_email ?? user?.email ?? getPendingVerificationEmail(uuid) ?? undefined
+    const pendingVerification = getPendingVerification(uuid)
+    const verificationEmail = user?.pending_email ?? user?.email ?? pendingVerification?.email ?? undefined
 
     return (
         <div className="flex flex-col items-center text-center">
@@ -184,7 +187,7 @@ function CheckYourInbox(): JSX.Element {
                     We couldn't send your code just now. Open "Not seeing it?" below to send a new one.
                 </AuthBanner>
             )}
-            <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
+            <HedgehogMailbox className="block w-auto mx-auto h-28" />
             <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                 {verificationEmailSent ? 'Check your inbox' : 'Enter your code'}
             </h1>
@@ -208,6 +211,12 @@ function CheckYourInbox(): JSX.Element {
                     }.`}
                 </p>
             )}
+            <OpenInboxButton
+                provider={parseInboxProvider(pendingVerification?.inboxProvider)}
+                email={verificationEmail ?? null}
+                step="verify_email"
+                className="mb-4"
+            />
             <VerificationCodeEntry />
             <div className="mt-3">
                 <NotSeeingIt />

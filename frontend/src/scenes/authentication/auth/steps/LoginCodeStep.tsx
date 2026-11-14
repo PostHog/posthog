@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
 import { IconCheckCircle } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -12,18 +12,20 @@ import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { OpenInboxButton } from 'scenes/authentication/shared/OpenInboxButton'
 import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 
 import { LoginErrorBanner } from '../components/LoginErrorBanner'
 import { loginLogic } from '../loginLogic'
 
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogMailbox = pngHoggie(mailboxPng)
 
 export function LoginCodeStep(): JSX.Element {
     const { exitCodeVerification, resendCodeBasedVerification, submitCodeVerification } = useActions(loginLogic)
     const {
         codeVerificationEmail,
+        codeVerificationInboxProvider,
         resendResponseLoading,
         resendResponse,
         codeResendAttempted,
@@ -36,9 +38,9 @@ export function LoginCodeStep(): JSX.Element {
 
     return (
         <AuthSceneCard showPendingConnection>
-            <HedgehogMagnifyingGlass className="block w-auto mx-auto mb-3 h-28" />
+            <HedgehogMailbox className="block w-auto mx-auto mb-3 h-28" />
             <AuthCardTitle
-                className="mb-2"
+                className="mb-4"
                 title="Check your inbox"
                 sub={
                     <>
@@ -47,44 +49,12 @@ export function LoginCodeStep(): JSX.Element {
                     </>
                 }
             />
-            <div className="mb-5 flex flex-col items-center gap-1 text-sm">
-                <Link
-                    onClick={() => resendCodeBasedVerification(null)}
-                    disabledReason={resendResponseLoading ? 'Sending...' : undefined}
-                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
-                >
-                    Resend code
-                </Link>
-                {resendResponse?.success && (
-                    <p className="flex items-center gap-1 text-success mb-0" role="status">
-                        <IconCheckCircle />
-                        <span>Code sent</span>
-                    </p>
-                )}
-                {codeResendAttempted && preflight?.cloud && (
-                    <p className="text-xs text-secondary mb-0">
-                        <span>Still nothing? </span>
-                        <Link
-                            data-attr="login-code-contact-support"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                openSupportForm({
-                                    kind: 'support',
-                                    email: codeVerificationEmail ?? undefined,
-                                    message: sendSupportRequest.message
-                                        ? undefined
-                                        : `I need help logging in.\nI haven't received the emailed verification code.${
-                                              preflight?.region ? `\nData region: ${preflight.region}` : ''
-                                          }`,
-                                })
-                            }}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
-                        >
-                            Contact support
-                        </Link>
-                    </p>
-                )}
-            </div>
+            <OpenInboxButton
+                provider={codeVerificationInboxProvider}
+                email={codeVerificationEmail}
+                step="login_code"
+                className="mb-4"
+            />
             <LoginErrorBanner />
             <Form
                 logic={loginLogic}
@@ -134,6 +104,44 @@ export function LoginCodeStep(): JSX.Element {
                     Verify and log in
                 </LemonButton>
                 <div className="flex flex-col items-center gap-3">
+                    <div className="flex flex-col items-center gap-1 text-sm">
+                        <Link
+                            onClick={() => resendCodeBasedVerification(null)}
+                            disabledReason={resendResponseLoading ? 'Sending...' : undefined}
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                        >
+                            Resend code
+                        </Link>
+                        {resendResponse?.success && (
+                            <p className="flex items-center gap-1 text-success mb-0" role="status">
+                                <IconCheckCircle />
+                                <span>Code sent</span>
+                            </p>
+                        )}
+                        {codeResendAttempted && preflight?.cloud && (
+                            <p className="text-xs text-secondary mb-0">
+                                <span>Still nothing? </span>
+                                <Link
+                                    data-attr="login-code-contact-support"
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        openSupportForm({
+                                            kind: 'support',
+                                            email: codeVerificationEmail ?? undefined,
+                                            message: sendSupportRequest.message
+                                                ? undefined
+                                                : `I need help logging in.\nI haven't received the emailed verification code.${
+                                                      preflight?.region ? `\nData region: ${preflight.region}` : ''
+                                                  }`,
+                                        })
+                                    }}
+                                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                                >
+                                    Contact support
+                                </Link>
+                            </p>
+                        )}
+                    </div>
                     <Link
                         onClick={() => exitCodeVerification()}
                         className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"

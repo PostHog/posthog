@@ -14,6 +14,7 @@ from rest_framework import status
 
 from posthog.api.authentication import CodeBasedVerificationSerializer
 from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
+from posthog.inbox_providers import InboxProvider
 from posthog.models.instance_setting import override_instance_config
 
 VERIFY_URL = "/api/login/code-based-verification/"
@@ -52,17 +53,21 @@ def workflows_refuses_the_recipient() -> Iterator[None]:
 class TestCodeBasedVerificationAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
-    def _trigger(self, mock_send) -> str:
+    def _trigger(self, mock_send, inbox_provider: str | None = None) -> str:
         """Log in with password to trigger the code, returning the 6-digit code that was emailed."""
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "code_based_verification_required")
+        self.assertEqual(response.json()["extra"]["inbox_provider"], inbox_provider)
         return mock_send.call_args[0][1]
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_login_without_totp_emails_a_six_digit_code_and_does_not_log_in(self):
-        with enable_code_sending() as mock_send:
-            code = self._trigger(mock_send)
+        with (
+            enable_code_sending() as mock_send,
+            patch.dict("posthog.inbox_providers._INBOX_PROVIDERS_BY_DOMAIN", {"posthog.com": InboxProvider.GMAIL}),
+        ):
+            code = self._trigger(mock_send, inbox_provider="gmail")
 
         self.assertEqual(mock_send.call_args[0][0], self.user.id)
         self.assertRegex(code, r"^\d{6}$")
