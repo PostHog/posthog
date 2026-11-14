@@ -2,10 +2,11 @@ import os
 
 os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")
 
-from datetime import UTC, datetime, timedelta  # noqa: E402
+from datetime import timedelta  # noqa: E402
+from functools import partial  # noqa: E402
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events  # noqa: E402
-from unittest.mock import patch  # noqa: E402
+from unittest.mock import patch
 
 import numpy as np  # noqa: E402
 
@@ -189,39 +190,26 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
+        hourly_rows: list[HourlyCalls] = []
         for i, vector in enumerate(_blob_vectors(0, 60, seed=1)):
-            insert_intent_embedding(
-                self.team.pk,
-                f"a{i:03d}",
-                f"create insight {i}",
-                at=NOW - timedelta(days=2),
-                embedding=vector,
-                calls=1 + i % 3,
-            )
+            hourly_rows.append(self._embed(f"create insight {i}", vector, days_ago=2, calls=1 + i % 3))
         for i, vector in enumerate(_blob_vectors(1, 60, seed=2)):
-            insert_intent_embedding(
-                self.team.pk, f"b{i:03d}", f"list flags {i}", at=NOW - timedelta(days=3), embedding=vector
+            hourly_rows.append(self._embed(f"list flags {i}", vector, days_ago=3))
+        flush_persons_and_events()
+        rollups.insert_hourly_calls(self.team.pk, hourly_rows, now=NOW)
+
+    def _embed(self, text: str, vector: list[float], *, days_ago: int, calls: int = 1) -> HourlyCalls:
+        at = NOW - timedelta(days=days_ago)
+        for _ in range(calls):
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="agent-1",
+                timestamp=at,
+                properties={"$mcp_intent": text},
             )
-        rollups.insert_hourly_calls(
-            self.team.pk,
-            [
-                HourlyCalls(
-                    hour=NOW - timedelta(days=2), hash=f"a{i:03d}", tool="query-trends", calls=2, conversations=(1,)
-                )
-                for i in range(60)
-            ]
-            + [
-                HourlyCalls(
-                    hour=NOW - timedelta(days=3),
-                    hash=f"b{i:03d}",
-                    tool="feature-flag-get-all",
-                    calls=1,
-                    conversations=(1,),
-                )
-                for i in range(60)
-            ],
-            now=NOW,
-        )
+        insert_intent_embedding(self.team.pk, intent_hash(text), text, at=at, embedding=vector, calls=99)
+        return HourlyCalls(hour=at, hash=intent_hash(text), tool="query-trends", calls=calls, conversations=(1,))
 
     def _assignments(self) -> list[tuple]:
         return execute_hogql_query(
@@ -269,15 +257,34 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert MCPIntentClusteringRun.objects.filter(team=self.team, kind="refit", status="succeeded").count() == 2
 
     @patch("products.mcp_analytics.backend.intent_topics.pipeline.labeling.label_topics", return_value={})
-    def test_assign_inserts_one_day_at_a_time(self, _mock_labels) -> None:
+    def test_assign_preserves_whole_window_counts_across_pages(self, _mock_labels) -> None:
+        first = NOW - timedelta(days=4)
+        for _ in range(2):
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="agent-1",
+                timestamp=first,
+                properties={"$mcp_intent": "create insight 0"},
+            )
+        flush_persons_and_events()
         pipeline.run_refit(self.team, now=NOW)
 
-        with patch.object(pipeline, "sync_execute", wraps=pipeline.sync_execute) as insert:
+        with patch.object(
+            pipeline.corpus,
+            "iter_live_intent_pages",
+            wraps=partial(pipeline.corpus.iter_live_intent_pages, page_size=50),
+        ):
             assign = pipeline.run_assign(self.team, window_start=NOW - timedelta(days=7), window_end=NOW)
 
-        assert insert.call_count == 7
         assert assign.n_intents == 120
         assert sum(r[1] for r in self._assignments()) == 120
+        [row] = execute_hogql_query(
+            query="SELECT calls_in_run, source_min_timestamp FROM posthog.mcp_intent_assignments WHERE intent_text = 'create insight 0'",
+            team=self.team,
+        ).results
+        assert row[0] == 3
+        assert row[1].replace(tzinfo=first.tzinfo) == first
 
 
 class TestAssignWithoutTopics(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
@@ -310,12 +317,15 @@ class TestRefitTooFew(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, API
     def test_skips_when_the_window_has_too_few_vectors(self) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        insert_intent_embedding(self.team.pk, "only", "only one", at=NOW - timedelta(days=1))
-        rollups.insert_hourly_calls(
-            self.team.pk,
-            [HourlyCalls(hour=NOW - timedelta(days=1), hash="only", tool="query-trends", calls=1, conversations=(1,))],
-            now=NOW,
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="agent-1",
+            timestamp=NOW - timedelta(days=1),
+            properties={"$mcp_intent": "only one"},
         )
+        flush_persons_and_events()
+        insert_intent_embedding(self.team.pk, intent_hash("only one"), "only one", at=NOW - timedelta(days=1))
 
         outcome = pipeline.run_refit(self.team, now=NOW)
 
@@ -357,106 +367,31 @@ class TestSyncWindow(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
 
 
 class TestFitSampleWindow(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    def test_candidates_without_a_vector_are_replaced_from_the_next_page(self) -> None:
-        names = ["a", "b", "c", "d", "e"]
-        rollups.insert_hourly_calls(
-            self.team.pk,
-            [
-                HourlyCalls(hour=NOW - timedelta(days=1), hash=name, tool="query-trends", calls=2, conversations=(1,))
-                for name in names
-            ],
-            now=NOW,
-        )
-        # Only two of the five called intents have a vector, so a page of two candidates can come up short.
-        insert_intent_embedding(self.team.pk, "b", "b", at=NOW - timedelta(days=1))
-        insert_intent_embedding(self.team.pk, "e", "e", at=NOW - timedelta(days=1))
-
-        sample = pipeline.fetch_fit_sample(self.team, since=NOW - timedelta(days=7), until=NOW, limit=2)
-
-        assert sorted(sample.hashes) == ["b", "e"]
-        assert sample.weights.tolist() == [2.0, 2.0]
-
     def test_sample_follows_calls_in_the_window_not_embedding_time(self) -> None:
-        insert_intent_embedding(self.team.pk, "old-but-hot", "old but hot", at=NOW - timedelta(days=20), calls=1)
-        insert_intent_embedding(self.team.pk, "fresh-but-cold", "fresh but cold", at=NOW - timedelta(days=1), calls=99)
-        insert_intent_embedding(self.team.pk, "expired", "expired", at=NOW - timedelta(days=40), calls=1)
-        rollups.insert_hourly_calls(
-            self.team.pk,
-            [
-                HourlyCalls(
-                    hour=NOW - timedelta(days=2),
-                    hash="old-but-hot",
-                    tool="query-trends",
-                    calls=40,
-                    conversations=(1, 2, 3),
-                ),
-                HourlyCalls(
-                    hour=NOW - timedelta(days=2), hash="expired", tool="query-trends", calls=5, conversations=(1,)
-                ),
-                HourlyCalls(
-                    hour=NOW - timedelta(days=12),
-                    hash="fresh-but-cold",
-                    tool="query-trends",
-                    calls=7,
-                    conversations=(1,),
-                ),
-            ],
-            now=NOW,
-        )
-        # An older version of the same hour bucket must not add to the weight.
-        rollups.insert_hourly_calls(
-            self.team.pk,
-            [
-                HourlyCalls(
-                    hour=NOW - timedelta(days=2), hash="old-but-hot", tool="query-trends", calls=30, conversations=(1,)
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        for text, days_ago, calls in (("old but hot", 20, 1), ("fresh but cold", 1, 99), ("expired", 40, 1)):
+            insert_intent_embedding(
+                self.team.pk, intent_hash(text), text, at=NOW - timedelta(days=days_ago), calls=calls
+            )
+        insert_intent_embedding(other_team.pk, intent_hash("shared"), "shared", at=NOW - timedelta(days=1))
+        for team, text, days_ago, calls in (
+            (self.team, "old but hot", 2, 40),
+            (self.team, "expired", 2, 5),
+            (self.team, "fresh but cold", 12, 7),
+            (self.team, "shared", 2, 50),
+            (other_team, "fresh but cold", 2, 99),
+        ):
+            for _ in range(calls):
+                _create_event(
+                    team=team,
+                    event="$mcp_tool_call",
+                    distinct_id="agent-1",
+                    timestamp=NOW - timedelta(days=days_ago),
+                    properties={"$mcp_intent": text},
                 )
-            ],
-            now=NOW - timedelta(days=1),
-        )
-        # Another team's vector for an intent this team calls, and its calls for an intent this team embedded.
-        other_team_id = 10**9
-        insert_intent_embedding(other_team_id, "shared", "shared", at=NOW - timedelta(days=1))
-        rollups.insert_hourly_calls(
-            self.team.pk,
-            [
-                HourlyCalls(
-                    hour=NOW - timedelta(days=2), hash="shared", tool="query-trends", calls=50, conversations=(1,)
-                )
-            ],
-            now=NOW,
-        )
-        rollups.insert_hourly_calls(
-            other_team_id,
-            [
-                HourlyCalls(
-                    hour=NOW - timedelta(days=2),
-                    hash="fresh-but-cold",
-                    tool="query-trends",
-                    calls=99,
-                    conversations=(1,),
-                )
-            ],
-            now=NOW,
-        )
+        flush_persons_and_events()
 
         sample = pipeline.fetch_fit_sample(self.team, since=NOW - timedelta(days=7), until=NOW)
 
-        assert sample.hashes == ["old-but-hot"]
+        assert sample.hashes == [intent_hash("old but hot")]
         assert sample.weights.tolist() == [40.0]
-
-
-class TestAssignmentSlices:
-    def test_cuts_the_window_into_days_without_gap_or_overlap(self) -> None:
-        start = datetime(2026, 11, 1, 6, 30, tzinfo=UTC)
-        end = start + timedelta(days=2, hours=5)
-
-        assert list(pipeline.assignment_slices(start, end)) == [
-            pipeline.TimeSlice(start=start, end=start + timedelta(days=1)),
-            pipeline.TimeSlice(start=start + timedelta(days=1), end=start + timedelta(days=2)),
-            pipeline.TimeSlice(start=start + timedelta(days=2), end=end),
-        ]
-
-    def test_an_empty_window_has_no_slices(self) -> None:
-        moment = datetime(2026, 11, 1, tzinfo=UTC)
-
-        assert list(pipeline.assignment_slices(moment, moment)) == []
