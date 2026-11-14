@@ -107,11 +107,33 @@ set_patterns() {
     done
 }
 
+# Worker counts, one per phase, because the two phases have different shapes.
+#
+# Snapshot capture is browser-bound and scales with the Jest worker count. On this runner
+# (ubuntu-24.04, 4 vCPU) and this container image, the measured cost is:
+#   - 1 worker  (this script, affected phase): 178 snapshots in 456s, 91 tests in 456s
+#   - 2 workers (a chromium visual-regression shard): 226 snapshots in 299s, 125 in 299s
+# That is 1.9x the snapshots per second and 2.1x the tests per second for the second
+# worker, on the same ubuntu-24.04 4-vCPU runner and the same playwright container.
+#
+# The affected phase is the one that makes this job long. It is capped at ten files
+# (MAX_AFFECTED_FILES), it runs two chromium passes over them, and every CI run observed
+# between Nov 6 and Nov 14 2026 hit that cap: ten files, 40 to 91 tests, 6.7 to 15.0
+# minutes of phase, 84 percent of a 16.9-minute median job. Ten files across two workers
+# leaves five each, so the cap that fixes the work also keeps the split even.
+#
+# The blocking phase keeps one worker. It renders the PR's own changed stories, usually
+# one or two files, where a second worker only adds a Chromium process and takes nothing;
+# and a false flake there fails a required check, which is not worth a few seconds.
+BLOCKING_MAX_WORKERS=1
+AFFECTED_MAX_WORKERS=2
+
 # Returns non-zero when the run fails, so callers decide whether that blocks.
 # An optional fourth argument stops the run after that many seconds, with exit code 124.
+# The fifth argument is the Jest worker count, defaulting to the blocking phase's one.
 run_stories() {
-    local browser="$1" run_name="$2" snapshot_flag="$3" time_limit="${4:-0}"
-    echo "=== $run_name ==="
+    local browser="$1" run_name="$2" snapshot_flag="$3" time_limit="${4:-0}" max_workers="${5:-$BLOCKING_MAX_WORKERS}"
+    echo "=== $run_name (maxWorkers=$max_workers) ==="
 
     # Run test-storybook directly (tests a pre-built storybook dist served over http-server).
     # pipefail is set at script level so tee preserves the exit code.
@@ -123,7 +145,7 @@ run_stories() {
     local status=0
     STORYBOOK_SKIP_TAGS="test-skip,test-skip-${browser}" \
         timeout --kill-after=30 "$time_limit" pnpm --filter=@posthog/storybook exec test-storybook \
-        "$snapshot_flag" --no-index-json --maxWorkers=1 \
+        "$snapshot_flag" --no-index-json "--maxWorkers=$max_workers" \
         --browsers "$browser" \
         -- "${pattern_args[@]}" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-${run_name}.log" || status=$?
     if [ "$status" -eq 0 ]; then
@@ -189,13 +211,13 @@ if [ ${#affected_to_check[@]} -gt 0 ]; then
     # Both runs share one time budget. A run that hits it ends the phase without a verdict.
     phase_start=$SECONDS
     affected_status=0
-    run_stories chromium affected-run-1 --updateSnapshot "$AFFECTED_PHASE_SECONDS" || affected_status=$?
+    run_stories chromium affected-run-1 --updateSnapshot "$AFFECTED_PHASE_SECONDS" "$AFFECTED_MAX_WORKERS" || affected_status=$?
     if [ "$affected_status" -eq 0 ]; then
         remaining=$((AFFECTED_PHASE_SECONDS - (SECONDS - phase_start)))
         if [ "$remaining" -lt 1 ]; then
             affected_status=124
         else
-            run_stories chromium affected-run-2 --ci "$remaining" || affected_status=$?
+            run_stories chromium affected-run-2 --ci "$remaining" "$AFFECTED_MAX_WORKERS" || affected_status=$?
             if [ "$affected_status" -ne 0 ] && [ "$affected_status" -ne 124 ]; then
                 message="A story affected by this PR rendered two different pictures in two runs. The story file is unchanged, so this may be an existing flake on master. The affected-run-2 log in this job names the story."
                 echo "::warning title=Unstable story affected by this PR::$message"
