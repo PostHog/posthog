@@ -51,19 +51,46 @@ def replay_window_start(
     return min(pending, last_synced_at or first_sync_start or pending)
 
 
+def newest_records_config(config: SignalSourceTableConfig, record_limit: int) -> SignalSourceTableConfig:
+    """The config for a fetch that keeps only `record_limit` records. A source without its own order keeps the newest."""
+    partition_expr = (
+        f"parseDateTimeBestEffort(toString({config.partition_field}))"
+        if config.partition_field_is_datetime_string
+        else config.partition_field
+    )
+    return config.model_copy(
+        update={
+            "max_records": min(config.max_records, record_limit),
+            "order_by": config.order_by or f"{partition_expr} DESC",
+        }
+    )
+
+
 def fetch_records(
-    team: Team, config: SignalSourceTableConfig, context: dict[str, Any], *, schema_id: UUID
+    team: Team,
+    config: SignalSourceTableConfig,
+    context: dict[str, Any],
+    *,
+    schema_id: UUID,
+    first_sync_record_limit: int | None = None,
 ) -> FetchedWindow:
     """Run the source's fetcher, starting from any window a filtered fetch failed to read.
 
     Call `complete_fetch` once the records are processed. Until then the stored window stays, so a failure
     after the fetch reads it again.
+
+    `first_sync_record_limit` caps a source's first sync. The records past the cap are skipped, not kept for
+    the next fetch, because the caller sets the cap to stop a backlog from entering at all.
     """
     key = FilterStateKey(
         team_id=team.id, source_product=config.source_product, source_type=config.source_type, schema_id=schema_id
     )
     raw_last_synced_at: str | None = context.get("last_synced_at")
     last_synced_at = datetime.fromisoformat(raw_last_synced_at) if raw_last_synced_at else None
+    limited = False
+    if first_sync_record_limit is not None and last_synced_at is None:
+        config = newest_records_config(config, first_sync_record_limit)
+        limited = True
     source_config = context.get("source_config")
     filtered = isinstance(source_config, dict) and HOGQL_FILTER_KEY in source_config
     stored = pending_window(key)
@@ -105,7 +132,7 @@ def fetch_records(
                     signals_type="data-import-signals",
                 )
         raise
-    capped = bool(context.get(WINDOW_CAPPED_KEY))
+    capped = bool(context.get(WINDOW_CAPPED_KEY)) and not limited
     return FetchedWindow(
         records=records,
         key=key,

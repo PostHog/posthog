@@ -51,8 +51,10 @@ class TestFetchRecords(BaseTest):
         self.windows: list[str | None] = []
         self.resume_ids: list[str | None] = []
         self.outcomes: list[Exception | int | datetime] = []
+        self.configs: list[SignalSourceTableConfig] = []
 
     def fetcher(self, team: Any, config: SignalSourceTableConfig, context: dict[str, Any]) -> list[dict[str, Any]]:
+        self.configs.append(config)
         self.windows.append(context["last_synced_at"])
         self.resume_ids.append(context["resume_after_id"])
         outcome = self.outcomes.pop(0)
@@ -120,6 +122,26 @@ class TestFetchRecords(BaseTest):
         assert self.windows == [MIDDLE.isoformat(), MIDDLE.isoformat(), LATE.isoformat(), MIDDLE.isoformat()]
         state.refresh_from_db()
         assert (state.pending_window_start, state.last_error_code, state.last_malformed_count) == (None, "", 2)
+
+    @parameterized.expand([("first_sync", None, 3, "created_at DESC", None), ("later_sync", EARLY, 1000, None, MIDDLE)])
+    def test_record_limit_applies_to_the_first_sync_and_skips_the_rest(
+        self,
+        _name: str,
+        last_synced_at: datetime | None,
+        max_records: int,
+        order_by: str | None,
+        resume_from: datetime | None,
+    ) -> None:
+        self.outcomes = [MIDDLE]
+        context = {
+            "table_name": "linear.issues",
+            "extra": {},
+            "source_config": FILTERED,
+            "last_synced_at": last_synced_at.isoformat() if last_synced_at else None,
+        }
+        fetched = fetch_records(self.team, self.config(), context, schema_id=uuid4(), first_sync_record_limit=3)
+        assert (self.configs[0].max_records, self.configs[0].order_by) == (max_records, order_by)
+        assert fetched.resume_from == resume_from
 
     def test_capped_batch_resumes_where_it_stopped(self) -> None:
         schema_id = uuid4()

@@ -33,6 +33,7 @@ async def test_warehouse_defers_billing_admission_to_per_signal_pipeline(team):
         patch(f"{module}.afetch_source_config", AsyncMock(return_value={})),
         patch("products.signals.backend.emission.fetch_window.pending_window", return_value=None),
         patch(f"{module}.get_data_warehouse_table_name", return_value="github.issues"),
+        patch(f"{module}.trial_first_sync_record_limit", return_value=None),
         patch(f"{module}.run_signal_pipeline", AsyncMock(return_value={"status": "success"})) as pipeline,
     ):
         result = await emit_data_import_signals_activity(

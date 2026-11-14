@@ -11,8 +11,11 @@ from posthog.models import Team
 
 from products.signals.backend.daily_limit import check_daily_report_admission
 from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission
+from products.signals.backend.spend import finish_report_spend
+from products.signals.backend.trial import billing
 from products.signals.backend.trial.funding import TrialFunding, direct_report_funding, signal_funding
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.usage import trial_usage
 from products.tasks.backend.facade.api import get_task_run
 
 report_trial_context: ContextVar[tuple[int, str] | None] = ContextVar("report_trial_context", default=None)
@@ -151,7 +154,12 @@ def report_pass_admission(
                 )
     if parent is None:
         check_daily_report_admission(team, report_id=report_id)
-    return prepare_self_driving_admission(team, parent=parent)
+    admission = prepare_self_driving_admission(team, parent=parent)
+    if parent is not None and parent.grant_id is not None and parent.report_pass_key != operation_key:
+        grant = TrialPolicy(team).grant()
+        if grant is not None and trial_usage(grant).finished(grant):
+            admission = replace(admission, paid_authorized=billing.paid_trial_continuation_authorized(team))
+    return admission
 
 
 def prepare_report_pass(
@@ -179,3 +187,22 @@ def prepare_report_pass(
         SignalReport.objects.filter(team_id=team.id, id=report.id).update(
             self_driving_funding=replace(funding, report_pass_key=operation_key).as_dict()
         )
+
+
+def close_deferred_research(*, team_id: int, report_id: str, signal_id: str | None) -> None:
+    """Settle the signal of a research pass that the trial deferred.
+
+    The receipt of a signal that waits for research stays open. An open receipt counts toward the trial's
+    open signal limit, so a deferred pass that kept it would stop signal intake for the project.
+    """
+    from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
+
+    if signal_id is None:
+        triggering = (
+            SignalReport.objects.filter(team_id=team_id, id=report_id)
+            .values_list("triggering_signal_id", flat=True)
+            .first()
+        )
+        signal_id = str(triggering) if triggering else None
+    if signal_id is not None:
+        finish_report_spend(team_id=team_id, report_id=report_id, signal_id=signal_id)
