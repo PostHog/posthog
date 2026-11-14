@@ -1055,7 +1055,7 @@ def stored_property_rule_floor(*, user: User, team_id: int) -> PropertyAccessLev
     if organization_id is None:
         return None
     membership = OrganizationMembership.objects.filter(user=user, organization_id=organization_id).first()
-    if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+    if membership is None or membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return None
     role_ids = list(
         RoleMembership.objects.filter(user=user, role__organization_id=organization_id)

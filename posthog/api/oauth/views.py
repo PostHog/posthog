@@ -483,7 +483,7 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
             try:
                 organization_uuids = [uuid.UUID(org_id) for org_id in scoped_organization_ids]
                 for org_uuid in organization_uuids:
-                    if org_uuid not in org_memberships or not org_memberships[org_uuid].level:
+                    if org_uuid not in org_memberships or not org_memberships[org_uuid].effective_level:
                         raise serializers.ValidationError("Invalid organization specified or you do not have access.")
             except ValueError:
                 raise serializers.ValidationError("Invalid organization UUID provided in scoped_organizations.")

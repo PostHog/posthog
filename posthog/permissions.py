@@ -1199,7 +1199,10 @@ class APIScopePermission(ScopeBasePermission):
         if membership is None:
             return
 
-        if not org.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
+        if (
+            not org.members_can_use_personal_api_keys
+            and membership.effective_level < OrganizationMembership.Level.ADMIN
+        ):
             raise PermissionDenied(
                 f"Organization '{org.name}' does not allow using personal API keys. "
                 f"Contact an admin to enable personal API keys for this organization."
@@ -1645,7 +1648,7 @@ class UserCanInvitePermission(BasePermission):
         membership = get_required_organization_membership(request, organization)
 
         members_can_invite = bool(organization.members_can_invite)
-        user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
+        user_is_admin = membership.effective_level >= OrganizationMembership.Level.ADMIN
 
         if user_is_admin:
             return True
@@ -1670,7 +1673,7 @@ class UserCanCreateProjectPermission(BasePermission):
 
         membership = get_required_organization_membership(request, organization)
 
-        if membership.level >= OrganizationMembership.Level.ADMIN:
+        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
             return True
 
         # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).

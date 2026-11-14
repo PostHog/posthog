@@ -249,7 +249,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             organization_uuids = [uuid.UUID(organization_id) for organization_id in scoped_organizations]
 
             for organization_id in organization_uuids:
-                if organization_id not in org_memberships or not org_memberships[organization_id].level:
+                if organization_id not in org_memberships or not org_memberships[organization_id].effective_level:
                     raise serializers.ValidationError(
                         f"You must be a member of all organizations that you are scoping the key to."
                     )
