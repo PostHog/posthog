@@ -2,8 +2,13 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.test import override_settings
+
+from parameterized import parameterized
+
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -36,13 +41,15 @@ def _insert_assignment(team_id: int, intent_hash: str, topic_id: str | None, **o
         "is_outlier": 0,
         "intent_text": "list feature flags",
         "calls_in_run": 3,
+        "source_min_timestamp": _now() - timedelta(days=2),
         "timestamp": _now() - timedelta(days=1),
         **overrides,
     }
     sync_execute(
         f"""
         INSERT INTO {MCP_INTENT_ASSIGNMENTS_WRITABLE_TABLE}
-        (team_id, intent_hash, run_id, topic_id, distance, x, y, is_outlier, intent_text, calls_in_run, timestamp)
+        (team_id, intent_hash, run_id, topic_id, distance, x, y, is_outlier, intent_text, calls_in_run,
+         source_min_timestamp, timestamp)
         VALUES
         """,
         [row],
@@ -50,6 +57,108 @@ def _insert_assignment(team_id: int, intent_hash: str, topic_id: str | None, **o
 
 
 class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (table, enforced)
+            for table in ("raw_mcp_intent_assignments", "mcp_intent_assignments")
+            for enforced in (True, False)
+        ]
+    )
+    def test_source_retention_applies_to_the_payload_and_count(self, table: str, enforced: bool) -> None:
+        self.team.event_retention_months = 1
+        self.team.save()
+        _insert_assignment(self.team.pk, "a" * 64, "retained")
+        _insert_assignment(
+            self.team.pk, "b" * 64, "expired", source_min_timestamp=_now() - timedelta(days=60), calls_in_run=7
+        )
+        _insert_assignment(self.team.pk, "c" * 64, "unknown", source_min_timestamp=None)
+
+        with override_settings(EVENTS_DATA_RETENTION_ENFORCED=enforced):
+            response = execute_hogql_query(
+                query=f"SELECT a.* FROM posthog.{table} AS a WHERE a.timestamp > now() - interval 3 day ORDER BY intent_hash",
+                team=self.team,
+            )
+            count = execute_hogql_query(query=f"SELECT sum(calls_in_run) FROM posthog.{table}", team=self.team)
+
+        rows = [dict(zip(response.columns or [], values)) for values in response.results]
+        assert [row["topic_id"] for row in rows] == (["retained"] if enforced else ["retained", "expired"])
+        assert count.results == [(3 if enforced else 10,)]
+
+    @parameterized.expand([("expired", 90), ("unknown", None)])
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_ineligible_latest_assignment_does_not_reveal_an_older_version(
+        self, _name: str, source_age: int | None
+    ) -> None:
+        self.team.event_retention_months = 2
+        self.team.save()
+        _insert_assignment(
+            self.team.pk,
+            "a" * 64,
+            "older",
+            timestamp=_now() - timedelta(days=40),
+            source_min_timestamp=_now() - timedelta(days=50),
+        )
+        _insert_assignment(
+            self.team.pk,
+            "a" * 64,
+            "newer",
+            source_min_timestamp=_now() - timedelta(days=source_age) if source_age is not None else None,
+        )
+
+        raw = execute_hogql_query(query="SELECT topic_id FROM posthog.raw_mcp_intent_assignments", team=self.team)
+        assert raw.results == [("older",)]
+        for suffix in ("", " WHERE topic_id = 'older'", " WHERE source_min_timestamp > now() - interval 2 month"):
+            response = execute_hogql_query(
+                query=f"SELECT intent_hash FROM posthog.mcp_intent_assignments{suffix}", team=self.team
+            )
+            assert response.results == []
+
+    def test_internal_source_cannot_be_queried_or_shadowed(self) -> None:
+        _insert_assignment(self.team.pk, "a" * 64, "topic-1")
+        for table in ("stored_mcp_intent_assignments", "posthog.stored_mcp_intent_assignments"):
+            with self.assertRaises(QueryError):
+                execute_hogql_query(query=f"SELECT * FROM {table}", team=self.team)
+
+        response = execute_hogql_query(
+            query="""
+                WITH stored_mcp_intent_assignments AS (SELECT 'shadow' AS intent_hash)
+                SELECT intent_hash FROM posthog.mcp_intent_assignments
+            """,
+            team=self.team,
+        )
+        assert response.results == [("a" * 64,)]
+
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_tied_versions_keep_retention_provenance_with_the_selected_payload(self) -> None:
+        self.team.event_retention_months = 1
+        self.team.save()
+        timestamp = _now() - timedelta(days=1)
+        _insert_assignment(
+            self.team.pk,
+            "a" * 64,
+            "expired",
+            intent_text="expired payload",
+            calls_in_run=7,
+            timestamp=timestamp,
+            source_min_timestamp=_now() - timedelta(days=60),
+        )
+        _insert_assignment(
+            self.team.pk,
+            "a" * 64,
+            "retained",
+            intent_text="retained payload",
+            calls_in_run=2,
+            timestamp=timestamp,
+        )
+        response = execute_hogql_query(
+            query="SELECT topic_id, intent_text, calls_in_run FROM posthog.mcp_intent_assignments",
+            team=self.team,
+        )
+
+        assert response.results in ([], [("retained", "retained payload", 2)])
+        assert response.clickhouse is not None
+        assert response.clickhouse.lower().count("argmax(") == 1
+
     def test_rows_round_trip_through_hogql(self) -> None:
         _insert_assignment(self.team.pk, "a" * 64, "topic-1")
         _insert_assignment(self.team.pk, "b" * 64, None, is_outlier=1, distance=0.9)
