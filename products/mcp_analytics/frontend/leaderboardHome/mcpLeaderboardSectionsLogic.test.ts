@@ -1,9 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
-import { LeaderboardSectionId } from './leaderboardSections'
+import { LEADERBOARD_SECTION_IDS, LeaderboardSectionId } from './leaderboardSections'
 import { mcpLeaderboardSectionsLogic } from './mcpLeaderboardSectionsLogic'
 
 describe('mcpLeaderboardSectionsLogic', () => {
@@ -38,6 +41,23 @@ describe('mcpLeaderboardSectionsLogic', () => {
         expectLogic(logic).toMatchValues({ hiddenSections: hidden })
         expect(logic.values.isSectionVisible('key-metrics')).toBe(!hidden.includes('key-metrics'))
         expect(logic.values.isSectionVisible('models')).toBe(!hidden.includes('models'))
+    })
+
+    it.each([true, false])('gates the intent topics section and menu with the flag (%s)', (flagOn) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(
+            flagOn ? [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS] : [],
+            flagOn ? { [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]: true } : {}
+        )
+        mountLogic()
+        expect(logic.values.availableSectionIds.includes('intent-topics')).toBe(flagOn)
+        expect(logic.values.isSectionVisible('intent-topics')).toBe(flagOn)
+        LEADERBOARD_SECTION_IDS.filter((id) => id !== 'intent-topics').forEach((id) => logic.actions.toggleSection(id))
+        expect(logic.values.allSectionsHidden).toBe(!flagOn)
+        if (flagOn) {
+            logic.actions.toggleSection('intent-topics')
+            expect(logic.values.allSectionsHidden).toBe(true)
+        }
     })
 
     it('showAllSections clears every hidden section', () => {

@@ -11,11 +11,11 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
 
-import { LEADERBOARD_SECTION_IDS, leaderboardSectionTitle } from './leaderboardSections'
+import { leaderboardSectionTitle } from './leaderboardSections'
 import { mcpLeaderboardSectionsLogic } from './mcpLeaderboardSectionsLogic'
 
 export function LeaderboardSectionsMenu(): JSX.Element {
-    const { hiddenSections, isSectionVisible } = useValues(mcpLeaderboardSectionsLogic)
+    const { availableSectionIds, hiddenSections, isSectionVisible } = useValues(mcpLeaderboardSectionsLogic)
     const { toggleSection, showAllSections } = useActions(mcpLeaderboardSectionsLogic)
 
     return (
@@ -27,7 +27,7 @@ export function LeaderboardSectionsMenu(): JSX.Element {
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-56">
-                {LEADERBOARD_SECTION_IDS.map((id) => (
+                {availableSectionIds.map((id) => (
                     <DropdownMenuCheckboxItem
                         key={id}
                         checked={isSectionVisible(id)}

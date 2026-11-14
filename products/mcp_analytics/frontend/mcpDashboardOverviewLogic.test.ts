@@ -737,6 +737,43 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
+    describe('intent topics card', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            mockApi.query.mockImplementation(async (node: any) =>
+                node?.kind === 'MCPIntentTopicsQuery'
+                    ? ({ results: [] } as any)
+                    : sectionResponse((node as MCPDashboardQuery).sections, () => [])
+            )
+        })
+
+        it('loads intent topics once when the flag arrives after the first load', async () => {
+            const intentTopicsCalls = (): number =>
+                mockApi.query.mock.calls.filter((call) => (call[0] as any)?.kind === 'MCPIntentTopicsQuery').length
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(intentTopicsCalls()).toBe(0)
+
+            try {
+                for (let i = 0; i < 2; i++) {
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS], {
+                        [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]: true,
+                    })
+                    await expectLogic(logic).toFinishAllListeners()
+                }
+
+                expect(intentTopicsCalls()).toBe(1)
+            } finally {
+                featureFlagLogic.actions.setFeatureFlags([], {})
+                logic.unmount()
+            }
+        })
+    })
+
     describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()

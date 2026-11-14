@@ -20,6 +20,7 @@ import { Card } from '../dashboard/Card'
 import { ChartSkeleton } from '../dashboard/ChartSkeleton'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
+import { IntentTopicsCard } from '../dashboard/IntentTopicsCard'
 import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
@@ -28,6 +29,7 @@ import { ToolLatencyChart } from '../dashboard/ToolLatencyChart'
 import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from '../feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from '../firstLook/MCPAnalyticsFirstLook'
+import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import { mcpToolQualityUrlWithDates } from '../mcpAnalyticsToolQualityLogic'
 import {
     mcpDashboardOverviewLogic,
@@ -38,7 +40,6 @@ import {
 } from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
-import { LEADERBOARD_SECTION_IDS } from './leaderboardSections'
 import { LeaderboardSectionsMenu } from './LeaderboardSectionsMenu'
 import { harnessErrorRateRows } from './leaderboardShares'
 import { type FacetKey, mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'
@@ -61,6 +62,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         headlineKpis,
         periodTotals,
         intentClusterCount,
+        intentTopics,
+        intentTopicsLoading,
+        intentTopicsFailed,
         kpiIncompleteTail,
         activityIncompleteTail,
         notableSessions,
@@ -70,7 +74,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         canShowFeedback,
         feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadSections } =
+    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadSections, loadIntentTopics } =
         useActions(mcpDashboardOverviewLogic)
     const {
         facets,
@@ -87,7 +91,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         reliabilitySeries,
     } = useValues(mcpLeaderboardHomeLogic)
     const { setScoreboardMetric } = useActions(mcpLeaderboardHomeLogic)
-    const { hiddenSections } = useValues(mcpLeaderboardSectionsLogic)
+    const { allSectionsHidden } = useValues(mcpLeaderboardSectionsLogic)
+    const { hasActiveFilters } = useValues(mcpAnalyticsFiltersLogic)
     const { showAllSections } = useActions(mcpLeaderboardSectionsLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -128,7 +133,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 pageKey="mcp-dashboard-overview"
                 dataAttrPrefix="mcp-dashboard"
                 onRefresh={reloadAll}
-                refreshing={dashboardLoading}
+                refreshing={dashboardLoading || intentTopicsLoading}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -147,7 +152,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 prompt={MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT}
             />
             <MCPAnalyticsFirstLook />
-            {hiddenSections.length === LEADERBOARD_SECTION_IDS.length && (
+            {allSectionsHidden && (
                 <div
                     className="flex flex-col items-start gap-2"
                     data-attr="mcp-dashboard-all-sections-hidden"
@@ -189,6 +194,18 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     timezone={timezone}
                     interval={interval}
                     incompleteTail={activityIncompleteTail}
+                />
+            </Section>
+
+            <Section id="intent-topics">
+                <IntentTopicsCard
+                    topics={intentTopics}
+                    loading={intentTopicsLoading}
+                    failed={intentTopicsFailed}
+                    onRetry={loadIntentTopics}
+                    dateFrom={dateFilter.dateFrom}
+                    dateTo={dateFilter.dateTo}
+                    filtersIgnored={hasActiveFilters}
                 />
             </Section>
 
