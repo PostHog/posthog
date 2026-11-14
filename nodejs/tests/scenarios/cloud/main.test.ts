@@ -154,6 +154,19 @@ describe('cloud controller', () => {
         }
     })
 
+    it('deletes the schedule it created and names the run when the second schedule fails', async () => {
+        const { controller } = prepare()
+        cloud.failOnCall('create-schedule', 2)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(cloud.schedules.size).toBe(0)
+        const runId = [...cloud.objects.keys()]
+            .map((key) => /^runs\/([^/]+)\/manifest\.json$/.exec(key)?.[1])
+            .find(Boolean)
+        expect(err.join('\n')).toContain(`Run ${runId} was not leased`)
+    })
+
     it('releases the lease when the run ends', async () => {
         const { controller } = prepare()
 
