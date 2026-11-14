@@ -747,6 +747,19 @@ export const SignalsOnboardingExposeCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Turn on Self-driving with the quick activation plan the person approved, identified by its fingerprint. Refuses without changing anything when the plan changed since it was shown.
+ * @summary Activate quick setup
+ */
+export const signalsOnboardingQuickActivationCreateBodyPlanFingerprintMax = 64
+
+export const SignalsOnboardingQuickActivationCreateBody = /* @__PURE__ */ zod.object({
+    plan_fingerprint: zod
+        .string()
+        .max(signalsOnboardingQuickActivationCreateBodyPlanFingerprintMax)
+        .describe('`fingerprint` from the quick activation plan the person approved.'),
+})
+
+/**
  * View and control signal processing pipeline state for a team.
  */
 export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({

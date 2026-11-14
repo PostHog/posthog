@@ -14360,6 +14360,53 @@
         },
         "feature_flag": "scout-trials"
     },
+    "self-driving-activate-execute": {
+        "description": "Step 2 of 2 for activate Self-driving. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Activate Self-driving in the current project with the plan from self-driving-activation-preview. Call it only after the customer explicitly agreed to that plan in this conversation. It refuses without changing anything when the plan changed since the preview (`plan_changed`), setup already started (`setup_started`), GitHub isn't connected (`github_not_connected`) or the plan has a blocker. On a refusal, share the setup link instead of retrying. After activation, self-driving-status-get reports `completed_at`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Activate Self-driving (execute)",
+        "title": "Activate Self-driving (execute)",
+        "required_scopes": ["inbox:write", "signal_scout:write", "llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/onboarding/quick_activation/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-self-driving-pageless-activation"
+    },
+    "self-driving-activate-prepare": {
+        "description": "Step 1 of 2 for activate Self-driving. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Activate Self-driving in the current project with the plan from self-driving-activation-preview. Call it only after the customer explicitly agreed to that plan in this conversation. It refuses without changing anything when the plan changed since the preview (`plan_changed`), setup already started (`setup_started`), GitHub isn't connected (`github_not_connected`) or the plan has a blocker. On a refusal, share the setup link instead of retrying. After activation, self-driving-status-get reports `completed_at`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Activate Self-driving (prepare)",
+        "title": "Activate Self-driving (prepare)",
+        "required_scopes": ["inbox:write", "signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-self-driving-pageless-activation"
+    },
+    "self-driving-activation-preview": {
+        "description": "Show what activating Self-driving in the current project would turn on, without changing anything: signal sources, Replay Vision scanners, scouts, automatic pull requests, the GitHub repositories agents can read, and the cost terms in `pricing.summary`. Before activating, tell the customer these in plain words and ask them to confirm. When `can_activate` is false, `blockers` says why. Then do not activate through tools; share the setup link instead. To activate, pass `fingerprint` to self-driving-activate-prepare.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Preview Self-driving activation",
+        "title": "Preview Self-driving activation",
+        "required_scopes": ["inbox:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/onboarding/quick_activation/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-self-driving-pageless-activation"
+    },
     "self-driving-status-get": {
         "description": "Check Self-driving setup in the current project. A non-null completed_at means setup finished; it does not prove monitoring is currently running or a report is ready. After sharing an activation link, poll this tool every 10 seconds for up to five minutes for the same project. Stop when completed_at is set, on an error, or when the time limit expires. If setup is still pending, ask the customer to let you know when it finishes. Continue their current task while waiting. After completion, check existing reports before repeating research, then resume the task or follow their next request.",
         "category": "Signals",

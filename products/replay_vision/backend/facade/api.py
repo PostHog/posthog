@@ -424,3 +424,57 @@ def signal_emitting_scanner_ids(team_id: int, scanner_ids: list[str]) -> set[str
             team_id=team_id, id__in=scanner_ids, enabled=True, emits_signals=True
         ).values_list("id", flat=True)
     }
+
+
+@dataclass(frozen=True)
+class OnboardingScanner:
+    id: UUID
+    emits_signals: bool
+    can_edit: bool
+
+
+def can_configure_onboarding_scanners(team: "Team", user: User) -> bool:
+    return UserAccessControl(user=user, team=team).check_access_level_for_resource("session_recording", "viewer")
+
+
+def enabled_onboarding_scanners(team: "Team", user: User, *, limit: int) -> list[OnboardingScanner]:
+    """Enabled scanners the user can see, the set that quick setup turns into signal sources."""
+    access = UserAccessControl(user=user, team=team)
+    scanners = access.filter_queryset_by_access_level(
+        ReplayScanner.objects.filter(team_id=team.id, enabled=True).order_by("id"), resource="replay_scanner"
+    )
+    return [
+        OnboardingScanner(
+            id=scanner.id,
+            emits_signals=scanner.emits_signals,
+            can_edit=access.check_access_level_for_object(scanner, "editor"),
+        )
+        for scanner in scanners[:limit]
+    ]
+
+
+def lock_onboarding_scanners(team: "Team", scanner_ids: Iterable[UUID]) -> dict[UUID, bool]:
+    """Lock the scanners and return whether each one emits signals now."""
+    return dict(
+        ReplayScanner.objects.select_for_update()
+        .filter(team_id=team.id, id__in=list(scanner_ids), enabled=True)
+        .order_by("id")
+        .values_list("id", "emits_signals")
+    )
+
+
+def enable_onboarding_scanner_signals(team: "Team", user: User, scanner_ids: Iterable[UUID]) -> None:
+    """Make each scanner emit signals, with the access checks the scanner API applies to the same change."""
+    access = UserAccessControl(user=user, team=team)
+    scanners = list(
+        ReplayScanner.objects.select_for_update().filter(
+            team_id=team.id, id__in=list(scanner_ids), enabled=True, emits_signals=False
+        )
+    )
+    if scanners and not access.check_access_level_for_resource("session_recording", "viewer"):
+        raise PermissionError("Configuring a Replay Vision scanner requires session recording read access.")
+    for scanner in scanners:
+        if not access.check_access_level_for_object(scanner, "editor"):
+            raise PermissionError("You need editor access to a selected Replay Vision scanner.")
+        scanner.emits_signals = True
+        scanner.save(update_fields=["emits_signals", "updated_at"])

@@ -9,19 +9,24 @@ from posthog.event_usage import groups
 from products.signals.backend.onboarding_state import setup_mode
 
 if TYPE_CHECKING:
+    from posthog.models.team.team import Team
     from posthog.models.user import User
 
     from products.signals.backend.models import SignalTeamConfig
 
 
 class InboxOnboardingAnalytics:
+    @classmethod
+    def pricing_flag(cls, config: SignalTeamConfig, user: User | None) -> bool | None:
+        return cls.pricing_flag_for_team(config.team, user)
+
     @staticmethod
-    def pricing_flag(config: SignalTeamConfig, user: User | None) -> bool | None:
+    def pricing_flag_for_team(team: Team, user: User | None) -> bool | None:
         try:
             result = posthoganalytics.feature_enabled(
                 "self-driving-ubp",
-                str(user.distinct_id if user else config.team.uuid),
-                groups=groups(team=config.team),
+                str(user.distinct_id if user else team.uuid),
+                groups=groups(team=team),
                 send_feature_flag_events=False,
             )
             return result if isinstance(result, bool) else None
@@ -49,6 +54,8 @@ class InboxOnboardingAnalytics:
         draft = (config.onboarding or {}).get("draft") or {}
         return {
             **cls.properties(config, user),
+            # Kept apart from `onboarding_origin`, which says where setup started rather than how it was submitted.
+            "activation_method": (config.onboarding or {}).get("activation_method") or "page",
             "automatic_implementation": config.autostart_enabled,
             "implementation_priority": config.default_autostart_priority,
             "enabled_source_products": sorted(

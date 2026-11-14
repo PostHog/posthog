@@ -1887,6 +1887,50 @@ tools:
                     Steering instructions shared by every run in this trial, matching the trial UI's "Instructions for
                     every run" field. Up to 1000 characters. Does not edit the saved scout's instructions.
         feature_flag: scout-trials
+    self-driving-activate:
+        operation: signals_onboarding_quick_activation_create
+        enabled: true
+        scopes:
+            - inbox:write
+            - signal_scout:write
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Activate Self-driving
+        description: >
+            Activate Self-driving in the current project with the plan from self-driving-activation-preview. Call it
+            only after the customer explicitly agreed to that plan in this conversation. It refuses without changing
+            anything when the plan changed since the preview (`plan_changed`), setup already started (`setup_started`),
+            GitHub isn't connected (`github_not_connected`) or the plan has a blocker. On a refusal, share the setup
+            link instead of retrying. After activation, self-driving-status-get reports `completed_at`.
+        param_overrides:
+            plan_fingerprint:
+                description: |
+                    The `fingerprint` from the self-driving-activation-preview result that the customer approved.
+        feature_flag: mcp-self-driving-pageless-activation
+        confirmed_action:
+            message: >
+                About to activate Self-driving in this project. Agents will investigate in the background and can read
+                code in the repositories your GitHub connection can access. If the plan turns on automatic pull
+                requests, agents can also open pull requests for you to review. Usage counts against a free trial when
+                one applies, and is then billed under your organization's Self-driving plan, up to its usage limit.
+                Reply 'confirm' to proceed.
+            action_label: activate Self-driving
+    self-driving-activation-preview:
+        operation: signals_onboarding_quick_activation_retrieve
+        enabled: true
+        scopes:
+            - inbox:read
+        title: Preview Self-driving activation
+        description: >
+            Show what activating Self-driving in the current project would turn on, without changing anything: signal
+            sources, Replay Vision scanners, scouts, automatic pull requests, the GitHub repositories agents can read,
+            and the cost terms in `pricing.summary`. Before activating, tell the customer these in plain words and ask
+            them to confirm. When `can_activate` is false, `blockers` says why. Then do not activate through tools;
+            share the setup link instead. To activate, pass `fingerprint` to self-driving-activate-prepare.
+        feature_flag: mcp-self-driving-pageless-activation
     self-driving-status-get:
         operation: signals_onboarding_list
         enabled: true
