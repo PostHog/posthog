@@ -36,6 +36,7 @@ export interface ySeriesLogicValues {
         label: string
         trendLine: boolean
         valueLabels: 'auto' | 'hide' | 'show'
+        wrapText: boolean
         yAxisPosition: 'left' | 'right'
     }
     displayAllErrors: Record<string, any>
@@ -49,6 +50,7 @@ export interface ySeriesLogicValues {
             label: string
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
+            wrapText: boolean
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -66,6 +68,7 @@ export interface ySeriesLogicValues {
             label: string
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
+            wrapText: boolean
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -128,6 +131,7 @@ export interface ySeriesLogicActions {
         label: string
         trendLine: boolean
         valueLabels: 'auto' | 'hide' | 'show'
+        wrapText: boolean
         yAxisPosition: 'left' | 'right'
     }) => {
         values?: {
@@ -138,6 +142,7 @@ export interface ySeriesLogicActions {
             label: string
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
+            wrapText: boolean
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -173,6 +178,7 @@ export interface ySeriesLogicActions {
             label: string
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
+            wrapText: boolean
             yAxisPosition: 'left' | 'right'
         }>
     ) => {
@@ -184,6 +190,7 @@ export interface ySeriesLogicActions {
             label: string
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
+            wrapText: boolean
             yAxisPosition: 'left' | 'right'
         }>
     }
@@ -236,6 +243,7 @@ export interface ySeriesLogicActions {
         label: string
         trendLine: boolean
         valueLabels: 'auto' | 'hide' | 'show'
+        wrapText: boolean
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
@@ -246,6 +254,7 @@ export interface ySeriesLogicActions {
             label: string
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
+            wrapText: boolean
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -257,6 +266,7 @@ export interface ySeriesLogicActions {
         label: string
         trendLine: boolean
         valueLabels: 'auto' | 'hide' | 'show'
+        wrapText: boolean
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
@@ -267,6 +277,7 @@ export interface ySeriesLogicActions {
             label: string
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
+            wrapText: boolean
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -395,6 +406,7 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                 color: props.series?.settings?.display?.color ?? getSeriesColor(props.seriesIndex),
                 label: props.series?.settings?.display?.label ?? '',
                 description: props.series?.settings?.display?.description ?? '',
+                wrapText: props.series?.settings?.display?.wrapText ?? false,
                 trendLine: props.series?.settings?.display?.trendLine ?? false,
                 excludeFromTotal: props.series?.settings?.display?.excludeFromTotal ?? false,
                 valueLabels: props.series?.settings?.display?.valueLabels ?? 'auto',
@@ -407,6 +419,7 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                     display: {
                         color: display.color,
                         label: display.label,
+                        wrapText: display.wrapText,
                         trendLine: display.trendLine,
                         ...(display.excludeFromTotal || savedDisplay?.excludeFromTotal !== undefined
                             ? { excludeFromTotal: display.excludeFromTotal }

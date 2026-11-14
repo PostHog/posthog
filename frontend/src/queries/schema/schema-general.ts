@@ -1533,6 +1533,7 @@ export interface ChartSettingsFormatting {
 }
 
 export interface ChartSettingsDisplay {
+    wrapText?: boolean
     color?: string
     label?: string
     description?: string

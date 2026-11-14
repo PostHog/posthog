@@ -1373,6 +1373,7 @@ class ChartSettingsDisplay(BaseModel):
             " 'auto' follows the chart setting."
         ),
     )
+    wrapText: bool | None = None
     yAxisPosition: YAxisPosition | None = None
 
 

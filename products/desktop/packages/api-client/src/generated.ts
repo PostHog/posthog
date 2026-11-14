@@ -4932,6 +4932,7 @@ export namespace Schemas {
         label: string | null;
         trendLine: boolean | null;
         valueLabels: ValueLabels | null;
+        wrapText: boolean | null;
         yAxisPosition: YAxisPosition | null;
     }>;
     export type Style = "none" | "number" | "short" | "percent";
