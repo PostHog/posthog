@@ -65,6 +65,13 @@ describe('rolloutSteps', () => {
             ],
         },
         {
+            name: 'trusts the current flag over a history that misses the change back',
+            current: flag(100),
+            activity: [update('2026-11-03T00:00:00Z', [{ field: 'active', before: true, after: false }])],
+            scheduled: [],
+            expected: [['2026-11-01', 'Everyone', false]],
+        },
+        {
             name: 'merges changes that leave the audience the same',
             current: flag(100),
             activity: [update('2026-11-03T00:00:00Z', [{ field: 'filters', before: groups(100), after: groups(100) }])],

@@ -285,8 +285,6 @@ def publish_claimed_pull_request(
     if not is_opening_pull_requests:
         capture_draft(draft, outcome="logged")
         record_pull_request_failure(task_id, team_id, OPEN_PULL_REQUESTS_OFF)
-        if joined_pull_request is None and not github.delete_branch(docs_name, head_branch).get("success"):
-            logger.warning("knowledge_writer_draft_branch_not_deleted", team_id=team_id, head_branch=head_branch)
         return None
     pull_request = (
         add_source_to_pull_request(github, docs_name, joined_pull_request, request)
@@ -345,6 +343,7 @@ def capture_draft(
             "refusal": refusal,
             "pull_request_url": pull_request_url,
             "files": drafted_files(draft.comparison),
+            "compare_url": draft.comparison.get("html_url"),
             "team_id": draft.team_id,
         },
     )

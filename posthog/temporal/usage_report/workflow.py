@@ -70,6 +70,12 @@ BUSINESS_KNOWLEDGE_USAGE_QUERY_PATCH_ID = "usage-report-business-knowledge-usage
 BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME = "business_knowledge_usage"
 LOCAL_EVALUATION_NOT_MODIFIED_QUERY_PATCH_ID = "usage-report-local-evaluation-not-modified-query-2026-11"
 LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME = UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS.value
+AI_OVERAGE_BYTES_QUERY_PATCH_ID = "usage-report-ai-overage-bytes-query-2026-11"
+AI_OVERAGE_BYTES_QUERY_NAME = UsageCounter.AI_OVERAGE_BYTES.value
+# Query activities run on any worker of the queue, and a worker without a query's spec fails the whole run on its
+# name. During a rolling deploy older workers still run, so a new query stays registered but undispatched until
+# every worker has its spec. The aggregator defaults a missing query to empty meanwhile.
+DEFERRED_QUERY_NAMES = frozenset({AI_OVERAGE_BYTES_QUERY_NAME})
 
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
@@ -118,6 +124,16 @@ def _queries_for_local_evaluation_not_modified_patch(queries: list[QuerySpec], p
     if patch_applied:
         return queries
     return [spec for spec in queries if spec.name != LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME]
+
+
+def _dispatched_queries(queries: list[QuerySpec]) -> list[QuerySpec]:
+    return [spec for spec in queries if spec.name not in DEFERRED_QUERY_NAMES]
+
+
+def _queries_for_ai_overage_bytes_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != AI_OVERAGE_BYTES_QUERY_NAME]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -197,6 +213,8 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             queries = _queries_for_local_evaluation_not_modified_patch(
                 queries, workflow.patched(LOCAL_EVALUATION_NOT_MODIFIED_QUERY_PATCH_ID)
             )
+            queries = _queries_for_ai_overage_bytes_patch(queries, workflow.patched(AI_OVERAGE_BYTES_QUERY_PATCH_ID))
+            queries = _dispatched_queries(queries)
             if workflow.patched(USAGE_COUNTER_SERVICE_PATCH_ID):
                 ctx.usage_counter_plan = await workflow.execute_activity(
                     plan_usage_counters,

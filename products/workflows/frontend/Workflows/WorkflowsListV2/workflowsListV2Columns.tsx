@@ -19,17 +19,17 @@ const TYPE_TAGS = { messaging: 'completion', automation: 'default', loop: 'highl
 
 const countsLabel = ({ failed, succeeded }: WorkflowRunCounts): string => `${failed} failed · ${succeeded} succeeded`
 
-function MetricsPending({ metricsLoading }: { metricsLoading: boolean }): JSX.Element {
-    return metricsLoading ? (
-        <Spinner />
-    ) : (
+function MetricsPending({ metricsFailed }: { metricsFailed: boolean }): JSX.Element {
+    return metricsFailed ? (
         <Tooltip title="Couldn't load run counts. Reload the page to try again.">
             <span className="text-muted">Unavailable</span>
         </Tooltip>
+    ) : (
+        <Spinner />
     )
 }
 
-function optionalRenderers(metricsLoading: boolean): Record<OptionalColumn, Column['render']> {
+function optionalRenderers(metricsFailed: boolean): Record<OptionalColumn, Column['render']> {
     return {
         type: (_, row) => {
             if (row.workflow.type === 'broadcast' || row.workflow.type === 'transactional_email') {
@@ -63,11 +63,11 @@ function optionalRenderers(metricsLoading: boolean): Record<OptionalColumn, Colu
                     {countsLabel(row.last7Days)}
                 </Link>
             ) : (
-                <MetricsPending metricsLoading={metricsLoading} />
+                <MetricsPending metricsFailed={metricsFailed} />
             ),
         health: (_, row) => {
             if (!row.last7Days) {
-                return <MetricsPending metricsLoading={metricsLoading} />
+                return <MetricsPending metricsFailed={metricsFailed} />
             }
             const tag = HEALTH_TAGS[row.health]
             return (
@@ -79,8 +79,8 @@ function optionalRenderers(metricsLoading: boolean): Record<OptionalColumn, Colu
     }
 }
 
-export function buildWorkflowsListV2Columns(visibleColumns: OptionalColumn[], metricsLoading: boolean): Column[] {
-    const renderers = optionalRenderers(metricsLoading)
+export function buildWorkflowsListV2Columns(visibleColumns: OptionalColumn[], metricsFailed: boolean): Column[] {
+    const renderers = optionalRenderers(metricsFailed)
     const optionalColumn = (column: OptionalColumn): Column => ({
         title: OPTIONAL_COLUMN_TITLES[column],
         key: column,

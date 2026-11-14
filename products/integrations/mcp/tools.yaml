@@ -214,7 +214,6 @@ tools:
             again without dry_run. Send at most 1000 rows per call and at most 60 calls per minute per project; on HTTP
             429 wait a minute and retry. Rows that fail as not_stored can be sent again. Importing the same row twice
             stores it once.
-        feature_flag: workflows-push-token-import-mcp
     integrations-users-retrieve:
         operation: integrations_users_retrieve
         enabled: true
