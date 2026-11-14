@@ -19,8 +19,8 @@ import posthog.celery
 from posthog.celery import (
     StopWorkerWhenEmbeddedSchedulerExits,
     _initialize_worker_metrics,
+    drop_task_enqueued_logs_from_pool_processes,
     freeze_objects_before_pool_forks,
-    keep_task_enqueued_logs_from_the_scheduler,
     on_worker_process_shutdown,
     receiver_setup_logging,
     write_heartbeat_when_worker_is_ready,
@@ -144,29 +144,27 @@ class TestWorkerStopsWhenEmbeddedSchedulerExits(TestCase):
 
 
 class TestCeleryProcessLogging(TestCase):
-    def test_drops_task_enqueued_info_line_but_keeps_warnings(self) -> None:
+    @parameterized.expand(
+        [
+            ("pool_process_drops_the_info_line", drop_task_enqueued_logs_from_pool_processes, {}, False),
+            (
+                "logging_setup_keeps_the_info_line_for_the_scheduler",
+                receiver_setup_logging,
+                {"loglevel": None, "logfile": None, "format": None, "colorize": False},
+                True,
+            ),
+        ]
+    )
+    def test_task_enqueued_level(self, _name: str, process_hook, kwargs: dict, info_line_is_logged: bool) -> None:
         receivers_logger = logging.getLogger("django_structlog.celery.receivers")
         self.addCleanup(receivers_logger.setLevel, receivers_logger.level)
         receivers_logger.setLevel(logging.DEBUG)
 
         with patch("logging.config.dictConfig"):
-            receiver_setup_logging(loglevel=None, logfile=None, format=None, colorize=False)
+            process_hook(**kwargs)
 
-        assert not receivers_logger.isEnabledFor(logging.INFO)
+        assert receivers_logger.isEnabledFor(logging.INFO) is info_line_is_logged
         assert receivers_logger.isEnabledFor(logging.WARNING)
-
-    def test_scheduler_keeps_task_enqueued_info_line(self) -> None:
-        receivers_logger = logging.getLogger("django_structlog.celery.receivers")
-        parent_logger = logging.getLogger("django_structlog")
-        self.addCleanup(receivers_logger.setLevel, receivers_logger.level)
-        self.addCleanup(parent_logger.setLevel, parent_logger.level)
-        parent_logger.setLevel(logging.INFO)
-
-        with patch("logging.config.dictConfig"):
-            receiver_setup_logging(loglevel=None, logfile=None, format=None, colorize=False)
-        keep_task_enqueued_logs_from_the_scheduler()
-
-        assert receivers_logger.isEnabledFor(logging.INFO)
 
 
 class TestAnalyticsMetricsConfig(TestCase):

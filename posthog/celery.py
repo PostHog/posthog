@@ -15,7 +15,6 @@ from celery.bootsteps import RUN
 from celery.exceptions import WorkerShutdown
 from celery.platforms import EX_FAILURE
 from celery.signals import (
-    beat_init,
     celeryd_init,
     import_modules,
     setup_logging,
@@ -168,17 +167,6 @@ def _is_longrunning_worker() -> bool:
     return CeleryQueue.LONG_RUNNING.value in worker_queues
 
 
-_TASK_ENQUEUED_LOGGER = "django_structlog.celery.receivers"
-
-
-@beat_init.connect
-def keep_task_enqueued_logs_from_the_scheduler(**kwargs) -> None:
-    # receiver_setup_logging also runs in a scheduler process, and an embedded scheduler inherits
-    # the level from its worker. On-call runbooks read the scheduler's task_enqueued line to check
-    # that a scheduled task was queued, so the scheduler goes back to the level that LOGGING gives.
-    logging.getLogger(_TASK_ENQUEUED_LOGGER).setLevel(logging.NOTSET)
-
-
 @setup_logging.connect
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
     from logging import config as logging_config
@@ -187,13 +175,17 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     logging_config.dictConfig(logs.LOGGING)
-    # django-structlog logs task_enqueued at INFO for each task this process publishes. Only a web
-    # request gives that line context to link to, and Django applies LOGGING to web processes too,
-    # so the level is raised here and not in LOGGING. This must run after dictConfig, because
-    # dictConfig disables every existing logger that LOGGING does not name. The level also drops
-    # task_started and task_succeeded, which this logger emits at INFO when django-structlog's
-    # worker signals are connected.
-    logging.getLogger(_TASK_ENQUEUED_LOGGER).setLevel(logging.WARNING)
+
+
+@worker_process_init.connect
+def drop_task_enqueued_logs_from_pool_processes(**kwargs) -> None:
+    # django-structlog logs task_enqueued at INFO for each task a process publishes. Only a web
+    # request gives that line context to link to, so the pool processes, which run the tasks, drop it.
+    # The level is set here and not in LOGGING or in receiver_setup_logging, because those also apply
+    # to the scheduler. On-call runbooks read the scheduler's task_enqueued line to check that a
+    # scheduled task was queued. The level also drops task_started and task_succeeded, which this
+    # logger emits at INFO when django-structlog's worker signals are connected.
+    logging.getLogger("django_structlog.celery.receivers").setLevel(logging.WARNING)
 
 
 @receiver(signals.bind_extra_task_metadata)
