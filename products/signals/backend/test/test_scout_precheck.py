@@ -420,7 +420,6 @@ class TestAnomalyDetectionDefaultPrecheck(ClickhouseTestMixin, BaseTest):
             ("scored_quiet", [*QUIET_SERIES, (1, 100.0, 0)], None, 30, TEAM, "skip", None),
             ("no_scores_team_due", [], 10, 30, TEAM, "run", "legacy"),
             ("few_scored_days_team_due", QUIET_SERIES[-5:], 10, 30, TEAM, "run", "legacy"),
-            # A new project with one day of events has no baseline for a legacy run to judge against.
             ("no_scores_no_history", [], 1, 30, TEAM, "skip", None),
             ("no_scores_team_ran_recently", [], 10, 2, TEAM, "skip", None),
             ("no_scores_background", [], 10, 30, BACKGROUND, "skip", None),
@@ -459,7 +458,6 @@ class TestAnomalyDetectionDefaultPrecheck(ClickhouseTestMixin, BaseTest):
 class TestMakeNeverRunScoutDue(BaseTest):
     @parameterized.expand(
         [
-            # The coordinator stamped the anchor and the pre-check skipped.
             ("skipped_first_precheck", 1.0, None, False, True),
             ("has_a_run_row", 1.0, None, True, False),
             ("cron_schedule", 1.0, "0 9 * * *", False, False),

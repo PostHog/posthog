@@ -20,7 +20,9 @@ being quiet.
 A query error never turns the scout off: the run continues as if there were no pre-check.
 
 A query can name the branch that released the run in a column named `mode`. `scout_precheck_evaluated`
-carries its value, so the share of each branch reads from the event rather than from run summaries.
+carries its value, or `mixed` when the rows name more than one, so the share of each branch reads from
+the event rather than from run summaries. While the scout has never run, the event also carries
+`seconds_since_config_created`, so the first evaluation after setup reads as the time to that evaluation.
 
 A scheduled pre-check runs as the scout's acting user (`acting_user.resolve_scout_run_acting_user`),
 so it can read the same tables the run can read. A query with no user loses every access-scoped
@@ -93,7 +95,6 @@ PrecheckReason = Literal["rows", "no_rows", "false_value", "query_error"]
 # Where the query came from. `off` means no pre-check runs.
 PrecheckQuerySource = Literal["config", "skill_default", "off"]
 PRECHECK_MODE_COLUMN = "mode"
-# The `mode` of rows that name more than one branch.
 PRECHECK_MIXED_MODE = "mixed"
 
 
@@ -113,7 +114,6 @@ class PrecheckResult:
     # The capped rows, one JSON object per line, for the run prompt.
     rows_text: str | None = None
     query_source: PrecheckQuerySource = "config"
-    # The `mode` column of the rows. None when the query has no such column or found no rows.
     mode: str | None = None
 
     @property
@@ -592,8 +592,6 @@ def _capture_precheck_evaluated(
                 "query_source": effective.source,
                 "rollout_bucket": effective.rollout_bucket,
                 "mode": result.mode,
-                # Set only while the scout has never run, so the first evaluation after setup reads
-                # as the time to that evaluation.
                 "seconds_since_config_created": seconds_since_config_created,
             },
             groups=groups(team.organization, team),

@@ -496,8 +496,10 @@ def record_first_train(pick: InsightPick, now: datetime.datetime) -> None:
 
 
 def _make_anomaly_scout_due(team_id: int, now: datetime.datetime) -> bool:
-    # The scores are already written, so a failure here must not fail the pick and score it again.
-    # The scout keeps its next scheduled pre-check.
+    """Never raise. The scores are already written, so a failure must not fail the pick and score it again.
+
+    After a failure the scout keeps its next scheduled pre-check.
+    """
     try:
         return make_never_run_scout_due(team_id, ANOMALY_SCOUT_SKILL, at=now + FIRST_TRAIN_SCOUT_SETTLE)
     except Exception:
