@@ -365,6 +365,16 @@ describe('cloud controller', () => {
             'admission.ttlHours',
         ],
         ['a region other than us-east-1', { profile: (p) => ({ ...p, region: 'eu-west-1' }) }, 'region'],
+        [
+            'a runner profile given as an absolute path',
+            { profile: (p) => ({ ...p, runnerProfile: path.join(dir, 'runner.yaml') }) },
+            'runnerProfile',
+        ],
+        [
+            'a runner profile path through another directory',
+            { profile: (p) => ({ ...p, runnerProfile: 'nested/../runner.yaml' }) },
+            'runnerProfile',
+        ],
     ])('refuses %s before it writes anything', async (_, setup, reason) => {
         const { controller } = prepare(setup)
 

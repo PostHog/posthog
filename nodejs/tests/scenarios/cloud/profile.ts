@@ -23,7 +23,7 @@ export const CloudProfile = z
         writerClass: Name,
         readerAcu: z.object({ min: z.literal(1), max: z.number().int().positive() }).strict(),
         host: z.object({ class: Name, ebsGb: z.number().int().positive() }).strict(),
-        runnerProfile: Name,
+        runnerProfile: z.string().regex(/^(?!\.\.?$)[\w.-]+$/, 'a file name in the profile directory'),
         admission: z
             .object({
                 capUsd: z.literal(CAP_USD).optional(),
