@@ -587,13 +587,20 @@ function omitAppData(output: unknown): unknown {
         return output
     }
     const result = output as Record<string, unknown>
-    const meta = result._meta
-    if (typeof meta !== 'object' || meta === null || Array.isArray(meta) || !(APP_DATA_META_KEY in meta)) {
-        return output
+    const sanitized: Record<string, unknown> = { ...result }
+    for (const field of ['_meta', 'structuredContent']) {
+        const carrier = result[field]
+        if (
+            typeof carrier === 'object' &&
+            carrier !== null &&
+            !Array.isArray(carrier) &&
+            APP_DATA_META_KEY in carrier
+        ) {
+            const { [APP_DATA_META_KEY]: _appData, ...rest } = carrier as Record<string, unknown>
+            sanitized[field] = rest
+        }
     }
-    const sanitizedMeta: Record<string, unknown> = { ...meta }
-    delete sanitizedMeta[APP_DATA_META_KEY]
-    return { ...result, _meta: sanitizedMeta }
+    return sanitized
 }
 
 /**
