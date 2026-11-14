@@ -981,6 +981,19 @@ export interface AlertDestinationResponseApi {
     hog_function_ids: string[]
 }
 
+export interface AlertCustomizeDestinationApi {
+    /**
+     * The destination's `id` from the destinations list. Use it for a destination with no HogFunctions.
+     * @nullable
+     */
+    destination_id?: string | null
+    /**
+     * The destination's `hog_function_ids` from the destinations list, when it has HogFunctions.
+     * @maxItems 100
+     */
+    hog_function_ids?: string[]
+}
+
 export interface AlertDeleteDestinationApi {
     /**
      * HogFunction IDs of the destination, as returned when it was created.
@@ -1009,6 +1022,20 @@ export interface AlertCreatePagerDutyDestinationApi {
      * * `us` - us
      * * `eu` - eu */
     pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+export interface AlertResetDestinationApi {
+    /**
+     * Every HogFunction of the customized destination, from the destinations list.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
+}
+
+export interface AlertResetDestinationResponseApi {
+    /** The destination's new ID on the alerts platform, which now sends it. */
+    id: string
 }
 
 /**

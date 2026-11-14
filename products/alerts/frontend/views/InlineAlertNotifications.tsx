@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useState } from 'react'
 
 import api from 'lib/api'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
@@ -13,6 +14,7 @@ import {
     PendingAlertNotificationDestinationView,
     pagerDutyPendingDetail,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import { destinationMessageAction } from 'products/alerts/frontend/components/destinationMessageAction'
 import type { AlertDestinationListItemApi } from 'products/alerts/frontend/generated/api.schemas'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
@@ -25,7 +27,11 @@ import {
     getAlertNotificationAddDisabledReason,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
-import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../logic/alertNotificationLogic'
+import {
+    ALERT_NOTIFICATION_TYPE_OPTIONS,
+    alertNotificationLogic,
+    destinationKey,
+} from '../logic/alertNotificationLogic'
 
 // Fetched directly rather than through slackIntegrationLogic's loader: that loader keeps a
 // single last-result slot per workspace, so multiple destination rows in the same workspace
@@ -148,6 +154,7 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
     const {
         destinations,
         destinationsLoading,
+        changingMessageDestinationKeys,
         pendingNotifications,
         integrationsLoading,
         integrationsFailed,
@@ -164,6 +171,8 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
         addPendingNotification,
         removePendingNotification,
         deleteDestination,
+        customizeDestination,
+        resetDestinationMessage,
         setSelectedType,
         setSelectedSlackIntegrationId,
         setSlackChannelValue,
@@ -173,6 +182,12 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
         setPagerDutyRegion,
         loadIntegrations,
     } = useActions(logic)
+
+    const messageCustomization = useFeatureFlag('ALERTS_DESTINATION_CUSTOMIZATION')
+    // PagerDuty's insight messages cannot be edited, and only an alert PostHog alerts checks sends the standard message.
+    const offersMessageAction = (destination: AlertDestinationListItemApi): boolean =>
+        messageCustomization &&
+        (destination.message_customized ? pagerDutyAvailable : destination.type !== ALERT_NOTIFICATION_TYPE_PAGERDUTY)
 
     const selectedType =
         !pagerDutyAvailable && storedSelectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY
@@ -232,7 +247,7 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
     const existingDestinations: AlertNotificationDestinationView[] = destinations.map((destination) => {
         const hogFunctionId = destination.hog_function_ids[0]
         return {
-            key: destination.hog_function_ids.length ? destination.hog_function_ids.join(',') : String(destination.id),
+            key: destinationKey(destination),
             title: DESTINATION_TYPE_LABELS[destination.type] ?? destination.type,
             detail: getDestinationDetail(destination, slackIntegrations),
             tags: [
@@ -252,6 +267,14 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
                           targetBlank: true,
                       }
                     : undefined,
+            messageAction: offersMessageAction(destination)
+                ? destinationMessageAction({
+                      messageCustomized: destination.message_customized,
+                      loading: changingMessageDestinationKeys.has(destinationKey(destination)),
+                      onCustomize: () => customizeDestination(destination),
+                      onReset: () => resetDestinationMessage(destination),
+                  })
+                : undefined,
             onDelete: () => deleteDestination(destination),
         }
     })
