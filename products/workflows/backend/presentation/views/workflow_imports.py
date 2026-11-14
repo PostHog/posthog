@@ -20,8 +20,8 @@ from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.workflows.backend.facade.contracts import ImportOptions, WorkflowImportRecord
 from products.workflows.backend.facade.enums import (
     WorkflowImportNoteLevel,
+    WorkflowImportRequestSource,
     WorkflowImportSegmentCohortStatus,
-    WorkflowImportSource,
     WorkflowImportStatus,
 )
 from products.workflows.backend.facade.workflow_imports import import_for_workflow
@@ -100,7 +100,7 @@ class CustomerioSegmentSerializer(serializers.Serializer):
 
 class WorkflowImportRequestSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=WorkflowImportSource.choices,
+        choices=WorkflowImportRequestSource.choices,
         help_text="The tool the automations come from.",
     )
     campaigns = CustomerioCampaignSerializer(

@@ -130,6 +130,7 @@ class ConvertedTemplate:
     notes: tuple[str, ...]
     # About values the app passes when it sends. An automation fills these from its steps instead.
     send_notes: tuple[str, ...] = ()
+    contact_variables: tuple[str, ...] = ()
 
 
 def convert_template(template: dict[str, Any]) -> ConvertedTemplate:
@@ -147,7 +148,8 @@ def convert_template(template: dict[str, Any]) -> ConvertedTemplate:
         shown = ", ".join(tags[:_MAX_NOTED_TAGS])
         more = f" and {len(tags) - _MAX_NOTED_TAGS} more" if len(tags) > _MAX_NOTED_TAGS else ""
         notes.append(f"PostHog can't convert {shown}{more}, so it appears as plain text. Rewrite it in Liquid.")
-    if contact := list(dict.fromkeys(name for part in parts for name in part.contact_variables)):
+    contact = list(dict.fromkeys(name for part in parts for name in part.contact_variables))
+    if contact:
         send_notes.append(
             f"Resend fills {', '.join(contact)} from the contact. PostHog doesn't, so your app has to pass the value."
         )
@@ -169,7 +171,12 @@ def convert_template(template: dict[str, Any]) -> ConvertedTemplate:
     elif template.get("has_unpublished_versions"):
         notes.append("This template has unpublished edits in Resend. PostHog imported the published version.")
     return ConvertedTemplate(
-        subject=subject.text, html=html.text, text=text.text, notes=tuple(notes), send_notes=tuple(send_notes)
+        subject=subject.text,
+        html=html.text,
+        text=text.text,
+        notes=tuple(notes),
+        send_notes=tuple(send_notes),
+        contact_variables=tuple(contact),
     )
 
 

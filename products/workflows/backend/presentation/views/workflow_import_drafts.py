@@ -17,6 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
+from posthog.models.scoping import team_scope
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes import scopes_not_covered
 
@@ -36,7 +37,9 @@ from products.workflows.backend.facade.contracts import (
     ImportOptions,
     ImportSegment,
     PreviousImport,
+    ProviderAutomationResult,
     SnippetRoom,
+    TranslatedWorkflow,
     WorkflowActor,
     WorkflowStale,
 )
@@ -44,6 +47,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowState,
     WorkflowImportNoteLevel,
     WorkflowImportSegmentCohortStatus as SegmentCohortStatus,
+    WorkflowImportSource,
 )
 from products.workflows.backend.facade.workflow_imports import (
     STATIC_SEGMENT_TYPES,
@@ -493,6 +497,49 @@ def import_campaign(
     return {**result, "status": status, "workflow_id": str(workflow_id)}
 
 
+def save_provider_draft(
+    team: Team,
+    user: User,
+    translated: TranslatedWorkflow,
+    source: WorkflowImportSource,
+    *,
+    record_id: UUID | None,
+) -> ProviderAutomationResult:
+    """Saves one translated automation as a new draft. `record_id` is the earlier import whose draft was deleted."""
+    notes = tuple(note.message for note in translated.notes)
+    # Someone finishes the draft in the editor, so a step with a note can still be missing an input.
+    validated, errors = _validated_draft(team, translated.workflow, None, EventSource.WEB)
+    if validated is None:
+        return ProviderAutomationResult(status="failed", workflow_id=None, notes=tuple(errors))
+    try:
+        # This runs in a Temporal activity, which has no request to set the team scope.
+        with team_scope(team.id), transaction.atomic():
+            created = create_workflow(team_id=team.id, user_id=user.id, validated_data=validated)
+            workflow_id = cast(UUID, created.current["id"])
+            record_import(
+                team=team,
+                user=user,
+                record_id=record_id,
+                source_id=translated.source_id,
+                name=translated.name,
+                hog_flow_id=workflow_id,
+                notes=translated.notes,
+                source=source,
+            )
+    except IntegrityError:
+        return ProviderAutomationResult(
+            status="failed", workflow_id=None, notes=("Another import of this automation ran at the same time.",)
+        )
+    log_workflow_activity(
+        actor=WorkflowActor(organization_id=team.organization_id, team_id=team.id, user=user, was_impersonated=False),
+        workflow_id=workflow_id,
+        name=cast("str | None", created.current.get("name")),
+        activity="created",
+        detail_type="standard",
+    )
+    return ProviderAutomationResult(status="created", workflow_id=str(workflow_id), notes=notes)
+
+
 _NO_LONGER_DRAFT = (
     "This automation was imported before and that workflow is no longer a draft, so it was left unchanged."
 )
@@ -521,9 +568,11 @@ def _can_edit(access: UserAccessControl, team: Team, previous: PreviousImport) -
     return access.check_access_level_for_ref(ref, "editor")
 
 
-def _validated_draft(team: Team, workflow: dict[str, Any], request: Request) -> tuple[dict[str, Any] | None, list[str]]:
+def _validated_draft(
+    team: Team, workflow: dict[str, Any], request: Request | None, event_source: EventSource = EventSource.API
+) -> tuple[dict[str, Any] | None, list[str]]:
     try:
-        return checked_draft(team, workflow, EventSource.API, request), []
+        return checked_draft(team, workflow, event_source, request), []
     except ValidationError as error:
         logger.info("workflows.import.invalid_workflow", team_id=team.id, errors=str(error.detail)[:500])
         return None, _flatten_errors(error.detail)
