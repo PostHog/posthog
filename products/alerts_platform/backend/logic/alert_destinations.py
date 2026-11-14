@@ -414,6 +414,13 @@ def delete_source_destination_rows(
     )
 
 
+def lock_source_configuration(*, team_id: int, public_id: UUID) -> None:
+    """Locks the alert's platform copy, in the caller's transaction. A move between a row and HogFunctions
+    takes this lock before the HogFunctions', in the same order as a delete of the alert, so the two
+    cannot deadlock."""
+    list(_configurations_by_public_id(team_id, public_id).select_for_update().values_list("id", flat=True))
+
+
 def take_source_destination_row(
     *, team_id: int, public_id: UUID, destination_id: UUID
 ) -> StoredAlertDestination | None:
