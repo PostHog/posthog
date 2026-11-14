@@ -250,12 +250,15 @@ class ExportedAsset(models.Model):
         return bool((self.export_context or {}).get("session_recording_id"))
 
     def get_analytics_metadata(self):
+        source = (self.export_context or {}).get("source")
+        query_kind = source.get("kind") if isinstance(source, dict) else None
         return {
             "asset_id": self.id,
             "export_format": self.export_format,
             "dashboard_id": self.dashboard_id,
             "insight_id": self.insight_id,
             "export_kind": self.export_kind,
+            "query_kind": query_kind if isinstance(query_kind, str) else None,
             # Scanner-driven renders (replay_vision) report through the same pipeline; without this
             # flag their volume is indistinguishable from user exports in failure-rate comparisons.
             "is_system": bool(self.is_system),
