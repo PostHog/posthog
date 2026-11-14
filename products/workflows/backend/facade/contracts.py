@@ -21,6 +21,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    HogFlowType,
     PushTokenImportRowFailureReason,
     PushTokenImportStatus,
     SetupStepKey,
@@ -694,6 +695,26 @@ class Workflow:
     # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
     pending_suggestions: int | None = None
     suggestions_enabled: bool | None = None
+
+
+@frozen
+class WorkflowListRow:
+    id: UUID
+    team_id: int
+    name: str | None
+    description: str
+    version: int
+    status: str
+    origin_product: str | None
+    created_at: datetime
+    created_by: "User | None"
+    updated_at: datetime
+    trigger: Any
+    user_access_level: str | None
+    tags: tuple[str, ...]
+    workflow_type: HogFlowType
+    pending_suggestions: int
+    suggestions_enabled: bool
 
 
 @frozen

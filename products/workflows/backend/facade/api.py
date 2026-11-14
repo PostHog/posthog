@@ -317,9 +317,9 @@ def get_recent_batch_jobs(
 def search_broadcast_summaries(
     *, team_id: int, search: str, user_access_control: UserAccessControl, limit: int
 ) -> list[WorkflowSummary]:
-    from products.workflows.backend.services.hog_flow_reads import list_workflow_summaries  # noqa: PLC0415
+    from products.workflows.backend.services.hog_flow_reads import search_workflow_summaries  # noqa: PLC0415
 
-    return list_workflow_summaries(
+    return search_workflow_summaries(
         team_id=team_id,
         query=WorkflowListQuery(broadcast_eligible=True),
         user_access_control=user_access_control,
