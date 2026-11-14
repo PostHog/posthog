@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
@@ -23,9 +23,8 @@ type Setup = {
     profile?: (profile: typeof PROFILE) => unknown
     cloud?: Partial<FakeCloudOptions>
     published?: boolean
-    ssoToken?: Record<string, Date | string>
-    env?: NodeJS.ProcessEnv
     arrange?: (cloud: FakeCloud) => void
+    env?: NodeJS.ProcessEnv
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
@@ -49,32 +48,15 @@ describe('cloud controller', () => {
         profile = (p) => p,
         cloud: options = {},
         published = true,
-        ssoToken,
-        env = {},
         arrange = () => undefined,
+        env = {},
     }: Setup = {}): {
         controller: Controller
     } {
         writeFileSync(profilePath(), stringify(profile(structuredClone(PROFILE))))
         writeFileSync(path.join(dir, 'runner.yaml'), stringify({ name: 'test-current', traffic: {}, settings: {} }))
-        cloud = new FakeCloud({ now: () => now, expiration: new Date(T.getTime() + 12 * HOUR_MS), ...options })
+        cloud = new FakeCloud({ now: () => now, ...options })
         arrange(cloud)
-        if (ssoToken) {
-            const cache = path.join(dir, '.aws', 'sso', 'cache')
-            mkdirSync(cache, { recursive: true })
-            const name = createHash('sha1').update(cloud.ssoSession!).digest('hex')
-            writeFileSync(
-                path.join(cache, `${name}.json`),
-                JSON.stringify(
-                    Object.fromEntries(
-                        Object.entries(ssoToken).map(([key, value]) => [
-                            key,
-                            value instanceof Date ? value.toISOString() : value,
-                        ])
-                    )
-                )
-            )
-        }
         const controller: Controller = {
             aws: cloud,
             origin: { head: () => COMMIT, published: (commit) => Promise.resolve(published && commit === COMMIT) },
@@ -112,8 +94,6 @@ describe('cloud controller', () => {
             .at(-1)
         return parseJSON(cloud.objects.get(key!)!)
     }
-
-    const listsReceipts = (args: string[]): boolean => args.some((arg) => arg.includes('/receipts/'))
 
     const released = (runId: string): number => out.filter((line) => line === `Released run ${runId}.`).length
 
@@ -205,30 +185,11 @@ describe('cloud controller', () => {
         const { controller } = prepare()
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
-        now = new Date(T.getTime() + 7 * HOUR_MS)
-        await expect(main(['cleanup', profilePath(), '--expired'], controller)).resolves.toBe(0)
 
         const runId = leasedRunId()
         expect(released(runId)).toBe(1)
         expect(cloud.schedules.size).toBe(0)
         expect(cloud.deleteStackRequests).toEqual([])
-    })
-
-    it('admits a refreshable SSO session and warns that the schedules bound it', async () => {
-        const { controller } = prepare({
-            cloud: { ssoSession: 'test-sso' },
-            ssoToken: {
-                expiresAt: new Date(T.getTime() + HOUR_MS),
-                refreshToken: 'example-refresh',
-                clientId: 'example-client',
-                clientSecret: 'example-secret',
-                registrationExpiresAt: new Date(T.getTime() + 90 * 24 * HOUR_MS),
-            },
-        })
-
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
-
-        expect(err.join('\n')).toContain('stack-delete schedules')
     })
 
     it('runs on the profile the account pin checked, even when the file changes during the identity check', async () => {
@@ -277,112 +238,7 @@ describe('cloud controller', () => {
             'over the $200 cap',
         ],
         ['an identity outside the profile account', { cloud: { account: '111111111111' } }, 'account 111111111111'],
-        [
-            'role credentials that expire first',
-            { cloud: { expiration: new Date(T.getTime() + 2 * HOUR_MS) } },
-            'expire',
-        ],
-        [
-            'an SSO token that expires before its role credentials',
-            { cloud: { ssoSession: 'test-sso' }, ssoToken: { expiresAt: new Date(T.getTime() + 2 * HOUR_MS) } },
-            'expire',
-        ],
-        [
-            'a controller role profile whose SSO session expires first',
-            {
-                cloud: { ssoSession: 'test-sso', sourceProfile: 'dev-write' },
-                ssoToken: { expiresAt: new Date(T.getTime() + 2 * HOUR_MS) },
-            },
-            'expire',
-        ],
-        ['an SSO session with no cached token', { cloud: { ssoSession: 'test-sso' } }, 'aws sso login'],
-        [
-            'an SSO refresh token whose client registration ends before the run',
-            {
-                cloud: { ssoSession: 'test-sso' },
-                ssoToken: {
-                    expiresAt: new Date(T.getTime() + HOUR_MS),
-                    refreshToken: 'example-refresh',
-                    clientId: 'example-client',
-                    clientSecret: 'example-secret',
-                    registrationExpiresAt: new Date(T.getTime() + 2 * HOUR_MS),
-                },
-            },
-            'expire',
-        ],
-        [
-            'an SSO refresh token without its client id',
-            {
-                cloud: { ssoSession: 'test-sso' },
-                ssoToken: {
-                    expiresAt: new Date(T.getTime() + HOUR_MS),
-                    refreshToken: 'example-refresh',
-                    clientSecret: 'example-secret',
-                    registrationExpiresAt: new Date(T.getTime() + 90 * 24 * HOUR_MS),
-                },
-            },
-            'expire',
-        ],
-        [
-            'an SSO refresh token without its client secret',
-            {
-                cloud: { ssoSession: 'test-sso' },
-                ssoToken: {
-                    expiresAt: new Date(T.getTime() + HOUR_MS),
-                    refreshToken: 'example-refresh',
-                    clientId: 'example-client',
-                    registrationExpiresAt: new Date(T.getTime() + 90 * 24 * HOUR_MS),
-                },
-            },
-            'expire',
-        ],
-        [
-            'web identity credentials with no expiry, over an SSO profile',
-            {
-                cloud: { ssoSession: 'test-sso', expiration: null },
-                ssoToken: { expiresAt: new Date(T.getTime() + 24 * HOUR_MS) },
-                env: { AWS_WEB_IDENTITY_TOKEN_FILE: '/var/run/example-token' },
-            },
-            'expiry',
-        ],
-        [
-            'a permission probe that fails for a reason other than access',
-            { arrange: (fake) => fake.failOnCall('get-schedule') },
-            'Could not check permission scheduler:GetSchedule',
-        ],
-        [
-            'environment credentials with no expiry, over an SSO profile',
-            {
-                cloud: { ssoSession: 'test-sso', expiration: null },
-                ssoToken: { expiresAt: new Date(T.getTime() + 24 * HOUR_MS) },
-                env: { AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE' },
-            },
-            'expiry',
-        ],
-        ['credentials with no known expiry', { cloud: { expiration: null } }, 'expiry'],
-        ['role credentials with an unreadable expiry', { cloud: { expiration: 'not a date' } }, 'unreadable expiry'],
-        [
-            'an SSO token with an unreadable expiry',
-            { cloud: { ssoSession: 'test-sso' }, ssoToken: { expiresAt: 'not a date' } },
-            'unreadable expiry',
-        ],
         ['a commit that is not on origin', { published: false }, COMMIT],
-        ['a writer class that is not orderable', { cloud: { orderable: ['db.serverless'] } }, 'db.r8g.2xlarge'],
-        [
-            'a missing permission',
-            { cloud: { denied: ['logs:FilterLogEvents'] } },
-            'Missing permission logs:FilterLogEvents',
-        ],
-        [
-            'a missing permission that teardown needs to judge a volume',
-            { cloud: { denied: ['ec2:DescribeVolumes'] } },
-            'Missing permission ec2:DescribeVolumes',
-        ],
-        [
-            'a missing permission that teardown needs to judge a database instance',
-            { cloud: { denied: ['rds:DescribeDBInstances'] } },
-            'Missing permission rds:DescribeDBInstances',
-        ],
         [
             'a cap other than the fixed one',
             { profile: (p) => ({ ...p, admission: { ...p.admission, capUsd: 300 } }) },
@@ -447,14 +303,6 @@ describe('cloud controller', () => {
     it.each<[string, string, string, string, string, (runId: string) => string[]]>([
         ['run', PERSON_ROLE, 'person', OTHER_ACCOUNT, CONTROLLER, () => ['run', profilePath()]],
         [
-            'cleanup --expired',
-            PERSON_ROLE,
-            'person',
-            OTHER_ACCOUNT,
-            CONTROLLER,
-            () => ['cleanup', profilePath(), '--expired'],
-        ],
-        [
             'cleanup <run id>',
             PERSON_ROLE,
             'person',
@@ -464,14 +312,6 @@ describe('cloud controller', () => {
         ],
         ['run', 'scenario-run-controller-copy', 'person', OTHER_ACCOUNT, CONTROLLER, () => ['run', profilePath()]],
         ['run', PERSON_ROLE, 'scenario-run-controller', OTHER_ACCOUNT, CONTROLLER, () => ['run', profilePath()]],
-        [
-            'cleanup --expired',
-            'scenario-run-controller',
-            'person',
-            '222222222222',
-            MISMATCH,
-            () => ['cleanup', profilePath(), '--expired'],
-        ],
         [
             'cleanup <run id>',
             'scenario-run-controller',
@@ -517,38 +357,6 @@ describe('cloud controller', () => {
         expect(out.join('\n')).toContain('Admitted estimate: $250.99 of the $200 cap')
     })
 
-    it.each([
-        ['an input upload', 'put-object', 4],
-        ['the second schedule', 'create-schedule', 2],
-        ['a schedule read-back', 'get-schedule', 2],
-    ])('refuses and removes the partial lease when %s fails', async (_, operation, nth) => {
-        const { controller } = prepare()
-        cloud.failOnCall(operation, nth)
-
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
-
-        expect(err.join('\n')).toContain('Could not lease')
-        expect(cloud.objects.size).toBe(0)
-        expect(cloud.schedules.size).toBe(0)
-    })
-
-    it('still removes the uploaded inputs when removing a schedule fails, and names what remains', async () => {
-        const { controller } = prepare()
-        cloud.failOnCall('create-schedule', 2)
-        cloud.failOnCall('delete-schedule', 1)
-
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
-
-        expect(cloud.objects.size).toBe(0)
-        const [left] = [...cloud.schedules.keys()]
-        const leftLine = err
-            .join('\n')
-            .split('\n')
-            .find((line) => line.startsWith(`- schedule ${left}`))
-        expect(leftLine).toContain('DeleteSchedule operation')
-        expect(err.join('\n')).toContain(left.replace(/^scn-(.+)-expiry$/, '$1'))
-    })
-
     it('cleans up with only the cloud profile, after the runner profile is gone', async () => {
         const { controller } = prepare()
         const runId = await leaseAt(T, controller)
@@ -557,28 +365,6 @@ describe('cloud controller', () => {
         await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
 
         expect(released(runId)).toBe(1)
-    })
-
-    it('cleanup --expired releases only expired leases, once', async () => {
-        const { controller } = prepare()
-        const expired = await leaseAt(T, controller)
-        const live = await leaseAt(new Date(T.getTime() + 5 * HOUR_MS), controller)
-        now = new Date(T.getTime() + 6.5 * HOUR_MS)
-
-        await expect(main(['cleanup', profilePath(), '--expired'], controller)).resolves.toBe(0)
-
-        expect(released(expired)).toBe(1)
-        expect(schedulesFor(expired)).toEqual([])
-        expect(cloud.deleteStackRequests).toEqual([{ stackName: `scn-${expired}`, at: '2026-03-02T16:00:00.000Z' }])
-        expect(released(live)).toBe(0)
-        expect(schedulesFor(live)).toHaveLength(2)
-
-        const objects = new Map(cloud.objects)
-        now = new Date(now.getTime() + 60_000)
-        await expect(main(['cleanup', profilePath(), '--expired'], controller)).resolves.toBe(0)
-        expect(released(expired)).toBe(1)
-        expect(cloud.objects).toEqual(objects)
-        expect(schedulesFor(live)).toHaveLength(2)
     })
 
     it('cleanup <run id> releases a live lease', async () => {
@@ -599,28 +385,6 @@ describe('cloud controller', () => {
 
         expect(err.join('\n')).toContain('not-a-run')
     })
-
-    it.each<[string, string, string[], string]>([
-        ['run', 'manifest', [], 'manifest.json'],
-        ['cleanup', 'manifest', ['--expired'], 'manifest.json'],
-        ['run', 'receipt', [], 'receipts/earlier.json'],
-        ['cleanup', 'receipt', ['--expired'], 'receipts/earlier.json'],
-    ])(
-        "%s still releases the other expired leases when one run's %s cannot be read",
-        async (command, _, rest, name) => {
-            const { controller } = prepare({ cloud: { expiration: new Date(T.getTime() + 24 * HOUR_MS) } })
-            const broken = await leaseAt(T, controller)
-            const expired = await leaseAt(T, controller)
-            cloud.objects.set(`runs/${broken}/${name}`, 'not JSON')
-            now = new Date(T.getTime() + 6.5 * HOUR_MS)
-
-            await expect(main([command, profilePath(), ...rest], controller)).resolves.toBe(2)
-
-            expect(released(expired)).toBe(1)
-            expect(schedulesFor(expired)).toEqual([])
-            expect(err.join('\n')).toContain(broken)
-        }
-    )
 
     it.each<[string, (other: string) => Record<string, unknown>]>([
         ['schedules', (other) => ({ schedules: [`scn-${other}-expiry`, `scn-${other}-expiry-retry`] })],
@@ -676,29 +440,18 @@ describe('cloud controller', () => {
         expect(cloud.billable()).toEqual([])
     })
 
-    it('sweeps expired leases before it admits a run', async () => {
-        const { controller } = prepare({ cloud: { expiration: new Date(T.getTime() + 24 * HOUR_MS) } })
-        const expired = await leaseAt(T, controller)
-        now = new Date(T.getTime() + 7 * HOUR_MS)
-
-        await main(['run', profilePath()], controller)
-
-        expect(released(expired)).toBe(1)
-        expect(schedulesFor(expired)).toEqual([])
-    })
-
     it.each<[string, (fake: FakeCloud) => void]>([
         ['', () => undefined],
         [
             ', retrying a resource read that fails during teardown',
-            (fake) => fake.failOnCall('describe-db-instances', 2),
+            (fake) => fake.failOnCall('describe-db-instances', 1),
         ],
         [
             ', judging an untyped tagged resource gone once its tag listing drops it',
             (fake) => fake.untyped.push('arn:aws:rds:us-east-1:000000000000:cluster-auto-backup:cab-0'),
         ],
         [', retrying a delete-stack that fails once', (fake) => fake.failOnCall('delete-stack')],
-        [', listing the tagged resources again after a failed listing', (fake) => fake.failOnCall('get-resources', 3)],
+        [', listing the tagged resources again after a failed listing', (fake) => fake.failOnCall('get-resources', 2)],
         [
             ', keeping its host when the image parameter moves',
             (fake) => fake.beforeCall('update-stack', () => fake.parameterStore.set('/test/ubuntu/ami-id', 'ami-0b')),
@@ -722,9 +475,9 @@ describe('cloud controller', () => {
     it.each([
         ['create-stack', 'fails', 1],
         ['create-stack', 'loses its response', 1],
-        ['describe-stacks', 'fails', 2],
+        ['describe-stacks', 'fails', 1],
         ['update-stack', 'fails', 1],
-        ['describe-stacks', 'fails', 4],
+        ['describe-stacks', 'fails', 3],
     ])('tears everything down when %s %s (call %d)', async (operation, how, nth) => {
         const { controller } = prepare()
         if (how === 'fails') {
@@ -877,7 +630,6 @@ describe('cloud controller', () => {
 
     it.each<[string, string, () => boolean, number]>([
         ['as it resolves the host image', 'get-parameter', () => true, HOUR_MS / 6],
-        ['as it records the stack request', 'put-object', () => cloud.schedules.size === 2, HOUR_MS / 6 + 15 * 60_000],
         ['as the host reports ready', 'list-objects-v2', () => true, HOUR_MS / 6],
     ])('creates nothing more when interrupted %s', async (_, operation, due, within) => {
         const { controller } = prepare()
@@ -921,15 +673,7 @@ describe('cloud controller', () => {
     })
 
     it.each<[string, string, () => boolean, string, boolean]>([
-        ['create the stack', 'get-schedule', () => true, 'too soon to create the stack', false],
         ['create the stack after it reads the host image', 'get-parameter', () => true, 'too soon to create', false],
-        [
-            'create the stack after it records the stack request',
-            'put-object',
-            () => true,
-            'too soon to create the stack',
-            false,
-        ],
         ['seed the backlog', 'list-objects-v2', () => cloud.stacks.size > 0, 'too soon to seed the backlog', false],
         ['add the reader', 'get-command-invocation', () => true, 'too soon to add the reader', false],
         ['start the card', 'update-stack', () => true, 'too soon to start the card', true],
@@ -984,13 +728,8 @@ describe('cloud controller', () => {
     })
 
     it.each<[string, (fake: FakeCloud) => void, string]>([
-        ['it cannot list what the run created', (fake) => fake.failOnCall('get-resources', 2), 'could not list'],
+        ['it cannot list what the run created', (fake) => fake.failOnCall('get-resources', 1), 'could not list'],
         ['releasing the lease fails', (fake) => fake.failOnCall('delete-schedule', 2), 'releasing its lease failed'],
-        [
-            'it cannot read its earlier receipts',
-            (fake) => fake.failWhen('list-objects-v2', listsReceipts),
-            'could not list the earlier receipts',
-        ],
     ])('deletes the stack but keeps a schedule and names the cleanup when %s', async (_, arrange, reason) => {
         const { controller } = prepare()
         arrange(cloud)
@@ -1016,40 +755,13 @@ describe('cloud controller', () => {
         [
             'AWS::SecretsManager::Secret',
             ', even when listing the cluster snapshots fails',
-            (fake) => fake.failOnCall('describe-db-cluster-snapshots', 2),
+            (fake) => fake.failOnCall('describe-db-cluster-snapshots', 1),
             () => undefined,
-        ],
-        [
-            'AWS::SecretsManager::Secret',
-            ', even after a cleanup that cannot read an earlier receipt',
-            () => undefined,
-            (fake) => fake.failOnCall('get-object', 2),
-        ],
-        [
-            'AWS::SecretsManager::Secret',
-            ', even when the run cannot list its earlier receipts',
-            (fake) => fake.failWhen('list-objects-v2', listsReceipts),
-            (fake) => fake.heal(),
         ],
         [
             'AWS::SecretsManager::Secret',
             ', even when the run stops while the stack is created',
             (fake) => {
-                onSleep = () => {
-                    if (fake.resources.length > 0) {
-                        interrupt?.()
-                    }
-                }
-            },
-            () => undefined,
-        ],
-        [
-            'AWS::SecretsManager::Secret',
-            ', even when the run stops before its cluster is visible',
-            (fake) => {
-                fake.hideCreationWhile(
-                    () => ![...fake.stacks.values()].some(({ status }) => status.startsWith('DELETE'))
-                )
                 onSleep = () => {
                     if (fake.resources.length > 0) {
                         interrupt?.()
@@ -1082,115 +794,6 @@ describe('cloud controller', () => {
         await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
 
         expect(cloud.schedules.size).toBe(2)
-    })
-
-    it.each<[string, Partial<FakeCloudOptions>, string[], string]>([
-        [
-            'could not look it up',
-            {},
-            ['describe-db-clusters', 'list-secrets'],
-            'could not list the secret and backups of cluster',
-        ],
-        [
-            'could list nothing',
-            {},
-            ['describe-stack-resources', 'get-resources', 'describe-db-clusters', 'list-secrets'],
-            'could not list the secret and backups of cluster',
-        ],
-        ['found its stack already deleted', { rollsBack: 'create' }, [], 'until the tag listings catch up'],
-    ])(
-        'names a secret that outlives the stack in a later cleanup, when the run %s',
-        async (_, options, failing, says) => {
-            const { controller } = prepare({
-                cloud: { ...options, outlives: ['AWS::SecretsManager::Secret'] },
-                profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
-            })
-            failing.forEach((operation) => cloud.failWhen(operation, () => cloud.schedules.size > 0))
-            onSleep = () => {
-                if (failing.length > 0 && cloud.resources.length > 0) {
-                    interrupt?.()
-                }
-            }
-
-            await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
-            expect(err.join('\n')).toContain(says)
-
-            cloud.heal()
-            err.length = 0
-            await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
-            expect(err.join('\n')).toContain('until the tag listings catch up')
-            expect(cloud.schedules.size).toBe(2)
-
-            err.length = 0
-            now = new Date(now.getTime() + HOUR_MS / 3)
-            await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
-
-            const [secret] = cloud.billable().filter((resource) => resource.startsWith('AWS::SecretsManager::Secret'))
-            expect(err.join('\n')).toContain(`- ${secret}`)
-            expect(cloud.schedules.size).toBe(2)
-        }
-    )
-
-    it('releases a run whose stack was already deleted once the tag listings caught up, with a short allowance', async () => {
-        const { controller } = prepare({
-            cloud: { rollsBack: 'create' },
-            profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
-        })
-
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
-        expect(err.join('\n')).toContain('until the tag listings catch up')
-
-        now = new Date(now.getTime() + HOUR_MS / 3)
-        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(0)
-
-        expect(released(leasedRunId())).toBe(1)
-        expect(cloud.schedules.size).toBe(0)
-    })
-
-    it('waits for the tag listings again when the stack outlived the teardown that found its cluster gone', async () => {
-        const { controller } = prepare({
-            cloud: { deleteTakesMs: 3 * HOUR_MS },
-            profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
-        })
-        cloud.hideCreationWhile(() => true)
-        onSleep = () => {
-            if (cloud.resources.length > 0) {
-                interrupt?.()
-            }
-        }
-
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
-
-        err.length = 0
-        now = new Date(now.getTime() + 4 * HOUR_MS)
-        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
-        expect(err.join('\n')).toContain('until the tag listings catch up')
-
-        now = new Date(now.getTime() + HOUR_MS / 3)
-        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(0)
-        expect(released(leasedRunId())).toBe(1)
-    })
-
-    it.each([
-        ['its receipt', false],
-        ['no receipt', true],
-    ])('refuses a new run while an expired run with %s still holds resources', async (_, forgetReceipt) => {
-        const { controller } = prepare({ cloud: { outlives: ['AWS::EC2::Volume'] } })
-        await main(['run', profilePath()], controller)
-        const runId = leasedRunId()
-        if (forgetReceipt) {
-            ;[...cloud.objects.keys()]
-                .filter((key) => key.startsWith(`runs/${runId}/receipts/`))
-                .forEach((key) => cloud.objects.delete(key))
-        }
-        const at = new Date(T.getTime() + 7 * HOUR_MS)
-        now = at
-
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
-
-        expect(out.filter((line) => line.startsWith('Leased run'))).toHaveLength(1)
-        expect(err.join('\n')).toContain('an expired run still holds resources')
-        expect(now.getTime() > at.getTime()).toBe(forgetReceipt)
     })
 
     it('changes nothing on a second cleanup of a torn-down run', async () => {
@@ -1284,21 +887,6 @@ describe('cloud controller', () => {
             'reader above 1 ACU before T0',
         ],
         [
-            'a minute before T0 averaging above 1 ACU whose maximum CloudWatch left out',
-            {
-                readerAcu: [
-                    ...minutes(-3, -3, 1, 1),
-                    { minute: -2, avg: 1.3 },
-                    ...minutes(-1, -1, 1, 1),
-                    ...minutes(0, 0, 2.5, 1.4),
-                    ...minutes(1, 2, 8, 6),
-                ],
-            },
-            () => undefined,
-            'invalid',
-            'reader above 1 ACU before T0',
-        ],
-        [
             'a series that ends before T0',
             { readerAcu: minutes(-3, -1, 1, 1) },
             () => undefined,
@@ -1342,25 +930,8 @@ describe('cloud controller', () => {
             'the runner recorded no pg.failover request',
         ],
         [
-            'one internal error from CloudWatch, then a complete answer',
-            {
-                averageStatuses: ['InternalError'],
-                readerAcu: [...minutes(-3, -1, 1, 1), ...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)],
-            },
-            () => undefined,
-            'passed',
-            '',
-        ],
-        [
-            'CloudWatch answering an internal error on every attempt',
-            { averageStatuses: ['InternalError', 'InternalError', 'InternalError'] },
-            () => undefined,
-            'invalid',
-            'CloudWatch answered InternalError for the avg series',
-        ],
-        [
             'CloudWatch refusing the average series',
-            { averageStatuses: ['Forbidden', 'Complete'] },
+            { averageStatuses: ['Forbidden'] },
             () => undefined,
             'invalid',
             'CloudWatch answered Forbidden for the avg series',
@@ -1437,7 +1008,6 @@ describe('cloud controller', () => {
             teardown_clean: true,
             teardown_leftovers: [],
             acu_gaps: gapOffsets.map(minuteAt),
-            enhanced_monitoring_events: 6,
             cost_estimate_excluded: ['data transfer', 'S3 requests', 'Enhanced Monitoring log ingestion'],
         })
         expect(properties.deviations).toEqual(expect.arrayContaining([expect.stringMatching(/team skew/)]))
@@ -1451,12 +1021,6 @@ describe('cloud controller', () => {
         const total = items.reduce((sum, item) => sum + Number(/\$(\d+\.\d\d)$/.exec(item)![1]), 0)
         expect(properties.cost_estimate_usd).toBeCloseTo(total, 1)
         expect(parseJSON(cloud.objects.get(`runs/${runId}/scorecard.json`)!)).toEqual(properties)
-        const pages = [...cloud.objects.keys()].filter((key) => key.startsWith(`runs/${runId}/capacity/rdsosmetrics/`))
-        expect(pages).toHaveLength(3)
-        const kept = pages
-            .flatMap((key) => parseJSON(cloud.objects.get(key)!) as { message: string }[])
-            .map(({ message }) => (parseJSON(message) as { instanceID: string }).instanceID)
-        expect(kept.sort()).toEqual([...Array(3).fill(`scn-${runId}-reader`), ...Array(3).fill(`scn-${runId}-writer`)])
     })
 
     it('counts every minute of the card as missing when CloudWatch returns no reader capacity', async () => {

@@ -1,12 +1,5 @@
-import { createHash } from 'crypto'
-import { readFileSync } from 'fs'
-import os from 'os'
-import path from 'path'
-
-import { parseJSON } from '~/common/utils/json-parse'
-
 import { durationMs } from '../duration'
-import { Aws, AwsError } from './aws'
+import { Aws } from './aws'
 import { CAP_USD, CloudProfile, TTL_HOURS } from './profile'
 
 export type Origin = { head(): string; published(commit: string): Promise<boolean> }
@@ -30,11 +23,7 @@ const HOUR_S = 3600
 export const HOURS_PER_MONTH = 730
 const BYTES_PER_GB = 1e9
 const MONITORED_INSTANCES = 2
-const SERVERLESS_CLASS = 'db.serverless'
 const CONTROLLER_ROLE = 'scenario-run-controller'
-const DENIED = ['AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation', 'UnauthorizedException']
-const PROBE_ID = 'scn-permission-probe'
-const EXPECTED_MISS = /NotFound|DoesNotExist|^ValidationError$/
 
 export function estimateOf({ writerClass, readerAcu, host, admission }: CloudProfile): EstimateLine[] {
     const { rates, allowances } = admission
@@ -82,187 +71,6 @@ function printEstimate({ print }: Controller, profile: CloudProfile): number {
     return total
 }
 
-type Session = { endsAt: Date } | { refreshable: true } | { unknown: true } | { problem: string }
-
-type SsoToken = {
-    expiresAt?: string
-    refreshToken?: string
-    clientId?: string
-    clientSecret?: string
-    registrationExpiresAt?: string
-}
-
-function cachedSsoToken(home: string, ssoSession: string): SsoToken | undefined {
-    const name = `${createHash('sha1').update(ssoSession).digest('hex')}.json`
-    try {
-        return parseJSON(readFileSync(path.join(home, '.aws', 'sso', 'cache', name), 'utf8'))
-    } catch {
-        return undefined
-    }
-}
-
-function endOf(expiry: string | undefined): Session {
-    if (!expiry) {
-        return { unknown: true }
-    }
-    const endsAt = new Date(expiry)
-    return Number.isFinite(endsAt.getTime())
-        ? { endsAt }
-        : { problem: `The credentials report an unreadable expiry, ${expiry}. Sign in again.` }
-}
-
-async function ssoSessionOf(aws: Aws): Promise<string> {
-    const source = await aws.text(['configure', 'get', 'source_profile']).catch(() => '')
-    const profile = source === '' ? [] : ['--profile', source]
-    return aws.text(['configure', 'get', 'sso_session', ...profile]).catch(() => '')
-}
-
-async function sessionOf({ aws, env }: Controller, needed: Date): Promise<Session> {
-    const ssoSession = env.AWS_ACCESS_KEY_ID || env.AWS_WEB_IDENTITY_TOKEN_FILE ? '' : await ssoSessionOf(aws)
-    if (ssoSession === '') {
-        const { Expiration } = parseJSON(
-            await aws.text(['configure', 'export-credentials', '--format', 'process'])
-        ) as { Expiration?: string }
-        return endOf(Expiration)
-    }
-    const token = cachedSsoToken(env.HOME ?? os.homedir(), ssoSession)
-    if (token === undefined) {
-        return { problem: `No SSO token is cached for ${ssoSession}. Run aws sso login --sso-session ${ssoSession}.` }
-    }
-    const registrationEnds = Date.parse(token.registrationExpiresAt ?? '')
-    if (token.refreshToken && token.clientId && token.clientSecret && registrationEnds >= needed.getTime()) {
-        return { refreshable: true }
-    }
-    return endOf(token.expiresAt)
-}
-
-function probesOf({ baseline, host }: CloudProfile, now: Date): [string, string[]][] {
-    const minuteAgo = new Date(now.getTime() - 60_000).toISOString()
-    return [
-        ['cloudformation:DescribeStacks', ['cloudformation', 'describe-stacks', '--stack-name', PROBE_ID]],
-        [
-            'cloudformation:DescribeStackResources',
-            ['cloudformation', 'describe-stack-resources', '--stack-name', PROBE_ID],
-        ],
-        ['ssm:GetParameter', ['ssm', 'get-parameter', '--name', host.imageParameter]],
-        ['scheduler:GetSchedule', ['scheduler', 'get-schedule', '--name', PROBE_ID]],
-        [
-            's3:ListBucket',
-            ['s3api', 'list-objects-v2', '--bucket', baseline.evidenceBucket, '--prefix', 'runs/', '--max-items', '1'],
-        ],
-        [
-            'ssm:GetCommandInvocation',
-            [
-                'ssm',
-                'get-command-invocation',
-                '--command-id',
-                '00000000-0000-0000-0000-000000000000',
-                '--instance-id',
-                'i-00000000000000000',
-            ],
-        ],
-        [
-            'cloudwatch:GetMetricData',
-            [
-                'cloudwatch',
-                'get-metric-data',
-                '--start-time',
-                minuteAgo,
-                '--end-time',
-                now.toISOString(),
-                '--metric-data-queries',
-                JSON.stringify([
-                    {
-                        Id: 'probe',
-                        MetricStat: {
-                            Metric: { Namespace: 'AWS/RDS', MetricName: 'ServerlessDatabaseCapacity' },
-                            Period: 60,
-                            Stat: 'Maximum',
-                        },
-                    },
-                ]),
-            ],
-        ],
-        [
-            'logs:FilterLogEvents',
-            [
-                'logs',
-                'filter-log-events',
-                '--log-group-name',
-                'RDSOSMetrics',
-                '--limit',
-                '1',
-                '--start-time',
-                String(now.getTime()),
-            ],
-        ],
-        ['rds:DescribeDBClusters', ['rds', 'describe-db-clusters', '--db-cluster-identifier', PROBE_ID]],
-        ['rds:DescribeDBInstances', ['rds', 'describe-db-instances', '--db-instance-identifier', PROBE_ID]],
-        ['ec2:DescribeVolumes', ['ec2', 'describe-volumes', '--volume-ids', 'vol-00000000000000000']],
-        [
-            'rds:DescribeDBClusterSnapshots',
-            ['rds', 'describe-db-cluster-snapshots', '--db-cluster-identifier', PROBE_ID],
-        ],
-        ['ec2:DescribeInstances', ['ec2', 'describe-instances', '--max-items', '1']],
-        ['secretsmanager:DescribeSecret', ['secretsmanager', 'describe-secret', '--secret-id', PROBE_ID]],
-        ['secretsmanager:ListSecrets', ['secretsmanager', 'list-secrets', '--max-results', '1']],
-        [
-            'rds:DescribeDBClusterAutomatedBackups',
-            ['rds', 'describe-db-cluster-automated-backups', '--db-cluster-identifier', PROBE_ID],
-        ],
-        [
-            'tag:GetResources',
-            [
-                'resourcegroupstaggingapi',
-                'get-resources',
-                '--tag-filters',
-                'Key=scenario-run',
-                '--resources-per-page',
-                '1',
-            ],
-        ],
-    ]
-}
-
-async function missingPermissions(controller: Controller, profile: CloudProfile): Promise<string[]> {
-    const missing: string[] = []
-    for (const [action, args] of probesOf(profile, controller.now())) {
-        try {
-            await controller.aws.call(args)
-        } catch (error) {
-            if (error instanceof AwsError && DENIED.includes(error.code ?? '')) {
-                missing.push(`Missing permission ${action}: ${error.stderr.trim()}`)
-            } else if (!(error instanceof AwsError && EXPECTED_MISS.test(error.code ?? ''))) {
-                const detail = error instanceof AwsError ? error.stderr.trim() : (error as Error).message
-                missing.push(`Could not check permission ${action}: ${detail}`)
-            }
-        }
-    }
-    return missing
-}
-
-async function unorderable({ aws }: Controller, { engineVersion, writerClass }: CloudProfile): Promise<string[]> {
-    const problems: string[] = []
-    for (const instanceClass of [writerClass, SERVERLESS_CLASS]) {
-        const { OrderableDBInstanceOptions } = (await aws.call([
-            'rds',
-            'describe-orderable-db-instance-options',
-            '--engine',
-            'aurora-postgresql',
-            '--engine-version',
-            engineVersion,
-            '--db-instance-class',
-            instanceClass,
-            '--max-items',
-            '1',
-        ])) as { OrderableDBInstanceOptions: unknown[] }
-        if (OrderableDBInstanceOptions.length === 0) {
-            problems.push(`${instanceClass} is not orderable for aurora-postgresql ${engineVersion} in us-east-1.`)
-        }
-    }
-    return problems
-}
-
 export async function refuseOutsideDev({ aws }: Controller, account: string): Promise<void> {
     const { Account, Arn } = (await aws.call(['sts', 'get-caller-identity'])) as { Account: string; Arn: string }
     if (/^arn:aws:sts::\d{12}:assumed-role\/([^/]+)\//.exec(Arn)?.[1] !== CONTROLLER_ROLE) {
@@ -279,30 +87,9 @@ export async function admit(
     controller: Controller,
     profile: CloudProfile
 ): Promise<{ admitted: Admitted } | { problems: string[] }> {
-    const { aws, origin, now } = controller
+    const { aws, origin } = controller
     const problems: string[] = []
     const identity = (await aws.call(['sts', 'get-caller-identity'])) as { Arn: string }
-    problems.push(...(await missingPermissions(controller, profile)))
-
-    const needed = new Date(
-        now().getTime() + TTL_HOURS * HOUR_S * 1000 + durationMs(profile.admission.teardownAllowance)
-    )
-    const session = await sessionOf(controller, needed)
-    if ('problem' in session) {
-        problems.push(session.problem)
-    } else if ('unknown' in session) {
-        problems.push('The credentials have no known expiry; use an Access Elevator profile with an SSO session.')
-    } else if ('refreshable' in session) {
-        controller.warn(
-            'The SSO session refreshes its token, so its end cannot be read here. If it ends before the run, the stack-delete schedules still remove the stack.'
-        )
-    } else if (session.endsAt < needed) {
-        problems.push(
-            `The credentials expire at ${session.endsAt.toISOString()}, before the run and its teardown end at ${needed.toISOString()}.`
-        )
-    }
-
-    problems.push(...(await unorderable(controller, profile)))
     const commit = origin.head()
     if (!(await origin.published(commit))) {
         problems.push(`Commit ${commit} is not on PostHog/posthog, so the run host cannot check it out. Push it first.`)

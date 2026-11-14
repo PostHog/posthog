@@ -81,8 +81,6 @@ const INVOCATION_LAG_MS = 20_000
 const STOP_TIMEOUT_MS = 5 * MINUTE_MS
 const DEFAULT_DELIVERY_TIMEOUT_S = 3600
 const FAILOVER_AFTER_MS = 15 * MINUTE_MS
-const LOG_PAGE_EVENTS = 2
-const EVENTS_PER_INSTANCE = 3
 const STATUSES = ['passed', 'failed', 'invalid', 'passed']
 const DEFAULT_READER_ACU: ReaderMinute[] = [
     ...[-3, -2, -1].map((minute) => ({ minute, max: 1, avg: 1 })),
@@ -98,16 +96,10 @@ const TAKES_MS: Record<string, number> = {
 export type FakeCloudOptions = {
     now: () => Date
     account?: string
-    expiration?: Date | string | null
     role?: string
     session?: string
-    ssoSession?: string
-    sourceProfile?: string
-    orderable?: string[]
-    denied?: string[]
     host?: 'ready' | 'failed' | 'silent'
     deleteFailures?: number
-    deleteTakesMs?: number
     rollsBack?: 'create' | 'update'
     outlives?: string[]
     seed?: { exitCode?: number; takesMs?: number }
@@ -126,17 +118,9 @@ export type FakeCloudOptions = {
     averageStatuses?: string[]
 }
 
-const ACTION_OF: Record<string, string> = {
-    's3api list-objects-v2': 's3:ListBucket',
-    'resourcegroupstaggingapi get-resources': 'tag:GetResources',
-    'rds describe-db-instances': 'rds:DescribeDBInstances',
-}
-
-const IAM_PREFIX: Record<string, string> = { s3api: 's3', sts: 'sts', configure: 'sts' }
-
 function actionOf(service: string, operation: string): string {
     const pascal = operation.replace(/(^|-)([a-z0-9])/g, (_, __, letter: string) => letter.toUpperCase())
-    return ACTION_OF[`${service} ${operation}`] ?? `${IAM_PREFIX[service] ?? service}:${pascal}`
+    return `${service}:${pascal}`
 }
 
 function flagsOf(args: string[]): { flags: Map<string, string>; positionals: string[] } {
@@ -173,12 +157,8 @@ export class FakeCloud implements Aws {
     readonly objects = new Map<string, string>()
     readonly schedules = new Map<string, Schedule>()
     readonly deleteStackRequests: { stackName: string; at: string }[] = []
-    expiration: Date | string | null
     role: string
     session: string
-    ssoSession: string | undefined
-    readonly orderable: string[]
-    readonly denied: Set<string>
     readonly stacks = new Map<string, Stack>()
     readonly resources: Resource[] = []
     readonly parameterStore = new Map<string, string>()
@@ -193,16 +173,11 @@ export class FakeCloud implements Aws {
     private readonly lostResponses = new Map<string, number>()
     private readonly calls = new Map<string, number>()
     private readonly hooks = new Map<string, () => void>()
-    private hidesCreation: () => boolean = () => false
 
     constructor(private readonly options: FakeCloudOptions) {
         this.account = options.account ?? '000000000000'
-        this.expiration = options.expiration === undefined ? null : options.expiration
         this.role = options.role ?? 'scenario-run-controller'
         this.session = options.session ?? 'person'
-        this.ssoSession = options.ssoSession
-        this.orderable = options.orderable ?? ['db.r8g.2xlarge', 'db.serverless']
-        this.denied = new Set(options.denied ?? [])
         this.deleteFailures = options.deleteFailures ?? 0
         this.parameterStore.set('/test/ubuntu/ami-id', 'ami-0000000000000000a')
     }
@@ -219,10 +194,6 @@ export class FakeCloud implements Aws {
     heal(): void {
         this.failures.clear()
         this.conditions.clear()
-    }
-
-    hideCreationWhile(applies: () => boolean): void {
-        this.hidesCreation = applies
     }
 
     loseResponseOf(operation: string, nth: number = 1): void {
@@ -280,10 +251,6 @@ export class FakeCloud implements Aws {
         const failing = this.failures.get(operation)
         if ((failing && count >= failing.from && count < failing.to) || this.conditions.get(operation)?.(rest)) {
             throw serviceError(operation, 'InternalFailure', 'injected by the fake cloud')
-        }
-        const action = actionOf(service, operation)
-        if (this.denied.has(action)) {
-            throw serviceError(operation, 'AccessDeniedException', `User is not authorized to perform: ${action}`)
         }
         const answer = this.answer(service, operation, flags, positionals)
         if (this.lostResponses.get(operation) === count) {
@@ -518,32 +485,6 @@ export class FakeCloud implements Aws {
         }
     }
 
-    private enhancedMonitoring(flags: Map<string, string>): unknown {
-        const from = Number(flags.get('start-time'))
-        const pattern = flags.get('filter-pattern') ?? ''
-        const events =
-            flags.get('log-group-name') === 'RDSOSMetrics'
-                ? this.resources
-                      .filter(({ type, id }) => type === 'AWS::RDS::DBInstance' && pattern.includes(`"${id}"`))
-                      .flatMap(({ id }) =>
-                          Array.from({ length: EVENTS_PER_INSTANCE }, (_, second) => ({
-                              logStreamName: `db-${id}`,
-                              timestamp: from + second * 1000,
-                              message: JSON.stringify({ instanceID: id, second }),
-                          }))
-                      )
-                : []
-        if (!flags.has('no-paginate')) {
-            return { events }
-        }
-        const offset = Number(flags.get('next-token') ?? 0)
-        const next = offset + LOG_PAGE_EVENTS
-        return {
-            events: events.slice(offset, next),
-            ...(next < events.length ? { nextToken: String(next) } : {}),
-        }
-    }
-
     private sendCommand(flags: Map<string, string>, operation: string): string {
         const instanceId = flags.get('instance-ids')!
         const { commands, executionTimeout } = parseJSON(flags.get('parameters')!) as {
@@ -646,8 +587,7 @@ export class FakeCloud implements Aws {
 
     private transition(stack: Stack, status: string): void {
         stack.status = status
-        const takesMs = status === 'DELETE_IN_PROGRESS' ? this.options.deleteTakesMs : undefined
-        stack.settlesAt = this.options.now().getTime() + (takesMs ?? TAKES_MS[status])
+        stack.settlesAt = this.options.now().getTime() + TAKES_MS[status]
     }
 
     private settleStack(name: string): void {
@@ -731,19 +671,6 @@ export class FakeCloud implements Aws {
         return stack
     }
 
-    private configured(key: string, profile: string | undefined): string {
-        const value =
-            key === 'source_profile'
-                ? this.options.sourceProfile
-                : this.options.sourceProfile === undefined || profile === this.options.sourceProfile
-                  ? this.ssoSession
-                  : undefined
-        if (value === undefined) {
-            throw new AwsError(['configure', 'get', key], 1, '')
-        }
-        return value
-    }
-
     private answer(service: string, operation: string, flags: Map<string, string>, positionals: string[]): unknown {
         switch (`${service} ${operation}`) {
             case 'sts get-caller-identity':
@@ -751,31 +678,6 @@ export class FakeCloud implements Aws {
                     Account: this.account,
                     Arn: `arn:aws:sts::${this.account}:assumed-role/${this.role}/${this.session}`,
                     UserId: 'AROAEXAMPLE:person',
-                }
-            case 'configure get':
-                return this.configured(positionals[0], flags.get('profile'))
-            case 'configure export-credentials':
-                return {
-                    Version: 1,
-                    AccessKeyId: 'ASIAEXAMPLE',
-                    SecretAccessKey: 'example-secret',
-                    SessionToken: 'example-token',
-                    ...(this.expiration
-                        ? {
-                              Expiration:
-                                  this.expiration instanceof Date ? this.expiration.toISOString() : this.expiration,
-                          }
-                        : {}),
-                }
-            case 'rds describe-orderable-db-instance-options':
-                return {
-                    OrderableDBInstanceOptions: this.orderable
-                        .filter((instanceClass) => instanceClass === flags.get('db-instance-class'))
-                        .map((instanceClass) => ({
-                            Engine: flags.get('engine'),
-                            EngineVersion: flags.get('engine-version'),
-                            DBInstanceClass: instanceClass,
-                        })),
                 }
             case 'cloudformation describe-stacks': {
                 const stack = this.stackOf(operation, flags.get('stack-name')!)
@@ -832,7 +734,7 @@ export class FakeCloud implements Aws {
             case 'cloudformation describe-stack-resources':
                 return {
                     StackResources: this.stackOf(operation, flags.get('stack-name')!)
-                        .resources.filter((resource) => !this.hidesCreation() && !this.creating(resource))
+                        .resources.filter((resource) => !this.creating(resource))
                         .filter(({ logicalId }) => !logicalId.endsWith('Volume') && !logicalId.endsWith('Secret'))
                         .map(({ logicalId, type, id }) => ({
                             LogicalResourceId: logicalId,
@@ -841,9 +743,6 @@ export class FakeCloud implements Aws {
                         })),
                 }
             case 'rds describe-db-clusters': {
-                if (this.hidesCreation()) {
-                    throw serviceError(operation, 'DBClusterNotFoundFault', 'The cluster is not visible yet')
-                }
                 const cluster = this.liveResource(
                     'AWS::RDS::DBCluster',
                     flags.get('db-cluster-identifier')!,
@@ -906,9 +805,6 @@ export class FakeCloud implements Aws {
                 throw serviceError(operation, 'DBClusterAutomatedBackupNotFoundFault', 'no retained backups')
             }
             case 'ec2 describe-instances': {
-                if (!flags.has('instance-ids')) {
-                    return { Reservations: [] }
-                }
                 const instance = this.liveResource(
                     'AWS::EC2::Instance',
                     flags.get('instance-ids')!,
@@ -970,8 +866,6 @@ export class FakeCloud implements Aws {
                     MetricDataResults: queries.map((query) => this.readerCapacity(query, from, to, averageStatus)),
                 }
             }
-            case 'logs filter-log-events':
-                return this.enhancedMonitoring(flags)
             case 'resourcegroupstaggingapi get-resources': {
                 const runId = /Values=(.+)$/.exec(flags.get('tag-filters') ?? '')?.[1]
                 return {
@@ -1002,9 +896,6 @@ export class FakeCloud implements Aws {
                 writeFileSync(positionals[0], body)
                 return { ContentLength: body.length }
             }
-            case 's3api delete-object':
-                this.objects.delete(flags.get('key')!)
-                return null
             case 's3api list-objects-v2': {
                 const keys = [...this.objects.keys()].filter((key) => key.startsWith(flags.get('prefix') ?? '')).sort()
                 return keys.length === 0 ? null : { Contents: keys.map((Key) => ({ Key })) }
@@ -1025,23 +916,6 @@ export class FakeCloud implements Aws {
                     target: parseJSON(flags.get('target')!) as Schedule['target'],
                 })
                 return { ScheduleArn: `arn:aws:scheduler:us-east-1:${this.account}:schedule/default/${name}` }
-            }
-            case 'scheduler get-schedule': {
-                const schedule = this.schedules.get(flags.get('name')!)
-                if (!schedule) {
-                    throw serviceError(
-                        operation,
-                        'ResourceNotFoundException',
-                        `Schedule ${flags.get('name')} does not exist.`
-                    )
-                }
-                return {
-                    Name: flags.get('name'),
-                    ScheduleExpression: schedule.expression,
-                    ScheduleExpressionTimezone: 'UTC',
-                    ActionAfterCompletion: 'DELETE',
-                    Target: schedule.target,
-                }
             }
             case 'scheduler delete-schedule':
                 if (!this.schedules.delete(flags.get('name')!)) {

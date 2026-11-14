@@ -25,7 +25,6 @@ const TARGET = 'cloud'
 const MIN_ACU = 1
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
-const ENHANCED_MONITORING = 'RDSOSMetrics'
 const DEVIATIONS = [
     'team skew is not modelled',
     'active payload sizes are not modelled',
@@ -56,10 +55,6 @@ const MetricData = z.object({
     ),
 })
 
-const METRIC_ATTEMPTS = 3
-
-const LogPage = z.object({ events: z.array(z.unknown()), nextToken: z.string().optional() })
-
 const minuteOf = (at: number): number => at - (at % MINUTE_MS)
 
 const iso = (at: number): string => new Date(at).toISOString()
@@ -88,29 +83,20 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
             Stat,
         },
     }))
-    const read = async (): Promise<z.infer<typeof MetricData>['MetricDataResults']> =>
-        MetricData.parse(
-            await aws.call([
-                'cloudwatch',
-                'get-metric-data',
-                '--start-time',
-                iso(minuteOf(from)),
-                '--end-time',
-                iso(minuteOf(to) + MINUTE_MS),
-                '--scan-by',
-                'TimestampAscending',
-                '--metric-data-queries',
-                JSON.stringify(queries),
-            ])
-        ).MetricDataResults
-    let MetricDataResults = await read()
-    for (
-        let attempt = 1;
-        attempt < METRIC_ATTEMPTS && MetricDataResults.some(({ StatusCode }) => StatusCode === 'InternalError');
-        attempt++
-    ) {
-        MetricDataResults = await read()
-    }
+    const { MetricDataResults } = MetricData.parse(
+        await aws.call([
+            'cloudwatch',
+            'get-metric-data',
+            '--start-time',
+            iso(minuteOf(from)),
+            '--end-time',
+            iso(minuteOf(to) + MINUTE_MS),
+            '--scan-by',
+            'TimestampAscending',
+            '--metric-data-queries',
+            JSON.stringify(queries),
+        ])
+    )
     const incomplete = MetricDataResults.filter(({ StatusCode }) => StatusCode !== 'Complete')
     if (incomplete.length > 0) {
         throw new Error(
@@ -143,50 +129,10 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
     return { minutes, gaps }
 }
 
-async function keepEnhancedMonitoring(
-    aws: Aws,
-    evidence: ReturnType<typeof evidenceOf>,
-    runId: string,
-    from: number,
-    to: number
-): Promise<number> {
-    const instances = ['writer', 'reader'].map((role) => `$.instanceID = "scn-${runId}-${role}"`)
-    let token: string | undefined
-    let events = 0
-    let page = 0
-    do {
-        const answer = LogPage.parse(
-            await aws.call([
-                'logs',
-                'filter-log-events',
-                '--log-group-name',
-                ENHANCED_MONITORING,
-                '--start-time',
-                String(from),
-                '--end-time',
-                String(to),
-                '--filter-pattern',
-                `{ (${instances.join(') || (')}) }`,
-                '--no-paginate',
-                ...(token ? ['--next-token', token] : []),
-            ])
-        )
-        if (answer.events.length > 0) {
-            const name = `capacity/${ENHANCED_MONITORING.toLowerCase()}/${String(page++).padStart(6, '0')}.json`
-            await evidence.put(keyOf(runId, name), JSON.stringify(answer.events))
-        }
-        events += answer.events.length
-        token = answer.nextToken
-    } while (token)
-    return events
-}
-
 function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<string, number | null>; reason?: string } {
     const t0Minute = minuteOf(t0)
     const maxima = minutes.flatMap(({ at, max }) => (max === undefined ? [] : [{ at, max }]))
-    const before = minutes.flatMap(({ at, avg, max = avg }) =>
-        at < t0Minute && max !== undefined ? [{ at, max }] : []
-    )
+    const before = maxima.filter(({ at }) => at < t0Minute)
     const after = maxima.filter(({ at }) => at >= t0Minute)
     const peak = after.reduce<{ at: number; max: number } | undefined>(
         (top, minute) => (top && top.max >= minute.max ? top : minute),
@@ -280,12 +226,6 @@ export async function report(
     if (judged?.reason) {
         reasons.push(judged.reason)
     }
-    const enhancedMonitoringEvents = await keepEnhancedMonitoring(controller.aws, evidence, runId, from, to).catch(
-        (error: Error) => {
-            controller.warn(`Could not keep the ${ENHANCED_MONITORING} events of run ${runId}: ${error.message}`)
-            return null
-        }
-    )
     const receipt = (await receiptsOf(evidence, manifest).catch(() => [])).at(-1)
     const cost = costOf(profile, (to - from) / HOUR_MS, capacity)
     const costItems = cost.map(([item, usd]) => `${item}: ${dollars(usd)}`)
@@ -308,7 +248,6 @@ export async function report(
         t0_at: t0 ?? null,
         ...judged?.scalars,
         acu_gaps: capacity?.gaps.map(iso) ?? [],
-        enhanced_monitoring_events: enhancedMonitoringEvents,
         teardown_clean: end.teardownClean,
         teardown_leftovers: (receipt?.resources ?? [])
             .filter(({ state }) => state !== 'gone')

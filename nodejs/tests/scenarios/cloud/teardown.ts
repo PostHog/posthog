@@ -6,7 +6,7 @@ import { durationMs } from '../duration'
 import { Controller } from './admission'
 import { Aws, AwsError } from './aws'
 import { stopCard } from './host'
-import { Manifest, evidenceOf, keyOf, manifestOf, release, unreleasedRuns } from './lease'
+import { Manifest, evidenceOf, keyOf, release } from './lease'
 import { CloudProfile } from './profile'
 import { POLL_MS, RUN_TAG, settledStatus, stackStatus } from './stack'
 
@@ -19,12 +19,10 @@ export type Receipt = {
     clean: boolean
     unlisted: string[]
     resources: (Resource & { state: string })[]
-    clusterGoneListedBy?: string
 }
 
 const GONE = 'gone'
 const DELETE_ATTEMPTS = 2
-const TAG_LISTING_LAG_MS = 15 * 60_000
 const CLUSTER = 'AWS::RDS::DBCluster'
 const RDS_CLUSTER_TAG = 'aws:rds:primaryDBClusterArn'
 const STACK = 'AWS::CloudFormation::Stack'
@@ -148,7 +146,7 @@ async function discover(
     { region, account }: CloudProfile,
     manifest: Manifest,
     inventory: Inventory
-): Promise<{ failures: string[]; tagged: Set<string>; blind: boolean }> {
+): Promise<{ failures: string[]; tagged: Set<string> }> {
     const failures: string[] = []
     const list = (source: string, read: () => Promise<Resource[]>): Promise<Resource[]> =>
         listInto(inventory, failures, source, read)
@@ -173,11 +171,9 @@ async function discover(
         ])) as { ResourceTagMappingList: { ResourceARN: string }[] }
         return ResourceTagMappingList.map(({ ResourceARN }) => resourceOfArn(ResourceARN))
     })
-    let blind = false
     for (const { id } of [...inventory.values()].filter(({ type }) => type === CLUSTER)) {
         await list(`the secret and backups of cluster ${id}`, async () => {
             const copies = await liveClusterCopiesOf(aws, id)
-            blind ||= copies === GONE
             return copies === GONE ? [] : copies
         })
         await list(`the secrets tagged for cluster ${id}`, () =>
@@ -186,7 +182,7 @@ async function discover(
         await list(`the retained backups of cluster ${id}`, () => retainedBackupsOf(aws, id))
         await list(`the snapshots of cluster ${id}`, () => snapshotsOf(aws, id))
     }
-    return { failures, tagged: new Set(tagged.map(keyOfResource)), blind }
+    return { failures, tagged: new Set(tagged.map(keyOfResource)) }
 }
 
 export async function receiptsOf(evidence: ReturnType<typeof evidenceOf>, manifest: Manifest): Promise<Receipt[]> {
@@ -283,7 +279,7 @@ async function receiptOf(
     manifest: Manifest,
     inventory: Inventory,
     lost: string[],
-    { until, listedBy }: { until: number; listedBy: number }
+    { until }: { until: number }
 ): Promise<Receipt> {
     for (;;) {
         const { failures, tagged } = await discover(controller, profile, manifest, inventory)
@@ -298,17 +294,8 @@ async function receiptOf(
             resources.push({ ...resource, state })
         }
         const gone = resources.every(({ state }) => state === GONE)
-        const caughtUp = controller.now().getTime() >= listedBy
-        if ((gone && failures.length === 0 && caughtUp) || controller.now().getTime() >= until) {
-            const unlisted = [
-                ...lost,
-                ...failures,
-                ...(caughtUp
-                    ? []
-                    : [
-                          `everything an earlier receipt missed, until the tag listings catch up at ${new Date(listedBy).toISOString()}`,
-                      ]),
-            ]
+        if ((gone && failures.length === 0) || controller.now().getTime() >= until) {
+            const unlisted = [...lost, ...failures]
             return {
                 runId: manifest.runId,
                 stackName: manifest.stackName,
@@ -337,40 +324,17 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
             ].map((resource) => [keyOfResource(resource), resource])
         )
         const lost: string[] = []
-        let listedBy = 0
-        let clusterGoneListedBy: number | undefined
-        await listInto(inventory, lost, 'the earlier receipts', async () => {
-            const receipts = await receiptsOf(evidence, manifest)
-            if (receipts.some(({ unlisted }) => unlisted.length > 0)) {
-                listedBy = Date.parse(receipts[0].checkedAt) + TAG_LISTING_LAG_MS
-            }
-            const stored = receipts.find((receipt) => receipt.clusterGoneListedBy)?.clusterGoneListedBy
-            clusterGoneListedBy = stored === undefined ? undefined : Date.parse(stored)
-            return receipts.flatMap(({ resources }) => resources.map(({ type, id }) => ({ type, id })))
-        })
         await stopCard(controller, profile, manifest).catch((error: Error) =>
             controller.warn(
                 `The card of run ${manifest.runId} did not finish cleanly before its stack was deleted: ${error.message}`
             )
         )
-        const { failures, blind } = await discover(controller, profile, manifest, inventory)
+        const { failures } = await discover(controller, profile, manifest, inventory)
         lost.push(...failures)
         await deleteStack(controller, profile, manifest, until).catch((error: Error) =>
             controller.warn(`Could not delete stack ${manifest.stackName}: ${error.message}`)
         )
-        const requested = await orGone(evidence.get(keyOf(manifest.runId, 'stack-requested')), () => true, 'NoSuchKey')
-        const waitsForListings = blind && requested !== GONE
-        if (waitsForListings) {
-            listedBy = Math.max(listedBy, clusterGoneListedBy ?? controller.now().getTime() + TAG_LISTING_LAG_MS)
-        }
-        receipt = await receiptOf(controller, profile, manifest, inventory, lost, { until, listedBy })
-        const stackGone = receipt.resources.some(({ type, state }) => type === STACK && state === GONE)
-        const graceEnd =
-            clusterGoneListedBy ??
-            (waitsForListings && stackGone ? Date.parse(receipt.checkedAt) + TAG_LISTING_LAG_MS : undefined)
-        if (graceEnd !== undefined) {
-            receipt = { ...receipt, clusterGoneListedBy: new Date(graceEnd).toISOString() }
-        }
+        receipt = await receiptOf(controller, profile, manifest, inventory, lost, { until })
         await evidence.put(
             keyOf(manifest.runId, `receipts/${receipt.checkedAt}-${randomUUID()}.json`),
             JSON.stringify(receipt, null, 2)
@@ -409,33 +373,4 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
         )
         return false
     }
-}
-
-export async function teardownExpired(
-    controller: Controller,
-    profile: CloudProfile,
-    { retryLeftovers }: { retryLeftovers: boolean }
-): Promise<boolean> {
-    const bucket = profile.baseline.evidenceBucket
-    const evidence = evidenceOf(controller.aws, bucket)
-    let clean = true
-    for (const runId of await unreleasedRuns(controller, bucket)) {
-        try {
-            const manifest = await manifestOf(controller, bucket, runId)
-            if (Date.parse(manifest.expiresAt) > controller.now().getTime()) {
-                continue
-            }
-            const latest = (await receiptsOf(evidence, manifest)).at(-1)
-            if (!retryLeftovers && latest && !latest.clean) {
-                controller.warn(`Expired run ${runId} left resources behind.\n${finishOf(manifest)}`)
-                clean = false
-            } else {
-                clean = (await teardown(controller, profile, manifest)) && clean
-            }
-        } catch (error) {
-            controller.warn(`Could not tear down expired run ${runId}: ${(error as Error).message}`)
-            clean = false
-        }
-    }
-    return clean
 }
