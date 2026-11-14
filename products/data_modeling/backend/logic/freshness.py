@@ -22,6 +22,9 @@ Vocabulary, one term per concept:
   staler than a consumer requires).
   In interval-space a smaller timedelta means fresher/more frequent, so as plain
   timedeltas: source_floor <= target <= consumer_ceiling.
+- plan floor: the finest cadence the organization's plan lets a person set. It applies to every node
+  of the team alike, so it is not a graph property. It withholds finer options and refuses new or
+  faster targets below it. The scheduler ignores it, and a target saved before it applied stays.
 - pinned: an opt-in on a node with a declared target. Its effective cadence is its own target,
   so consumers do not speed it up, and its ancestors see the pinned target instead of the demand
   below it. It has no consumer ceiling. Its children inherit the coarser of its source floor and
@@ -46,6 +49,7 @@ from datetime import timedelta
 
 from products.data_modeling.backend.facade.contracts import (
     Bound,
+    PlanFloorRefusalError,
     TargetBounds,
     TargetOption,
     UnsatisfiableFrequencyError,
@@ -434,6 +438,7 @@ def compute_target_bounds(
     declared_targets: dict[str, timedelta],
     source_intervals: dict[str, timedelta],
     pinned: Collection[str] = frozenset(),
+    plan_floor: timedelta | None = None,
 ) -> TargetBounds:
     """Resolve one node's selectable cadences, marking each blocked option with what blocks it.
 
@@ -448,15 +453,17 @@ def compute_target_bounds(
     ceiling = all_consumer_ceiling_bounds(edges, declared_targets, pinned).get(node_id)
     if node_id in pinned:
         ceiling = None
-    return _bounds_from(floor=floor, ceiling=ceiling)
+    return _bounds_from(floor=floor, ceiling=ceiling, plan_floor=plan_floor)
 
 
-def _bounds_from(*, floor: Bound, ceiling: Bound | None) -> TargetBounds:
-    """Mark every cadence against one pair of bounds, reporting each bound only if it blocks."""
+def _bounds_from(*, floor: Bound, ceiling: Bound | None, plan_floor: timedelta | None = None) -> TargetBounds:
+    """Mark every cadence against the bounds, reporting each bound only if it blocks."""
     options: list[TargetOption] = []
     for value in sorted(SCHEDULABLE_BUCKETS):
         if is_finer_than(value, floor.value):
             options.append(TargetOption(value=value, allowed=False, blocked_by="source", blocker=floor.blocker))
+        elif plan_floor is not None and is_finer_than(value, plan_floor):
+            options.append(TargetOption(value=value, allowed=False, blocked_by="plan"))
         elif ceiling is not None and is_coarser_than(value, ceiling.value):
             options.append(TargetOption(value=value, allowed=False, blocked_by="consumer", blocker=ceiling.blocker))
         else:
@@ -466,6 +473,7 @@ def _bounds_from(*, floor: Bound, ceiling: Bound | None) -> TargetBounds:
     return TargetBounds(
         options=tuple(options),
         floor=floor if "source" in blocked else None,
+        plan_floor=plan_floor if "plan" in blocked else None,
         ceiling=ceiling if "consumer" in blocked else None,
     )
 
@@ -480,10 +488,12 @@ def intersect_target_bounds(bounds: Iterable[TargetBounds]) -> TargetBounds:
     """
     per_dag = list(bounds)
     floors = [bound.floor for bound in per_dag if bound.floor is not None]
+    plan_floors = [bound.plan_floor for bound in per_dag if bound.plan_floor is not None]
     ceilings = [bound.ceiling for bound in per_dag if bound.ceiling is not None]
     return _bounds_from(
         floor=max(floors, key=_bound_sort_key) if floors else Bound(value=STREAMING, blocker=None),
         ceiling=min(ceilings, key=_bound_sort_key) if ceilings else None,
+        plan_floor=max(plan_floors) if plan_floors else None,
     )
 
 
@@ -553,12 +563,14 @@ def validate_declared_target(
     source_intervals: dict[str, timedelta],
     names: Mapping[str, str] | None = None,
     pinned: Collection[str] = frozenset(),
+    plan_floor: timedelta | None = None,
 ) -> None:
     """Raise if `target` is not selectable or falls outside the node's bounds.
 
     `names` maps node ids to display names; supply it to have refusals name the source or view
     that blocks the target, which is the thing a person has to change to unblock it. `pinned`
-    holds the pin state the write would leave, including `node_id`'s own.
+    holds the pin state the write would leave, including `node_id`'s own. `plan_floor` is the
+    finest cadence the organization's plan allows, or None when its plan sets no floor.
     """
     ensure_schedulable(target)
 
@@ -568,14 +580,21 @@ def validate_declared_target(
         declared_targets=declared_targets,
         source_intervals=source_intervals,
         pinned=pinned,
+        plan_floor=plan_floor,
     )
     option = bounds.option_for(target)
     if option is None or option.allowed:
         return
 
+    if option.blocked_by == "plan" and declared_targets.get(node_id) == target:
+        return
+
     # Nothing legal to fall back to, so no message here can end in "pick X instead"
     if not bounds.satisfiable:
-        raise UnsatisfiableFrequencyError(_nothing_satisfiable_message(bounds, names, pinned))
+        message = _nothing_satisfiable_message(bounds, names, pinned)
+        if option.blocked_by == "plan" and bounds.plan_floor is not None:
+            raise PlanFloorRefusalError(message, target=target, plan_floor=bounds.plan_floor)
+        raise UnsatisfiableFrequencyError(message)
 
     # Suggest a cadence the same call would accept, and name the bound itself rather than a
     # direction. Bounds are inclusive, so the bound is always a legal answer, while "or slower" /
@@ -584,6 +603,13 @@ def validate_declared_target(
         raise UnsatisfiableFrequencyError(
             f"Can't refresh every {humanize_cadence(target)}: {_floor_reason(bounds.floor, names, pinned).why}."
             f" Pick {humanize_cadence(min(bounds.allowed))} instead."
+        )
+    if option.blocked_by == "plan" and bounds.plan_floor is not None:
+        raise PlanFloorRefusalError(
+            f"Can't refresh every {humanize_cadence(target)} on your plan."
+            f" Pick {humanize_cadence(min(bounds.allowed))} instead, or upgrade to refresh more often.",
+            target=target,
+            plan_floor=bounds.plan_floor,
         )
     if option.blocked_by == "consumer" and bounds.ceiling is not None:
         consumer = _describe(option.blocker, names, "a view or endpoint built on this one")

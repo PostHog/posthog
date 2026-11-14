@@ -46,6 +46,7 @@ from products.data_modeling.backend.logic.freshness import (
     normalize_seed_target,
 )
 from products.data_modeling.backend.logic.node_suspension import is_node_suspended, merged_suspension_state
+from products.data_modeling.backend.logic.refresh_floor import read_plan_refresh_floor
 from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -89,6 +90,10 @@ def node_identity(node: Node) -> NodeIdentity:
         warehouse_table_id=str(table_id) if table_id else None,
         is_posthog_table=properties.get(_ORIGIN_KEY) == _ORIGIN_POSTHOG,
     )
+
+
+def nodes_declared_finer_than(interval: timedelta) -> QuerySet[Node]:
+    return Node.objects.filter(properties__system__frequency__target_seconds__lt=int(interval.total_seconds()))
 
 
 def get_declared_target(node: Node) -> timedelta | None:
@@ -307,6 +312,7 @@ class FrequencyGraph:
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
     names: dict[str, str]  # node id -> display name, so a bound can name what set it
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
+    plan_floor: timedelta | None  # finest cadence the team's plan lets a view be set to
     managed_node_ids: set[str]  # nodes whose target the managed viewset provider declares
     stand_ins: dict[str, str]  # stand-in source id -> the node that sets its interval
 
@@ -318,6 +324,7 @@ class FrequencyGraph:
             declared_targets=self.declared_targets,
             source_intervals=self.source_intervals,
             pinned=self.pinned,
+            plan_floor=self.plan_floor,
         )
 
         def real(blocker: str | None) -> str | None:
@@ -426,6 +433,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         best_effort_source_ids=best_effort,
         names=names,
         identities=identities,
+        plan_floor=read_plan_refresh_floor(dag.team_id),
         managed_node_ids=managed_node_ids,
         stand_ins=stand_ins,
     )

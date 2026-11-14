@@ -2738,6 +2738,7 @@ export interface EndpointType extends WithAccessControl {
     updated_at: string
     created_by: UserBasicType | null
     data_freshness_seconds: number
+    plan_refresh_floor_seconds: number | null
     is_materialized: boolean
     current_version: number
     current_version_id: string

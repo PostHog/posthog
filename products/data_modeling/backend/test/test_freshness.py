@@ -4,7 +4,11 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.facade.contracts import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
+from products.data_modeling.backend.facade.contracts import (
+    PlanFloorRefusalError,
+    UnsatisfiableFrequencyError,
+    UnsupportedFrequencyTargetError,
+)
 from products.data_modeling.backend.logic.freshness import (
     SCHEDULABLE_BUCKETS,
     STREAMING,
@@ -161,9 +165,44 @@ class TestValidateFrequencyTarget(TestCase):
                 False,
                 {"contacts", "accounts"},
             ),
+            ("below_plan_floor", "a", H1, [("src", "a")], {}, {"src": STREAMING}, False, frozenset(), H6),
+            ("on_plan_floor_ok", "a", H6, [("src", "a")], {}, {"src": STREAMING}, True, frozenset(), H6),
+            (
+                "plan_floor_keeps_a_faster_consumer_ceiling",
+                "a",
+                H6,
+                [("src", "a"), ("a", "ep")],
+                {"ep": M15},
+                {"src": STREAMING},
+                False,
+                frozenset(),
+                H6,
+            ),
+            (
+                "stored_target_resaves_when_plan_and_consumer_leave_nothing_allowed",
+                "a",
+                H1,
+                [("src", "a"), ("a", "ep")],
+                {"a": H1, "ep": H1},
+                {"src": STREAMING},
+                True,
+                frozenset(),
+                H6,
+            ),
         ]
     )
-    def test_validate(self, _name, node_id, target, edges, targets, source_intervals, ok, pinned=frozenset()):
+    def test_validate(
+        self,
+        _name,
+        node_id,
+        target,
+        edges,
+        targets,
+        source_intervals,
+        ok,
+        pinned=frozenset(),
+        plan_floor=None,
+    ):
         if ok:
             validate_declared_target(
                 node_id=node_id,
@@ -172,6 +211,7 @@ class TestValidateFrequencyTarget(TestCase):
                 declared_targets=targets,
                 source_intervals=source_intervals,
                 pinned=pinned,
+                plan_floor=plan_floor,
             )
         else:
             with self.assertRaises(UnsatisfiableFrequencyError):
@@ -182,7 +222,33 @@ class TestValidateFrequencyTarget(TestCase):
                     declared_targets=targets,
                     source_intervals=source_intervals,
                     pinned=pinned,
+                    plan_floor=plan_floor,
                 )
+
+    @parameterized.expand(
+        [
+            (
+                "bounds_leave_a_cadence_to_pick",
+                [("src", "a")],
+                {},
+                "Can't refresh every 15 minutes on your plan. Pick 6 hours instead, or upgrade to refresh more often.",
+            ),
+            ("a_consumer_needs_a_cadence_the_plan_refuses", [("src", "a"), ("a", "ep")], {"ep": M15}, None),
+        ]
+    )
+    def test_plan_refusal_is_raised_as_a_plan_refusal(self, _name, edges, declared_targets, message):
+        with self.assertRaises(PlanFloorRefusalError) as raised:
+            validate_declared_target(
+                node_id="a",
+                target=M15,
+                edges=edges,
+                declared_targets=declared_targets,
+                source_intervals={"src": STREAMING},
+                plan_floor=H6,
+            )
+        self.assertEqual(raised.exception.plan_floor, H6)
+        if message is not None:
+            self.assertEqual(str(raised.exception), message)
 
     def test_refusal_under_pinned_parents_names_the_pinned_view(self):
         with self.assertRaises(UnsatisfiableFrequencyError) as raised:
@@ -289,6 +355,7 @@ class TestComputeTargetBounds(TestCase):
             edges=overrides.pop("edges", self.EDGES),
             declared_targets=overrides.pop("declared_targets", self.TARGETS),
             source_intervals=overrides.pop("source_intervals", self.INTERVALS),
+            plan_floor=overrides.pop("plan_floor", None),
         )
         return bounds, {option.value: option for option in bounds.options}
 
@@ -321,6 +388,47 @@ class TestComputeTargetBounds(TestCase):
     def test_crossed_bounds_leave_nothing_pickable(self):
         bounds, _ = self._options(declared_targets={"ep": M15})
         self.assertFalse(bounds.satisfiable)
+
+    @parameterized.expand(
+        [
+            ("no_plan_floor", None, STREAMING, {}, {}, None),
+            ("plan_floor_withholds_finer", H6, STREAMING, {}, {M15: "plan", M30: "plan", H1: "plan"}, H6),
+            # the source is the physical limit, so it keeps the blame for every cadence both withhold
+            (
+                "slower_source_keeps_the_blame",
+                H6,
+                H12,
+                {},
+                {M15: "source", M30: "source", H1: "source", H6: "source"},
+                None,
+            ),
+            (
+                "faster_consumer_keeps_its_ceiling",
+                H6,
+                STREAMING,
+                {"ep": M15},
+                {
+                    M15: "plan",
+                    M30: "plan",
+                    H1: "plan",
+                    H6: "consumer",
+                    H12: "consumer",
+                    DAY: "consumer",
+                    timedelta(days=7): "consumer",
+                    DAY30: "consumer",
+                },
+                H6,
+            ),
+        ]
+    )
+    def test_plan_floor(self, _name, plan_floor, source_interval, targets, expected_blocked, expected_plan_floor):
+        bounds, options = self._options(
+            declared_targets=targets, source_intervals={"src": source_interval}, plan_floor=plan_floor
+        )
+        self.assertEqual(
+            {value: option.blocked_by for value, option in options.items() if not option.allowed}, expected_blocked
+        )
+        self.assertEqual(bounds.plan_floor, expected_plan_floor)
 
 
 class TestMaxDataAge(TestCase):

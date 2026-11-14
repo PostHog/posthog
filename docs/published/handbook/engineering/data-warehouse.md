@@ -36,6 +36,24 @@ Direct-connection catalogs contain no authored models and are exempt from the re
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
 
+## Model refresh minimums
+
+Billing sets each plan's minimum as the `limit`, in minutes, of the `data_modeling_refresh_interval` product feature, the same way it sets the `alerts` limit.
+Billing sync stores the feature in `available_product_features`.
+An organization without the feature, or with a feature that has no `limit`, has no minimum.
+A `limit` that is not a cadence rounds up to the next one, and the minimum stops at seven days, the coarsest cadence an endpoint can use.
+
+The proposed limits are `60` for free organizations, `30` for paid organizations without a package, and `15` for Teams, Boost, Scale, and Enterprise.
+
+The `data-modeling-refresh-floor` flag rolls the minimum out, and no minimum applies while the flag is off for an organization or can't be read.
+The minimum refuses new and faster cadences.
+Each DAG run first rewrites every cadence in that DAG saved faster than the minimum to the minimum and reconciles its schedules, so a flag or plan change reaches a view or endpoint on its next run.
+The rewrite is permanent: an upgrade or turning the flag off does not restore the old cadence, and the person picks a faster one again.
+Each rewrite sends a `data modeling refresh clamped to plan floor` event that holds the previous cadence.
+Managed views keep the cadence their provider declares.
+When an endpoint's query changes while its cadence is still faster than the minimum, the new version is created but not materialized.
+Picking a cadence at or above the minimum materializes it.
+
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
