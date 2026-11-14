@@ -1,6 +1,9 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_EVENTS_DLQ,
+    KAFKA_CDP_INTAKE_DLQ,
+    KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL,
+    KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
     KAFKA_CDP_SES_WEBHOOKS,
     KAFKA_EMAIL_STATUS,
     KAFKA_EVENTS_JSON,
@@ -15,6 +18,7 @@ import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhou
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
@@ -46,6 +50,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_RATE_LIMITER_REFILL_RATE: number
     CDP_RATE_LIMITER_TTL: number
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    // 'true' requires the MMDB, 'false' disables it, empty uses the default of the CDP mode.
+    CDP_MMDB_ENABLED: string
     DISABLE_OPENTELEMETRY_TRACING: boolean
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
@@ -72,6 +78,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
+    CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
     WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
@@ -112,6 +119,26 @@ export type CdpConfig = ClickhouseConfig & {
     // Check the cdp_valkey_mirror_operations_total mismatch/failed counts for a feature before
     // flipping it: hog-watcher reads a missing key as healthy with a full token bucket.
     CDP_VALKEY_READ_FEATURES: string
+    // Counts crashed attempts of each Kafka cyclotron batch in CDP Valkey.
+    //   "off"     - no counting.
+    //   "shadow"  - a batch that crashed the worker MAX_ATTEMPTS times is logged and counted, then processed.
+    //   "enforce" - a batch that crashed the worker MAX_ATTEMPTS times goes unprocessed to cdp_cyclotron_hogdlq.
+    // The hogdlq worker quarantines such a message in both shadow and enforce: it records a terminal failure and skips it.
+    CDP_BATCH_QUARANTINE_MODE: string
+    // A batch that crashed the worker this many times is poisoned.
+    CDP_BATCH_QUARANTINE_MAX_ATTEMPTS: number
+    // Must outlive a crash loop with restart backoff, so a key that no success clears still goes away.
+    CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS: number
+    // Every batch waits for the count, so a slow Valkey must not stall the consumer.
+    CDP_BATCH_QUARANTINE_VALKEY_TIMEOUT_MS: number
+    // A poisoned message flags only the partitions fetched with it, while a bad deploy or an outage that kills
+    // the worker flags nearly all of them. Past this many flagged partitions within the key TTL, the guard
+    // stops setting aside and the worker stalls, so the lag alerts page instead of the DLQ filling.
+    CDP_BATCH_QUARANTINE_MAX_FLAGGED_PARTITIONS: number
+    // A function with this many distinct invocations quarantined within the window shows up in the
+    // cdp_quarantined_functions gauge, which the on-call alert reads.
+    CDP_QUARANTINE_ESCALATION_THRESHOLD: number
+    CDP_QUARANTINE_ESCALATION_WINDOW_SECONDS: number
 
     SES_RATE_LIMITER_VALKEY_HOST: string
     SES_RATE_LIMITER_VALKEY_PORT: number
@@ -178,6 +205,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
     CDP_SES_WEBHOOKS_TOPIC: string
     CDP_SES_WEBHOOKS_PRODUCER: CdpProducerName
+    CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: string
+    CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: string
+    CDP_INTAKE_DLQ_TOPIC: string
+    CDP_INTAKE_PRODUCER: CdpProducerName
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -223,6 +254,7 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
+    CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: string
     CDP_EMAIL_TEMPLATE_TAGS_TEAMS: string
     CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
     CDP_EMAIL_ATTACHMENTS_S3_REGION: string
@@ -346,6 +378,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_RATE_LIMITER_REFILL_RATE: 100,
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24,
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
+        CDP_MMDB_ENABLED: '',
         DISABLE_OPENTELEMETRY_TRACING: false,
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
@@ -370,6 +403,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
+        CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: false,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
         WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
         SES_SANDBOX_CONFIGURATION_SET: '',
@@ -399,6 +433,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_READER_PORT: 6379,
         CDP_VALKEY_TLS: false,
         CDP_VALKEY_READ_FEATURES: '',
+        CDP_BATCH_QUARANTINE_MODE: 'off',
+        CDP_BATCH_QUARANTINE_MAX_ATTEMPTS: 3,
+        CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS: 60 * 60,
+        CDP_BATCH_QUARANTINE_VALKEY_TIMEOUT_MS: 500,
+        CDP_BATCH_QUARANTINE_MAX_FLAGGED_PARTITIONS: 32,
+        CDP_QUARANTINE_ESCALATION_THRESHOLD: 3,
+        CDP_QUARANTINE_ESCALATION_WINDOW_SECONDS: 60 * 60,
 
         // Dev points at the compose stack's Valkey (same instance as CDP_VALKEY) so the SES gate,
         // per-workflow email rate limits, and the MX-validation cache are exercisable locally.
@@ -465,6 +506,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_SES_WEBHOOKS_TOPIC: KAFKA_CDP_SES_WEBHOOKS,
         CDP_SES_WEBHOOKS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL,
+        CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
+        CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
+        CDP_INTAKE_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
@@ -496,6 +541,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
         CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
+        CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: '',
         CDP_EMAIL_TEMPLATE_TAGS_TEAMS: '',
         CDP_EMAIL_ATTACHMENTS_S3_BUCKET: isDevEnv() || isTestEnv() ? 'email-attachments' : '',
         CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',

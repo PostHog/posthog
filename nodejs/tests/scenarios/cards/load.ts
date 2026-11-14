@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
 import { durationMs } from '../duration'
+import { TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile } from './schema'
 
@@ -15,6 +16,7 @@ export const ROLE_RESTART_BACKOFF_MS = 2000
 const JANITOR_STALL_BACKOFF_FIRST_RETRY_SPREAD_MS = 5000
 const STALLING_VALVES = ['role.kill', 'role.freeze', 'pg.drop_connections']
 const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
+export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
 
@@ -78,8 +80,12 @@ function checkNames(card: Card, definitions: Definitions): string[] {
             if (!definition) {
                 return [`valves.${i}.valve: unknown valve ${entry.valve}`]
             }
+            const target = definition.target.safeParse(entry.target)
             const dose = definition.params.safeParse(entry.dose)
-            return dose.success ? [] : problemsOf(dose.error, `valves.${i}.dose`)
+            return [
+                ...(target.success ? [] : problemsOf(target.error, `valves.${i}.target`)),
+                ...(dose.success ? [] : problemsOf(dose.error, `valves.${i}.dose`)),
+            ]
         }),
     ]
 }
@@ -130,19 +136,55 @@ function checkStallBound(card: Card, config: Settings): string[] {
 }
 
 function checkSuppression(card: Card): string[] {
-    const bounces = card.valves.some(({ valve, dose }) => valve === 'ses.reject' && dose.type === 'bounce')
-    return card.invariants.flatMap(({ name }, i) =>
-        name === 'bounced_suppressed' && !bounces
-            ? [`invariants.${i}.name: bounced_suppressed needs a ses.reject entry with type bounce`]
-            : []
+    const bounceEntries = card.valves.filter(({ valve, dose }) => valve === 'ses.reject' && dose.type === 'bounce')
+    const bouncesEverySend = bounceEntries.some(
+        ({ dose, at, for: holdFor }) =>
+            (dose.share ?? 1) === 1 &&
+            at !== undefined &&
+            durationMs(at) === 0 &&
+            durationMs(holdFor) >= durationMs(card.drive.for)
     )
+    const withoutFollowUp = card.drive.traffic
+        .map(({ name }) => name)
+        .filter((name) => !TRAFFIC.find((traffic) => traffic.name === name)?.followUp)
+    return card.invariants.flatMap(({ name }, i) => {
+        if (name !== 'bounced_suppressed') {
+            return []
+        }
+        const where = `invariants.${i}.name: bounced_suppressed`
+        if (bounceEntries.length === 0) {
+            return [`${where} needs a ses.reject entry with type bounce`]
+        }
+        return [
+            ...(bouncesEverySend
+                ? []
+                : [`${where} needs a ses.reject bounce at share 1 from 0s for the whole ${card.drive.for} drive`]),
+            ...(withoutFollowUp.length === 0
+                ? []
+                : [`${where} needs traffic that follows up every bounce, and ${withoutFollowUp.join(', ')} does not`]),
+        ]
+    })
+}
+
+const ANSWERED_AT_INTAKE = TRAFFIC.filter(({ intake }) => intake !== 'event').map(({ name }) => name)
+
+function checkIntakeVerdict(card: Card): string[] {
+    const unjudged = card.drive.traffic.filter(({ name }) => ANSWERED_AT_INTAKE.includes(name))
+    if (unjudged.length === 0 || card.invariants.some(({ name }) => name === 'refused_at_intake')) {
+        return []
+    }
+    return [
+        `invariants: ${unjudged.map(({ name }) => name).join(', ')} counts a unit its intake refused as offered, so the card needs refused_at_intake`,
+    ]
 }
 
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
+    const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
+    const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
     return [
         ...Object.keys(profile.settings)
-            .filter((name) => !Object.hasOwn(defaults, name) && !PROCESS_ENV_SETTINGS.includes(name))
-            .map((name) => `profile.settings.${name}: not a setting the roles read`),
+            .filter((name) => !rolesRead(name) && !loadProducerReads(name))
+            .map((name) => `profile.settings.${name}: not a setting the roles or the load producer read`),
         ...card.drive.traffic.flatMap(({ name }) => {
             const definition = definitions.traffic.find((traffic) => traffic.name === name)
             const traffic = definition?.profile.safeParse(profile.traffic[name])
@@ -184,6 +226,7 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
         ...checkSchedules(card),
         ...checkStallBound(card, config),
         ...checkSuppression(card),
+        ...checkIntakeVerdict(card),
         ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults) : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {

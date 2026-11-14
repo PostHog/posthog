@@ -6,6 +6,7 @@ import { IconBook } from '@posthog/icons'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { inStorybook, uuid } from 'lib/utils/dom'
@@ -36,6 +37,7 @@ import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MaxUIContext } from './maxTypes'
+import { agentModeFromParam } from './modeChoices'
 import type { TopicSuggestion } from './suggestionTopics'
 import { nextTypingDelayMs } from './utils/typing'
 
@@ -44,6 +46,15 @@ const PENDING_PROMPT_MAX_AGE_MS = 5 * 60 * 1000
 
 /** Key for storing pending Max context in sessionStorage */
 export const PENDING_MAX_CONTEXT_KEY = 'posthog.pending_max_context'
+
+/** The next `/ai?ask=` link that opens sends this context with its prompt. */
+export function stashPendingMaxContext(context: Partial<MaxUIContext>): void {
+    try {
+        sessionStorage.setItem(PENDING_MAX_CONTEXT_KEY, JSON.stringify({ context, timestamp: Date.now() }))
+    } catch {
+        // sessionStorage unavailable, silently fail, agent will handle it
+    }
+}
 
 /** Maximum age for restored context (5 minutes) */
 const PENDING_CONTEXT_MAX_AGE_MS = 5 * 60 * 1000
@@ -255,9 +266,11 @@ export interface maxLogicActions {
     askMax: (
         prompt: string | null,
         addToThread?: boolean,
-        uiContext?: Partial<MaxUIContext>
+        uiContext?: Partial<MaxUIContext>,
+        agentMode?: AgentMode | null
     ) => {
         addToThread: boolean
+        agentMode: AgentMode | null | undefined
         prompt: string | null
         uiContext: Partial<MaxUIContext> | undefined
     }
@@ -438,10 +451,16 @@ export const maxLogic = kea<maxLogicType>([
         runSuggestion: (suggestion: TopicSuggestion) => ({ suggestion }),
         cancelSuggestionTyping: true,
         setTypingSuggestion: (content: string | null) => ({ content }),
-        askMax: (prompt: string | null, addToThread: boolean = true, uiContext?: Partial<MaxUIContext>) => ({
+        askMax: (
+            prompt: string | null,
+            addToThread: boolean = true,
+            uiContext?: Partial<MaxUIContext>,
+            agentMode?: AgentMode | null
+        ) => ({
             prompt,
             addToThread,
             uiContext,
+            agentMode,
         }), // used by maxThreadLogic to start a conversation
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         openConversation: (conversationId: string) => ({ conversationId }),
@@ -1052,10 +1071,14 @@ export const maxLogic = kea<maxLogicType>([
                     return
                 }
 
+                const agentMode = search.mode
+                    ? agentModeFromParam(String(search.mode), featureFlagLogic.values.featureFlags)
+                    : undefined
+
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
-                    // Pass context directly to askMax to avoid timing issues
-                    actions.askMax(askPrompt, true, uiContext)
+                    // Pass context and mode directly to askMax to avoid timing issues
+                    actions.askMax(askPrompt, true, uiContext, agentMode)
                 }, 100)
                 return
             }

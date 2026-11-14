@@ -2879,6 +2879,13 @@ class TestIsConnectionDroppedError:
             # ProtocolViolation rather than OperationalError. Same transient pool-capacity class as
             # the pgcat/Supavisor checkout failures above; the reconnect must catch it.
             psycopg.errors.ProtocolViolation("query_wait_timeout"),
+            # PgBouncer's own `idle_transaction_timeout` setting disconnects a client that leaves a
+            # transaction open longer than the configured limit — exactly what our server-cursor
+            # reads do between fetches during a slow delta-merge. Same bare error-packet shape as
+            # `query_wait_timeout` above, so psycopg surfaces it as ProtocolViolation rather than the
+            # `IdleInTransactionSessionTimeout` Postgres itself raises for the server-side timeout
+            # (already covered by the type check); same transient class, so the reconnect must catch it.
+            psycopg.errors.ProtocolViolation("idle transaction timeout"),
             # psycopg's own message when `PQconnectStart` reports the connection BAD before the
             # handshake begins and libpq has no server-reported error text to attach — a purely
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
@@ -8943,20 +8950,34 @@ class TestGetPrimaryKeys:
             result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
             assert result is None
 
-    def test_reraises_connection_drop_during_child_partition_fallback(self):
+    @parameterized.expand(
+        [
+            (
+                "connection_drop",
+                psycopg.OperationalError("the connection is lost"),
+                "the connection is lost",
+            ),
+            (
+                "recovery_conflict",
+                psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery"),
+                "conflict with recovery",
+            ),
+        ]
+    )
+    def test_reraises_transient_error_during_child_partition_fallback(self, _name, error, match):
         logger = structlog.get_logger()
         cursor = MagicMock()
         # Primary PK query returns no rows, so the child-partition fallback runs.
         cursor.fetchall.return_value = []
-        # The fallback query then hits a transient connection drop. It must propagate to the setup
-        # retry loop (stays retryable), not be swallowed as "no primary key" + captured as noise.
-        cursor.execute.side_effect = [None, psycopg.OperationalError("the connection is lost")]
+        # The fallback query then hits a transient error. It must propagate to the setup retry
+        # loop (stays retryable), not be swallowed as "no primary key" + captured as noise.
+        cursor.execute.side_effect = [None, error]
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}._explain_query"),
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            with pytest.raises(psycopg.OperationalError, match="the connection is lost"):
+            with pytest.raises(type(error), match=match):
                 _get_primary_keys(cast(Any, cursor), "public", "events", logger)
         mock_capture.assert_not_called()
 

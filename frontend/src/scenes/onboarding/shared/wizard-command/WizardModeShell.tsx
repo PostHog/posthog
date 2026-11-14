@@ -1,9 +1,7 @@
-import './WizardModeShell.scss'
-
 import type { ComponentType, ReactNode } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
-import { WizardHog } from 'scenes/onboarding/shared/wizardHog'
+import { AnimatedWizardHog } from 'scenes/onboarding/shared/AnimatedWizardHog'
 
 import androidImage from '../logos/android.svg'
 import angularImage from '../logos/angular.svg'
@@ -20,9 +18,6 @@ import reactImage from '../logos/react.svg'
 import { ReactRouterLogo } from '../logos/ReactRouterLogo'
 import svelteImage from '../logos/svelte.svg'
 import vueImage from '../logos/vue.svg'
-
-/** The hedgehog beside the wizard's content; `null` drops it, e.g. when an outer shell already shows one. */
-export type WizardShellHog = ComponentType<{ className?: string }> | null
 
 /** One "Supports:" chip; icon-less items (e.g. "+ 30 more") render as text only. */
 export interface WizardBadgeItem {
@@ -90,32 +85,21 @@ export function WizardFrameworkBadges({ items = WIZARD_FRAMEWORKS }: { items?: W
  * Shared chrome for both install modes, so the cloud and local tabs read as one
  * wizard rather than two unrelated panels: the hedgehog on the left, the
  * mode-specific content on the right. The framework badges are rendered once
- * above the mode selector (shared by both), not here. `hogCastKey` replays the
- * hog's "casting" wobble when bumped — the command tab bumps it on copy; the
- * cloud tab leaves it at 0 (a static hog).
+ * above the mode selector (shared by both), not here. Bumping `hogCastKey` makes
+ * the hog cast a spell; the command tab bumps it on copy.
  */
 export function WizardModeShell({
     children,
     hogCastKey = 0,
-    hog: Hog = WizardHog,
     'data-attr': dataAttr,
 }: {
     children: ReactNode
     hogCastKey?: number
-    hog?: WizardShellHog
     'data-attr'?: string
 }): JSX.Element {
     return (
         <div className="flex gap-6" data-attr={dataAttr}>
-            {Hog && (
-                <Hog
-                    key={`hog-${hogCastKey}`}
-                    className={cn(
-                        'w-28 h-28 hidden sm:block shrink-0 self-center',
-                        hogCastKey > 0 && 'WizardModeShell__hogCast'
-                    )}
-                />
-            )}
+            <AnimatedWizardHog castKey={hogCastKey} className="w-28 h-28 hidden sm:block shrink-0 self-center" />
             <div className="flex-1 flex flex-col justify-center gap-3 min-w-0">{children}</div>
         </div>
     )

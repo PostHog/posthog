@@ -18,6 +18,7 @@ from posthog.utils import ensure_utc
 from products.alerts.backend.facade.contracts import (
     MovedAlertCheck,
     MovedAlertCheckPage,
+    MovedAlertHistoryUnavailable,
     MovedAlertLastCheck,
     MovedAlertRuntime,
     MovedAlertStatus,
@@ -53,17 +54,19 @@ def moved_alert_statuses(
     the platform owns and each one's snooze as the API shows it.
 
     Up to two Postgres queries and one ClickHouse query. A ClickHouse failure leaves out the last
-    check, and the response still goes out.
+    check and says so, and the response still goes out.
     """
     if not snoozed_until:
         return {}
     moved = list(snoozed_until)
     runtime = runtime_by_public_id(team_id=team_id, public_ids=moved)
+    history_unavailable = False
     try:
         last_checks = last_check_by_public_id(team_id=team_id, public_ids=moved)
     except Exception as error:
         capture_exception(error, additional_properties={"team_id": team_id})
         last_checks = {}
+        history_unavailable = True
     statuses = {}
     for alert_id in moved:
         alert_runtime = runtime.get(alert_id)
@@ -79,6 +82,7 @@ def moved_alert_statuses(
             last_check=MovedAlertLastCheck(checked_at=ensure_utc(last_check.checked_at), value=last_check.value)
             if last_check is not None
             else None,
+            history_unavailable=history_unavailable,
         )
     return statuses
 
@@ -95,8 +99,9 @@ def moved_alert_check_page(
     """A page of a moved alert's checks in `[since, until]`, newest first, with how many the window holds.
 
     Each check carries its investigation and whether the agent suppressed its notification. None
-    when the alert's own checks are the ones to show: the platform does not own it, or its history
-    could not be read.
+    when the platform does not own the alert, so its own checks are the ones to show. Raises
+    `MovedAlertHistoryUnavailable` when the platform's history could not be read, because the
+    alert's own checks stopped at the move and would show a stale history.
     """
     try:
         page = check_page_by_public_id(
@@ -110,7 +115,7 @@ def moved_alert_check_page(
         )
     except Exception as error:
         capture_exception(error, additional_properties={"alert_configuration_id": str(alert_id)})
-        return None
+        raise MovedAlertHistoryUnavailable from error
     if page is None:
         return None
     keys = [check.evaluation_key for check in page.checks]

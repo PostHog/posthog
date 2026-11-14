@@ -74,6 +74,19 @@ def filter_group_leaf_value_count(node: Any) -> int:
     return total
 
 
+def filter_group_has_leaf(node: Any, depth: int = 0) -> bool:
+    """True when the tree holds at least one filter. The app always sends a group, so an
+    empty one is the "no filters" case. Counts value-less leaves such as `is_set`."""
+    if not isinstance(node, dict):
+        return False
+    if depth > MAX_FILTER_GROUP_DEPTH:
+        return True
+    values = node.get("values")
+    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
+        return bool(node)
+    return any(filter_group_has_leaf(child, depth + 1) for child in values)
+
+
 def filter_group_has_oversized_value(node: Any) -> bool:
     """True when any leaf filter value's string form exceeds MAX_FILTER_GROUP_VALUE_LENGTH."""
     if not isinstance(node, dict):

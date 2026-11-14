@@ -9,6 +9,28 @@
  */
 import * as zod from 'zod'
 
+export const conversationsIntercomImportsCreateBodyRegionDefault = `us`
+export const conversationsIntercomImportsCreateBodyAccessTokenMax = 500
+
+export const ConversationsIntercomImportsCreateBody = /* @__PURE__ */ zod.object({
+    region: zod
+        .enum(['us', 'eu', 'au'])
+        .default(conversationsIntercomImportsCreateBodyRegionDefault)
+        .describe(
+            'Region where the Intercom workspace is hosted: us, eu, or au.\n\n\* `us` - United States\n\* `eu` - Europe\n\* `au` - Australia'
+        ),
+    access_token: zod
+        .string()
+        .max(conversationsIntercomImportsCreateBodyAccessTokenMax)
+        .describe('Intercom access token with permission to read conversations and contacts.'),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.'
+        ),
+})
+
 export const conversationsMacrosCreateBodyNameMax = 200
 
 export const conversationsMacrosCreateBodyShortcutMax = 50
@@ -74,6 +96,23 @@ export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.\n\n\* `shared` - Everyone in the project\n\* `personal` - Only the creator"
+        ),
+})
+
+export const conversationsPylonImportsCreateBodyApiTokenMax = 500
+
+export const ConversationsPylonImportsCreateBody = /* @__PURE__ */ zod.object({
+    api_token: zod
+        .string()
+        .max(conversationsPylonImportsCreateBodyApiTokenMax)
+        .describe(
+            'Pylon API token whose role can read issues, messages, and contacts. The region (US or EU) is detected from the token.'
+        ),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.'
         ),
 })
 
