@@ -7,12 +7,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import type { TileGroupDisplay } from '~/types'
 
 import { type DashboardSection, getTileGroupLabel } from '../../dashboardTileSections'
-import { DashboardTileGroupContextMenu } from './DashboardTileGroupContextMenu'
 import { DashboardTileGroupEmptyTab } from './DashboardTileGroupEmptyTab'
-import { DashboardTileGroupMenu } from './DashboardTileGroupMenu'
 import { type DashboardTileGroupMenuActions, hasTileGroupMenuActions } from './DashboardTileGroupMenuOverlay'
 import { DashboardTileGroupMoveButtons, type TileGroupMoveActions } from './DashboardTileGroupMoveButtons'
 import { DashboardTileGroupTitleInput } from './DashboardTileGroupTitleInput'
+import { QuillDashboardTileGroupContextMenu } from './QuillDashboardTileGroupContextMenu'
+import { QuillDashboardTileGroupMenu } from './QuillDashboardTileGroupMenu'
 import { TileGroupColorDot } from './TileGroupColorDot'
 
 interface DashboardTileGroupTabsProps {
@@ -107,7 +107,7 @@ export function DashboardTileGroupTabs({
                             ) : (
                                 <TabsTrigger key={section.key} value={section.key} className="flex-none">
                                     {section.kind === 'group' ? (
-                                        <DashboardTileGroupContextMenu
+                                        <QuillDashboardTileGroupContextMenu
                                             className="flex items-center gap-2"
                                             onDoubleClick={
                                                 onRenameGroup && onRenamingGroupKeyChange
@@ -123,7 +123,7 @@ export function DashboardTileGroupTabs({
                                                     {getTileGroupLabel(section.group, section.tiles.length)}
                                                 </span>
                                             </Tooltip>
-                                        </DashboardTileGroupContextMenu>
+                                        </QuillDashboardTileGroupContextMenu>
                                     ) : (
                                         'Overview'
                                     )}
@@ -154,7 +154,7 @@ export function DashboardTileGroupTabs({
                             />
                         )}
                         {hasTileGroupMenuActions(activeMenuActions) && (
-                            <DashboardTileGroupMenu {...activeMenuActions} />
+                            <QuillDashboardTileGroupMenu {...activeMenuActions} />
                         )}
                     </div>
                 )}

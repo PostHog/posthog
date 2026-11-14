@@ -34,6 +34,7 @@ env:
 
 jobs:
     linux:
+        if: github.repository == 'PostHog/posthog'
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 15
         permissions:
@@ -105,6 +106,7 @@ jobs:
               run: pnpm --filter code exec playwright install chromium
 
     macos:
+        if: github.repository == 'PostHog/posthog'
         runs-on: depot-macos-26
         timeout-minutes: 30
         permissions:

@@ -12,19 +12,34 @@ export function ReleaseTrackLane({
     color,
     scale,
     detailed,
+    stickyOffset,
 }: {
     lane: Lane
     color: string
     scale: Scale
     detailed?: boolean
+    stickyOffset?: number
 }): JSX.Element {
     const height = laneHeight(lane, detailed)
     return (
         <div className={cn('relative', !detailed && 'border-t border-border/60')} style={{ height }}>
             {lane.kind === 'flag' && !lane.steps.length ? (
-                <ReleaseTrackSpan span={lane.span} scale={scale} top={(height - 18) / 2} height={18} />
+                <ReleaseTrackSpan
+                    span={lane.span}
+                    scale={scale}
+                    top={(height - 18) / 2}
+                    height={18}
+                    stickyOffset={stickyOffset}
+                />
             ) : lane.kind === 'flag' ? (
-                <ReleaseRolloutBar steps={lane.steps} scale={scale} color={color} top={(height - 18) / 2} height={18} />
+                <ReleaseRolloutBar
+                    steps={lane.steps}
+                    scale={scale}
+                    color={color}
+                    top={(height - 18) / 2}
+                    height={18}
+                    stickyOffset={stickyOffset}
+                />
             ) : null}
             {lane.kind === 'flag' && (
                 <ReleaseTrackMarkers
@@ -45,7 +60,13 @@ export function ReleaseTrackLane({
                     top={(height - 16) / 2}
                 />
             ) : 'span' in lane && lane.span ? (
-                <ReleaseTrackSpan span={lane.span} scale={scale} top={(height - 18) / 2} height={18} />
+                <ReleaseTrackSpan
+                    span={lane.span}
+                    scale={scale}
+                    top={(height - 18) / 2}
+                    height={18}
+                    stickyOffset={stickyOffset}
+                />
             ) : null}
         </div>
     )

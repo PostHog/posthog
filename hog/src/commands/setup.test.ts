@@ -16,6 +16,7 @@ import { join } from 'node:path'
 
 import type { CatalogSkill, SkillReadResult, SkillsLibrary, SkillsResult } from '@posthog/mcp/src/cli/library-types'
 
+import { EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import { processRuntime } from '@/core/runtime'
 import { LOGIN_SCOPES } from '@/posthog/device-auth'
@@ -293,7 +294,7 @@ describe('hog setup', () => {
             })),
         ]
         const reviewed = await machine.run(['setup', 'next', '--reviewed'])
-        expect(reviewed.exitCode).toBe(0)
+        expect(reviewed.exitCode).toBe(EXIT_SUCCESS)
         expect(reviewed.json()).toMatchObject({
             step: 'connected',
             status: 'connected',
@@ -361,7 +362,7 @@ describe('hog setup', () => {
 
         const result = await machine.run(['--dotenv-file', '/work/p.env', 'setup', 'next'])
 
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error()).toMatchObject({ code: 'setup_project_mismatch' })
         expect(result.stdout).not.toContain(TOKEN)
     })
@@ -374,7 +375,7 @@ describe('hog setup', () => {
             person: ['Track signups', 'us'],
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toContain('Done  Picked Product analytics')
         expect(result.stdout).toContain('Done  Logged in to https://us.posthog.com, project 42')
         expect(result.stdout).toContain(`Project token: ${escapeControls(machine.token)}`)
@@ -389,7 +390,7 @@ describe('hog setup', () => {
         machine.events.push(START + 60_000)
         const finished = await machine.run(['setup', 'next', '--reviewed'], { person: [] })
 
-        expect(finished.exitCode).toBe(0)
+        expect(finished.exitCode).toBe(EXIT_SUCCESS)
         expect(finished.stdout).toContain('PostHog is set up')
         expect(finished.stdout).toContain("Connect PostHog's MCP server to your agent with hog mcp add --agent <name>")
     })
@@ -606,7 +607,7 @@ describe('hog setup', () => {
     ])('%s fails with a hint', async (_name, argv, code, hint) => {
         const result = await world().run(argv)
 
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error()).toMatchObject({ code, hint: expect.stringContaining(hint) })
     })
 
@@ -619,7 +620,7 @@ describe('hog setup', () => {
 
         const result = await machine.run(['setup', 'next', ...ONE_PRODUCT], { env })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.error()).toMatchObject({ code: 'not_in_ci', hint: expect.stringContaining('hog ci setup') })
         expect(result.requests).toEqual([])
         expect(machine.files).toEqual(before)
@@ -628,7 +629,7 @@ describe('hog setup', () => {
     test('an agent in a CI sandbox still runs setup, because it hands the login to a person', async () => {
         const result = await world().run(['setup', 'next', ...ONE_PRODUCT], { env: { CI: 'true' } })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.json()).toMatchObject({ step: 'login' })
     })
 
@@ -637,7 +638,7 @@ describe('hog setup', () => {
 
         const result = await machine.run(['skills', 'read', 'instrument-integration'])
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(Object.keys(machine.files).filter((path) => path.includes('/setup/'))).toEqual([])
     })
 })

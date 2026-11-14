@@ -20,7 +20,8 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog auth logout`                         | Removes the login commands in this folder use. `--all` removes every login.                                                       |
 | `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                                      |
 | `hog ci setup`                            | Asks an admin to trust this repository's CI jobs, so they use their OIDC token instead of a stored key.                           |
-| `hog query run <query>`                   | Runs a HogQL query. `-` reads the query from stdin.                                                                               |
+| `hog query run <query>`                   | Runs a HogQL query. `-` reads the query from stdin. Agents get one JSON object with the columns, the rows and `hasMore`.          |
+| `hog query run --wait <query-id>`         | Waits for a query that ran past the minute agents and pipes wait. See [Slow queries](#slow-queries).                              |
 | `hog query check <query>`                 | Checks a query without running it. Exits with code 1 when the query has errors.                                                   |
 | `hog api groups`, `hog api tools [group]` | List the PostHog MCP tools by group, with the scopes the key is missing for each.                                                 |
 | `hog api search`, `info`, `schema`        | Find a tool, see what it does and the input it takes.                                                                             |
@@ -77,14 +78,39 @@ Not planned:
 `hog` detects an agent from the env vars agents set for the commands they run, such as `CLAUDECODE`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `GEMINI_CLI` and the generic `AI_AGENT`.
 `HOG_AGENT=1` forces agent mode, and `HOG_AGENT=0` turns detection off.
 
-| Caller                 | Default output                            | Errors                                                           |
-| ---------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
-| A person at a terminal | Text, with color unless `NO_COLOR` is set | Text on stderr                                                   |
-| An agent               | JSON                                      | One JSON object on stderr: `{"error":{"code","message","hint"}}` |
-| A pipe or a script     | JSON                                      | Same as an agent                                                 |
+| Caller                 | Default output                            | Errors                                                                      |
+| ---------------------- | ----------------------------------------- | --------------------------------------------------------------------------- |
+| A person at a terminal | Text, with color unless `NO_COLOR` is set | Text on stderr                                                              |
+| An agent               | JSON                                      | One JSON object on stderr: `{"error":{"code","message","hint","feedback"}}` |
+| A pipe or a script     | JSON                                      | Same as an agent                                                            |
 
 `-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
-Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
+Every error ends with the `hog feedback` command to report it, with `--area` set to the command that failed. Agents get it as `feedback` in the error JSON. Errors from `hog feedback` itself and a cancelled prompt don't have it.
+
+The exit code says what happened, so a script or an agent can branch without reading stderr:
+
+| Code | Meaning                                                                                                                                                                                       |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | The command worked                                                                                                                                                                            |
+| 1    | The command failed, or a check found problems: errors from `hog query check`, drift from `hog endpoints diff`, a stale SDK from `hog schema status`, or no working key from `hog auth status` |
+| 2    | A usage error, such as an unknown command or a missing or invalid option. Input an agent can pass as an option counts here                                                                    |
+| 3    | A person has to act before the command can go on: log in, approve in the browser, add a scope, or answer a question only they can. The hint or the output says what                           |
+| 4    | The work started and is still running. The output names the `--wait` command that resumes it                                                                                                  |
+| 130  | Cancelled with Ctrl-C at a prompt                                                                                                                                                             |
+
+`hog auth login`, `hog auth add` and `hog ci setup` exit with 3 when they return a link for a person to approve, and `hog setup` and `hog setup next` do when setup waits for an answer or an approval from the person.
+`--no-fail` turns 1, 3 and 4 into 0, so a build never breaks on hog. Usage errors and Ctrl-C keep their codes. `hog commands -o json` lists the codes under `exitCodes`.
+
+## Slow queries
+
+`hog query run` asks PostHog to run the query in the background, then checks on it until it finishes.
+
+- A person at a terminal, and a CI job that no agent runs, wait until the query finishes. At a terminal, the wait shows the query ID, so after Ctrl-C `hog query run --wait <query-id>` picks the query up again.
+- Agents and pipes wait up to a minute. Agent shells often stop a command after about two minutes, so the minute leaves room for the rest of the call.
+- A query still running after that minute returns `{ status: "running", queryId, next, hint }` and exits with code 4. `next` is `hog query run --wait <query-id>` with the query's ID.
+- `hog query run --wait <query-id>` waits for that query again, and prints its results or the same answer with exit code 4. hog stores nothing between the two runs, so an agent can run several slow queries at once and resume each by its ID.
+- hog prints a query ID, and takes one back with `--wait`, only when it has nothing but letters, digits, `_` and `-`, as every ID PostHog makes does. A query can join a run that another caller named with its own ID. hog then waits until the query finishes, also for an agent, and never prints that ID, because no quoting makes a command safe in every shell.
+- PostHog keeps a query's status for a limited time. After that, `--wait` fails with `query_expired`, and the query has to run again.
 
 ## Setup
 
@@ -186,19 +212,19 @@ It saves them in `~/.posthog/skills/` (`HOG_HOME` moves the folder), and serves 
 Every option below works on any command, and each has an environment variable.
 A flag beats the environment variable, which beats `posthog.json`.
 
-| Option                    | Environment                        | `posthog.json`  | What it does                                                                                                                  |
-| ------------------------- | ---------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `--host <url>`            | `HOG_HOST`                         | `host`          | The PostHog host to use instead of the one in your credentials                                                                |
-|                           | `HOG_PROJECT_ID`                   | `projectId`     | The project to work in. It picks the stored login, and the project a personal API key or a CI job's token works in            |
-| `--dotenv-file <path>`    | `HOG_DOTENV_FILE`                  |                 | Read credentials from this file when the environment has none                                                                 |
-| `-o, --output <format>`   | `HOG_OUTPUT`                       |                 | `text` or `json`                                                                                                              |
-| `--raw`                   | `HOG_RAW`                          |                 | Print a command's full result as JSON                                                                                         |
-| `--debug`                 | `HOG_DEBUG`                        |                 | Print each HTTP request, its status and duration to stderr                                                                    |
-| `--no-fail`               | `HOG_NO_FAIL`                      | `cli.noFail`    | Exit with code 0 when a command fails or reports a problem, such as `diff` finding drift. Usage errors still exit with code 2 |
-| `--skip-ssl-verification` | `HOG_SKIP_SSL_VERIFICATION`        |                 | Accept any TLS certificate, for a self-signed self-hosted PostHog                                                             |
-| `--no-telemetry`          | `HOG_NO_TELEMETRY`, `DO_NOT_TRACK` | `cli.telemetry` | Send no anonymous usage data. See [Telemetry](#telemetry)                                                                     |
-| `--rate-limit <requests>` | `HOG_RATE_LIMIT`                   | `cli.rateLimit` | The most requests per minute. No limit by default                                                                             |
-|                           | `HOG_DRY_RUN`                      |                 | Turns on `--dry-run` for every command that has one, and fails the commands that write without one                            |
+| Option                    | Environment                        | `posthog.json`  | What it does                                                                                                                       |
+| ------------------------- | ---------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `--host <url>`            | `HOG_HOST`                         | `host`          | The PostHog host to use instead of the one in your credentials                                                                     |
+|                           | `HOG_PROJECT_ID`                   | `projectId`     | The project to work in. It picks the stored login, and the project a personal API key or a CI job's token works in                 |
+| `--dotenv-file <path>`    | `HOG_DOTENV_FILE`                  |                 | Read credentials from this file when the environment has none                                                                      |
+| `-o, --output <format>`   | `HOG_OUTPUT`                       |                 | `text` or `json`                                                                                                                   |
+| `--raw`                   | `HOG_RAW`                          |                 | Print a command's full result as JSON                                                                                              |
+| `--debug`                 | `HOG_DEBUG`                        |                 | Print each HTTP request, its status and duration to stderr                                                                         |
+| `--no-fail`               | `HOG_NO_FAIL`                      | `cli.noFail`    | Exit with code 0 instead of 1, 3 or 4, such as when `diff` finds drift or nobody is logged in. Usage errors still exit with code 2 |
+| `--skip-ssl-verification` | `HOG_SKIP_SSL_VERIFICATION`        |                 | Accept any TLS certificate, for a self-signed self-hosted PostHog                                                                  |
+| `--no-telemetry`          | `HOG_NO_TELEMETRY`, `DO_NOT_TRACK` | `cli.telemetry` | Send no anonymous usage data. See [Telemetry](#telemetry)                                                                          |
+| `--rate-limit <requests>` | `HOG_RATE_LIMIT`                   | `cli.rateLimit` | The most requests per minute. No limit by default                                                                                  |
+|                           | `HOG_DRY_RUN`                      |                 | Turns on `--dry-run` for every command that has one, and fails the commands that write without one                                 |
 
 `--host` and `HOG_HOST` override the host of every credential source. `host` in `posthog.json` never sends your credentials elsewhere: `hog auth login` uses it, and other commands stop when your credentials are for another host.
 Commands that only read run as usual in a dry run, and `auth login` and `auth logout` fail.
@@ -214,6 +240,7 @@ hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHO
 - It sends the event `cli feedback submitted` to the project telemetry goes to, with the same `feedback_` properties as the MCP server's `agent-feedback` tool.
 - Feedback goes out with telemetry off too, because you asked hog to send it. Then it carries no PostHog user, organization or install ID.
 - `--dry-run` shows the summary and type without sending anything.
+- Every error hog prints ends with a `hog feedback` command for it, like `hog feedback --area "hog query run" "<what happened>"`.
 
 ## Telemetry
 
