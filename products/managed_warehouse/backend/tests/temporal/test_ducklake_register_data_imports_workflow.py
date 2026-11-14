@@ -314,7 +314,11 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.rows.record.side_effect = assert_heartbeat_active
     workload_metrics.bytes.record.side_effect = assert_heartbeat_active
 
-    inputs = _activity_inputs()
+    attempt_token = "feedc0de" * 4
+    inputs = dataclasses.replace(
+        _activity_inputs(),
+        registration_table_names=registration_module.registration_table_names_from_token(attempt_token),
+    )
     applied = copy_and_register_ducklake_data_imports_activity(inputs)
 
     assert applied is True
@@ -323,6 +327,10 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         autocommit=True,
         options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=32Gi",
     )
+    attempt_folder = (
+        "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+        f"1234567890_abcdef12/{attempt_token}"
+    )
     assert s3.copy_calls == [
         (
             [
@@ -330,10 +338,8 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
                 "source/team/customers__query_1234567890_abcdef12/_ph_partition_key=2026-08/b.parquet",
             ],
             [
-                "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-                "1234567890_abcdef12/_ph_partition_key=2026-07/a.parquet",
-                "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-                "1234567890_abcdef12/_ph_partition_key=2026-08/b.parquet",
+                f"{attempt_folder}/_ph_partition_key=2026-07/a.parquet",
+                f"{attempt_folder}/_ph_partition_key=2026-08/b.parquet",
             ],
             S3_COPY_BATCH_SIZE,
         )
@@ -347,18 +353,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     )
     assert len(registration_indexes) == 1
     registration_query = executed[registration_indexes[0]]
-    first_path = (
-        "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-        "1234567890_abcdef12/_ph_partition_key=2026-07/a.parquet"
-    )
-    second_path = (
-        "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-        "1234567890_abcdef12/_ph_partition_key=2026-08/b.parquet"
-    )
-    parquet_glob = (
-        "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-        "1234567890_abcdef12/**/*.[pP][aA][rR][qQ][uU][eE][tT]"
-    )
+    first_path = f"s3://{attempt_folder}/_ph_partition_key=2026-07/a.parquet"
+    second_path = f"s3://{attempt_folder}/_ph_partition_key=2026-08/b.parquet"
+    parquet_glob = f"s3://{attempt_folder}/**/*.[pP][aA][rR][qQ][uU][eE][tT]"
     assert first_path in registration_query
     assert second_path in registration_query
     assert parquet_glob not in registration_query
@@ -586,6 +583,7 @@ def test_registration_stops_after_glob_query_cancellation(monkeypatch):
         registration_module._register_prepared_parquet_files(
             _activity_inputs(),
             conn,
+            landing_uri,
             landing_paths,
             cancel_requested=cancel_requested,
         )
@@ -619,7 +617,7 @@ def test_registration_splits_add_data_files_across_path_batches(monkeypatch):
     )
     landing_paths = [f"{landing_uri}/{name}.parquet" for name in ("first", "second")]
 
-    registration_module._register_prepared_parquet_files(_activity_inputs(), conn, landing_paths)
+    registration_module._register_prepared_parquet_files(_activity_inputs(), conn, landing_uri, landing_paths)
 
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     registration_queries = [query for query in executed if "ducklake_add_data_files" in query]
@@ -920,6 +918,7 @@ def test_unknown_publish_commit_error_survives_temporary_table_cleanup(monkeypat
         registration_module._register_prepared_parquet_files(
             _activity_inputs(),
             conn,
+            _activity_inputs().metadata.landing_uri,
             [f"{_activity_inputs().metadata.landing_uri}/file.parquet"],
         )
 
@@ -1262,6 +1261,7 @@ def test_register_uses_workflow_minted_names(monkeypatch):
     registration_module._register_prepared_parquet_files(
         inputs,
         conn,
+        inputs.metadata.landing_uri,
         [f"{inputs.metadata.landing_uri}/file.parquet"],
     )
 
@@ -2245,8 +2245,9 @@ class _FakeS3:
         ),
     ],
 )
-def test_trino_copy_activity_deletes_its_files_only_before_it_adds_any(
-    monkeypatch, registration, partial_copy_fails, rm_mode, expected_error, expected_result, files_deleted
+@pytest.mark.parametrize("engine", [ENGINE_TRINO, ENGINE_DUCKGRES])
+def test_copy_activity_deletes_its_files_only_before_it_adds_any(
+    monkeypatch, engine, registration, partial_copy_fails, rm_mode, expected_error, expected_result, files_deleted
 ) -> None:
     base = _activity_inputs()
     source_prefix = base.metadata.prepared_source_uri.removeprefix("s3://").rstrip("/")
@@ -2262,22 +2263,45 @@ def test_trino_copy_activity_deletes_its_files_only_before_it_adds_any(
             raise RuntimeError("add files failed")
         return trino_module.TrinoRegistrationResult(published=registration == "published", row_count=3)
 
+    def duckgres_execute(query: object) -> MagicMock:
+        query_text = str(query)
+        if "CREATE TABLE" in query_text and registration == "fails_before_add_files":
+            raise ApplicationError("footer type error", non_retryable=True)
+        if "ducklake_add_data_files" in query_text and registration == "fails_after_add_files_started":
+            raise RuntimeError("add files failed")
+        if "SELECT count(*)" in query_text:
+            return MagicMock(fetchone=MagicMock(return_value=(3,)))
+        return MagicMock()
+
+    duckgres_conn = MagicMock(closed=False)
+    duckgres_conn.execute.side_effect = duckgres_execute
+
     monkeypatch.setattr(registration_module, "get_s3_client", lambda: fake_s3)
     monkeypatch.setattr(registration_module, "capture_exception", capture)
     monkeypatch.setattr(
         registration_module, "register_prepared_files_through_trino", MagicMock(side_effect=fake_register)
     )
-    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+    monkeypatch.setattr(
+        registration_module, "_connect_to_duckgres_for_team", lambda team_id: contextlib.nullcontext(duckgres_conn)
+    )
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(
+        registration_module, "_should_publish_prepared_generation", lambda inputs: registration != "unpublished"
+    )
     monkeypatch.setattr(registration_module, "_duckgres_cancel_delay", lambda started: 99.0)
     monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
     monkeypatch.setattr(registration_module, "HeartbeaterSync", lambda **kwargs: contextlib.nullcontext())
     _mock_activity_workload_metrics(monkeypatch)
+    if engine == ENGINE_TRINO:
+        registration_table_names = registration_module._new_trino_registration_table_names(
+            dt.datetime.now(dt.UTC) - dt.timedelta(minutes=5), "a1b2c3d4e5f60718"
+        )
+    else:
+        registration_table_names = registration_module.registration_table_names_from_token("feedc0de" * 4)
     inputs = dataclasses.replace(
         base,
-        metadata=dataclasses.replace(base.metadata, engine=ENGINE_TRINO, source_schema_id=str(uuid.UUID(int=5))),
-        registration_table_names=registration_module._new_trino_registration_table_names(
-            dt.datetime.now(dt.UTC) - dt.timedelta(minutes=5), "a1b2c3d4e5f60718"
-        ),
+        metadata=dataclasses.replace(base.metadata, engine=engine, source_schema_id=str(uuid.UUID(int=5))),
+        registration_table_names=registration_table_names,
     )
 
     if expected_error is not None:
