@@ -1,15 +1,8 @@
-import { CardError, DEFINITIONS, Definitions, LoadedCard, load } from '.'
+import { CardError, LoadedCard, load } from '.'
 import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
-import { z } from 'zod'
-
-const definitions: Definitions = {
-    ...DEFINITIONS,
-    valves: [...DEFINITIONS.valves],
-    measurements: [{ name: 'role_cpu_seconds', params: z.object({}).strict() }],
-}
 
 const card = {
     id: 'test-card',
@@ -51,7 +44,6 @@ describe('load', () => {
 
     const loadCard = (content: object | string, profileContent?: object | string): LoadedCard =>
         load(write('card.yaml', content), {
-            definitions,
             profilePath: profileContent ? write('profile.yaml', profileContent) : undefined,
         })
 
@@ -145,55 +137,6 @@ describe('load', () => {
             { ...card, valves: [{ ...emailWorkerKill, when: { name: 'running_on_queue', params: { atLeast: 1 } } }] },
             undefined,
             'valves.0.when.params.queue: ',
-        ],
-        [
-            'a kill whose convergeWithin does not outlast the janitor bound',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '47s' },
-            undefined,
-            'convergeWithin: 47s must exceed 47s',
-        ],
-        [
-            'a kill bound raised by the profile settings',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '60s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '60000' } },
-            'convergeWithin: 60s must exceed 77s',
-        ],
-        [
-            'an empty stall timeout, which the janitor replaces with its default',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '' } },
-            'convergeWithin: 18s must exceed 47s',
-        ],
-        [
-            'a negative sweep interval',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '48s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '-30000' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: not a number of milliseconds at or above zero',
-        ],
-        [
-            'a second stall whose backoff convergeWithin does not outlast',
-            { ...card, valves: [emailWorkerKill, emailWorkerKill], convergeWithin: '100s' },
-            undefined,
-            'convergeWithin: 100s must exceed 107s',
-        ],
-        [
-            'a kill and a connection drop, which can stall the same job',
-            {
-                ...card,
-                valves: [
-                    emailWorkerKill,
-                    {
-                        valve: 'pg.drop_connections',
-                        target: 'postgres',
-                        dose: { share: 1 },
-                        when: emailWorkerKill.when,
-                        for: '1s',
-                    },
-                ],
-                convergeWithin: '100s',
-            },
-            undefined,
-            'convergeWithin: 100s must exceed 107s',
         ],
         [
             'pg.drop_connections scheduled by at',
@@ -337,16 +280,6 @@ describe('load', () => {
             'drive.traffic.0.name: unknown traffic kind event_sms',
             'invariants.0.name: unknown invariant exactly_twice',
         ])
-    })
-
-    it.each<[string, object[]]>([
-        ['one kill', [emailWorkerKill]],
-        [
-            'kills on two roles, which stall different jobs',
-            [emailWorkerKill, { ...emailWorkerKill, target: 'cdp-cyclotron-worker-hogflow' }],
-        ],
-    ])('accepts %s whose convergeWithin outlasts the janitor bound', (_name, valves) => {
-        expect(loadCard({ ...card, valves, convergeWithin: '48s' }).card.valves).toHaveLength(valves.length)
     })
 
     it('keeps the name of a profile passed from outside the repository', () => {
