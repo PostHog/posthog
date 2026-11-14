@@ -104,6 +104,12 @@ def realtime_level(team_id: int, *, fresh: bool = False) -> RealtimeCohortLevel:
     return RealtimeCohortLevel(row.level) if row is not None else RealtimeCohortLevel.OFF
 
 
+def access_row_level(team_id: int) -> RealtimeCohortLevel:
+    """The level the team's access row grants, without `REALTIME_COHORT_TEAM_ALLOWLIST`. Read from the snapshot."""
+    row = _access_rows().get(team_id)
+    return RealtimeCohortLevel(row.level) if row is not None else RealtimeCohortLevel.OFF
+
+
 def is_processing_team(team_id: int, *, fresh: bool = False) -> bool:
     """Whether the realtime-cohort pipeline maintains membership for ``team_id``.
 

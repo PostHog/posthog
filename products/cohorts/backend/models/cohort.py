@@ -155,6 +155,16 @@ COHORT_RECALCULATION_FIELDS = frozenset(
 )
 
 
+# Written by turning realtime on or off, by the backfill finalizer, and by save() when an edit moves a
+# shape hash. A save of a whole row read before one of those writes would put the old value back.
+COHORT_REALTIME_SWITCH_FIELDS = (
+    "realtime_enabled_at",
+    "last_backfill_events_at",
+    "last_backfill_person_properties_at",
+    "last_realtime_cohort_calculation_at",
+)
+
+
 class ImportResolution:
     """Accumulates matched and unmatched import IDs, deduplicated across batches."""
 
@@ -273,6 +283,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     behavioral_filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
     person_filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
     last_realtime_cohort_calculation_at = models.DateTimeField(blank=True, null=True)
+    # Null while realtime is off. The choice survives a save that makes the cohort ineligible, so the
+    # pipeline loads a cohort only when it is both `realtime` and on.
+    realtime_enabled_at = models.DateTimeField(blank=True, null=True)
 
     last_import_total_count = models.IntegerField(
         blank=True,
@@ -616,13 +629,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         (`team_honors_readiness_stamps`). The pipeline stamps a `processing` team's cohorts, but the
         flags service reads no membership for it, and its users must not see realtime cohorts.
         """
-        if self.cohort_type != CohortType.REALTIME:
+        if self.cohort_type != CohortType.REALTIME or not self.realtime_enabled:
             return False
 
         stamps = self._required_backfill_stamps()
         if not stamps or any(stamp is None for stamp in stamps.values()):
             return False
         return team_honors_readiness_stamps(self.team_id)
+
+    @property
+    def realtime_enabled(self) -> bool:
+        return self.realtime_enabled_at is not None
 
     @property
     def realtime_ready_at(self) -> Optional[datetime]:
@@ -714,9 +731,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "cohort_type": self.cohort_type,
             "condition_type": self.condition_type,
             # `cohort_type` reads `realtime` whenever the filters are realtime-eligible, on every
-            # team. This reports whether the team runs the realtime pipeline at all, so a consumer
-            # can tell an eligible cohort from one that realtime membership is maintained for.
-            "realtime_enabled": level != RealtimeCohortLevel.OFF,
+            # team. This reports the cohort's own switch, so a consumer can tell an eligible cohort
+            # from one that realtime membership is maintained for.
+            "realtime_enabled": self.realtime_enabled,
             # `processing` teams run the pipeline while their users see none of it, so adoption
             # counts only `serving`.
             "realtime_level": level.value,
@@ -1319,6 +1336,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "is_static": self.is_static,
             "cohort_type": self.cohort_type,
             "condition_type": self.condition_type,
+            "realtime_enabled": self.realtime_enabled,
             "created_by_id": self.created_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,

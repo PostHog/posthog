@@ -7,6 +7,7 @@ from unittest import mock
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -76,6 +77,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
         return Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",
@@ -118,6 +120,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
         return Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={"properties": {"type": "AND", "values": values}},
         )
 
@@ -196,6 +199,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
         Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",
@@ -357,6 +361,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
         refused = Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",

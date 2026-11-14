@@ -8,6 +8,7 @@ from django.core.cache import cache
 from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -707,7 +708,6 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
         )
 
     def test_backfilled_realtime_cohort_excluded_without_flag_included_with_it(self) -> None:
-        from django.utils import timezone
 
         # A realtime cohort that has been backfilled (is_flag_compatible=True) should NOT be
         # excluded when allow_realtime_backfilled=True, but must still be excluded when False.
@@ -715,6 +715,7 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
             team=self.team,
             name="realtime_behavioral",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self.BEHAVIORAL_FILTERS,
             last_backfill_person_properties_at=timezone.now(),
             last_backfill_events_at=timezone.now(),

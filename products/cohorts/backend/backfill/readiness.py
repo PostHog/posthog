@@ -162,8 +162,16 @@ def _stamp_readiness(run: CohortBackfillRun, cohort_id: int, spec: _ReadinessSpe
             )
 
     pinned = getattr(participation, spec.hash_field)
-    # Reused by the rollback below, so both writes fence on the same pinned fingerprint.
-    cohort_fence = {"id": cohort_id, "team_id": run.team_id, spec.hash_field: pinned}
+    # Reused by the rollback below, so both writes fence on the same pinned fingerprint. Turning realtime
+    # off clears the stamps under the row lock taken above, but its supersede of this run comes after the
+    # commit and may fail. So only a run created while realtime was on, and on ever since, may stamp: an
+    # older run's seeds can predate a time when nothing maintained the membership.
+    cohort_fence = {
+        "id": cohort_id,
+        "team_id": run.team_id,
+        spec.hash_field: pinned,
+        "realtime_enabled_at__lte": run.created_at,
+    }
 
     updated = not composition_stale and Cohort.objects.filter(
         **cohort_fence, **{f"{spec.stamp_field}__isnull": True}
@@ -180,7 +188,9 @@ def _stamp_readiness(run: CohortBackfillRun, cohort_id: int, spec: _ReadinessSpe
         return stamped
 
     current_readiness = (
-        Cohort.objects.filter(id=cohort_id, team_id=run.team_id).values_list(spec.hash_field, spec.stamp_field).first()
+        Cohort.objects.filter(id=cohort_id, team_id=run.team_id, realtime_enabled_at__lte=run.created_at)
+        .values_list(spec.hash_field, spec.stamp_field)
+        .first()
     )
     if (
         not composition_stale

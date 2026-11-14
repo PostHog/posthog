@@ -41,6 +41,7 @@ import {
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { RealtimeCohortsWaitlistBanner } from 'products/cohorts/frontend/realtime/RealtimeCohortsWaitlistBanner'
+import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -55,7 +56,7 @@ export function Cohorts(): JSX.Element {
     const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
         useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
-    const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const realtimeTargetingEnabled = useRealtimeCohortsServing()
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Creating an export requires editor access to the export resource.

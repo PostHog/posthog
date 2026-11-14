@@ -8,11 +8,11 @@ import { PostHogCaptureOnViewed } from '@posthog/react'
 import { ConceptWaitlistCTA } from 'lib/components/FeaturePreviews/ConceptWaitlistCTA'
 import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { cohortsSetupLogic } from '../emptyState/cohortsSetupLogic'
+import { useRealtimeCohortsServing } from './useRealtimeCohortsServing'
 
 // pinned: localStorage key, because renaming it shows the banner again to everyone who closed it
 const DISMISS_KEY = 'realtime-cohorts-waitlist'
@@ -30,7 +30,7 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
     const { setupStatus } = useValues(cohortsSetupLogic)
     // A team with realtime cohort targeting sees "Realtime" tags in the table below; a waitlist
     // above them would contradict the page.
-    const alreadyHasRealtimeCohorts = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const alreadyHasRealtimeCohorts = useRealtimeCohortsServing()
     const hidden =
         isDismissed || alreadyHasRealtimeCohorts || setupStatus !== 'has-data' || joinedWaitlistInThisBrowser()
 

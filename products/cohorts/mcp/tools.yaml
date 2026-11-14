@@ -95,6 +95,7 @@ tools:
             - last_error_message
             - count
             - experiment_set
+            - realtime_enabled
         ui_app: cohort
     cohorts-list:
         operation: cohorts_list
@@ -176,6 +177,7 @@ tools:
             - last_error_message
             - count
             - experiment_set
+            - realtime_enabled
         param_overrides:
             id:
                 cast: string-int
