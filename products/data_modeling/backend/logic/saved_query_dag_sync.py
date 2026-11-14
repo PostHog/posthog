@@ -110,7 +110,8 @@ def resolve_dependency_to_node(
         # `database` can outlive the row it was built from, and a caller reusing one schema across a
         # batch widens that window. A view renamed or deleted since then is an unresolvable name,
         # which `on_unresolved` gets to rule on, not a failure that costs every other dependency.
-        saved_query = DataWarehouseSavedQuery.objects.filter(team=team, name=dependency_name, deleted=False).first()
+        # `table.name` is the stored name. The dependency can spell the same view as `models.<name>`.
+        saved_query = DataWarehouseSavedQuery.objects.filter(team=team, name=table.name, deleted=False).first()
         if saved_query is not None:
             return _saved_query_node(team, dag, dependency_name, saved_query)
         if not _is_in_memory_view(table):
