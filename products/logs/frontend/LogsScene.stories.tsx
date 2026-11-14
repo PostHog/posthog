@@ -24,6 +24,8 @@ import {
     setFacetSelection,
 } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 
+import { expect, waitFor } from 'storybook/test'
+
 function createSeededRandom(seed: number): () => number {
     // LCG constants from Numerical Recipes
     let m = 0x80000000 // 2^31
@@ -527,6 +529,32 @@ export function LogsScene(): JSX.Element {
 }
 LogsScene.parameters = {
     featureFlags: [],
+}
+
+// The facet rail stacks above the results here, and the rows must still get height.
+export function LogsSceneNarrow(): JSX.Element {
+    return <App />
+}
+LogsSceneNarrow.tags = ['!test-skip']
+LogsSceneNarrow.parameters = {
+    featureFlags: [],
+    pageUrl: urls.logs(),
+    testOptions: {
+        viewport: { width: 700, height: 600 },
+        snapshotBrowsers: [],
+    },
+}
+LogsSceneNarrow.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    // The list clips its rows, so a rendered row can still be out of sight. Check that one fits.
+    await waitFor(
+        () => {
+            const list = canvasElement.querySelector('[data-attr="logs-table"]')
+            const row = list?.querySelector('[data-attr="logs-row"]')
+            expect(row).toBeTruthy()
+            expect(row!.getBoundingClientRect().bottom).toBeLessThanOrEqual(list!.getBoundingClientRect().bottom)
+        },
+        { timeout: 15000 }
+    )
 }
 
 export function LogsSceneServicesTab(): JSX.Element {
