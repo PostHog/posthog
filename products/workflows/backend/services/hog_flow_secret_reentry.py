@@ -25,7 +25,7 @@ from products.cdp.backend.secret_reentry import (
     supplied_input_keys,
     without_derived_fields,
 )
-from products.workflows.backend.facade.contracts import WorkflowEditState
+from products.workflows.backend.facade.contracts import TypedSecrets, WorkflowEditState
 from products.workflows.backend.services.hog_flow_content import DRAFT_CONTENT_FIELDS
 from products.workflows.backend.services.hog_flow_secrets import (
     TemplateCache,
@@ -43,13 +43,6 @@ WORKFLOW_RUN_FIELDS = (*DRAFT_CONTENT_FIELDS, "name")
 _PRESENTATION_STEP_FIELDS = frozenset({"name", "description", "created_at", "updated_at"})
 # Written by the server from the live workflow on every save, whatever the caller sends.
 _SERVER_STEP_CONFIG_FIELDS = frozenset({"sensitive"})
-
-
-@frozen
-class TypedSecrets:
-    entered: frozenset[str] = frozenset()
-    # Keys sent with any value, including a dictionary that still holds some masked entries.
-    supplied: frozenset[str] = frozenset()
 
 
 _NOTHING_TYPED = TypedSecrets()

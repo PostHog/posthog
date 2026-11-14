@@ -832,6 +832,15 @@ class WorkflowEditState:
 
 
 @frozen
+class TypedSecrets:
+    """The secret input keys a request typed for one workflow step."""
+
+    entered: frozenset[str] = frozenset()
+    # Keys sent with any value, including a dictionary that still holds some masked entries.
+    supplied: frozenset[str] = frozenset()
+
+
+@frozen
 class WorkflowActor:
     """Who made a workflow change, for its activity log entry. ``team_id`` is the project the request
     came through. ``user`` carries the core ``User`` row, as ``log_activity`` takes it."""
