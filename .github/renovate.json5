@@ -278,6 +278,305 @@
       matchPackageNames: ['@connectrpc/connect', '@connectrpc/connect-node'],
       groupName: 'npm connectrpc non-major',
     },
+    // Holds. A person checked each of these packages and found that a later minor or patch release breaks the build
+    // or changes behavior that no test covers. The comment above each name gives the reason.
+    // A held package gets no minor or patch update, and its major updates still wait for approval on the dashboard.
+    // A hold also stops a security fix that ships as a minor or patch release, because `vulnerabilityAlerts` is off
+    // and no other rule opens a PR for it. A person takes that fix by hand or lifts the hold.
+    // To lift a hold, delete the name. The package then joins the PR of its area in the next window
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: [
+        // These need code changes in the agent
+        '@agentclientprotocol/sdk',
+        '@anthropic-ai/claude-agent-sdk',
+        'typebox',
+        // 0.115 makes `BetaUsage.fallback_credit` required, and 0.118 removes `mid_conv_system`
+        '@anthropic-ai/sdk',
+        // The pin in the `desktop-quality.yml` workflow and the schema version must move with it
+        '@biomejs/biome',
+        // The generated `_pb.ts` files must be regenerated with these
+        '@bufbuild/*',
+        '@connectrpc/*',
+        // 1.24 turns WARN logging on by default
+        '@clickhouse/client',
+        // 6.3.1 makes Tab end a keyboard drag in sortable tables
+        '@dnd-kit/core',
+        // 1.4 and 1.5 need code changes, and the four packages move together
+        '@earendil-works/pi-*',
+        // 0.27.20 pulls `@floating-ui/dom` 1.8, which changes where popovers render
+        '@floating-ui/react',
+        // 4.1.3 changes TeX rendering in notebook LaTeX nodes
+        '@mathjax/src',
+        // 0.166 and later break subscription-mode resume
+        '@openai/codex',
+        // 0.220 changes the `BatchLogRecordProcessor` constructor
+        '@opentelemetry/api-logs',
+        '@opentelemetry/exporter-logs-otlp-http',
+        '@opentelemetry/exporter-trace-otlp-http',
+        '@opentelemetry/sdk-logs',
+        // 1.6 needs code changes for its type arguments
+        '@pierre/diffs',
+        // The checked-in sprites must be refreshed with it
+        '@posthog/hedgehog-mode',
+        // First-party prereleases that move with code changes
+        '@posthog/quill*',
+        // These need code changes
+        '@segment/action-destinations',
+        '@segment/actions-core',
+        'ultimate-express',
+        // 10.6.2 and later have an `EADDRINUSE` regression (storybookjs/storybook#37197) and bind to 127.0.0.1 by default
+        '@storybook/*',
+        'storybook',
+        'storybook-addon-pseudo-states',
+        // 1.25 adds a TS18048 error in `activities.ts`
+        '@temporalio/*',
+        // 3.29.2 and later change the saved HTML of text cards, and 3.30 has a regression (ueberdosis/tiptap#8496)
+        '@tiptap/*',
+        // The types follow the bun 1.3 that flox ships
+        '@types/bun',
+        // Later releases add type errors
+        '@types/luxon',
+        '@types/pg',
+        // React 19.3 needs code changes and has a jsdom teardown regression (react/react#38161). These move together
+        'react',
+        'react-dom',
+        'react-test-renderer',
+        '@types/react',
+        '@types/react-dom',
+        // These move with `@xterm/xterm` 6, which needs code changes
+        '@xterm/addon-*',
+        // 12.12.1 drops the MiniMap `zoomStep` default from 10 to 1
+        '@xyflow/react',
+        // 2.1693 adds an install script that the pnpm build allowlist blocks
+        'aws-sdk',
+        // `prebuild-install` is removed, so the rebuild scripts and a CI step must change
+        'better-sqlite3',
+        // A release of these changes output that customers see, so the owning team decides
+        'cron-parser',
+        'free-email-domains',
+        'ipaddr.js',
+        'luxon',
+        're2js',
+        // 3.4.4 and later allow more attributes by default, which changes sanitized survey and notebook HTML
+        'dompurify',
+        // Only the nightly update E2E covers auto-update
+        'electron-builder',
+        'electron-updater',
+        // 0.11 and 0.12 throw in the layout of the workflows canvas
+        'elkjs',
+        // 10.5 moves to Unicode 17, which changes emoji matching in replay
+        'emoji-regex',
+        // These change CSS output: esbuild 0.28, esbuild-sass-plugin 3.7 and tailwindcss 4.3.3
+        'esbuild',
+        'esbuild-sass-plugin',
+        'tailwindcss',
+        // 12.43 changes `AnimatePresence` ordering
+        'framer-motion',
+        'motion',
+        // 0.4 does not fetch emoji data under jsdom, which fails the `EmojiPickerPanel` tests
+        'frimousse',
+        // 7.4 and 7.5 change match scores, which reorders settings search results
+        'fuse.js',
+        // `lowlight` pins ~11.11
+        'highlight.js',
+        // 1.6.18 and later have a discontinuity offset regression (video-dev/hls.js#8064)
+        'hls.js',
+        // New findings need `knip.json` edits
+        'knip',
+        // 15.5 no longer restores staged files when hooks undo every change
+        'lint-staged',
+        // 10.30 changes customer email and webhook output
+        'liquidjs',
+        // 1.66 changes snapshot baselines
+        'lucide-react',
+        // 0.24 runs out of memory on the repo config
+        'markdownlint-cli2',
+        // 18.1.3 has a tab expansion regression (markedjs/marked#4184)
+        'marked',
+        // 0.57 remaps `./*` in its exports map, which breaks the deep imports of editor workers
+        'monaco-editor',
+        // 2.15 needs a regenerated `mockServiceWorker.js`
+        'msw',
+        // 8.46 and 2.9 need code or config changes
+        'orval',
+        'ts-json-schema-generator',
+        // 1.79 and later turn on React compiler rules, which add warnings across the frontend
+        'oxlint',
+        // 5.5.5 changes delimiter guessing for uploaded CSVs
+        'papaparse',
+        // 3.9 reformats the generated API client
+        'prettier',
+        // 1.12.0 changes deletes across two textblocks, which moves notebook editor behavior
+        'prosemirror-transform',
+        // 20.6.0 creates a new `styleSheets` array on every render, so the toolbar attaches its shadow root again
+        'react-shadow',
+        // 8.4.1 and later change the height of `LemonTextArea`
+        'react-textarea-autosize',
+        // 2.3.2 and later change `scrollToRow` and row sizing in the trace and logs lists
+        'react-window',
+        // 7.12 changes `linearRegression` slopes for large x values, which moves trend lines
+        'simple-statistics',
+        // 7.3 and later have a memory leak on glibc (Brooooooklyn/snappy#323)
+        'snappy',
+        // Every release updates the Public Suffix List, which changes cookieless visitor IDs for some hosts
+        'tldts',
+        // 0.0.10 changes the `TextMorph` enter animation
+        'torph',
+        // Later releases change which product tests CI selects
+        'turbo',
+        // Scroll behavior changes need a check in a browser
+        'virtua',
+        // 4.150 and later upload source maps on `wrangler deploy` by default
+        'wrangler',
+        // 4.5 rejects minute-precision `iso.datetime`
+        'zod',
+      ],
+      enabled: false,
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: [
+        // 3.14 breaks `aioresponses`, which the HTTP batch export tests use (pnuckowski/aioresponses#289).
+        // `geoip2` 5.3 needs `aiohttp` 3.14
+        'aiohttp',
+        'geoip2',
+        // 0.32 adds a `min_size` floor
+        'asyncpg',
+        // 12.28 and later need a newer Azurite than the test stack runs
+        'azure-storage-blob',
+        // Later releases add mypy errors
+        'beautifulsoup4',
+        'pyarrow-stubs',
+        'responses',
+        // 2.14.2 and later move to OpenSSL 3.5, which changes TLS to customer brokers
+        'confluent-kafka',
+        // 6.1 and later change DST and day-of-week results, which moves scheduled change and reminder times
+        'croniter',
+        'types-croniter',
+        // Dagster asks for the Dagster+ agent to move before the libraries
+        'dagster*',
+        // 1.6.6 ignores `without_files=True`
+        'deltalake',
+        // 3.3 and 3.4 need migrations
+        'django-oauth-toolkit',
+        // 2.9 needs `httpx2` for DNS-over-HTTPS, which breaks domain verification
+        'dnspython',
+        // 1.5.3 and later copy `HTTP_PROXY` into DuckDB, which ignores `NO_PROXY`
+        'duckdb',
+        // 2.35 and later import numpy at startup, and 2.39 and later change stream trimming
+        'fakeredis',
+        // Every release changes company domain parsing
+        'free-email-domains',
+        // 2026.2 and later list keys with a trailing slash, so folder placeholders appear as files in warehouse sources
+        'fsspec',
+        's3fs',
+        // 3.42.2 and later stop retrying TLS errors (googleapis/google-cloud-python#18178)
+        'google-cloud-bigquery',
+        // 4.3 changes how saved conversations restore
+        'langgraph-checkpoint',
+        // 1.30 changes redirect handling for user MCP servers
+        'mcp',
+        // `prance` caps it at ~=0.7.1
+        'openapi-spec-validator',
+        // 1.38 adds a `UserWarning`, and 1.39 removes `sdk._logs.LogRecord`, which drops logs without an error
+        'opentelemetry-*',
+        // Later releases break `pipeline()` with ONNX models (huggingface/optimum#2324)
+        'optimum',
+        // 2.3.12 breaks non-ASCII text decoding
+        'pymssql',
+        // 1.1.2 drops strict certificate checks and changes a method that the connector overrides
+        'pymysql',
+        // 6.13 and later change extracted text for stored documents
+        'pypdf',
+        // 9.2.0 has regressions (pytest-dev/pytest#15287)
+        'pytest',
+        // 16.7 writes a retried failure to JUnit twice
+        'pytest-rerunfailures',
+        // 2.34 stops collapsing `//` in URL paths and tightens `no_proxy` matching
+        'requests',
+        // Conflicts with the `huggingface-hub` version of the sentiment group
+        'shrinkray',
+        // 4.8 turns OCSP revocation checks off by default
+        'snowflake-connector-python',
+        // 4.9.1 replaces the GitHub profile email with the primary email at sign-in
+        'social-auth-core',
+        // A new token limit raises `SQLParseError` on a ClickHouse path
+        'sqlparse',
+        // 1.35 stops sending a schedule catch-up window
+        'temporalio',
+        // Forces `urllib3` 2
+        'types-requests',
+        // The llm-gateway image starts `uvicorn.workers.UvicornWorker`, which later releases deprecate
+        'uvicorn',
+        // 3.4 changes quantile and MAE leaf values, and the autoresearch sandbox image pins the same version
+        'xgboost',
+      ],
+      enabled: false,
+    },
+    {
+      matchManagers: ['cargo'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: [
+        // 0.22 makes `with_codec` return `Result` and changes the encoded bytes
+        'apache-avro',
+        // New deprecations fail clippy with `-D warnings`
+        'criterion',
+        'httpmock',
+        // 0.30 needs a fork of `tui-textarea` that has a rendering bug. `crossterm` and `inquire` move with it
+        'ratatui',
+        'crossterm',
+        'inquire',
+        // Parses M-D-Y, which changes capture timestamps and flag date operators
+        'dateparser',
+        // The resolver default moves from v1 to v3
+        'determinator',
+        // Needs an edit to every config attribute
+        'envconfig',
+        // 0.21 compiles protos that import `google/protobuf/descriptor.proto`, which the `protoc` of the flags integration runner does not ship
+        'etcd-client',
+        // Flag regex semantics diverge from Python
+        'fancy-regex',
+        // Takes the clock by value and has stricter burst semantics
+        'governor',
+        // jemalloc 5.3.1 defaults to 64 KB pages on aarch64 Linux, which needs an arm64 canary.
+        // `jemalloc_pprof` shares `jemalloc-sys` with it
+        'tikv-jemallocator',
+        'jemalloc_pprof',
+        // Compile errors in k8s-awareness
+        'kube',
+        'k8s-openapi',
+        // 0.24 breaks the test recorder, and its push-gateway default pulls `aws-lc-rs`. These move together
+        'metrics',
+        'metrics-exporter-prometheus',
+        'metrics-util',
+        // `&String` and `&str` compile errors in pgcollector
+        'prometheus',
+        // Removes `Lifecycle::begin_request`
+        'quick_cache',
+        // Changes `OwnedDeliveryResult`, which several call sites use
+        'rdkafka',
+        // RocksDB 11 turns on `reduce_file_locking` with no override
+        'rocksdb',
+        // Changes duplicate-key behavior above 32 keys
+        'simd-json',
+        // Needs `gimli` 0.33 changes in the CLI
+        'symbolic',
+        // `testcontainers-modules` needs ^0.27
+        'testcontainers',
+        // `decode` takes `&[Rank]`
+        'tiktoken-rs',
+        // Negotiates SCRAM-SHA-256-PLUS against the connection poolers, which no local test covers
+        'tokio-postgres-rustls',
+        // 0.6.8 turns off multi-member gzip decoding, so capture would keep only the first member of such a request
+        'tower-http',
+        // 0.14 has a lifetime error in `personhog-leader`
+        'zstd',
+      ],
+      enabled: false,
+    },
     {
       matchDepTypes: ['requires-python', 'packageManager'],
       groupName: null,
