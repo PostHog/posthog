@@ -3,6 +3,9 @@ button.collapsible-frame-header[aria-expanded='true']:not(:hover) {
 }
 
 .collapsible-frame-header {
+    user-select: text;
+    cursor: default;
+
     .frame-function {
         display: flex;
         flex: 0 0 auto;
@@ -12,6 +15,8 @@ button.collapsible-frame-header[aria-expanded='true']:not(:hover) {
         overflow: auto hidden;
         white-space: nowrap;
         scrollbar-width: none;
+        user-select: text;
+        cursor: text;
 
         &[scrollable] {
             mask-image: linear-gradient(to right, transparent, black 1em);
@@ -31,6 +36,8 @@ button.collapsible-frame-header[aria-expanded='true']:not(:hover) {
         text-align: start;
         white-space: nowrap;
         scrollbar-width: none;
+        user-select: text;
+        cursor: text;
 
         &[scrollable] {
             mask-image: linear-gradient(to right, transparent, black 1em);
@@ -46,5 +53,6 @@ button.collapsible-frame-header[aria-expanded='true']:not(:hover) {
         flex: 0 0 auto;
         align-items: center;
         margin-left: auto;
+        user-select: none;
     }
 }
