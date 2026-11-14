@@ -4,10 +4,12 @@ import { combineUrl, router } from 'kea-router'
 import {
     IconCheck,
     IconClock,
+    IconCode,
     IconCode2,
     IconDatabase,
     IconDecisionTree,
     IconEndpoints,
+    IconGear,
     IconGraph,
     IconLive,
     IconPause,
@@ -251,6 +253,24 @@ export function EndpointScene(): JSX.Element {
                                 setViewingVersion={setViewingVersion}
                             />
                             <SceneMenuBarSeparator />
+                            <SceneMenuBarItem
+                                onClick={() => router.actions.push(urls.endpoint(endpoint.name))}
+                                data-attr="endpoint-menubar-open-query"
+                            >
+                                <IconCode />
+                                Open query
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    router.actions.push(
+                                        combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.CONFIGURATION }).url
+                                    )
+                                }
+                                data-attr="endpoint-menubar-open-configuration"
+                            >
+                                <IconGear />
+                                Open configuration
+                            </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() =>
                                     router.actions.push(
