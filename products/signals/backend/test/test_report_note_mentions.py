@@ -10,6 +10,7 @@ from rest_framework import serializers
 from slack_sdk.errors import SlackApiError
 
 from posthog.constants import AvailableFeature
+from posthog.email import WORKFLOWS_TEMPLATE_ID_MAP
 from posthog.models import Organization, User
 from posthog.models.integration import Integration
 from posthog.token_bucket import Budget, consume
@@ -159,6 +160,13 @@ class TestDeliverNoteMentions(BaseTest):
         )
         emailed = {call.args[0] for call in self.mocks["email"].return_value.add_user_recipient.call_args_list}
         assert emailed == {self.mentioned, self.role_member}
+        email = self.mocks["email"].call_args.kwargs
+        assert email["use_http"] is True
+        assert email["template_name"] in WORKFLOWS_TEMPLATE_ID_MAP
+        # The Workflows template reads exactly these variables.
+        assert {"author_name", "report_title", "note_excerpt", "report_url", "team_name"} <= set(
+            email["template_context"]
+        )
         pushed = {call.args[0] for call in self.mocks["push"].call_args_list}
         assert pushed == {self.mentioned.id, self.role_member.id}
         slack_posts = self.mocks["slack"].return_value.client.chat_postMessage.call_args_list

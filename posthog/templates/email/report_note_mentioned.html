@@ -3,17 +3,17 @@
 {% block section %}
     <!-- prettier-ignore -->
     <p>
-        <b>{{ author_name }}</b> mentioned you in a note on <b>{{ report_title }}</b> in the project <b>{{ team.name }}</b>.
+        <b>{{ author_name }}</b> mentioned you in a note on <b>{{ report_title }}</b> in the project <b>{{ team_name }}</b>.
     </p>
-    <p>{{ content }}</p>
+    <p>{{ note_excerpt }}</p>
     <div class="mb mt text-center">
-        <a class="button" href="{{ href }}">Open report</a>
+        <a class="button" href="{{ report_url }}">Open report</a>
     </div>
     <div class="mt">
         <p>
             If the button above doesn't work, paste this link into your browser:
             <br />
-            <a href="{{ href }}">{{ href }}</a>
+            <a href="{{ report_url }}">{{ report_url }}</a>
         </p>
     </div>
 {% endblock %}
