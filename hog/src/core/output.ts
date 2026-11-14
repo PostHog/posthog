@@ -167,16 +167,21 @@ export class Output {
         }
     }
 
-    error(error: HogError): void {
+    error(error: HogError, feedbackCommand?: string): void {
         const { message, hint } = printedFailure(error, this.mode.isCI)
         if (this.mode.format === 'json') {
-            const payload = { error: { ...error.details, code: error.code, message, hint } }
+            const payload = { error: { ...error.details, code: error.code, message, hint, feedback: feedbackCommand } }
             this.runtime.writeStderr(`${JSON.stringify(payload)}\n`)
             return
         }
         this.runtime.writeStderr(`${this.style('Error:', 'red', 'bold')} ${escapeControls(message)}\n`)
         if (hint) {
             this.runtime.writeStderr(`${this.style(escapeControls(hint), 'dim')}\n`)
+        }
+        if (feedbackCommand) {
+            this.runtime.writeStderr(
+                `${this.style(`Send feedback about this to the PostHog team: ${escapeControls(feedbackCommand)}`, 'dim')}\n`
+            )
         }
     }
 }

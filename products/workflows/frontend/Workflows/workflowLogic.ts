@@ -33,7 +33,6 @@ import type { IntegrationConfigApi } from 'products/integrations/frontend/genera
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
-    hogFlowsResumeEmailSending,
     hogFlowsRunCreate,
     hogFlowsSchedulesCreate,
     hogFlowsSchedulesDestroy,
@@ -61,6 +60,12 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
+import {
+    EmailSendingPause,
+    emailSendingPause,
+    openResumeEmailSendingDialog,
+    requestResumeEmailSending,
+} from './emailSending'
 import { getRegisteredTriggerTypes, getTriggerDisplayType } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
@@ -459,10 +464,7 @@ export interface workflowLogicValues {
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
     edgesByActionId: Record<string, HogFlowEdge[]>
-    emailSendingPauseRequiresSupport: boolean
-    emailSendingPaused: boolean
-    emailSendingPausedByStaff: boolean
-    emailSendingPausedReason: string
+    emailSendingPause: EmailSendingPause
     externallyEdited: boolean
     hasStagedDraft: boolean
     hasUnsavedChanges: boolean
@@ -3560,10 +3562,7 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         ) => HogFlow
         hasStagedDraft: (originalWorkflow: HogFlow | null) => boolean
-        emailSendingPaused: (originalWorkflow: HogFlow | null) => boolean
-        emailSendingPausedReason: (originalWorkflow: HogFlow | null) => string
-        emailSendingPausedByStaff: (originalWorkflow: HogFlow | null) => boolean
-        emailSendingPauseRequiresSupport: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPause: (originalWorkflow: HogFlow | null) => EmailSendingPause
         showDraftActions: (originalWorkflow: HogFlow | null) => boolean
         publishDisabledReason: (
             hasStagedDraft: boolean,
@@ -4595,24 +4594,9 @@ export const workflowLogic = kea<workflowLogicType>([
 
         // Read off the saved row, never the editor form: a pause is server state and the form is
         // whatever the author has typed since.
-        emailSendingPaused: [
+        emailSendingPause: [
             (s) => [s.originalWorkflow],
-            (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.email_sending_paused_at,
-        ],
-        emailSendingPausedReason: [
-            (s) => [s.originalWorkflow],
-            (originalWorkflow: HogFlow | null): string => originalWorkflow?.email_sending_paused_reason ?? '',
-        ],
-        // "staff" means only PostHog staff can lift the pause, so the banner hides the resume button.
-        emailSendingPausedByStaff: [
-            (s) => [s.originalWorkflow],
-            (originalWorkflow: HogFlow | null): boolean => originalWorkflow?.email_sending_paused_by === 'staff',
-        ],
-        // Covers staff pauses and repeat pauses (re-tripped soon after a resume): no resume button.
-        emailSendingPauseRequiresSupport: [
-            (s) => [s.originalWorkflow],
-            (originalWorkflow: HogFlow | null): boolean =>
-                originalWorkflow?.email_sending_pause_requires_support === true,
+            (originalWorkflow: HogFlow | null): EmailSendingPause => emailSendingPause(originalWorkflow),
         ],
 
         // A staged draft outlives the edits made after it, so the draft actions stay mounted while
@@ -4815,18 +4799,7 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
                 return
             }
-            LemonDialog.open({
-                title: 'Resume email sending?',
-                description:
-                    'Send again from this workflow. If it keeps drawing spam complaints or hitting addresses that do not exist, sending pauses again on its own within a couple of hours.',
-                primaryButton: {
-                    children: 'Resume sending',
-                    onClick: () => actions.confirmResumeEmailSending(),
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
-            })
+            openResumeEmailSendingDialog('workflow', () => actions.confirmResumeEmailSending())
         },
         confirmResumeEmailSending: async () => {
             // Also guards the dialog's close-animation window, where a fast double-click on the
@@ -4836,10 +4809,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setResumeEmailSendingPending(true)
             try {
-                await hogFlowsResumeEmailSending(String(values.currentProjectId), props.id)
-                lemonToast.success('Email sending resumed')
-            } catch {
-                lemonToast.error('Could not resume email sending. Please try again.')
+                await requestResumeEmailSending(String(values.currentProjectId), props.id)
             } finally {
                 actions.setResumeEmailSendingPending(false)
                 // Reload either way: on success to clear the banner, on failure because another

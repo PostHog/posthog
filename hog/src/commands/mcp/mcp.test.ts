@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { parse } from 'jsonc-parser'
 
+import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import type { Env } from '@/core/runtime'
 import { runHog, type FakeRuntimeOptions, type HogRun } from '@/testing'
 
@@ -79,7 +80,7 @@ describe('hog mcp add', () => {
         async (agent, path, before, key, entry, platform) => {
             const result = await mcp(['--agent', agent], {}, { platform, files: { [path]: before } })
 
-            expect(result.exitCode).toBe(0)
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
             expect(result.json()).toEqual({ added: [{ agent, path, status: 'added' }] })
             expect(json(result.files[path])).toMatchObject({ [key]: { other: OTHER, posthog: entry } })
             for (const comment of before.match(/\/\/.*$/gm) ?? []) {
@@ -96,7 +97,7 @@ describe('hog mcp add', () => {
 
         const result = await mcp(['--agent', 'codex'], env, { files: { [path]: before } })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toEqual({ added: [{ agent: 'codex', path, status: 'added' }] })
         expect(result.files[path]).toBe(`${before}\n[mcp_servers.posthog]\nurl = "${URL}"\nstartup_timeout_sec = 30\n`)
     })
@@ -200,7 +201,7 @@ describe('hog mcp add', () => {
     ])('%s', async (_name, files, argv, path, status, url) => {
         const result = await mcp(argv, {}, { files })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({ added: [{ path, status }] })
         expect(result.files[path]?.match(/https:\/\/[^"]+/g)).toEqual([url])
     })
@@ -299,7 +300,7 @@ describe('hog mcp add', () => {
         async (_name, agent, path, before, platform, url) => {
             const result = await mcp(['--agent', agent], {}, { platform, files: { [path]: before } })
 
-            expect(result.exitCode).toBe(1)
+            expect(result.exitCode).toBe(EXIT_FAILURE)
             expect(result.error()).toMatchObject({
                 code: 'mcp_foreign_server',
                 message: expect.stringContaining(path),
@@ -370,7 +371,7 @@ describe('hog mcp add', () => {
 
         const result = await mcp(['--agent', 'codex', '--force'], {}, { files: { [path]: before } })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toEqual({ added: [{ agent: 'codex', path, status: 'replaced' }] })
         expect(result.files[path]).toBe(after)
     })
@@ -400,7 +401,7 @@ describe('hog mcp add', () => {
     ])('--force refuses %s and leaves the file as it was', async (_name, agent, path, before, code) => {
         const result = await mcp(['--agent', agent, '--force'], {}, { files: { [path]: before } })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject({ code })
         expect(result.files[path]).toBe(before)
     })
@@ -412,14 +413,14 @@ describe('hog mcp add', () => {
     ])("%s gets the Wizard's server URL", async (_name, env, files) => {
         const result = await mcp(['--agent', 'cursor'], env, { files })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(json(result.files[`${HOME}/.cursor/mcp.json`])).toEqual({ mcpServers: { posthog: { url: URL } } })
     })
 
     test('a self-hosted host is refused before anything is written', async () => {
         const result = await mcp(['--agent', 'cursor'], { HOG_HOST: 'https://ph.example.com' })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject({ code: 'mcp_self_hosted', hint: expect.stringContaining('--host') })
         expect(Object.keys(result.files)).toEqual(Object.keys(REPOSITORY))
     })
@@ -429,7 +430,7 @@ describe('hog mcp add', () => {
 
         const result = await mcp(['--agent', 'cursor', '--agent', 'codex', '--agent', 'claude-code'], env)
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         for (const path of [`${HOME}/.cursor/mcp.json`, `${HOME}/.codex/config.toml`, '/work/.mcp.json']) {
             expect(result.files[path]).toContain(URL)
             expect(result.files[path]).not.toMatch(/phx_|Authorization|headers|POSTHOG_AUTH_HEADER/)
@@ -438,22 +439,22 @@ describe('hog mcp add', () => {
     })
 
     test.each<[string, string[], Env, string, number]>([
-        ['an agent hog has no entry for', ['--agent', 'windsurf'], {}, 'unknown_agent', 2],
-        ['no agent running hog', [], {}, 'mcp_agent_required', 2],
-        ['a detected agent hog has no entry for', [], { GEMINI_CLI: '1' }, 'mcp_agent_required', 2],
+        ['an agent hog has no entry for', ['--agent', 'windsurf'], {}, 'unknown_agent', EXIT_USAGE],
+        ['no agent running hog', [], {}, 'mcp_agent_required', EXIT_USAGE],
+        ['a detected agent hog has no entry for', [], { GEMINI_CLI: '1' }, 'mcp_agent_required', EXIT_USAGE],
         [
             'a client with no settings path on Linux',
             ['--agent', 'cursor', '--agent', 'claude-desktop'],
             {},
             'mcp_unsupported_platform',
-            1,
+            EXIT_FAILURE,
         ],
     ])('%s fails before anything is written', async (_name, argv, env, code, exitCode) => {
         const result = await mcp(argv, env)
 
         expect(result.exitCode).toBe(exitCode)
         expect(result.error()).toMatchObject({ code })
-        if (exitCode === 2) {
+        if (exitCode === EXIT_USAGE) {
             expect(result.error().hint).toBe(
                 'Pass `--agent` with one of: claude-code, cursor, codex, vscode, zed, opencode, claude-desktop.'
             )
@@ -470,11 +471,11 @@ describe('hog mcp add', () => {
         const result = await mcp(['--agent', 'claude-code'], {}, { files, links: { '/work/.mcp.json': target } })
 
         if (written === null) {
-            expect(result.exitCode).toBe(1)
+            expect(result.exitCode).toBe(EXIT_FAILURE)
             expect(result.error()).toMatchObject({ code: 'unsafe_mcp_config_path' })
             expect(result.files[target]).toBe('{}')
         } else {
-            expect(result.exitCode).toBe(0)
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
             expect(json(result.files[written])).toEqual({ mcpServers: { posthog: { type: 'http', url: URL } } })
         }
         expect(result.files['/work/.mcp.json']).toBeUndefined()
@@ -483,7 +484,7 @@ describe('hog mcp add', () => {
     test('a person is told how the agent logs in, and the detected agent is used', async () => {
         const result = await mcp(['-o', 'text'], { CLAUDECODE: '1', NO_COLOR: '1' })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toBe(
             [
                 '✓ Added the PostHog MCP server to Claude Code',
