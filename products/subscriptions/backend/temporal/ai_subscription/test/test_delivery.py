@@ -633,6 +633,12 @@ class TestBuildAISlackMessage:
         message = _build_message(markdown)
         assert message.blocks[2] == {"type": "markdown", "text": markdown}
 
+    def test_findings_under_an_empty_heading_have_no_callout(self) -> None:
+        markdown = "##\n\n- `Signups` rose `▲ 12%`."
+        message = _build_message(markdown)
+        assert not [block for block in message.blocks if block["type"] == "container"]
+        assert message.blocks[2] == {"type": "markdown", "text": markdown}
+
     def test_single_section_report_has_no_thread_messages(self) -> None:
         message = _build_message("A short report.")
         assert message.channel == "C123"
