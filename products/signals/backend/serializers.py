@@ -58,6 +58,7 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.facade.source_configs import config_with_default_alert_scope
 from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.hybrid_search import SearchMode
 from products.signals.backend.report_check_monitoring_timing import (
@@ -253,10 +254,13 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to "
     "future signals only, and they decide which issues are eligible. They are not a spend cap. "
     "The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) "
-    "accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the "
+    "accepts `alert_scope`: `investigated_only` turns only insight alerts that the "
     "investigation agent confirmed into signals, `all_firing_alerts` also includes alerts "
     "without the investigation agent, and `off` turns no alerts into signals. Alert checks, "
-    "notifications, and investigations still run with `off`. "
+    "notifications, and investigations still run with `off`. A row with no `alert_scope` reads as "
+    "`investigated_only`. When the source is created on, or turned on from off, with no stored or "
+    "requested `alert_scope`, the server stores `all_firing_alerts` while all firing alerts are "
+    "available to the organization. "
     "It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to "
     f"{ALERT_PATTERNS_MAX_COUNT} regex patterns, max {ALERT_PATTERN_MAX_LENGTH} characters each). "
     "A pattern matches when it finds a match anywhere in the alert name or the insight name, and "
@@ -506,7 +510,28 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             config = dict(validated_data.get("config") or {})
             config.setdefault("sample_rate", DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE)
             validated_data["config"] = config
+        if validated_data.get("enabled", True):
+            scoped_config = config_with_default_alert_scope(
+                team_id=validated_data["team_id"],
+                source_product=validated_data["source_product"],
+                source_type=validated_data["source_type"],
+                config=validated_data.get("config") or {},
+            )
+            if scoped_config is not None:
+                validated_data["config"] = scoped_config
         return super().create(validated_data)
+
+    def update(self, instance: SignalSourceConfig, validated_data: dict) -> SignalSourceConfig:
+        if validated_data.get("enabled") and not instance.enabled:
+            scoped_config = config_with_default_alert_scope(
+                team_id=instance.team_id,
+                source_product=instance.source_product,
+                source_type=instance.source_type,
+                config=validated_data.get("config", instance.config),
+            )
+            if scoped_config is not None:
+                validated_data["config"] = scoped_config
+        return super().update(instance, validated_data)
 
 
 # Wider than the stored limits, so a list over them still reads back as a field error instead of a 400.

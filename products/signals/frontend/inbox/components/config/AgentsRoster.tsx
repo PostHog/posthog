@@ -169,8 +169,8 @@ interface SourceAnomalyScoring {
     saving: boolean
 }
 
-// Replaces the source detail while the alert scope control shows, since the default copy only covers investigated alerts.
-const ALERT_SCOPE_SOURCE_DETAIL = 'Fires when an insight alert goes off. Choose which alerts count below.'
+// Replaces the source detail while the alert scope control shows, so the copy points at the control below it.
+const ALERT_SCOPE_SOURCE_DETAIL = 'Fires when an insight alert starts firing. Choose which alerts count below.'
 
 const ALERT_SCOPE_OPTIONS: { value: SignalAlertScope; label: string; description: string; dataAttr: string }[] = [
     {

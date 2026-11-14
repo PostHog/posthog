@@ -2448,6 +2448,19 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // so config.enabled already reflects the desired state.
                 const config = values.anomalyInvestigationConfig
                 const desiredEnabled = config?.enabled ?? true
+                // Mirrors the server, which stores all firing alerts when the source turns on with no
+                // stored scope, so the scope control does not show investigated only until the reload lands.
+                if (
+                    config &&
+                    desiredEnabled &&
+                    values.featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS] &&
+                    !(SOURCE_ALERT_SCOPE_KEY in (config.config ?? {}))
+                ) {
+                    actions.replaceSourceConfig({
+                        ...config,
+                        config: { ...config.config, [SOURCE_ALERT_SCOPE_KEY]: SignalAlertScope.AllFiringAlerts },
+                    })
+                }
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.Analytics,
                     sourceType: SignalSourceType.AnomalyInvestigation,

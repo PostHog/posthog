@@ -23,6 +23,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.emission.steering import afetch_source_config
+from products.signals.backend.facade import api as facade_api
 from products.signals.backend.facade.api import set_signal_source_types_enabled
 from products.signals.backend.facade.source_configs import (
     AlertFilterOutcome,
@@ -1077,6 +1078,103 @@ class TestIsSourceEnabledGating(APIBaseTest):
             )
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is expected
+
+
+class TestDefaultAlertScopeOnEnable(APIBaseTest):
+    _FLAG_PATH = "products.signals.backend.facade.source_configs.feature_enabled_or_false"
+    _ANALYTICS = {"source_product": "analytics", "source_type": "anomaly_investigation"}
+
+    def _url(self, config_id: str | None = None) -> str:
+        base = f"/api/projects/{self.team.id}/signals/source_configs/"
+        return f"{base}{config_id}/" if config_id else base
+
+    @parameterized.expand(
+        [
+            ("no_row", None, {}, True, "all_firing_alerts"),
+            ("no_row_flag_off", None, {}, False, None),
+            (
+                "no_row_requested_scope",
+                None,
+                {"config": {"alert_scope": "investigated_only"}},
+                True,
+                "investigated_only",
+            ),
+            ("no_row_created_off", None, {"enabled": False}, True, None),
+            ("off_row_no_scope", (False, {}), {}, True, "all_firing_alerts"),
+            ("off_row_no_scope_flag_off", (False, {}), {}, False, None),
+            ("off_row_stored_off", (False, {"alert_scope": "off"}), {}, True, "off"),
+            (
+                "off_row_stored_investigated",
+                (False, {"alert_scope": "investigated_only"}),
+                {},
+                True,
+                "investigated_only",
+            ),
+            ("off_row_requested_scope", (False, {}), {"config_set": {"alert_scope": "off"}}, True, "off"),
+            ("on_row_no_scope", (True, {}), {}, True, None),
+        ]
+    )
+    def test_turning_the_source_on_through_the_api(self, _name, existing, body, flag_enabled, expected_scope):
+        with patch(self._FLAG_PATH, return_value=flag_enabled):
+            if existing is None:
+                response = self.client.post(self._url(), {**self._ANALYTICS, "enabled": True, **body}, format="json")
+                assert response.status_code == status.HTTP_201_CREATED, response.json()
+            else:
+                enabled, config = existing
+                row = SignalSourceConfig.objects.create(
+                    team=self.team, enabled=enabled, config=config, **self._ANALYTICS
+                )
+                response = self.client.patch(self._url(str(row.id)), {"enabled": True, **body}, format="json")
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+        stored = SignalSourceConfig.objects.get(team=self.team, **self._ANALYTICS).config
+        assert stored.get("alert_scope") == expected_scope
+        assert response.json()["config"].get("alert_scope") == expected_scope
+
+    def test_other_sources_keep_their_config(self) -> None:
+        with patch(self._FLAG_PATH, return_value=True):
+            response = self.client.post(
+                self._url(), {"source_product": "github", "source_type": "issue", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert SignalSourceConfig.objects.get(team=self.team, source_product="github").config == {}
+
+    @parameterized.expand([("off_row", False, {"alert_scope": "all_firing_alerts"}), ("on_row", True, {})])
+    def test_set_signal_source_types_enabled(self, _name, enabled, expected_config) -> None:
+        SignalSourceConfig.objects.create(team=self.team, enabled=enabled, **self._ANALYTICS)
+
+        with patch(self._FLAG_PATH, return_value=True):
+            set_signal_source_types_enabled(
+                team_id=self.team.id,
+                source_product="analytics",
+                source_types=("anomaly_investigation",),
+                enabled=True,
+                created_by_id=self.user.id,
+            )
+
+        assert SignalSourceConfig.objects.get(team=self.team, **self._ANALYTICS).config == expected_config
+
+    @parameterized.expand([("flag_on", True, {"alert_scope": "all_firing_alerts"}), ("flag_off", False, {})])
+    def test_set_sources(self, _name, flag_enabled, expected_config) -> None:
+        analytics_spec = facade_api._SourceSpec(
+            "analytics", "Product analytics", "insight alerts", (("analytics", "anomaly_investigation"),)
+        )
+        SignalSourceConfig.objects.create(team=self.team, enabled=False, **self._ANALYTICS)
+
+        with (
+            patch.object(facade_api, "_SOURCE_CATALOG", (*facade_api._SOURCE_CATALOG, analytics_spec)),
+            patch(self._FLAG_PATH, return_value=flag_enabled),
+        ):
+            facade_api.set_sources(self.team.id, self.user.id, ["error_tracking", "analytics"])
+
+        row = SignalSourceConfig.objects.get(team=self.team, **self._ANALYTICS)
+        assert row.enabled
+        assert row.config == expected_config
+        error_tracking_configs = SignalSourceConfig.objects.filter(
+            team=self.team, source_product="error_tracking"
+        ).values_list("config", flat=True)
+        assert list(error_tracking_configs) == [{}, {}, {}]
 
 
 class TestGetAnalyticsAlertScope(BaseTest):

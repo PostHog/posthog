@@ -74,6 +74,7 @@ from products.signals.backend.briefing_reports import (
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
+from products.signals.backend.facade.source_configs import config_with_default_alert_scope
 from products.signals.backend.facade.source_scouts import (
     SOURCE_TEMPLATE_HASH_METADATA_KEY,
     SOURCE_TEMPLATE_METADATA_KEY,
@@ -391,6 +392,14 @@ def set_signal_source_types_enabled(
             disabled.update(enabled=False)
             log_source_configs_disabled(disabled_rows)
             return
+        already_enabled = set(
+            SignalSourceConfig.objects.filter(
+                team_id=team_id,
+                source_product=source_product,
+                source_type__in=source_types,
+                enabled=True,
+            ).values_list("source_type", flat=True)
+        )
         for source_type in source_types:
             row, _ = SignalSourceConfig.objects.update_or_create(
                 team_id=team_id,
@@ -398,11 +407,19 @@ def set_signal_source_types_enabled(
                 source_type=source_type,
                 defaults={"enabled": True, "created_by_id": created_by_id},
             )
+            merged = row.config
             if config is not None:
                 merged = {**row.config, **config} if isinstance(row.config, dict) else dict(config)
-                if merged != row.config:
-                    row.config = merged
-                    row.save(update_fields=["config"])
+            if source_type not in already_enabled:
+                merged = (
+                    config_with_default_alert_scope(
+                        team_id=team_id, source_product=source_product, source_type=source_type, config=merged
+                    )
+                    or merged
+                )
+            if merged != row.config:
+                row.config = merged
+                row.save(update_fields=["config"])
 
 
 def _token_count(text: str) -> int:
@@ -833,9 +850,19 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                 obj, created = SignalSourceConfig.objects.get_or_create(
                     team_id=team_id, source_product=source_product, source_type=source_type, defaults=defaults
                 )
-                if not created and not obj.enabled:
-                    obj.enabled = True
-                    obj.save(update_fields=["enabled", "updated_at"])
+                if created or not obj.enabled:
+                    update_fields = []
+                    if not obj.enabled:
+                        obj.enabled = True
+                        update_fields.append("enabled")
+                    scoped_config = config_with_default_alert_scope(
+                        team_id=team_id, source_product=source_product, source_type=source_type, config=obj.config
+                    )
+                    if scoped_config is not None:
+                        obj.config = scoped_config
+                        update_fields.append("config")
+                    if update_fields:
+                        obj.save(update_fields=[*update_fields, "updated_at"])
             else:
                 disabled = SignalSourceConfig.objects.filter(
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
@@ -858,7 +885,7 @@ _ONBOARDING_NATIVE_SOURCES: tuple[tuple[str, tuple[str, ...], str, str], ...] = 
     (SignalSourceProduct.HEALTH_CHECKS, ("health_issue",), "health checks", "failing health checks"),
     (SignalSourceProduct.CONVERSATIONS, ("ticket",), "support tickets", "support tickets"),
     (SignalSourceProduct.LLM_ANALYTICS, ("evaluation_report",), "AI observability", "AI evals"),
-    (SignalSourceProduct.ANALYTICS, ("anomaly_investigation",), "product analytics", "metric swings"),
+    (SignalSourceProduct.ANALYTICS, ("anomaly_investigation",), "product analytics", "firing insight alerts"),
 )
 
 
