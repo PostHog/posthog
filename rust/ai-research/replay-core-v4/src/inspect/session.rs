@@ -239,7 +239,7 @@ impl SessionInspector {
             stats.cold_start = true;
         }
 
-        // `session-feature-recorder.ts` resets dead click state on every page URL, changed or not.
+        // Any event that carries a page URL resets dead click state, even when the URL did not change.
         if carried_href {
             self.clicks.navigated();
         }
@@ -499,7 +499,7 @@ mod tests {
         let meta = |ts: i64, path: &str| json!({"type": 4, "timestamp": ts, "data": {"href": format!("https://app.example.com{path}")}});
         let url_changed = |ts: i64, path: &str| json!({"type": 5, "timestamp": ts, "data": {"tag": "$url_changed", "payload": {"href": format!("https://app.example.com{path}")}}});
         let click = |ts: i64, x: i64| json!({"type": 3, "timestamp": ts, "data": {"source": 2, "type": 2, "x": x, "y": 5}});
-        // (events, navigations, dead clicks), traced through `session-feature-recorder.ts`.
+        // (events, navigations, dead clicks), pinned so a change to a definition fails here.
         let cases = [
             (
                 json!([

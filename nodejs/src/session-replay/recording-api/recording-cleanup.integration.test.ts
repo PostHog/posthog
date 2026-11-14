@@ -44,7 +44,6 @@ describe('recording cleanup (integration)', () => {
             keyStore,
             {} as unknown as RecordingDecryptor,
             undefined,
-            undefined,
             postgres,
             undefined
         )

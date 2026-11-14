@@ -29,7 +29,6 @@ import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionr
 import { S3SessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/s3-session-batch-writer'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
 import { CaptureWatermark } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 import { RedisPool } from '~/types'
 
@@ -137,12 +136,11 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
         const collaborators: SessionRecordingIngesterCollaborators = {
             fileStorage,
             metadataStore,
-            // Console logs and ML features are not mirrored.
+            // Console logs are not mirrored.
             consoleLogStore: new SessionConsoleLogStore(outputs, {
                 messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
                 enabled: false,
             }),
-            featureStore: new SessionFeatureStore(outputs, false),
             keyStore: keyManager,
             encryptor: keyManager,
             compression: ML_BLOCK_COMPRESSION,

@@ -1,8 +1,7 @@
-//! The values of ingestion's surfacing feature recorder (`session-feature-recorder.ts`), one block at a time.
+//! The surfacing features of a session, one block at a time.
 //!
-//! Ingestion records them per batch and the surfacing sweep merges a session's batch rows. The recorder starts fresh at
-//! each block, as ingestion's does at each batch, so a block row holds what one batch row of `session_replay_features`
-//! holds, and a session's values are the fold of its block rows: [`SurfacingFeatures::merge`].
+//! The recorder starts fresh at each block, so a session's values are the fold of its block rows:
+//! [`SurfacingFeatures::merge`].
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -17,7 +16,7 @@ use super::rrweb::*;
 /// `MAX_UNIQUE_VALUES`: the values each set of a block keeps, and the input fields it remembers for backspaces.
 pub const MAX_UNIQUE_VALUES: usize = 1000;
 
-/// `PATH_TOKEN_ALLOWLIST` in its order, each with the name its count has in `session_replay_features`.
+/// The path tokens in their order, each with the name of its count column.
 pub const PATH_TOKENS: [(&str, &str); 14] = [
     ("login", "login"),
     ("signup", "signup"),
@@ -44,8 +43,7 @@ const ERROR_AFTER_ACTION_MS: f64 = 5_000.0;
 /// The largest node ID a set keeps. Past it a JavaScript number does not hold every integer, and the index refuses it.
 const MAX_NODE_ID: f64 = 9_007_199_254_740_991.0;
 
-/// One block's values as `SessionFeatureRecorder.end()` returns them for a batch. Float sums keep the exact values the
-/// TypeScript computes, in the same order of operations.
+/// One block's values. Float sums add in event order, so the same events always give the same values.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlockFeatures {
     pub event_count: u64,
@@ -771,7 +769,7 @@ mod tests {
     use crate::inspect::session::{BlockInspection, SessionInspector};
     use crate::scan::message::read_message;
 
-    // Expected values traced through `session-feature-recorder.ts` over the same events.
+    // Expected values for the same events, pinned so a change to a definition fails here.
 
     fn record_blocks(blocks: &[Vec<Value>]) -> Vec<BlockFeatures> {
         let mut session = SessionInspector::default();

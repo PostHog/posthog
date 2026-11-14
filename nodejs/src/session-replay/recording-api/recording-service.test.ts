@@ -9,7 +9,6 @@ import snappy from 'snappy'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
@@ -24,7 +23,6 @@ describe('RecordingService', () => {
     let mockKeyStore: jest.Mocked<KeyStore>
     let mockDecryptor: jest.Mocked<RecordingDecryptor>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
-    let mockFeatureStore: jest.Mocked<SessionFeatureStore>
     let mockPostgres: jest.Mocked<PostgresRouter>
     let mockClickhouse: jest.Mocked<ClickHouseClient>
 
@@ -52,11 +50,6 @@ describe('RecordingService', () => {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionMetadataStore>
 
-        mockFeatureStore = {
-            storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
-            storeDeletionMarkers: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<SessionFeatureStore>
-
         mockPostgres = {
             query: jest.fn().mockResolvedValue({ rows: [] }),
         } as unknown as jest.Mocked<PostgresRouter>
@@ -72,7 +65,6 @@ describe('RecordingService', () => {
             mockKeyStore,
             mockDecryptor,
             mockMetadataStore,
-            mockFeatureStore,
             mockPostgres,
             { client: mockClickhouse, credential: new ClickHouseCredential('recording_api', 'static', '') },
             new SodiumRecordingEncryptor(mockKeyStore)
@@ -584,7 +576,6 @@ describe('RecordingService', () => {
                     mockKeyStore,
                     mockDecryptor,
                     mockMetadataStore,
-                    mockFeatureStore,
                     mockPostgres,
                     {
                         client: mockClickhouse,

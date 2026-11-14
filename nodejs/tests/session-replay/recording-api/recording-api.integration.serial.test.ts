@@ -39,7 +39,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { DynamoDBKeyStore, MemoryKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { MemoryCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { ReplayEventsOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RecordingApi } from '~/session-replay/recording-api/recording-api'
 import { RecordingService } from '~/session-replay/recording-api/recording-service'
 import { KeyStore, RecordingApiConfig, SessionKey, SessionKeyDeletedError } from '~/session-replay/recording-api/types'
@@ -49,7 +49,7 @@ import { createStubKmsClient } from './stub-kms-client'
 const mockOutputs = {
     queueMessages: jest.fn().mockResolvedValue(undefined),
     produce: jest.fn().mockResolvedValue(undefined),
-} as unknown as IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
+} as unknown as IngestionOutputs<ReplayEventsOutput>
 
 // Dev-stack services backing the DynamoDBKeyStore block
 const DYNAMODB_ENDPOINT = 'http://127.0.0.1:18010'

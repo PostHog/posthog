@@ -5,10 +5,7 @@
  * Recording API-specific types.
  */
 import { CommonConfig } from '~/common/config'
-import {
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-} from '~/common/config/kafka-topics'
+import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '~/common/config/kafka-topics'
 import { isProdEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
@@ -188,17 +185,12 @@ export type RecordingApiConfig = Pick<
 export type RecordingApiOutputsConfig = {
     RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: string
     RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: RecordingApiProducerName
-
-    RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: string
-    RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: RecordingApiProducerName
 }
 
 export function getDefaultRecordingApiOutputsConfig(): RecordingApiOutputsConfig {
     return {
         RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
         RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
-        RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-        RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
     }
 }
 
