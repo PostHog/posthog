@@ -1,7 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
-
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { workflowLogic } from '../../workflowLogic'
 import { AddToStaticCohortConfiguration } from './components/AddToStaticCohortConfiguration'
@@ -20,17 +17,6 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
     const validationResult = actionValidationErrorsById[node.id]
     const inputs = node.data.config.inputs
     const mappings = 'mappings' in node.data.config ? node.data.config.mappings : undefined
-
-    // A sender verified or added in another tab then clears the From error on return, without a reload.
-    const { startPolling, stopPolling } = useActions(integrationsLogic)
-    const awaitsSender = !!validationResult?.emailErrors?.from
-    useEffect(() => {
-        if (!awaitsSender) {
-            return
-        }
-        startPolling()
-        return () => stopPolling()
-    }, [awaitsSender, startPolling, stopPolling])
 
     const functionConfiguration = (
         <HogFlowFunctionConfiguration

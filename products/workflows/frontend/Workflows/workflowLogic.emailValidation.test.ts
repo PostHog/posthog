@@ -376,6 +376,34 @@ describe('workflowLogic email step "from" validation', () => {
         expect(result?.emailErrors?.from ?? null).toEqual(message === null ? null : expect.stringContaining(message))
     })
 
+    it('clears the sender error when the domain gets verified in another tab', async () => {
+        let verified = false
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 43 }),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+                '/api/projects/:team_id/integrations/': () => [
+                    200,
+                    { results: [{ id: 43, kind: 'email', config: { verified, email: 'hi@example.com' } }], next: null },
+                ],
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadWorkflowSuccess',
+            integrationsLogic.actionTypes.loadIntegrationsSuccess,
+        ])
+        expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.emailErrors?.from).toContain("isn't verified")
+
+        verified = true
+        window.dispatchEvent(new Event('focus'))
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+
+        expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.valid).toBe(true)
+    })
+
     it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {
         useMocks({
             get: {

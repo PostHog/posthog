@@ -1,8 +1,22 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -458,6 +472,7 @@ export interface workflowLogicValues {
     aiEmailDraftLoading: boolean
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
     autoSaveBlockedByValidation: boolean
+    awaitsSenderFix: boolean
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
     discardDisabledReason: string | undefined
@@ -4574,6 +4589,14 @@ export const workflowLogic = kea<workflowLogicType>([
         // anything deploys, and agents stage incomplete drafts through the same API). Pausing on
         // them would strand a user's edits unsaved exactly while they iterate.
         autoSaveBlockedByValidation: [(s) => [s.workflow], (workflow: HogFlow): boolean => !workflow.name],
+        awaitsSenderFix: [
+            (s) => [s.workflow, s.integrations],
+            (workflow: HogFlow, integrations: IntegrationType[] | null): boolean =>
+                workflow.actions.some(
+                    (action) =>
+                        !!unusableSenderError(action, (action.config as any)?.inputs?.email?.value?.from, integrations)
+                ),
+        ],
         keepsLocalEditsOnExternalEdit: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS],
@@ -5411,9 +5434,24 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
     })),
+    // A sender verified or added in another tab then clears its step error on return, without a reload.
+    subscriptions(() => ({
+        awaitsSenderFix: (awaits: boolean, previous: boolean | undefined) => {
+            if (awaits && !previous) {
+                integrationsLogic.actions.startPolling()
+            } else if (!awaits && previous) {
+                integrationsLogic.actions.stopPolling()
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()
+    }),
+    beforeUnmount(({ values }) => {
+        if (values.awaitsSenderFix) {
+            integrationsLogic.actions.stopPolling()
+        }
     }),
     beforeUnload((logic) => ({
         enabled: (newLocation) => {
