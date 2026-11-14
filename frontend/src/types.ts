@@ -5699,6 +5699,7 @@ export const INTEGRATION_KINDS = [
     'apple-ads',
     'postgresql',
     'aws-s3',
+    'aws-warehouse-sources',
     'aws-redshift',
     's3-compatible',
     'snowflake',

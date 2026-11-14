@@ -5,9 +5,11 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { Region } from '~/types'
 
+export type AwsRoleArnByRegion = Partial<Record<Region, string>>
+
 // PostHog's own role, which a customer's trust policy has to name. Mirrors
-// BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN per region, the role every AWS role integration assumes from.
-const POSTHOG_ROLE_ARN_BY_REGION: Partial<Record<Region, string>> = {
+// BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN per region, the role batch exports assume from.
+const BATCH_EXPORTS_ROLE_ARN_BY_REGION: AwsRoleArnByRegion = {
     [Region.US]: 'arn:aws:iam::309986977637:role/posthog-external-batch-exports',
     [Region.EU]: 'arn:aws:iam::623789312881:role/posthog-external-batch-exports',
 }
@@ -17,11 +19,20 @@ const POSTHOG_ROLE_ARN_BY_REGION: Partial<Record<Region, string>> = {
  * The first two steps are the same for every AWS service, so callers only supply the permissions
  * their service needs.
  */
-export function AwsRoleRequirements({ permissions }: { permissions: JSX.Element }): JSX.Element {
+export function AwsRoleRequirements({
+    permissions,
+    posthogRoleArnByRegion = BATCH_EXPORTS_ROLE_ARN_BY_REGION,
+    jobs = 'exports',
+}: {
+    permissions: JSX.Element
+    posthogRoleArnByRegion?: AwsRoleArnByRegion
+    /** What fails without the external ID condition, e.g. "exports" or "syncs". */
+    jobs?: string
+}): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
 
-    const posthogRoleArn = preflight?.region ? POSTHOG_ROLE_ARN_BY_REGION[preflight.region] : undefined
+    const posthogRoleArn = preflight?.region ? posthogRoleArnByRegion[preflight.region] : undefined
 
     const steps: JSX.Element[] = [
         posthogRoleArn ? (
@@ -37,7 +48,7 @@ export function AwsRoleRequirements({ permissions }: { permissions: JSX.Element 
         ),
         <>
             The trust policy must require an <code>sts:ExternalId</code> condition equal to{' '}
-            <code>posthog-{currentOrganization?.id}</code>. PostHog verifies this condition is enforced and exports will
+            <code>posthog-{currentOrganization?.id}</code>. PostHog verifies this condition is enforced and {jobs} will
             fail without it.
         </>,
         permissions,

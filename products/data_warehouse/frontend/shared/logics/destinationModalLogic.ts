@@ -126,6 +126,7 @@ export interface destinationModalLogicActions {
             | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
+            | 'aws-warehouse-sources'
             | 'azure-blob'
             | 'bing-ads'
             | 'clickup'
