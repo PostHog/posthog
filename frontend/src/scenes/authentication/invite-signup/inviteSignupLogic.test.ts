@@ -63,15 +63,13 @@ describe('inviteSignupLogic', () => {
 
     // An accepted invite is deleted, so reopening its link returns the same 400 as an unknown invite
     it.each([
-        { signedIn: true, expectedError: null },
-        { signedIn: false, expectedError: ErrorCodes.InvalidInvite },
-    ])('handles a missing invite when signed in is $signedIn', async ({ signedIn, expectedError }) => {
+        { code: 'invalid_input', signedIn: true, expectedError: null },
+        { code: 'invalid_input', signedIn: false, expectedError: ErrorCodes.InvalidInvite },
+        { code: 'expired', signedIn: false, expectedError: ErrorCodes.Expired },
+    ])('handles a $code prevalidate error when signed in is $signedIn', async ({ code, signedIn, expectedError }) => {
         useMocks({
             get: {
-                '/api/signup/used-invite/': () => [
-                    400,
-                    { code: 'invalid_input', detail: 'The provided invite ID is not valid.' },
-                ],
+                '/api/signup/used-invite/': () => [400, { code, detail: 'The provided invite ID is not valid.' }],
             },
         })
         userLogic.actions.loadUserSuccess(signedIn ? MOCK_DEFAULT_USER : null)

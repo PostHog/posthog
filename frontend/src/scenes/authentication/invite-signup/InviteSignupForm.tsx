@@ -379,6 +379,7 @@ function InviteInvalid(): JSX.Element {
 
     const titles: Record<ErrorCodes, string> = {
         [ErrorCodes.InvalidInvite]: 'This invite link is invalid or expired',
+        [ErrorCodes.Expired]: 'This invite has expired',
         [ErrorCodes.UserAlreadyMember]: "You're already a member",
         [ErrorCodes.InvalidRecipient]: "This invite link can't be used",
         [ErrorCodes.Unknown]: "We couldn't validate this invite link",
@@ -389,6 +390,12 @@ function InviteInvalid(): JSX.Element {
             <>
                 {error?.detail} If you believe this is a mistake, ask whoever created the invite to{' '}
                 <b>send you a new one</b>.
+            </>
+        ),
+        [ErrorCodes.Expired]: (
+            <>
+                Invite links stop working a few days after they're sent. Ask a teammate in the organization to{' '}
+                <b>invite you again</b>. PostHog support can't resend invites for an organization.
             </>
         ),
         [ErrorCodes.UserAlreadyMember]: (
