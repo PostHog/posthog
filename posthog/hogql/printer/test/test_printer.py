@@ -352,11 +352,41 @@ class TestPrinter(BaseTest):
         printed = self._select("select [1, 2, 3][1:3]")
         self.assertIn("arraySlice([1, 2, 3], 1, plus(minus(3, 1), 1))", printed)
 
-    def test_try_cast_non_postgres_error(self):
-        self._assert_query_error(
-            "select try_cast(1 as Int64)",
-            "TRY_CAST is not allowed in clickhouse dialect",
-        )
+    @parameterized.expand(
+        [
+            (
+                "sql_name",
+                "try_cast(event AS integer)",
+                "clickhouse",
+                "accurateCastOrNull(events.event, %(hogql_val_0)s)",
+                {"hogql_val_0": "Int64"},
+            ),
+            (
+                "clickhouse_name",
+                "try_cast(event AS UInt8)",
+                "clickhouse",
+                "accurateCastOrNull(events.event, %(hogql_val_0)s)",
+                {"hogql_val_0": "UInt8"},
+            ),
+            (
+                "datetime_input_in_project_timezone",
+                "try_cast(timestamp AS timestamp)",
+                "clickhouse",
+                "accurateCastOrNull(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s)",
+                {"hogql_val_0": "UTC", "hogql_val_1": "DateTime64(6, 'UTC')"},
+            ),
+            ("hogql_round_trip", "try_cast(event AS integer)", "hogql", "TRY_CAST(event AS integer)", {}),
+        ]
+    )
+    def test_try_cast_prints_null_safe_cast(
+        self, _name: str, expr: str, dialect: HogQLDialect, expected: str, expected_values: dict[str, str]
+    ) -> None:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self.assertEqual(self._expr(expr, context, dialect=dialect), expected)
+        self.assertEqual(context.values, expected_values)
+
+    def test_try_cast_unsupported_type_error(self) -> None:
+        self._assert_expr_error("try_cast(event AS Array(String))", "Unsupported type cast to 'array(string)'")
 
     def test_limit_percent_clickhouse_constant_prints_decimal(self):
         printed = self._select("select 1 from events limit 40 %")

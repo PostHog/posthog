@@ -2511,6 +2511,30 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(len(response.results), len(SUPPORTED_CURRENCY_CODES))
 
+    @parameterized.expand(
+        [
+            ("valid_date", "'2024-03-05'", "date", datetime.date(2024, 3, 5)),
+            ("month_13", "'2024-13-01'", "date", None),
+            ("february_30", "'2024-02-30'", "date", None),
+            ("before_date_range", "'1950-06-01'", "date", None),
+            ("not_iso", "'20240305'", "date", None),
+            (
+                "timestamp_with_offset",
+                "'2024-03-05T23:30:00Z'",
+                "timestamp",
+                datetime.datetime(2024, 3, 5, 23, 30, tzinfo=ZoneInfo("UTC")),
+            ),
+            ("hour_25", "'2024-03-05 25:00:00'", "timestamp", None),
+            ("before_timestamp_range", "'1800-01-01 00:00:00'", "timestamp", None),
+            ("datetime_input", "toDateTime('2024-03-05 23:30:00')", "date", datetime.date(2024, 3, 5)),
+        ]
+    )
+    def test_try_cast_returns_null_for_invalid_dates(
+        self, _name: str, value: str, type_name: str, expected: datetime.date | None
+    ) -> None:
+        response = execute_hogql_query(f"SELECT TRY_CAST({value} AS {type_name})", team=self.team)
+        self.assertEqual(response.results, [(expected,)])
+
     def test_currency_conversion(self):
         query = "SELECT convertCurrency('USD', 'EUR', 100, _toDate('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)

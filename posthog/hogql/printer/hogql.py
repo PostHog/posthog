@@ -1,3 +1,4 @@
+import re
 from typing import ClassVar, cast, get_args
 
 from posthog.hogql import ast
@@ -5,6 +6,8 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import quote_hogql_identifier
 from posthog.hogql.printer.base import BasePrinter
+
+_TYPE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_ ]*(\([A-Za-z0-9_, ']*\))?")
 
 
 class HogQLPrinter(BasePrinter):
@@ -69,6 +72,11 @@ class HogQLPrinter(BasePrinter):
             return ".".join(parts)
         parts.extend(keys)
         return ".".join(parts)
+
+    def visit_try_cast(self, node: ast.TryCast) -> str:
+        if not _TYPE_NAME.fullmatch(node.type_name):
+            raise QueryError(f"Unsupported type cast to '{node.type_name}'")
+        return f"TRY_CAST({self.visit(node.expr)} AS {node.type_name})"
 
     def _render_aggregation_name(self, node: ast.Call, func_meta) -> str:
         return node.name
