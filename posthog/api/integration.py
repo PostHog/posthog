@@ -112,6 +112,7 @@ from posthog.models.integration import (
     AWSRedshiftRoleBasedIntegration,
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
+    AWSWarehouseSourcesRoleBasedIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -1326,6 +1327,27 @@ class IntegrationSerializer(serializers.Serializer):
                     team_id=team_id,
                     created_by=request.user,
                     organization_id=organization_id,
+                    **config,
+                )
+            except IntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "aws-warehouse-sources":
+            config = validated_data.get("config", {})
+
+            for key in ("team_id", "created_by", "organization_id"):
+                _ = config.pop(key, None)
+
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+
+            try:
+                instance = AWSWarehouseSourcesRoleBasedIntegration.integration_from_config(
+                    team_id=team_id,
+                    created_by=request.user,
+                    organization_id=str(get_organization().id),
                     **config,
                 )
             except IntegrationError as e:
