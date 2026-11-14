@@ -199,6 +199,14 @@ def set_check_interval_minutes(configuration_id: UUID, minutes: int) -> None:
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_interval_minutes=minutes)
 
 
+def set_evaluation_window(configuration_id: UUID, *, periods: int, datapoints: int) -> None:
+    """Set how many of the last checks must breach. The caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(
+        evaluation_periods=periods, datapoints_to_alarm=datapoints
+    )
+
+
 def set_source_config(configuration_id: UUID, source_config: dict[str, Any]) -> None:
     """Store a configuration's `source_config` as it is, without validation, as a copy made under an
     older schema keeps it. The caller holds the team scope."""
