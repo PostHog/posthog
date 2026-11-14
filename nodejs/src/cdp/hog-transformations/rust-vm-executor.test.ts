@@ -44,7 +44,7 @@ describe('RustVmExecutor', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         resetHogvmNodeModuleCacheForTests()
-        executor = new RustVmExecutor({ mmdbPath: '/dev/null' })
+        executor = new RustVmExecutor({ mmdb: { kind: 'file', path: '/dev/null' } })
         // `clearAllMocks` resets call data but not implementations, so a case that makes a mock
         // throw would leak into every case after it. Re-establish the working defaults here.
         nextHandle = 0

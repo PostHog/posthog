@@ -21,6 +21,8 @@ export interface FakeRuntimeOptions {
     env?: Env
     platform?: NodeJS.Platform
     stdoutIsTTY?: boolean
+    // Defaults to `stdoutIsTTY`.
+    stdinIsTTY?: boolean
     columns?: number
     cwd?: string
     files?: Record<string, string>
@@ -167,7 +169,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         env: options.env ?? {},
         platform: options.platform ?? 'linux',
         isDevelopment: false,
-        stdinIsTTY: options.stdoutIsTTY ?? false,
+        stdinIsTTY: options.stdinIsTTY ?? options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,
         stdoutHasColors: options.stdoutIsTTY ?? false,
         stdoutColumns: options.columns,

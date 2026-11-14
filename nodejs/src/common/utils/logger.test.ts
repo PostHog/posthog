@@ -1,6 +1,8 @@
 import { TraceFlags, trace } from '@opentelemetry/api'
+import pino from 'pino'
+import { Writable } from 'stream'
 
-import { Logger } from './logger'
+import { KAFKA_LOG_REDACTION, Logger } from './logger'
 
 describe('Logger', () => {
     let logger: Logger
@@ -86,6 +88,25 @@ describe('Logger', () => {
               },
             ]
         `)
+    })
+
+    it.each([
+        ['at the top level', { 'sasl.password': 'hunter2', 'sasl.mechanisms': 'PLAIN' }],
+        ['one level down', { config: { 'sasl.username': 'hunter2', 'sasl.mechanisms': 'PLAIN' } }],
+    ])('redacts a kafka credential logged %s', (_, extra) => {
+        let output = ''
+        const destination = new Writable({
+            write(chunk, _encoding, callback) {
+                output += chunk.toString()
+                callback()
+            },
+        })
+
+        pino({ redact: KAFKA_LOG_REDACTION }, destination).info(extra)
+
+        expect(output).not.toContain('hunter2')
+        expect(output).toContain('"***"')
+        expect(output).toContain('"PLAIN"')
     })
 
     // Entrypoints without plugin-server database env (e.g. the recording rasterizer)

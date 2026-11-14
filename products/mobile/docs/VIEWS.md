@@ -168,7 +168,7 @@ Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `
 | Web analytics      | `/views/web-analytics?from={entry}`                                                                   |
 | Web analytics list | `/views/web-analytics/list?tile={pages, sources, devices or locations}&breakdown={WebStatsBreakdown}` |
 | Live               | `/views/live?from={entry}`                                                                            |
-| Live countries     | `/views/live-countries[?country={ISO 3166-1 alpha-2 code}]`, Visitors by country (see LIVE.md)        |
+| Live countries     | `/views/live-countries`, Visitors by country (see LIVE.md)                                            |
 | Pinned tabs        | `/web-analytics`, `/live` (`app/(tabs)/web-analytics/`, `app/(tabs)/live/`)                           |
 | Full-screen chart  | `/views/chart/{short_id}[?key={cache key}]`                                                           |
 | Browse lists       | `/views/browse/dashboards`, `/views/browse/insights`                                                  |

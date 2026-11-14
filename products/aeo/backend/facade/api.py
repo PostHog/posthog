@@ -134,10 +134,12 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
     return gaps.list_citation_gaps(team_id, since=since)
 
 
-def list_domains_across_teams(*, cited_since: dt.datetime) -> set[str]:
+def list_domains_across_teams(*, cited_since: dt.datetime) -> list[str]:
     """Every catalog brand's domain plus every host answers cited since `cited_since`, across all
-    teams, for jobs that prepare per-domain assets such as favicons."""
-    domains = set(AEOBrand.objects.unscoped().values_list("domain", flat=True))
+    teams, for jobs that prepare per-domain assets such as favicons. The most cited hosts come
+    first, so that a job that works through the list serves the hosts people see most before the
+    long tail."""
+    citations: Counter[str] = Counter()
     cited = (
         AEOCitationCheck.objects.unscoped()
         .filter(created_at__gte=cited_since)
@@ -145,9 +147,10 @@ def list_domains_across_teams(*, cited_since: dt.datetime) -> set[str]:
         .iterator(chunk_size=2000)
     )
     for hosts in cited:
-        domains.update(hosts or [])
+        citations.update(hosts or [])
+    domains = set(AEOBrand.objects.unscoped().values_list("domain", flat=True)) | set(citations)
     domains.discard("")
-    return domains
+    return sorted(domains, key=lambda domain: (-citations[domain], domain))
 
 
 NEEDS_IMPROVEMENT_DAYS = 30
