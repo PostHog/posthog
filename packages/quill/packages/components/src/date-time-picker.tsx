@@ -50,7 +50,7 @@ export interface DateTimePickerProps {
     onApply: (value: DateTimeValue) => void
     onCancel?: () => void
     minDate?: Date
-    maxDate?: Date
+    maxDate?: Date | null
     dateFormat?: DateFormatOrder
     weekStartsOn?: Day
     onDateTimeSettings?: () => void
@@ -82,8 +82,8 @@ export function DateTimePicker({
 }: DateTimePickerProps): React.ReactElement {
     const presetRanges = ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
     const hasPresets = presetRanges.length > 0
-    const maxDate = maxDateProp ?? new Date()
-    const hasExplicitMaxDate = maxDateProp !== undefined
+    const maxDate = maxDateProp === null ? undefined : (maxDateProp ?? new Date())
+    const hasExplicitMaxDate = !!maxDateProp
     // The second calendar only renders at `lg`; below it (and in compact) there's
     // a single calendar, so the "can't pick the sibling's month" constraint shouldn't apply.
     const isLargeScreen = useMediaQuery(LG_QUERY)
@@ -95,9 +95,12 @@ export function DateTimePicker({
     const [rightViewing, setRightViewing] = React.useState<Date>(value.end)
     const [leftViewing, setLeftViewing] = React.useState<Date>(subMonths(value.end, 1))
 
+    const onDayAt = (date: Date, time: Date): Date =>
+        new Date(date.getFullYear(), date.getMonth(), date.getDate(), time.getHours(), time.getMinutes(), time.getSeconds())
+
     const handleSelect = (date: Date): void => {
-        const newStart = startOfDay(date)
-        const newEnd = endOfDay(date)
+        const newStart = showTime ? onDayAt(date, start) : startOfDay(date)
+        const newEnd = showTime ? onDayAt(date, end) : endOfDay(date)
 
         if (newStart.getTime() < start.getTime()) {
             // Before current start — extend start backward, keep end
@@ -109,16 +112,16 @@ export function DateTimePicker({
             setLastSet('end')
         } else if (lastSet === 'start') {
             // Inside range and start was just set — pull end inward
-            setEnd(newEnd)
+            setEnd(newEnd.getTime() < start.getTime() ? endOfDay(date) : newEnd)
             setLastSet('end')
         } else if (lastSet === 'end') {
             // Inside range and end was just set — pull start inward
-            setStart(newStart)
+            setStart(newStart.getTime() > end.getTime() ? startOfDay(date) : newStart)
             setLastSet('start')
         } else {
             // No recent edge — collapse to clicked day
             setStart(newStart)
-            setEnd(newEnd)
+            setEnd(newEnd.getTime() < newStart.getTime() ? endOfDay(date) : newEnd)
         }
         setRange(CUSTOM_RANGE)
     }
@@ -213,7 +216,7 @@ export function DateTimePicker({
                             <div className="flex items-center gap-1 ml-auto">
                                 {minDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Min: {format(minDate, 'MMM d, yy')}</Badge>}
                                 {minDate && hasExplicitMaxDate && <span className="text-[10px] text-muted-foreground"><ArrowRight className="size-3" /></span>}
-                                {hasExplicitMaxDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Max: {format(maxDate, 'MMM d, yy')}</Badge>}
+                                {maxDateProp && <Badge variant="default" className="text-[10px] px-1.5 py-0">Max: {format(maxDateProp, 'MMM d, yy')}</Badge>}
                             </div>
                         )}
                     </div>
@@ -234,8 +237,8 @@ export function DateTimePicker({
                 <div className={compact ? 'order-1' : 'order-1 lg:order-none'}>
                     {/* Inputs */}
                     {!compact && (
-                        <div className="hidden lg:flex justify-center items-center px-3 pt-3 pb-1">
-                            <div className="flex items-center gap-1.5">
+                        <div className="flex justify-center items-center px-3 pt-3 pb-1">
+                            <div className="flex flex-col lg:flex-row items-center gap-1.5">
                                 {onDateTimeSettings && (
                                     <Button
                                         size="icon-xs"

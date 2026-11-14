@@ -44,7 +44,7 @@ interface DayItemProps {
     endDate: Date
     viewing: Date
     minDate?: Date
-    maxDate: Date
+    maxDate?: Date
     onClick: (day: Date) => void
 }
 
@@ -59,7 +59,7 @@ export function DayItem({
 }: DayItemProps): React.ReactElement {
     const outOfMonth = !isSameMonth(day, viewing)
     const dayDate = dayOnly(day)
-    const afterMax = dayDate.getTime() > dayOnly(maxDate).getTime()
+    const afterMax = maxDate ? dayDate.getTime() > dayOnly(maxDate).getTime() : false
     const beforeMin = minDate ? dayDate.getTime() < dayOnly(minDate).getTime() : false
     const disabled = outOfMonth || afterMax || beforeMin
 
@@ -109,7 +109,7 @@ interface CalendarProps {
     startDate: Date
     endDate: Date
     minDate?: Date
-    maxDate: Date
+    maxDate?: Date
     onSelect: (day: Date) => void
     onViewChange: (month: Date) => void
     siblingViewing?: Date
@@ -153,7 +153,9 @@ export function Calendar({
     const minYearVal = getYear(floorDate)
     const minMonthAtMinYear = getMonth(floorDate)
     const floorKey = minYearVal * 12 + minMonthAtMinYear
-    const ceilKey = getYear(maxDate) * 12 + getMonth(maxDate)
+    const ceilDate =
+        maxDate ?? new Date(Math.max(getYear(new Date()), getYear(viewing), getYear(siblingViewing ?? viewing)) + 1, 11, 1)
+    const ceilKey = maxDate ? getYear(maxDate) * 12 + getMonth(maxDate) : Infinity
     const viewingKey = getYear(viewing) * 12 + getMonth(viewing)
 
     const disableNext =
@@ -167,8 +169,8 @@ export function Calendar({
         (!!siblingViewing &&
             getMonth(siblingViewing) === getMonth(subMonths(viewing, 1)) &&
             getYear(siblingViewing) === getYear(subMonths(viewing, 1)))
-    const maxYearVal = getYear(maxDate)
-    const maxMonthAtMaxYear = getMonth(maxDate)
+    const maxYearVal = getYear(ceilDate)
+    const maxMonthAtMaxYear = getMonth(ceilDate)
     const currentYear = getYear(viewing)
     const currentMonth = getMonth(viewing)
 
