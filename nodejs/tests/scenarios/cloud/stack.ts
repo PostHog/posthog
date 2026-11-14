@@ -134,6 +134,8 @@ export async function createRunStack(
         keyOf(manifest.runId, 'stack-requested'),
         manifest.stackName
     )
+    refuseCreationNearExpiry(controller, profile, manifest, 'create the stack')
+    signal.throwIfAborted()
     await controller.aws.call([
         'cloudformation',
         'create-stack',

@@ -748,15 +748,16 @@ describe('cloud controller', () => {
         expect(cloud.schedules.size).toBe(0)
     })
 
-    it.each([
-        ['as it resolves the host image', 'get-parameter'],
-        ['as the host reports ready', 'list-objects-v2'],
-    ])('creates nothing more when interrupted %s', async (_, operation) => {
+    it.each<[string, string, () => boolean, number]>([
+        ['as it resolves the host image', 'get-parameter', () => true, HOUR_MS / 6],
+        ['as it records the stack request', 'put-object', () => cloud.schedules.size === 2, HOUR_MS / 6 + 15 * 60_000],
+        ['as the host reports ready', 'list-objects-v2', () => true, HOUR_MS / 6],
+    ])('creates nothing more when interrupted %s', async (_, operation, due, within) => {
         const { controller } = prepare()
         let createdBefore: number | undefined
         let interruptedAt: number | undefined
         cloud.beforeCall(operation, () => {
-            if (interrupt && createdBefore === undefined) {
+            if (interrupt && createdBefore === undefined && due()) {
                 createdBefore = cloud.resources.length
                 interruptedAt = now.getTime()
                 interrupt()
@@ -767,7 +768,7 @@ describe('cloud controller', () => {
 
         expect(cloud.resources).toHaveLength(createdBefore!)
         expect(cloud.billable()).toEqual([])
-        expect(now.getTime() - interruptedAt!).toBeLessThan(HOUR_MS / 6)
+        expect(now.getTime() - interruptedAt!).toBeLessThan(within)
     })
 
     it.each<[string, (interruptAt: (status: string) => () => void) => void]>([
@@ -795,6 +796,7 @@ describe('cloud controller', () => {
     it.each([
         ['the stack', 'get-schedule', 'too soon to create the stack'],
         ['the stack after it reads the host image', 'get-parameter', 'too soon to create the stack'],
+        ['the stack after it records the stack request', 'put-object', 'too soon to create the stack'],
         ['the reader', 'update-stack', 'too soon to add the reader'],
     ])('creates nothing more once the lease is too close to expiry to create %s', async (_, operation, reason) => {
         const { controller } = prepare()
