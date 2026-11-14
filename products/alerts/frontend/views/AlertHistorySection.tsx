@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconGraph, IconNotebook } from '@posthog/icons'
@@ -23,6 +24,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { DetectorType } from '~/queries/schema/schema-general'
 
@@ -272,6 +274,26 @@ export function AlertHistorySection({
             columns.push({
                 title: 'Investigation',
                 render: (_value, check) => <InvestigationCell check={check} alertId={alertId} />,
+            })
+        }
+        if (alertHistoryChecksSortedDesc.some((check) => check.inbox_report_id)) {
+            columns.push({
+                title: 'Inbox',
+                render: (_value, check) =>
+                    check.inbox_report_id ? (
+                        <Link
+                            to={urls.inboxReport('reports', check.inbox_report_id)}
+                            className="text-sm"
+                            onClick={() =>
+                                posthog.capture('alert check inbox report opened', {
+                                    alert_id: alertId,
+                                    report_id: check.inbox_report_id,
+                                })
+                            }
+                        >
+                            View in inbox
+                        </Link>
+                    ) : null,
             })
         }
         if (isAnyRowSqlAlert) {

@@ -1824,6 +1824,18 @@ def retract_source_signals(*, team: "Team", source_product: str, source_type: st
     )
 
 
+def report_ids_for_source_ids(*, team: "Team", source_product: str, source_ids: Sequence[str]) -> dict[str, str]:
+    """The newest live report each source record's signals grouped into, keyed by source id.
+
+    Grouping runs after the emitting caller returns, so a source id with no entry means "not grouped
+    yet" as much as "never grouped".
+    """
+    from products.signals.backend.temporal.signal_queries import fetch_live_report_ids_for_source_ids  # noqa: PLC0415
+
+    by_source = fetch_live_report_ids_for_source_ids(team, list(source_ids), source_product)
+    return {source_id: report_ids[0] for source_id, report_ids in by_source.items() if report_ids}
+
+
 def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     """Whether to offer the user scout creation on the team's project.
 

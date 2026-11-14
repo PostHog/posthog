@@ -661,6 +661,10 @@ class AlertCheck(UUIDTModel):
     # in the UI so users can audit which fires the agent swallowed.
     notification_suppressed_by_agent = models.BooleanField(default=False)
 
+    # Source id of the inbox signal this check emitted, from the investigation agent or from the
+    # firing itself. The signals product resolves it to the report the signal grouped into.
+    inbox_signal_source_id = models.CharField(max_length=200, null=True, blank=True)
+
     class Meta:
         db_table = "posthog_alertcheck"
 

@@ -153,6 +153,10 @@ class AlertFiringSignal:
     description: str
     extra: dict
 
+    @property
+    def source_id(self) -> str:
+        return _source_id(self.alert_id, self.alert_check_id)
+
 
 def prepare_alert_firing_signal(
     alert: AlertConfiguration, alert_check: AlertCheck, *, previous_state: str, breaches: list[str] | None
@@ -235,7 +239,7 @@ async def dispatch_alert_firing_signal(signal: AlertFiringSignal) -> bool:
     default executor, so a call that blocks an executor thread on it can deadlock once every executor
     thread waits the same way. A failure never changes the committed check.
     """
-    source_id = _source_id(signal.alert_id, signal.alert_check_id)
+    source_id = signal.source_id
     try:
         async with asyncio.timeout(EMISSION_TIMEOUT_SECONDS):
             dispatched = await emit_signal(

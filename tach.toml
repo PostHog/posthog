@@ -228,6 +228,9 @@ depends_on = [
     "products.product_analytics", "products.access_control",
     # Facade-only: alerts declares its Today highlight sources against the Today facade contract.
     "products.today",
+    # Facade-only: the alert check history resolves each check's inbox signal to its report.
+    # products.signals depends on products.alerts in turn, so keep this direction on the facade.
+    "products.signals",
 ]
 layer = "modules"
 

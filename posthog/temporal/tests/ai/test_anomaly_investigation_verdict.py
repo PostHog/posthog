@@ -185,6 +185,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
                 config={"alert_scope": alert_scope},
             )
         mock_info.return_value.heartbeat_timeout = None
+        mock_emit.return_value = True
         mock_run.return_value = InvestigationRunResult(
             report=InvestigationReport(
                 verdict="true_positive",
@@ -209,9 +210,12 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
                 )
             )
 
+        await sync_to_async(self.alert_check.refresh_from_db)()
         if not expected:
             mock_emit.assert_not_awaited()
+            assert self.alert_check.inbox_signal_source_id is None
             return
+        assert self.alert_check.inbox_signal_source_id == str(self.alert_check.id)
         mock_emit.assert_awaited_once()
         kwargs = mock_emit.await_args.kwargs
         assert kwargs["source_product"] == "analytics"

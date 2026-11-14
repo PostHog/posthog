@@ -58,7 +58,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.integrations import IntegrationManager
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
@@ -203,6 +203,8 @@ from products.alerts_platform.backend.facade.scheduling import validate_and_norm
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
+from products.signals.backend.facade import api as signals
+from products.signals.backend.facade.taxonomy import SignalSourceProduct
 
 
 def _validate_interval_entitlement(
@@ -612,6 +614,10 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         "(channel, target, status, at). Null when no delivery receipt was recorded, which covers "
         "checks that notified nobody and checks predating delivery receipts.",
     )
+    inbox_report_id = serializers.SerializerMethodField(
+        help_text="ID of the Self-driving inbox report that this check's signal grouped into. Null when the "
+        "check sent no signal, or when grouping has not placed the signal in a report yet. Only set on alert retrieve.",
+    )
 
     class Meta:
         model = AlertCheck
@@ -634,6 +640,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "notification_sent_at",
             "notification_suppressed_by_agent",
             "deliveries",
+            "inbox_report_id",
         ]
         read_only_fields = fields
 
@@ -661,6 +668,10 @@ class AlertCheckSerializer(serializers.ModelSerializer):
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
         notebook = instance.investigation_notebook
         return notebook.short_id if notebook is not None else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_inbox_report_id(self, instance: AlertCheck) -> str | None:
+        return getattr(instance, "inbox_report_id", None)
 
     @extend_schema_field(AlertDeliverySerializer(many=True))
     def get_deliveries(self, instance: AlertCheck) -> list[dict[str, Any]] | None:
@@ -2035,6 +2046,26 @@ MOVED_ALERT_FIRED_CHECKS_LIMIT: Final = 500
 _NOTEBOOK: Final = cast(type[Any], AlertCheck._meta.get_field("investigation_notebook").related_model)
 
 
+def _attach_inbox_report_ids(team: Team, checks: list[AlertCheck]) -> None:
+    """Set `inbox_report_id` on each check whose inbox signal has grouped into a report.
+
+    Best effort: the history still loads without the links when the lookup fails.
+    """
+    source_ids = {check.inbox_signal_source_id for check in checks if check.inbox_signal_source_id}
+    if not source_ids:
+        return
+    try:
+        report_ids = signals.report_ids_for_source_ids(
+            team=team, source_product=SignalSourceProduct.ANALYTICS, source_ids=sorted(source_ids)
+        )
+    except Exception as e:
+        capture_exception(e)
+        return
+    for check in checks:
+        if check.inbox_signal_source_id:
+            check.inbox_report_id = report_ids.get(check.inbox_signal_source_id)  # type: ignore[attr-defined]
+
+
 def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertCheck:
     # Never saved. It carries what the check serializer shows.
     return AlertCheck(
@@ -2296,7 +2327,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             checks_total = checks_qs.count()
             instance.checks_total = checks_total
             offset = min(offset, checks_total)
-            instance.checks = checks_qs[offset : offset + limit]
+            instance.checks = list(checks_qs[offset : offset + limit])
+            _attach_inbox_report_ids(instance.team, instance.checks)
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 

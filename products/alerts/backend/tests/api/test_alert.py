@@ -508,6 +508,45 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            ("grouped", True, None, True),
+            ("not_grouped_yet", False, None, False),
+            ("lookup_failed", True, RuntimeError("signal store unavailable"), False),
+        ]
+    )
+    def test_retrieve_check_links_the_inbox_report_its_signal_grouped_into(
+        self, _label: str, grouped: bool, lookup_error: Exception | None, expect_link: bool
+    ) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "inbox link test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        quiet = AlertCheck.objects.create(alert_configuration=alert_obj, state=AlertState.NOT_FIRING)
+        firing = AlertCheck.objects.create(alert_configuration=alert_obj, state=AlertState.FIRING)
+        source_id = f"{alert_obj.id}:{firing.id}"
+        AlertCheck.objects.filter(id=firing.id).update(inbox_signal_source_id=source_id)
+        report_id = str(uuid4())
+
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.signals.report_ids_for_source_ids",
+            return_value={source_id: report_id} if grouped else {},
+            side_effect=lookup_error,
+        ) as lookup:
+            response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+
+        assert response.status_code == status.HTTP_200_OK
+        links = {check["id"]: check["inbox_report_id"] for check in response.json()["checks"]}
+        assert links == {str(quiet.id): None, str(firing.id): report_id if expect_link else None}
+        assert lookup.call_args.kwargs["source_product"] == "analytics"
+        assert lookup.call_args.kwargs["source_ids"] == [source_id]
+
+    @parameterized.expand(
+        [
             ("returns_newest_slice_first", 3, 0, [7.0, 6.0, 5.0]),
             ("skips_newest_for_next_page", 3, 3, [4.0, 3.0, 2.0]),
             ("negative_offset_clamped_to_first_page", 2, -1, [7.0, 6.0]),

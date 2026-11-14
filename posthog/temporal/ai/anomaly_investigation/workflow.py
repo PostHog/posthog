@@ -316,7 +316,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
                 reason="filter_invalid" if filter_outcome == AlertFilterOutcome.INVALID else "filtered",
             )
             return deliveries
-        await _emit_investigation_signal(
+        dispatched = await _emit_investigation_signal(
             team=team,
             alert=alert,
             subject=subject,
@@ -328,6 +328,10 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
             report=result.report,
             notebook_short_id=notebook.short_id,
         )
+        if dispatched and isinstance(subject, AlertCheck):
+            await sync_to_async(AlertCheck.objects.filter(id=subject.id).update, thread_sensitive=False)(
+                inbox_signal_source_id=episode_source_id,
+            )
     except Exception:
         logger.exception(
             "anomaly_investigation.signal_emission_failed",
@@ -547,15 +551,16 @@ async def _emit_investigation_signal(
     detector_type: str,
     report: InvestigationReport,
     notebook_short_id: str | None,
-) -> None:
+) -> bool:
     """Emit an `alerts/anomaly_investigation` signal carrying the agent's verdict and findings.
+    Returns whether it was dispatched.
 
     The source id names the episode, not this check, so every investigation of one incident
     carries the same identity. Grouping matches a signal on its description and on
     semantically near signals, not on the source id, so one report per episode is a strong
     default and not a guarantee: a re-emit can still open a report of its own.
     """
-    await signals.emit_signal(
+    return await signals.emit_signal(
         team=team,
         source_product=SIGNAL_SOURCE_PRODUCT,
         source_type=SIGNAL_SOURCE_TYPE,
