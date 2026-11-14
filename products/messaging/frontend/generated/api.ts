@@ -49,8 +49,10 @@ import type {
     RemoveOptOutRequestApi,
     RemoveSuppressionRequestApi,
     SendEmailApi,
+    SendPushApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
+    SendTransactionalPushResponseApi,
     SetPreferencesApi,
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
@@ -164,6 +166,27 @@ export const messagingSendEmailCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendEmailApi),
+    })
+}
+
+export const getMessagingSendPushCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/push/`
+}
+
+/**
+ * Send one push notification from a push template made transactional to every device of one person. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional push notifications skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the notification twice. Needs the `transactional_push:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Send a transactional push notification
+ */
+export const messagingSendPushCreate = async (
+    projectId: string,
+    sendPushApi: SendPushApi,
+    options?: RequestInit
+): Promise<SendTransactionalPushResponseApi> => {
+    return apiMutator<SendTransactionalPushResponseApi>(getMessagingSendPushCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendPushApi),
     })
 }
 

@@ -68,6 +68,10 @@ class TransactionalEmailPaused(TransactionalEmailError):
     code = "transactional_email_paused"
 
 
+class TransactionalPushPaused(TransactionalEmailError):
+    code = "transactional_push_paused"
+
+
 class InvalidRecipient(TransactionalEmailError):
     code = "invalid_recipient"
 

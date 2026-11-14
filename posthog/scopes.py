@@ -143,6 +143,7 @@ APIScopeObject = Literal[
     "toolbar",
     "tracing",
     "transactional_email",
+    "transactional_push",
     "field_note",
     "uploaded_media",
     "usage_metric",
@@ -323,6 +324,8 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     ("messaging_preference", "write"),
     ("transactional_email", "read"),
     ("transactional_email", "write"),
+    # Lets a service send transactional push notifications (`messaging/send/push/`).
+    ("transactional_push", "write"),
     # SDK prompt fetches by name and by list, so a service does not need a credential tied
     # to one person's account. Publishing, labels and archiving stay closed to these keys.
     ("llm_prompt", "read"),
@@ -562,6 +565,8 @@ LEGACY_SCOPE_FALLBACKS: dict[str, str] = {
     "messaging_preference": "hog_flow",
     # Permanent: `hog_flow` stays a supported way to send transactional email and read a send's status.
     "transactional_email": "hog_flow",
+    # Permanent: `hog_flow` stays a supported way to send transactional push notifications.
+    "transactional_push": "hog_flow",
 }
 
 

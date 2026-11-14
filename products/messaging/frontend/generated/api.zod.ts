@@ -227,6 +227,30 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Send one push notification from a push template made transactional to every device of one person. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional push notifications skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the notification twice. Needs the `transactional_push:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Send a transactional push notification
+ */
+export const messagingSendPushCreateBodyDistinctIdMax = 400
+
+export const MessagingSendPushCreateBody = /* @__PURE__ */ zod.object({
+    template_id: zod
+        .uuid()
+        .describe(
+            "ID of a push template made transactional, which holds the notification's title, body and push channels."
+        ),
+    distinct_id: zod
+        .string()
+        .max(messagingSendPushCreateBodyDistinctIdMax)
+        .describe(
+            "Distinct ID of the person to notify. The notification goes to every device this person registered for the template's push channels. A person with no registered device gets nothing, and the send shows as skipped in the template's sends. The template can't read the person's properties, so pass everything it needs in `message_data`."
+        ),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe("Values for the template's {{ variables.\* }} placeholders, keyed by variable name."),
+})
+
 export const messagingCategoriesCreateBodyKeyMax = 64
 
 export const messagingCategoriesCreateBodyNameMax = 128

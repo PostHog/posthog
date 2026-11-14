@@ -101,6 +101,7 @@ from products.messaging.backend.facade.transactional_email import (
     require_code_email_access,
     send_code_email,
     send_transactional_email,
+    send_transactional_push,
     sender_address_error,
     sync_transactional_workflow,
     transactional_email_stage,
@@ -869,6 +870,58 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
         return data
 
 
+class SendPushSerializer(serializers.Serializer):
+    template_id = serializers.UUIDField(
+        help_text="ID of a push template made transactional, which holds the notification's title, body and push "
+        "channels."
+    )
+    distinct_id = serializers.CharField(
+        max_length=400,
+        help_text="Distinct ID of the person to notify. The notification goes to every device this person "
+        "registered for the template's push channels. A person with no registered device gets nothing, and the "
+        "send shows as skipped in the template's sends. The template can't read the person's properties, so pass "
+        "everything it needs in `message_data`.",
+    )
+    message_data = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Values for the template's {{ variables.* }} placeholders, keyed by variable name.",
+    )
+
+
+class SendTransactionalPushResponseSerializer(serializers.Serializer):
+    message_id = serializers.CharField(
+        help_text="ID of the queued send. Delivery is reported against the template's workflow asynchronously."
+    )
+    replayed = serializers.BooleanField(
+        help_text="True when an earlier request with the same `Idempotency-Key` already queued this notification. "
+        "No new notification was sent, and `message_id` is the earlier send's ID."
+    )
+
+
+SEND_PUSH_RESPONSES: dict[int, ResponseDeclaration] = {
+    202: OpenApiResponse(response=SendTransactionalPushResponseSerializer, description="Push notification queued"),
+    400: OpenApiResponse(
+        description="A field is invalid, the template isn't a transactional push template or its workflow is "
+        "turned off, or the Idempotency-Key is invalid"
+    ),
+    404: OpenApiResponse(description="Template not found"),
+    409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
+    422: OpenApiResponse(description="The Idempotency-Key was already used for a different request"),
+    429: OpenApiResponse(description="Rate limited, or the project is over its quota"),
+    503: OpenApiResponse(description="The push pipeline did not confirm the send"),
+}
+
+
+class TransactionalPushUnavailable(exceptions.APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = (
+        "The push pipeline did not confirm the send, so the notification may still go out. To retry, send it "
+        "again within 24 hours with the same Idempotency-Key, so it goes out once."
+    )
+    default_code = "delivery_unavailable"
+
+
 class TransactionalEmailRejected(exceptions.ValidationError):
     STATUS_BY_CODE = {
         "quota_limited": 429,
@@ -931,6 +984,7 @@ class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottl
 
 # LEGACY_SCOPE_FALLBACKS lets a `hog_flow` key satisfy these scopes too.
 TRANSACTIONAL_EMAIL_SEND_SCOPE = "transactional_email:write"
+TRANSACTIONAL_PUSH_SEND_SCOPE = "transactional_push:write"
 TRANSACTIONAL_EMAIL_STATUS_SCOPE = "transactional_email:read"
 
 
@@ -1637,7 +1691,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = ["email"]
+    psak_allowed_actions = ["email", "push"]
     transactional_email_send_actions = ("email",)
     transactional_email_route = "send_email"
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
@@ -1647,7 +1701,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         return transactional_email_throttles()
 
     def read_object(self) -> MessageTemplateRow | None:
-        # The `email` action names its template in the request body, not in the URL.
+        # The `email` and `push` actions name their template in the request body, not in the URL.
         try:
             return get_template(self.team_id, self.request.validated_data["template_id"], with_tags=False)
         except MessageTemplateMissing:
@@ -1684,6 +1738,68 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         with transactional_email_stage("template_lookup"):
             template = self.get_object()
         return self._queue_transactional_email(request, template)
+
+    @validated_request(
+        SendPushSerializer,
+        responses=SEND_PUSH_RESPONSES,
+        summary="Send a transactional push notification",
+        description=(
+            "Send one push notification from a push template made transactional to every device of one person. "
+            "`message_data` fills the template's `{{ variables.* }}` placeholders. Transactional push "
+            "notifications skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely "
+            "without sending the notification twice. Needs the `transactional_push:write` scope. A key with "
+            "`hog_flow:write` also works, but that scope reaches the rest of Workflows too."
+        ),
+        parameters=[IDEMPOTENCY_KEY_PARAMETER],
+    )
+    @action(detail=False, methods=["POST"], required_scopes=[TRANSACTIONAL_PUSH_SEND_SCOPE])
+    def push(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+        require_transactional_push_api(self.team)
+        template = self.get_object()
+        if template.transactional_hog_flow_id:
+            self._require_workflow_editor(template.transactional_hog_flow_id)
+        data = request.validated_data
+        outcome: dict[str, Any] = {"outcome": "error"}
+        try:
+            queued = send_transactional_push(
+                self.team,
+                template,
+                distinct_id=data["distinct_id"],
+                message_data=data["message_data"],
+                idempotency_key=request.headers.get("Idempotency-Key"),
+            )
+            outcome["outcome"] = "replayed" if queued.replayed else "queued"
+        except TransactionalEmailError as e:
+            outcome.update({"outcome": "rejected", "error_code": e.code})
+            raise TransactionalEmailRejected(e)
+        except DeliveryUnavailable:
+            outcome["outcome"] = "unavailable"
+            raise TransactionalPushUnavailable() from None
+        finally:
+            self._report_transactional_push_send(request, template.id, outcome)
+        return Response(SendTransactionalPushResponseSerializer(queued).data, status=status.HTTP_202_ACCEPTED)
+
+    def _report_transactional_push_send(self, request: Any, template_id: Any, properties: dict[str, Any]) -> None:
+        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
+        try:
+            posthoganalytics.capture(
+                distinct_id=request.user.distinct_id,
+                event="transactional push api send",
+                properties={
+                    "team_id": self.team_id,
+                    "template_id": str(template_id),
+                    "auth_method": "project_secret_api_key"
+                    if is_authenticated_via_project_secret_api_key(request)
+                    else "user",
+                    "authorized_by": legacy_scope_object_used(request, TRANSACTIONAL_PUSH_SEND_SCOPE)
+                    or "transactional_push",
+                    "has_idempotency_key": request.headers.get("Idempotency-Key") is not None,
+                    **properties,
+                },
+                groups=groups(self.organization, self.team),
+            )
+        except Exception as e:
+            logger.warning("Failed to capture transactional push usage event", error=str(e))
 
     def _send_code_email(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):

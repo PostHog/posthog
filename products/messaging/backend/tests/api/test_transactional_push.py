@@ -1,17 +1,22 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 
-from posthog.models import Team
+from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_secret
+from posthog.plugins.plugin_server_api import WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.presentation.views.message_templates import TRANSACTIONAL_PUSH_API_FLAG
+from products.messaging.backend.services.transactional_email import make_transactional
 from products.workflows.backend.facade.models import HogFlow
 
 
@@ -128,3 +133,135 @@ class TestTransactionalPushTemplates(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == f"content__push__{field}"
+
+
+@patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
+@patch(
+    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    return_value=True,
+)
+@patch("posthog.plugins.plugin_server_api.internal_requests.post")
+class TestTransactionalPushSend(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        firebase = Integration.objects.create(team=self.team, kind="firebase", integration_id="my-app")
+        self.template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Order shipped",
+            type="push",
+            content={"push": {"title": "Shipped", "body": "On its way", "channels": [firebase.id]}},
+        )
+        self.hog_flow_id = make_transactional(
+            self.team.id, self.template.id, user_id=self.user.id, from_integration_id=None
+        )
+        self.url = f"/api/projects/{self.team.id}/messaging/send/push/"
+        self.body = {"template_id": str(self.template.id), "distinct_id": "user-1", "message_data": {"order": "42"}}
+
+    def _psak_client(self, scopes: list[str]) -> APIClient:
+        raw_token = generate_random_token_secret()
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="push",
+            secure_value=hash_key_value(raw_token),
+            scopes=scopes,
+            mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
+        return client
+
+    @parameterized.expand(
+        [
+            ("push_scope", ["transactional_push:write"], "transactional_push"),
+            ("workflow_scope", ["hog_flow:write"], "hog_flow"),
+        ]
+    )
+    def test_queues_the_push_for_the_person(self, mock_post, _flag, capture, _name, scopes, authorized_by):
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+
+        response = self._psak_client(scopes).post(
+            self.url, self.body, format="json", headers={"Idempotency-Key": "order-42"}
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json() == {"message_id": "invocation-1", "replayed": False}
+        url = mock_post.call_args.args[0]
+        assert url.endswith(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_push")
+        assert mock_post.call_args.kwargs["json"] == {
+            "distinct_id": "user-1",
+            "variables": {"order": "42"},
+            "idempotency_key": "order-42",
+        }
+        token = mock_post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        claims = WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.verify(token)
+        assert (claims["team_id"], claims["hog_flow_id"], claims["kind"]) == (
+            self.team.id,
+            str(self.hog_flow_id),
+            "push",
+        )
+        properties = capture.call_args.kwargs["properties"]
+        assert (properties["outcome"], properties["authorized_by"]) == ("queued", authorized_by)
+
+    @parameterized.expand(
+        [
+            ("email_send_scope", ["transactional_email:write"]),
+            ("read_only_workflow_scope", ["hog_flow:read"]),
+        ]
+    )
+    def test_a_key_without_the_push_scope_cannot_send(self, mock_post, _flag, _capture, _name, scopes):
+        response = self._psak_client(scopes).post(self.url, self.body, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_post.assert_not_called()
+
+    def test_is_hidden_while_the_push_flag_is_off(self, mock_post, flag, _capture):
+        flag.side_effect = lambda key, *args, **kwargs: key != TRANSACTIONAL_PUSH_API_FLAG
+
+        response = self.client.post(self.url, self.body, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("email_template", "template_not_sendable"),
+            ("not_transactional", "template_not_transactional"),
+            ("workflow_turned_off", "transactional_push_paused"),
+        ]
+    )
+    def test_refuses_a_template_it_cannot_send(self, mock_post, _flag, _capture, case, code):
+        template_id = self.template.id
+        if case == "email_template":
+            template_id = MessageTemplate.objects.create(
+                team=self.team, name="Email", type="email", content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}}
+            ).id
+        elif case == "not_transactional":
+            template_id = MessageTemplate.objects.create(
+                team=self.team, name="Draft", type="push", content=self.template.content
+            ).id
+        else:
+            HogFlow.objects.filter(id=self.hog_flow_id).update(status="draft")
+
+        response = self.client.post(self.url, {**self.body, "template_id": str(template_id)}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == code
+        mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("quota_limited", 429, "quota_limited", status.HTTP_429_TOO_MANY_REQUESTS),
+            ("in_flight", 409, "idempotency_key_in_flight", status.HTTP_409_CONFLICT),
+            ("reused", 422, "idempotency_key_reused", status.HTTP_422_UNPROCESSABLE_ENTITY),
+            ("pipeline_error", 500, "error", status.HTTP_503_SERVICE_UNAVAILABLE),
+        ]
+    )
+    def test_reports_a_send_the_pipeline_refuses(
+        self, mock_post, _flag, capture, _name, cdp_status, cdp_error, expected_status
+    ):
+        mock_post.return_value = MagicMock(status_code=cdp_status, json=lambda: {"error": cdp_error})
+
+        response = self.client.post(self.url, self.body, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        assert capture.call_args.kwargs["properties"]["outcome"] in ("rejected", "unavailable")
