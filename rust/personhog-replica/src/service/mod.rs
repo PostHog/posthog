@@ -69,6 +69,7 @@ use crate::storage::{self, FullStorage};
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
 const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
+const MAX_COHORT_MEMBER_IDS_PER_REQUEST: usize = 10_000;
 const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
 // Splits run in a single all-or-nothing transaction holding row locks, so the
 // cap bounds both lock-hold time and payload size — same order as batch lookups.
@@ -868,10 +869,10 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<DeleteCohortMembersByPersonIdsResponse>, Status> {
         let req = request.into_inner();
 
-        if req.person_ids.len() > 10000 {
-            return Err(Status::invalid_argument(
-                "Maximum 10000 person IDs per request",
-            ));
+        if req.person_ids.len() > MAX_COHORT_MEMBER_IDS_PER_REQUEST {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_COHORT_MEMBER_IDS_PER_REQUEST} person IDs per request"
+            )));
         }
 
         if req.person_ids.is_empty() {
@@ -897,10 +898,10 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<InsertCohortMembersResponse>, Status> {
         let req = request.into_inner();
 
-        if req.person_ids.len() > 10000 {
-            return Err(Status::invalid_argument(
-                "Maximum 10000 person IDs per request",
-            ));
+        if req.person_ids.len() > MAX_COHORT_MEMBER_IDS_PER_REQUEST {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_COHORT_MEMBER_IDS_PER_REQUEST} person IDs per request"
+            )));
         }
 
         if req.person_ids.is_empty() {
