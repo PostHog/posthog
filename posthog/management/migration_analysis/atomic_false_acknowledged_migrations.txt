@@ -64,3 +64,5 @@ signals.0230_monitoring_research_delivery_indexes
 # ignores rows the unique constraint already holds.
 business_knowledge.0029_backfill_knowledge_run_citations
 skills.0012_backfill_skill_search_vectors
+posthog.1436_drop_retired_recording_relevance_filters
+replay_vision.0153_drop_retired_recording_relevance_fields
