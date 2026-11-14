@@ -1,5 +1,7 @@
-from uuid import UUID
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -20,6 +22,7 @@ from products.business_knowledge.backend.models import (
     KnowledgeLibrary,
     KnowledgeLibraryRepository,
     KnowledgeLibrarySource,
+    KnowledgeRunCitation,
     KnowledgeSource,
     SafetyVerdict,
     SourceStatus,
@@ -1051,3 +1054,76 @@ class TestCrawlSourceAutoScope(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         call_kwargs = mock_update.call_args.kwargs
         assert call_kwargs["crawl_config"]["include_globs"] == ["/docs/new", "/docs/new/*"]
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestKnowledgeUsageAPI(APIBaseTest):
+    def _source(self, name: str, *, learned: bool = False) -> KnowledgeSource:
+        source = logic.create_text_source(team_id=self.team.id, created_by_id=self.user.id, name=name, text=name)
+        if learned:
+            KnowledgeSource.objects.unscoped().filter(id=source.id).update(is_generated=True)
+        return source
+
+    def _cite(self, run_id: str, source_id: UUID, cited_at: datetime) -> None:
+        KnowledgeRunCitation.objects.for_team(self.team.id).create(
+            team=self.team,
+            run_id=run_id,
+            ticket_id=uuid4(),
+            chunk_id=uuid4(),
+            document_id=uuid4(),
+            source_id=source_id,
+            created_at=cited_at,
+        )
+
+    def test_usage_counts_runs_in_the_period_for_sources_that_still_exist(self, _ff) -> None:
+        now = datetime(2026, 5, 20, 12, 0, tzinfo=UTC)
+        yesterday = now - timedelta(days=1)
+        docs = self._source("Docs")
+        learned = self._source("Learned answer", learned=True)
+        self._source("Unused")
+        self._cite("run-1", docs.id, now)
+        # One run that cites two chunks of a source is still one run for that source.
+        self._cite("run-1", docs.id, now)
+        self._cite("run-2", docs.id, yesterday)
+        self._cite("run-2", learned.id, yesterday)
+        self._cite("run-old", docs.id, now - timedelta(days=3))
+        self._cite("run-deleted-source", uuid4(), now)
+
+        with time_machine.travel(now, tick=False):
+            usage = self.client.get(f"/api/projects/{self.team.id}/business_knowledge/sources/usage/?days=2")
+            sources = self.client.get(f"/api/projects/{self.team.id}/business_knowledge/sources/")
+
+        assert usage.status_code == status.HTTP_200_OK, usage.content
+        assert usage.json() == {
+            "days": 2,
+            "cited_run_count": 2,
+            "learned_cited_run_count": 1,
+            "source_count": 3,
+            "cited_source_count": 2,
+            "daily": [
+                {"date": "2026-05-19", "cited_run_count": 1},
+                {"date": "2026-05-20", "cited_run_count": 1},
+            ],
+            "top_sources": [
+                {
+                    "source_id": str(docs.id),
+                    "name": "Docs",
+                    "is_generated": False,
+                    "cited_run_count": 2,
+                    "last_cited_at": "2026-05-20T12:00:00Z",
+                },
+                {
+                    "source_id": str(learned.id),
+                    "name": "Learned answer",
+                    "is_generated": True,
+                    "cited_run_count": 1,
+                    "last_cited_at": "2026-05-19T12:00:00Z",
+                },
+            ],
+        }
+        # The list counts every run, whatever the period.
+        assert {row["name"]: (row["cited_run_count"], row["last_cited_at"]) for row in sources.json()["results"]} == {
+            "Docs": (3, "2026-05-20T12:00:00Z"),
+            "Learned answer": (1, "2026-05-19T12:00:00Z"),
+            "Unused": (0, None),
+        }
