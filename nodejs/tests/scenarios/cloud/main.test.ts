@@ -21,7 +21,7 @@ const OTHER_ACCOUNT = '111111111111'
 type Setup = {
     profile?: (profile: typeof PROFILE) => unknown
     cloud?: Partial<FakeCloudOptions>
-    published?: boolean
+    onMaster?: boolean
     arrange?: (cloud: FakeCloud) => void
 }
 
@@ -41,7 +41,7 @@ describe('cloud controller', () => {
     function prepare({
         profile = (p) => p,
         cloud: options = {},
-        published = true,
+        onMaster = true,
         arrange = () => undefined,
     }: Setup = {}): {
         controller: Controller
@@ -52,7 +52,7 @@ describe('cloud controller', () => {
         arrange(cloud)
         const controller: Controller = {
             aws: cloud,
-            origin: { head: () => COMMIT, published: (commit) => Promise.resolve(published && commit === COMMIT) },
+            origin: { head: () => COMMIT, onMaster: (commit) => Promise.resolve(onMaster && commit === COMMIT) },
             now: () => now,
             sleep: async (ms) => {
                 now = new Date(now.getTime() + ms)
@@ -197,10 +197,10 @@ describe('cloud controller', () => {
 
     it('reads the profile inputs once, so the uploads match the admitted hashes', async () => {
         const { controller } = prepare()
-        const published = controller.origin.published
-        controller.origin.published = (commit) => {
+        const onMaster = controller.origin.onMaster
+        controller.origin.onMaster = (commit) => {
             writeFileSync(path.join(dir, 'runner.yaml'), 'edited: during admission\n')
-            return published(commit)
+            return onMaster(commit)
         }
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
@@ -224,7 +224,7 @@ describe('cloud controller', () => {
             'over the $200 cap',
         ],
         ['an identity outside the profile account', { cloud: { account: '111111111111' } }, 'account 111111111111'],
-        ['a commit that is not on origin', { published: false }, COMMIT],
+        ['a commit that is not on master', { onMaster: false }, COMMIT],
         [
             'a cap other than the fixed one',
             { profile: (p) => ({ ...p, admission: { ...p.admission, capUsd: 300 } }) },

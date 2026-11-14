@@ -10,8 +10,8 @@ const REQUEST_TIMEOUT_MS = 10_000
 export function githubOrigin(api: string = 'https://api.github.com'): Origin {
     return {
         head: () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: __dirname, encoding: 'utf8' }).trim(),
-        published: async (commit) => {
-            const response = await internalFetch(`${api}/repos/${REPOSITORY}/commits/${commit}`, {
+        onMaster: async (commit) => {
+            const response = await internalFetch(`${api}/repos/${REPOSITORY}/compare/master...${commit}`, {
                 headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'posthog-scenario-runner' },
                 timeoutMs: REQUEST_TIMEOUT_MS,
             })
@@ -19,9 +19,10 @@ export function githubOrigin(api: string = 'https://api.github.com'): Origin {
                 return false
             }
             if (response.status !== 200) {
-                throw new Error(`GitHub answered ${response.status} for commit ${commit}`)
+                throw new Error(`GitHub answered ${response.status} comparing commit ${commit} with master`)
             }
-            return true
+            const { status } = (await response.json()) as { status?: unknown }
+            return status === 'identical' || status === 'behind'
         },
     }
 }
