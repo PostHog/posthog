@@ -436,6 +436,12 @@ class TestDirectPostgresQuery(APIBaseTest):
                 "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
             ),
             (
+                "native_to_date",
+                {"available_functions": ["to_date"]},
+                "to_date('20240305', 'YYYYMMDD')",
+                "to_date(%(hogql_val_0)s, %(hogql_val_1)s)",
+            ),
+            (
                 "pgcrypto",
                 {"pgcrypto_schema": "crypto"},
                 "sha1('abc')",

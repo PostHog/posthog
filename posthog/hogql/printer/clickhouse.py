@@ -227,6 +227,13 @@ class ClickHousePrinter(BasePrinter):
         return self._unmasked_key_read_type(node.args[0], first_key)
 
     def _render_clickhouse_function_call(self, node: ast.Call, func_meta) -> str:
+        # ClickHouse requires a constant timezone. Check before visiting it: the string
+        # conversion path uses it twice, so nested expressions could expand exponentially.
+        if node.name in ("toDate", "to_date") and len(node.args) == 2:
+            timezone = node.args[1]
+            if not isinstance(timezone, ast.Constant) or not isinstance(timezone.value, str):
+                raise QueryError("toDate timezone must be a string literal")
+
         args_count = len(node.args) - func_meta.passthrough_suffix_args_count
         node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
 
@@ -292,6 +299,7 @@ class ClickHousePrinter(BasePrinter):
                 args.append(self.visit(suffix_arg))
 
         relevant_clickhouse_name = func_meta.clickhouse_name
+        first_arg_constant_type: ast.ConstantType | None = None
         if func_meta.overloads:
             # Prefer concrete fields/calls: transforms can leave a call's
             # recorded arg_types stale after fields are rewritten.
@@ -300,7 +308,6 @@ class ClickHousePrinter(BasePrinter):
             while isinstance(first_arg, ast.Alias):
                 first_arg_was_alias = True
                 first_arg = first_arg.expr
-            first_arg_constant_type = None
             if (
                 first_arg is not None
                 and first_arg.type is not None
@@ -339,6 +346,14 @@ class ClickHousePrinter(BasePrinter):
                     and isinstance(first_arg_constant_type, ast.FloatType)
                 ):
                     args[0] = f"toFloat64({args[0]})"
+
+        # toDateOrNull rejects a timezone argument. A known string is parsed in that timezone first, so an unparseable
+        # string still gives NULL. An input of unknown type can be a DateTime at runtime, which the parser rejects, so
+        # it goes to the plain constructor, which accepts both.
+        if relevant_clickhouse_name == "toDateOrNull" and len(args) == 2:
+            relevant_clickhouse_name = "toDate"
+            if isinstance(first_arg_constant_type, ast.StringType):
+                args[0] = f"parseDateTime64BestEffortOrNull({args[0]}, 6, {args[1]})"
 
         if func_meta.tz_aware:
             has_tz_override = len(node.args) == func_meta.max_args
