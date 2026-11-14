@@ -15,6 +15,7 @@ import type {
     EnterpriseEventDefinitionRequestApi,
     EventDefinitionBulkUpdateVerifiedRequestApi,
     EventDefinitionBulkUpdateVerifiedResponseApi,
+    EventDefinitionMetricsApi,
     EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
@@ -156,12 +157,16 @@ export const getEventDefinitionsMetricsRetrieveUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/event_definitions/${id}/metrics/`
 }
 
+/**
+ * Returns how many query executions referenced this event in the last 30 days, including cached insight views, with a daily breakdown and the total for the 30 days before. Counts are cached for 24 hours.
+ * @summary 30-day query usage for an event
+ */
 export const eventDefinitionsMetricsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsMetricsRetrieveUrl(projectId, id), {
+): Promise<EventDefinitionMetricsApi> => {
+    return apiMutator<EventDefinitionMetricsApi>(getEventDefinitionsMetricsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

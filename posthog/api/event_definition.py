@@ -6,7 +6,6 @@ from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any, Literal, Optional, cast
 
-from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, connections, transaction
 from django.db.models import Field, Manager, Prefetch
@@ -47,11 +46,12 @@ from posthog.api.tagged_item import (
     apply_bulk_tag_changes,
 )
 from posthog.api.utils import action
-from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_queries.utils.event_usage import EVENT_USAGE_APP_SOURCE, event_usage_instance_id
 from posthog.models import ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.event_filter_config import add_event_name_drop
@@ -72,9 +72,9 @@ from posthog.taxonomy.definition_search import (
     bounded_count_sql,
     project_definition_scale,
 )
+from posthog.taxonomy.query_usage import QueryUsageSerializer, fetch_query_usage
 from posthog.taxonomy.scout_writes import check_scout_event_definition_write
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
-from posthog.utils import get_safe_cache, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.event_definitions.backend.models import EventDefinition
@@ -230,6 +230,10 @@ class PrimaryPropertiesResponseSerializer(serializers.Serializer):
             "to the core taxonomy defaults for those."
         ),
     )
+
+
+class EventDefinitionMetricsSerializer(QueryUsageSerializer):
+    pass
 
 
 @extend_schema_serializer(component_name="EventDefinitionRecord")
@@ -1261,20 +1265,22 @@ class EventDefinitionViewSet(
             }
         )
 
+    @extend_schema(
+        responses={200: EventDefinitionMetricsSerializer},
+        summary="30-day query usage for an event",
+        description=(
+            "Returns how many query executions referenced this event in the last 30 days, "
+            "including cached insight views, with a daily breakdown and the total for the 30 days before. "
+            "Counts are cached for 24 hours."
+        ),
+    )
     @action(detail=True, methods=["GET"], url_path="metrics")
-    def metrics_totals(self, *args, **kwargs):
+    def metrics_totals(self, *args: Any, **kwargs: Any) -> response.Response:
         instance: EventDefinition = self.get_object()
-
-        query_usage_30_day = fetch_30day_event_queries(
-            team=self.team,
-            event_name=instance.name,
-        )
-
-        return response.Response(
-            {
-                "query_usage_30_day": query_usage_30_day,
-            }
-        )
+        tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.EVENT_DEFINITION_SCENE)
+        instance_id = event_usage_instance_id(instance.name)
+        usage = fetch_query_usage(self.team, EVENT_USAGE_APP_SOURCE, [instance_id])[instance_id]
+        return response.Response(EventDefinitionMetricsSerializer({"usage": usage}).data)
 
     @extend_schema(
         parameters=[
@@ -1350,46 +1356,3 @@ class EventDefinitionViewSet(
 
         rows = queryset.values_list("name", "primary_property")
         return response.Response({"primary_properties": dict(rows)})
-
-
-def fetch_30day_event_queries(
-    team: Team,
-    event_name: str,
-) -> int:
-    """
-    Calculate the total number of views for a specific event
-    """
-    cache_key = f"event_definition:event_views_total:{team.pk}:{event_name}"
-    cached_result = get_safe_cache(cache_key)
-    if cached_result is not None:
-        return cached_result
-
-    clickhouse_kwargs: dict[str, Any] = {
-        "team_id": team.pk,
-        "app_source": "event_usage",
-        "metric_name": "viewed",
-        "instance_id": f"event:{event_name}",
-        "after": relative_date_parse("30d", team.timezone_info).strftime("%Y-%m-%dT%H:%M:%S"),
-    }
-
-    clickhouse_query = f"""
-        SELECT
-            sum(count) as count
-        FROM app_metrics2
-        WHERE team_id = %(team_id)s
-        AND app_source = %(app_source)s
-        AND timestamp >= toDateTime64(%(after)s, 6)
-        AND instance_id = %(instance_id)s
-        AND metric_name = %(metric_name)s
-    """
-
-    results = sync_execute(clickhouse_query, clickhouse_kwargs)
-
-    if not isinstance(results, list):
-        raise ValueError("Unexpected results from ClickHouse")
-
-    total = results[0][0] if results else 0
-
-    cache.set(cache_key, total, timeout=24 * 60 * 60)  # 24 hours
-
-    return total

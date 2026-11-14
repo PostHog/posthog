@@ -1,7 +1,9 @@
 import json
+from datetime import UTC, datetime
 from typing import Any, Optional, Union, cast
 
-from posthog.test.base import APIBaseTest
+import time_machine
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import ANY, patch
 
 from django.core.cache import cache
@@ -10,7 +12,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_APP_SOURCE
 from posthog.models import ActivityLog, Organization, Team
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.taxonomy import definition_search
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
@@ -19,6 +23,7 @@ from posthog.taxonomy.property_definition_api import (
     PropertyUsageMetricsRequestSerializer,
     QueryContext,
 )
+from posthog.test.fixtures import create_app_metric2
 
 from products.event_definitions.backend.models import EventDefinition, EventProperty, PropertyDefinition
 
@@ -1214,14 +1219,43 @@ class TestPropertyUsageMetricsRequestSerializer(SimpleTestCase):
         assert serializer.validated_data["properties"][0]["name"] == " plan "
 
 
-class TestPropertyUsageMetricsAPI(APIBaseTest):
+class TestPropertyUsageMetricsAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
 
-    @patch("posthog.taxonomy.property_definition_api.sync_execute")
-    def test_returns_counts_zero_fills_and_caches(self, mock_sync_execute) -> None:
-        mock_sync_execute.return_value = [("property:event:$browser", 42), ("property:group:1:industry", 7)]
+    def _usage_row(self, instance_id: str, timestamp: datetime, count: int, **kwargs: Any) -> None:
+        create_app_metric2(
+            team_id=kwargs.pop("team_id", self.team.pk),
+            app_source=PROPERTY_USAGE_APP_SOURCE,
+            instance_id=instance_id,
+            metric_name=kwargs.pop("metric_name", "viewed"),
+            metric_kind="success",
+            timestamp=timestamp,
+            count=count,
+        )
+
+    @parameterized.expand([["previous window covered", True, 7, 0], ["previous window not covered", False, None, None]])
+    @time_machine.travel(datetime(2026, 3, 20, 12, tzinfo=UTC), tick=False)
+    def test_returns_windowed_usage_and_caches(
+        self, _name: str, covered: bool, browser_previous: int | None, other_previous: int | None
+    ) -> None:
+        # In Tokyo time the current window starts 2026-02-18 15:00 UTC, the previous window runs from
+        # 2026-01-19 15:00 UTC to 2026-02-18 12:00 UTC, and the coverage check looks from 2026-01-12 15:00 UTC.
+        browser = "property:event:$browser"
+        self._usage_row(browser, datetime(2026, 3, 20, 9, tzinfo=UTC), 5)
+        self._usage_row(browser, datetime(2026, 2, 18, 16, tzinfo=UTC), 2)
+        self._usage_row(browser, datetime(2026, 2, 18, 13, tzinfo=UTC), 100)
+        self._usage_row(browser, datetime(2026, 2, 18, 11, tzinfo=UTC), 3)
+        self._usage_row(browser, datetime(2026, 1, 19, 16, tzinfo=UTC), 4)
+        if covered:
+            self._usage_row(browser, datetime(2026, 1, 19, 14, tzinfo=UTC), 50)
+        self._usage_row(browser, datetime(2026, 3, 20, 9, tzinfo=UTC), 1000, metric_name="failed")
+        self._usage_row(browser, datetime(2026, 3, 20, 9, tzinfo=UTC), 1000, team_id=self.team.pk + 1000)
+        self._usage_row("property:group:1:industry", datetime(2026, 3, 20, 9, tzinfo=UTC), 7)
         payload = {
             "properties": [
                 {"type": "event", "name": "$browser"},
@@ -1231,27 +1265,35 @@ class TestPropertyUsageMetricsAPI(APIBaseTest):
             ]
         }
 
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", payload, format="json"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {
-            "results": [
-                {"type": "event", "name": "$browser", "group_type_index": None, "query_usage_30_day": 42},
-                {"type": "event", "name": "$os", "group_type_index": None, "query_usage_30_day": 0},
-                {"type": "group", "name": "industry", "group_type_index": 0, "query_usage_30_day": 0},
-                {"type": "group", "name": "industry", "group_type_index": 1, "query_usage_30_day": 7},
+        def summarize() -> list[tuple]:
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", payload, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            results = response.json()["results"]
+            assert all(len(result["query_usage_daily"]) == 30 for result in results)
+            return [
+                (
+                    result["type"],
+                    result["name"],
+                    result["group_type_index"],
+                    result["query_usage_30_day"],
+                    result["query_usage_previous_30_day"],
+                    [(day["date"], day["count"]) for day in result["query_usage_daily"] if day["count"]],
+                )
+                for result in results
             ]
-        }
-        assert mock_sync_execute.call_args.kwargs["team_id"] == self.team.pk
 
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", payload, format="json"
-        )
+        expected = [
+            ("event", "$browser", None, 7, browser_previous, [("2026-02-19", 2), ("2026-03-20", 5)]),
+            ("event", "$os", None, 0, other_previous, []),
+            ("group", "industry", 0, 0, other_previous, []),
+            ("group", "industry", 1, 7, other_previous, [("2026-03-20", 7)]),
+        ]
+        assert summarize() == expected
 
-        assert response.status_code == status.HTTP_200_OK
-        assert mock_sync_execute.call_count == 1
+        self._usage_row(browser, datetime(2026, 3, 20, 10, tzinfo=UTC), 1)
+        assert summarize() == expected
 
     def test_rejects_empty_property_list(self) -> None:
         response = self.client.post(

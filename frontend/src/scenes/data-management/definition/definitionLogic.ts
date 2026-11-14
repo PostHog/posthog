@@ -12,9 +12,13 @@ import { urls } from 'scenes/urls'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { getFilterLabel, getVirtualPropertyDefinition } from '~/taxonomy/helpers'
-import { Breadcrumb, Definition, EventDefinitionMetrics, ObjectMediaPreview, PropertyDefinition } from '~/types'
+import { Breadcrumb, Definition, ObjectMediaPreview, PropertyDefinition } from '~/types'
 
-import { eventDefinitionsStopIngestingCreate } from 'products/event_definitions/frontend/generated/api'
+import {
+    eventDefinitionsMetricsRetrieve,
+    eventDefinitionsStopIngestingCreate,
+} from 'products/event_definitions/frontend/generated/api'
+import type { EventDefinitionMetricsApi } from 'products/event_definitions/frontend/generated/api.schemas'
 
 import type { SchemaEnforcementMode, UserBasicType } from '../../../types'
 import { DataManagementTab } from '../DataManagementScene'
@@ -45,7 +49,7 @@ export interface definitionLogicValues {
     definitionMissing: boolean
     isEvent: boolean
     isProperty: boolean
-    metrics: EventDefinitionMetrics | null
+    metrics: EventDefinitionMetricsApi | null
     metricsFailed: boolean
     metricsLoading: boolean
     previews: ObjectMediaPreview[]
@@ -198,12 +202,12 @@ export interface definitionLogicActions {
         errorObject?: any
     }
     loadMetricsSuccess: (
-        metrics: EventDefinitionMetrics | null,
+        metrics: EventDefinitionMetricsApi | null,
         payload?: {
             id: string
         }
     ) => {
-        metrics: EventDefinitionMetrics | null
+        metrics: EventDefinitionMetricsApi | null
         payload?: {
             id: string
         }
@@ -400,11 +404,11 @@ export const definitionLogic = kea<definitionLogicType>([
             },
         ],
         metrics: [
-            null as EventDefinitionMetrics | null,
+            null as EventDefinitionMetricsApi | null,
             {
                 loadMetrics: async ({ id }) => {
                     if (values.isEvent) {
-                        return await api.eventDefinitions.getMetrics({ eventDefinitionId: id })
+                        return await eventDefinitionsMetricsRetrieve(String(values.currentProjectId), id)
                     }
 
                     // For properties, we currently don't have metrics in the same way as events.
