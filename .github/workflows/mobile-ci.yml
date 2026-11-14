@@ -137,6 +137,7 @@ jobs:
                   restore-keys: mobile-pnpm-${{ runner.os }}-
 
             - name: Install dependencies
+              if: env.MOBILE_RUN_CHECKS == 'true' || steps.pnpm-cache.outputs.cache-hit != 'true'
               run: pnpm install --frozen-lockfile
 
             - name: Save pnpm store

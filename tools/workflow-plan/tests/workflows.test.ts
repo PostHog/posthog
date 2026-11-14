@@ -851,11 +851,31 @@ describe('CI workflow run plans', () => {
             appToken: true,
         },
         {
-            name: 'master cache warmer',
+            name: 'master cache warmer with exact cache hit',
             github: { ...push(), workflow: workflow('mobile-ci.yml').name! },
             mobile: true,
             apiTypes: false,
             checks: 'none',
+            install: false,
+            appToken: false,
+        },
+        {
+            name: 'master cache warmer with fallback cache hit',
+            github: { ...push(), workflow: workflow('mobile-ci.yml').name! },
+            mobile: true,
+            apiTypes: false,
+            checks: 'none',
+            cacheHit: 'false',
+            install: true,
+            appToken: false,
+        },
+        {
+            name: 'master cache warmer with cache miss',
+            github: { ...push(), workflow: workflow('mobile-ci.yml').name! },
+            mobile: true,
+            apiTypes: false,
+            checks: 'none',
+            cacheHit: '',
             install: true,
             appToken: false,
         },
@@ -868,11 +888,14 @@ describe('CI workflow run plans', () => {
             install: true,
             appToken: false,
         },
-    ])('mobile CI on $name', ({ name, github, mobile, apiTypes, checks, install, appToken }) => {
+    ])('mobile CI on $name', ({ name, github, mobile, apiTypes, checks, install, appToken, cacheHit = 'true' }) => {
         const plan = planWorkflow(workflow('mobile-ci.yml'), {
             name,
             github,
-            steps: { changes: { filter: pathsFilter({ mobile, api_types: apiTypes }) } },
+            steps: {
+                changes: { filter: pathsFilter({ mobile, api_types: apiTypes }) },
+                check: { 'pnpm-cache': { outputs: { 'cache-hit': cacheHit } } },
+            },
         })
         const validationSteps = [
             'Typecheck',
