@@ -129,14 +129,6 @@ from posthog.temporal.session_replay.replay_count_metrics import (
     REPLAY_COUNT_METRICS_ACTIVITIES,
     REPLAY_COUNT_METRICS_WORKFLOWS,
 )
-from posthog.temporal.session_replay.surfacing_score_export_sweep import (
-    SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES,
-    SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS,
-)
-from posthog.temporal.session_replay.surfacing_scoring_sweep import (
-    SURFACING_SCORING_SWEEP_ACTIVITIES,
-    SURFACING_SCORING_SWEEP_WORKFLOWS,
-)
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
@@ -601,17 +593,13 @@ _task_queue_specs = [
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
-        + REPLAY_COUNT_METRICS_WORKFLOWS
-        + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
-        + SURFACING_SCORING_SWEEP_WORKFLOWS,
+        + REPLAY_COUNT_METRICS_WORKFLOWS,
         COUNT_PLAYLIST_ITEMS_ACTIVITIES
         + COPY_RECORDING_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
-        + REPLAY_COUNT_METRICS_ACTIVITIES
-        + SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES
-        + SURFACING_SCORING_SWEEP_ACTIVITIES,
+        + REPLAY_COUNT_METRICS_ACTIVITIES,
     ),
     (
         settings.REPLAY_VISION_TASK_QUEUE,
@@ -1058,15 +1046,6 @@ class Command(BaseCommand):
                 zombie_exit_grace_seconds=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS,
             )
             logger.info("Starting Temporal Worker")
-
-            if task_queue == settings.SURFACING_SCORING_SWEEP_TASK_QUEUE:
-                from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import warmup_best_effort
-
-                # Best-effort: surfacing shares this queue with the rest of the
-                # session-replay worker, so a model problem must not crash the
-                # pod. It logs and continues; scoring activities retry until the
-                # model is fixed.
-                warmup_best_effort()
 
             worker = runner.run(
                 create_worker(

@@ -8,8 +8,7 @@ description: >
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the session-replay tools in
-  the MCP tools section (execute-sql over raw_session_replay_events / session_replay_features /
-  events, read-data-schema, advanced-activity-logs-list, query-session-recordings-list, the
+  the MCP tools section (execute-sql over raw_session_replay_events / events, read-data-schema, advanced-activity-logs-list, query-session-recordings-list, the
   feature-gated heatmaps and replay vision tools).
 allowed_tools:
   - emit_report
@@ -34,7 +33,7 @@ You are a focused session replay scout. The replay product makes two promises �
 
 **Concentration-vs-diffusion is the signal-vs-noise discriminator.** Friction spread thinly across a product is baseline; friction _concentrating_ — one URL or element whose friction rate steps away from its own history, a cohort of sessions failing the same way in the same place — is signal. Likewise on capture: a low recording-to-traffic ratio is baseline (sampling is deliberate); the _ratio changing_ without a config change is signal. Compare each surface against its own history, never an absolute bar.
 
-Two mechanical facts anchor everything. First, **recording capture is config-gated** — sample rate, minimum duration, triggers, and quotas all legitimately suppress recordings — so absence is usually configuration, not outage; only an unexplained _change_ matters. Second, **`$rageclick` (and where enabled `$dead_click`) fire whether or not the session was recorded**, while `session_replay_features` rows exist only for recorded sessions. Quantify on events; corroborate and illustrate with recordings.
+Two mechanical facts anchor everything. First, **recording capture is config-gated** — sample rate, minimum duration, triggers, and quotas all legitimately suppress recordings — so absence is usually configuration, not outage; only an unexplained _change_ matters. Second, **`$rageclick` (and where enabled `$dead_click`) fire whether or not the session was recorded**, while `raw_session_replay_events` rows exist only for recorded sessions. Quantify on events; corroborate and illustrate with recordings.
 
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a corroborated capture cliff or friction cluster you'd stand behind as a standalone inbox item a human will act on. A cliff or cluster the inbox already covers that's still moving (or recovered then relapsed) is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the session-replay-specific framing — do not restate the generic mechanics.
 
@@ -49,7 +48,7 @@ If a history reader is unavailable or access is denied, stop using that reader f
 Four mechanical traps that produce silently-wrong results — every replay query in this skill is shaped around them:
 
 1. **Time-filter the `raw_session_replay_events` table, never `session_replay_events`.** The friendly view's `start_time` is an aggregate projection; `WHERE start_time >= ...` on it returns zero rows even when recordings exist. Window on `raw_session_replay_events.min_first_timestamp` instead.
-2. **Both replay tables have multiple rows per session** — `raw_session_replay_events` always, and `posthog.session_replay_features` (AggregatingMergeTree; always with the `posthog.` prefix — the bare name is an unknown table) until parts merge. Count sessions with `uniq(session_id)`, never `count()`, and pre-aggregate features by `session_id` before summing its counters.
+2. **`raw_session_replay_events` has multiple rows per session** until parts merge. Count sessions with `uniq(session_id)`, never `count()`, and pre-aggregate by `session_id` before summing its counters.
 3. **Aggregate-state columns need merge functions on the raw table** — `first_url` is an `argMin` state: read it as `argMinMerge(first_url)` (grouped by `session_id`), not `any(first_url)`.
 4. **Client clocks lie** — real sessions and events arrive dated years into the future. Upper-bound every recency window (`<= now() + INTERVAL 1 DAY`, on `events.timestamp` too) and never trust `ORDER BY ... DESC LIMIT 1` to mean "latest" without it.
 
@@ -224,7 +223,7 @@ LIMIT 10
 
 Then corroborate and illustrate:
 
-- Pull the same sessions' feature rows — `posthog.session_replay_features` filtered by the `$session_id`s above (an `IN` list, not a join) for `dead_click_count`, `console_error_after_click_count`, `quick_back_count`: rage clicks _plus_ errors-after-click or quick-backs on the same sessions upgrade "annoyance" to "broken". Absence of rows is sampling, not absence of friction.
+- Pull the same sessions' counters — `raw_session_replay_events` filtered by the `$session_id`s above (an `IN` list, not a join), summed per `session_id`, for `console_error_count`, and their `$dead_click` events: rage clicks _plus_ console errors or dead clicks on the same sessions upgrade "annoyance" to "broken". Absence of rows is sampling, not absence of friction.
 - If the heatmaps tools are available, `heatmaps-list` (`type: "rageclick"`, `url_exact` or a `url_pattern` covering the path) confirms the spatial cluster — read the `fold` summary and top points only; `heatmaps-events` names the sessions behind a hotspot. Skip without comment if absent.
 - Deep-link 2–3 example sessions: collect `$session_id`s from the rage-click events and fetch via `query-session-recordings-list` (`session_ids`, matching `date_from`), ordering by `console_error_count` or `activity_score` to shortlist the ones worth watching.
 
@@ -264,37 +263,30 @@ The finding: name the URL and element, quantify the step (baseline vs current ra
 
 #### Broken-experience cohort
 
-Friction where the page fights back — errors and failed requests tied to interaction, not just background noise:
+Friction where the page fights back — console errors in sessions where the user interacted, not just background noise:
 
 ```sql
-SELECT replaceRegexpAll(cutQueryStringAndFragment(r.first_url), '[0-9]+', ':id') AS url,
-       uniq(f.session_id) AS sessions, uniq(f.distinct_id) AS users,
-       sum(f.errors_after_click) AS errors_after_click,
-       sum(f.failed_requests) AS failed_requests
+SELECT replaceRegexpAll(cutQueryStringAndFragment(first_url), '[0-9]+', ':id') AS url,
+       uniq(session_id) AS sessions, uniq(distinct_id) AS users,
+       sum(errors) AS console_errors
 FROM (
     SELECT session_id, any(distinct_id) AS distinct_id,
-           sum(console_error_after_click_count) AS errors_after_click,
-           sum(network_failed_request_count) AS failed_requests
-    FROM posthog.session_replay_features
-    WHERE min_first_timestamp >= now() - INTERVAL 1 DAY
-      AND min_first_timestamp <= now() + INTERVAL 1 DAY
-    GROUP BY session_id
-    HAVING errors_after_click > 0 OR failed_requests > 0
-) f
-JOIN (
-    SELECT session_id, argMinMerge(first_url) AS first_url
+           argMinMerge(first_url) AS first_url,
+           sum(console_error_count) AS errors,
+           sum(click_count) AS clicks
     FROM raw_session_replay_events
     WHERE min_first_timestamp >= now() - INTERVAL 1 DAY
       AND min_first_timestamp <= now() + INTERVAL 1 DAY
     GROUP BY session_id
-) r ON r.session_id = f.session_id
+    HAVING errors > 0 AND clicks > 0
+)
 GROUP BY url
 HAVING sessions >= 10 AND users >= 5
 ORDER BY sessions DESC
 LIMIT 20
 ```
 
-Keep both sides pre-aggregated and pre-filtered exactly like this — a raw join runs out of memory on high-volume projects, and footguns #2–#3 (per-session pre-aggregation, `argMinMerge`) both bite here. Failed-request-only sessions (no console error) are in scope by design — a silently failing API is broken too — but they're ad-blocker-prone: require the step-change comparison and corroboration before treating one as a candidate.
+Keep the per-session pre-aggregation exactly like this — footguns #2–#3 (per-session pre-aggregation, `argMinMerge`) both bite here. The counters say nothing about failed network requests, and a handled failed request raises no `$exception`, so this query cannot find a silently failing API; leave that case out rather than guess at it.
 
 Compare each URL against its own prior-13-day rate (same query, earlier window) — the reportable case is a step-change, not a steady grumble.
 
@@ -376,7 +368,7 @@ Nearly everything this scout reads originates in end-user browsers: URLs, elemen
 - **Mixing platform baselines** — mobile SDK recordings have different mechanics; judge web and mobile separately.
 - **Dead-click streams that fail the human-input check** — steady input on unchanged content with no `$rageclick`, no navigation, and one device class is a lead about input, not evidence of frustration.
 - **Dead-click data where dead-click capture is off** — `$dead_click` is opt-in; zero under that config is config, not health.
-- **`session_replay_features` absence as evidence** — rows exist only for recorded sessions; missing rows mean sampling or lag, never "friction stopped".
+- **Missing replay rows as evidence** — `raw_session_replay_events` rows exist only for recorded sessions; missing rows mean sampling or lag, never "friction stopped".
 
 When in doubt, write a memory entry instead of filing a report.
 
@@ -385,7 +377,6 @@ When in doubt, write a memory entry instead of filing a report.
 Direct calls (read-only):
 
 - `execute-sql` against `raw_session_replay_events` — the volume/capture side: `min_first_timestamp` (always the time filter — see footguns), `session_id`, `click_count`, `console_error_count`, `first_url`, `distinct_id`.
-- `execute-sql` against `posthog.session_replay_features` — per-recorded-session friction detail: `rage_click_count`, `dead_click_count`, `console_error_after_click_count`, `network_failed_request_count`, `quick_back_count`, `rapid_scroll_reversal_count`, `max_idle_gap_ms`. Partial coverage by design — corroboration, not the denominator.
 - `execute-sql` against `events` — the friction stream: `$rageclick` (and `$dead_click` where enabled) with `$current_url`, `$el_text`, `$session_id`; replay SDK health properties (`$recording_status`, `$replay_sample_rate`, `$sdk_debug_recording_script_not_loaded`) on regular events.
 - `query-session-recordings-list` — resolve `$session_id`s to watchable recordings (pass `session_ids` + a matching `date_from`); order by `console_error_count` or `activity_score` when shortlisting.
 - `session-recording-get` — one recording's metadata for a finding's example links.

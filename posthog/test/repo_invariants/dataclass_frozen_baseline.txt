@@ -594,8 +594,6 @@
 5 posthog/temporal/ai_observability/evaluation_clustering/models.py
 5 posthog/temporal/ai_observability/run_trace_evaluation.py
 5 posthog/temporal/proxy_service/create.py
-5 posthog/temporal/session_replay/surfacing_score_export_sweep/types.py
-5 posthog/temporal/session_replay/surfacing_scoring_sweep/types.py
 5 products/ai_observability/backend/llm/types.py
 5 products/apm/backend/logic/anomaly_detection/validation/harness.py
 5 products/batch_exports/backend/temporal/backfill_batch_export.py
