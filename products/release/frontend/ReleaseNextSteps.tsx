@@ -45,7 +45,7 @@ function NextRow({
     dataAttr: string
 }): JSX.Element {
     return (
-        <div className="flex items-start gap-3 py-2.5" data-attr={dataAttr}>
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2 py-2.5" data-attr={dataAttr}>
             <IconStack className="mt-0.5 shrink-0">
                 <IconStackItem color={AVATARS[avatar].color}>{AVATARS[avatar].glyph}</IconStackItem>
             </IconStack>
@@ -57,7 +57,9 @@ function NextRow({
                     {detail}
                 </Text>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 @max-lg/next:basis-full @max-lg/next:justify-start @max-lg/next:pl-11">
+                {actions}
+            </div>
         </div>
     )
 }
@@ -82,13 +84,19 @@ function IdeaRow({
     dataAttr: string
 }): JSX.Element {
     return (
-        <div className="flex min-w-0 items-center gap-2.5 py-1" data-attr={dataAttr}>
+        <div className="flex min-w-0 items-start gap-2.5 py-1 @lg/next:items-center" data-attr={dataAttr}>
             <IconStack className="shrink-0 [--icon-stack-size:1.375rem] [--quill-icon-stack-ring:var(--card)] [&_svg]:size-3">
                 <IconStackItem color={AVATARS[avatar].color}>{AVATARS[avatar].glyph}</IconStackItem>
             </IconStack>
-            <Text size="xs" className="min-w-0 flex-1 truncate">
-                <span className="font-medium">{title}</span>
-                <span className="text-muted-foreground">{` · ${detail}`}</span>
+            <Text
+                size="xs"
+                className="flex min-w-0 flex-1 flex-col @lg/next:flex-row @lg/next:items-baseline @lg/next:gap-1"
+            >
+                <span className="font-medium @lg/next:truncate">{title}</span>
+                <span aria-hidden className="hidden text-muted-foreground @lg/next:inline">
+                    ·
+                </span>
+                <span className="text-muted-foreground @lg/next:truncate">{detail}</span>
             </Text>
             <Button
                 size="xs"
@@ -119,7 +127,7 @@ export function ReleaseNextSteps({ row }: { row: ReleaseRow }): JSX.Element {
     const hidden = suggestions.length - 1
 
     return (
-        <div className="flex flex-col border-t border-border pt-3" data-attr="release-next-steps">
+        <div className="@container/next flex flex-col border-t border-border pt-3" data-attr="release-next-steps">
             <Text size="xxs" weight="semibold" variant="muted" className="uppercase tracking-wide">
                 What's next
             </Text>

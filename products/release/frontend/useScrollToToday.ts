@@ -6,7 +6,12 @@ import { Scale, x } from './releaseTracks'
 
 const PAST_SHARE = 0.65
 
-export function useScrollToToday(container: HTMLElement | null, scale: Scale, ready: boolean): void {
+export function useScrollToToday(
+    container: HTMLElement | null,
+    scale: Scale,
+    labelWidth: number,
+    ready: boolean
+): void {
     const done = useRef(false)
     useEffect(() => {
         if (done.current || !ready) {
@@ -17,7 +22,9 @@ export function useScrollToToday(container: HTMLElement | null, scale: Scale, re
             return
         }
         done.current = true
-        const sticky = container?.querySelector('thead th')?.getBoundingClientRect().width ?? 0
+        const sticky = labelWidth
+            ? (container?.querySelector('thead th')?.getBoundingClientRect().width ?? labelWidth)
+            : 0
         const visible = viewport.clientWidth - sticky
         const today = x(dayjs().toISOString(), scale) + scale.day / 2
         if (today > visible - scale.day) {

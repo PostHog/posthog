@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+
 import { Text, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -32,22 +34,33 @@ function laneDetail(lane: Lane): string {
 export function ReleaseTrackLabel({
     lane,
     className,
+    style,
     detailed,
+    inline,
     actions,
 }: {
     lane: Lane
     className?: string
+    style?: CSSProperties
     detailed?: boolean
+    inline?: boolean
     actions?: JSX.Element
 }): JSX.Element {
-    const detail = detailed ? laneDetail(lane) : ''
+    const detail = detailed || inline ? laneDetail(lane) : ''
     return (
-        <div className={cn('flex items-center gap-2', className)} style={{ height: laneHeight(detailed) }}>
+        <div
+            className={cn('flex items-center gap-2', className)}
+            style={{ ...style, height: inline ? undefined : laneHeight(detailed) }}
+        >
             <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
                 {iconForType(LANE_ICON[lane.kind] as never)}
             </span>
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <LinkPrimitive to={lane.href} className="truncate text-xs text-foreground hover:underline">
+            <span className={cn('flex min-w-0 flex-1', inline ? 'items-baseline gap-1.5' : 'flex-col gap-0.5')}>
+                <LinkPrimitive
+                    to={lane.href}
+                    title={lane.title}
+                    className="shrink-0 truncate text-xs text-foreground hover:underline"
+                >
                     {lane.title}
                 </LinkPrimitive>
                 {detail && (
@@ -56,7 +69,7 @@ export function ReleaseTrackLabel({
                     </Text>
                 )}
             </span>
-            {!detailed && !lane.live && (
+            {!detailed && !inline && !lane.live && (
                 <Text size="xs" variant="muted" className="shrink-0">
                     {statusLabel(lane.status)}
                 </Text>

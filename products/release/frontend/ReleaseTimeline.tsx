@@ -5,6 +5,7 @@ import { createContext, memo, useContext, useEffect, useMemo, useState } from 'r
 import { IconChevronRight } from '@posthog/icons'
 import { DataTable, Text, cn } from '@posthog/quill'
 
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -30,19 +31,26 @@ import { useScrollToToday } from './useScrollToToday'
 import { useStickyColumnWidth } from './useStickyColumnWidth'
 
 const NAME = 300
+const NAME_NARROW = 148
+const NARROW_WIDTH = 640
 const SUMMARY = 60
 const SUMMARY_OPEN = 36
 
 function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Element {
     const { row, lanes } = track
+    const { nameWidth } = useContext(CalendarStateContext)
+    const narrow = nameWidth < NAME
     return (
-        <div className="flex flex-col" style={{ width: NAME - 12 }}>
-            <div className="flex items-center gap-2" style={{ height: open ? SUMMARY_OPEN : SUMMARY }}>
+        <div className="flex flex-col" style={{ width: nameWidth - 12 }}>
+            <div
+                className={cn('flex items-center', narrow ? 'gap-1.5' : 'gap-2')}
+                style={{ height: open ? SUMMARY_OPEN : SUMMARY }}
+            >
                 <IconChevronRight
                     className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
                 />
                 <ReleaseStageDot stage={row.stage} />
-                <span className={cn('flex min-w-0 flex-1', open ? 'items-baseline gap-1.5' : 'flex-col')}>
+                <span className={cn('flex min-w-0 flex-1', open && !narrow ? 'items-baseline gap-1.5' : 'flex-col')}>
                     <LinkPrimitive
                         to={urls.release(row.id)}
                         data-attr="release-timeline-release"
@@ -50,9 +58,11 @@ function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Elem
                     >
                         {row.name}
                     </LinkPrimitive>
-                    <Text size="xs" variant="muted" className="truncate">
-                        {row.status}
-                    </Text>
+                    {!(open && narrow) && (
+                        <Text size="xs" variant="muted" className="truncate">
+                            {row.status}
+                        </Text>
+                    )}
                 </span>
             </div>
             {open &&
@@ -161,6 +171,7 @@ const TrackLanes = memo(
 )
 
 interface CalendarState {
+    nameWidth: number
     stickyOffset: number
     lastRowId: string | undefined
     sentinel: (node: Element | null) => void
@@ -171,6 +182,7 @@ interface CalendarState {
 }
 
 const CalendarStateContext = createContext<CalendarState>({
+    nameWidth: NAME,
     stickyOffset: NAME,
     lastRowId: undefined,
     sentinel: () => {},
@@ -216,10 +228,19 @@ function TimelineHeader(): JSX.Element {
     return <ReleaseTimelineAxis scale={CALENDAR_SCALE()} stickyOffset={stickyOffset} />
 }
 
-const COLUMNS: ColumnDef<ReleaseRow>[] = [
-    { id: 'release', header: 'Release', size: NAME, enableSorting: false, meta: { sticky: 'left' }, cell: ReleaseCell },
-    { id: 'timeline', header: TimelineHeader, enableSorting: false, cell: TimelineCell },
-]
+function calendarColumns(nameWidth: number): ColumnDef<ReleaseRow>[] {
+    return [
+        {
+            id: 'release',
+            header: 'Release',
+            size: nameWidth,
+            enableSorting: false,
+            meta: { sticky: 'left' },
+            cell: ReleaseCell,
+        },
+        { id: 'timeline', header: TimelineHeader, enableSorting: false, cell: TimelineCell },
+    ]
+}
 
 export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, releases, flags } = useValues(releaseLogic)
@@ -241,12 +262,16 @@ export function ReleaseTimeline(): JSX.Element {
     const { visible, sentinel } = useInfiniteRows(filteredRows.length)
     const rows = useMemo(() => filteredRows.slice(0, visible), [filteredRows, visible])
     const lastRowId = visible < filteredRows.length ? rows[rows.length - 1]?.id : undefined
+    const { ref, width = 0 } = useResizeObserver<HTMLDivElement>()
     const [container, setContainer] = useState<HTMLDivElement | null>(null)
-    useScrollToToday(container, CALENDAR_SCALE(), rows.length > 0)
-    const stickyOffset = useStickyColumnWidth(container, NAME)
+    const nameWidth = width > 0 && width < NARROW_WIDTH ? NAME_NARROW : NAME
+    const stickyOffset = useStickyColumnWidth(container, nameWidth)
+    useScrollToToday(container, CALENDAR_SCALE(), stickyOffset, width > 0 && rows.length > 0)
+    const columns = useMemo(() => calendarColumns(nameWidth), [nameWidth])
 
     const state = useMemo(
         () => ({
+            nameWidth,
             stickyOffset,
             lastRowId,
             sentinel,
@@ -255,12 +280,15 @@ export function ReleaseTimeline(): JSX.Element {
             stepsByFlag,
             related: relatedByRelease,
         }),
-        [stickyOffset, lastRowId, sentinel, loadFlagActivity, expanded, stepsByFlag, relatedByRelease]
+        [nameWidth, stickyOffset, lastRowId, sentinel, loadFlagActivity, expanded, stepsByFlag, relatedByRelease]
     )
 
     return (
         <div
-            ref={setContainer}
+            ref={(node) => {
+                ref(node)
+                setContainer(node)
+            }}
             className={`overflow-hidden rounded-lg border border-border bg-background ${STAGE_COLOR_VARS} [--quill-table-sticky-bg:var(--background)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0`}
             data-attr="release-timeline"
         >
@@ -269,7 +297,7 @@ export function ReleaseTimeline(): JSX.Element {
             ) : (
                 <CalendarStateContext.Provider value={state}>
                     <DataTable
-                        columns={COLUMNS}
+                        columns={columns}
                         data={rows}
                         size="sm"
                         stickyHeader

@@ -1,6 +1,6 @@
 import { CellContext, ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
-import { createContext, useContext, useEffect, useMemo } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 import { Button, Card, CardDescription, CardHeader, CardTitle, DataTable, Text } from '@posthog/quill'
 
@@ -18,15 +18,18 @@ import { Lane, Scale, Track, buildTrack } from './releaseTracks'
 import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS, isEnrollingEarlyAccess } from './releaseUtils'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
 import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
+import { useScrollToToday } from './useScrollToToday'
+import { useStickyColumnWidth } from './useStickyColumnWidth'
 
 const TRACK_NAME = 264
+const NARROW_WIDTH = 560
 const TRACK_MIN_DAY = 12
 const TRACK_MIN_DAYS = 21
 const TRACK_MAX_PAST_DAYS = 90
 const TRACK_MAX_FUTURE_DAYS = CALENDAR_DAYS_AFTER
 const TRACK_LABEL_ROOM = 120
 
-function trackScale(track: Track, width: number): Scale {
+function trackScale(track: Track, width: number, labelWidth: number): Scale {
     const today = dayjs().startOf('day')
     const dates = [
         ...track.lanes.flatMap((lane) =>
@@ -48,9 +51,9 @@ function trackScale(track: Track, width: number): Scale {
     const floor = today.subtract(TRACK_MAX_PAST_DAYS, 'day')
     const start = (earliest.isBefore(floor) ? floor : earliest).subtract(2, 'day')
     const base = (latest.isAfter(ceiling) ? ceiling : latest).diff(start, 'day') + 1
-    const estimate = Math.max(TRACK_MIN_DAY, Math.floor((width - TRACK_NAME) / (base + 8)))
+    const estimate = Math.max(TRACK_MIN_DAY, Math.floor((width - labelWidth) / (base + 8)))
     const days = Math.max(base + Math.max(4, Math.ceil(TRACK_LABEL_ROOM / estimate)), TRACK_MIN_DAYS)
-    return { start, days, day: Math.max(TRACK_MIN_DAY, Math.floor((width - TRACK_NAME) / days)) }
+    return { start, days, day: Math.max(TRACK_MIN_DAY, Math.floor((width - labelWidth) / days)) }
 }
 
 function FlagHistoryLoader({ flagId, onLoad }: { flagId: number; onLoad: (flagIds: number[]) => void }): null {
@@ -62,6 +65,10 @@ function FlagHistoryLoader({ flagId, onLoad }: { flagId: number; onLoad: (flagId
 
 interface TrackCardState {
     row: ReleaseRow
+    labelWidth: number
+    stickyOffset: number
+    width: number
+    stacked: boolean
     scale: Scale
     color: string
     lanesByKey: Map<string, Lane>
@@ -79,11 +86,11 @@ function useTrackCard(): TrackCardState {
 }
 
 function TrackLabelCell({ row: lane }: CellContext<Lane, unknown>): JSX.Element {
-    const { row } = useTrackCard()
+    const { row, labelWidth } = useTrackCard()
     return (
         <ReleaseTrackLabel
             lane={lane.original}
-            className="w-60"
+            style={{ width: labelWidth - 24 }}
             detailed
             actions={
                 lane.original.kind === 'flag' ? <ReleaseFlagActions row={row} flag={lane.original.flag} /> : undefined
@@ -93,15 +100,30 @@ function TrackLabelCell({ row: lane }: CellContext<Lane, unknown>): JSX.Element 
 }
 
 function TrackLaneCell({ row: lane }: CellContext<Lane, unknown>): JSX.Element {
-    const { scale, color, lanesByKey, loadFlagActivity } = useTrackCard()
+    const { row, scale, color, lanesByKey, loadFlagActivity, stacked, width, stickyOffset } = useTrackCard()
     return (
         <div className="relative" style={{ width: scale.days * scale.day }}>
             <ReleaseTrackGrid scale={scale} />
+            {stacked && (
+                <ReleaseTrackLabel
+                    lane={lane.original}
+                    inline
+                    className="sticky left-0 z-10 w-fit rounded-br-md bg-card py-0.5 pr-2 pl-3 mt-1.5"
+                    style={{ maxWidth: width - 1 }}
+                    actions={
+                        lane.original.kind === 'flag' ? (
+                            <ReleaseFlagActions row={row} flag={lane.original.flag} />
+                        ) : undefined
+                    }
+                />
+            )}
             <ReleaseTrackLane
                 lane={lanesByKey.get(lane.original.key) ?? lane.original}
                 color={color}
                 scale={scale}
-                detailed
+                detailed={!stacked}
+                flush
+                stickyOffset={stickyOffset}
             />
             {lane.original.kind === 'flag' && (
                 <FlagHistoryLoader flagId={lane.original.flag.id} onLoad={loadFlagActivity} />
@@ -111,26 +133,38 @@ function TrackLaneCell({ row: lane }: CellContext<Lane, unknown>): JSX.Element {
 }
 
 function TrackAxisHeader(): JSX.Element {
-    const { scale } = useTrackCard()
-    return <ReleaseTimelineAxis scale={scale} />
+    const { scale, stickyOffset } = useTrackCard()
+    return <ReleaseTimelineAxis scale={scale} stickyOffset={stickyOffset} />
 }
 
-const COLUMNS: ColumnDef<Lane>[] = [
-    {
-        id: 'lane',
-        header: 'Track',
-        size: TRACK_NAME,
+function trackColumns(labelWidth: number, stacked: boolean): ColumnDef<Lane>[] {
+    const timeline: ColumnDef<Lane> = {
+        id: 'timeline',
+        header: TrackAxisHeader,
         enableSorting: false,
-        meta: { sticky: 'left' },
-        cell: TrackLabelCell,
-    },
-    { id: 'timeline', header: TrackAxisHeader, enableSorting: false, cell: TrackLaneCell },
-]
+        cell: TrackLaneCell,
+    }
+    if (stacked) {
+        return [timeline]
+    }
+    return [
+        {
+            id: 'lane',
+            header: 'Track',
+            size: labelWidth,
+            enableSorting: false,
+            meta: { sticky: 'left' },
+            cell: TrackLabelCell,
+        },
+        timeline,
+    ]
+}
 
 export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | null {
     const { failedFlagIds } = useValues(releaseCalendarLogic)
     const { loadFlagActivity } = useActions(releaseCalendarLogic)
     const { ref, width = 0 } = useResizeObserver<HTMLDivElement>()
+    const [container, setContainer] = useState<HTMLDivElement | null>(null)
     useRefreshChangedFlagHistory(row.flags)
 
     const stepsByFlag = useRolloutStepsByFlag(TRACK_MAX_FUTURE_DAYS)
@@ -140,7 +174,13 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
 
     const rows = useMemo(() => buildTrack(row, new Map(), related).lanes, [row, related])
     const lanesByKey = useMemo(() => new Map(track.lanes.map((lane) => [lane.key, lane])), [track])
-    const scale = useMemo(() => trackScale(track, width), [track, width])
+    const stacked = width > 0 && width < NARROW_WIDTH
+    const labelWidth = stacked ? 0 : TRACK_NAME
+    const columns = useMemo(() => trackColumns(labelWidth, stacked), [labelWidth, stacked])
+    const scale = useMemo(() => trackScale(track, width, labelWidth), [track, width, labelWidth])
+    const measuredOffset = useStickyColumnWidth(stacked ? null : container, labelWidth)
+    const stickyOffset = stacked ? 0 : measuredOffset
+    useScrollToToday(container, scale, stickyOffset, width > 0 && track.lanes.length > 0)
     const color = STAGE_COLOR[row.stage]
     const warnings = row.audiences.flatMap((audience) => {
         const warning = emptyVariantWarning(row, audience)
@@ -150,8 +190,8 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
     const failedFlags = row.flags.filter((flag) => failedFlagIds.includes(flag.id))
 
     const state = useMemo(
-        () => ({ row, scale, color, lanesByKey, loadFlagActivity }),
-        [row, scale, color, lanesByKey, loadFlagActivity]
+        () => ({ row, labelWidth, stickyOffset, width, stacked, scale, color, lanesByKey, loadFlagActivity }),
+        [row, labelWidth, stickyOffset, width, stacked, scale, color, lanesByKey, loadFlagActivity]
     )
 
     if (!track.lanes.length) {
@@ -196,13 +236,16 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
                 </div>
             )}
             <div
-                ref={ref}
+                ref={(node) => {
+                    ref(node)
+                    setContainer(node)
+                }}
                 className="overflow-hidden border-t border-border [--quill-table-sticky-bg:var(--card)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0"
             >
                 {width > 0 && (
                     <TrackCardContext.Provider value={state}>
                         <DataTable
-                            columns={COLUMNS}
+                            columns={columns}
                             data={rows}
                             size="sm"
                             getRowId={(lane) => lane.key}

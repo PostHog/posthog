@@ -12,17 +12,19 @@ export function ReleaseTrackLane({
     color,
     scale,
     detailed,
+    flush,
     stickyOffset,
 }: {
     lane: Lane
     color: string
     scale: Scale
     detailed?: boolean
+    flush?: boolean
     stickyOffset?: number
 }): JSX.Element {
     const height = laneHeight(detailed)
     return (
-        <div className={cn('relative', !detailed && 'border-t border-border/60')} style={{ height }}>
+        <div className={cn('relative', !detailed && !flush && 'border-t border-border/60')} style={{ height }}>
             {lane.kind === 'flag' && !lane.steps.length ? (
                 <ReleaseTrackSpan
                     span={lane.span}

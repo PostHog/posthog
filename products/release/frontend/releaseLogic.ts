@@ -7,11 +7,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, AccessControlResourceType, type UserType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type Breadcrumb, type UserType } from '~/types'
 
 import { earlyAccessFeatureList } from 'products/early_access_features/frontend/generated/api'
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
@@ -103,6 +104,7 @@ interface ReleaseLogicValues {
     scheduleIndex: ScheduleIndex
     canEditReleases: boolean
     rows: ReleaseRow[]
+    breadcrumbs: Breadcrumb[]
     filteredRows: ReleaseRow[]
     decisionRows: ReleaseRow[]
 }
@@ -686,6 +688,20 @@ export const releaseLogic = kea<releaseLogicType>([
         ],
     }),
     selectors({
+        breadcrumbs: [
+            (s) => [s.rows, router.selectors.location],
+            (rows: ReleaseRow[], location: { pathname: string }): Breadcrumb[] => {
+                const path = removeProjectIdIfPresent(location.pathname)
+                if (path === urls.releaseList()) {
+                    return [{ key: 'Releases', name: 'Releases' }]
+                }
+                const id = path.match(/^\/releases\/([^/]+)$/)?.[1]
+                if (!id) {
+                    return [{ key: 'ReleaseCalendar', name: 'Release calendar' }]
+                }
+                return [{ key: ['Release', id], name: rows.find((row) => row.id === id)?.name }]
+            },
+        ],
         releasesEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.RELEASES_AREA],

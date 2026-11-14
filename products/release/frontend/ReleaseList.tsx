@@ -7,6 +7,7 @@ import { IconFlag } from '@posthog/icons'
 import { Badge, Button, Card, DataTable, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -149,9 +150,50 @@ function sortRows(rows: ReleaseRow[], sorting: SortingState): ReleaseRow[] {
     })
 }
 
+const NARROW_WIDTH = 640
+
+function narrowColumns(width: number): ColumnDef<ReleaseRow>[] {
+    return [
+        {
+            id: 'name',
+            header: 'Release',
+            accessorKey: 'name',
+            meta: { expand: true },
+            cell: ({ row }) => (
+                <div className="flex min-w-0 items-center gap-3" style={{ width: width - 26 }}>
+                    <div className="flex min-w-0 flex-1 flex-col items-start">
+                        <Button
+                            variant="link-foreground"
+                            size="sm"
+                            nativeButton={false}
+                            left
+                            render={<LinkPrimitive to={urls.release(row.original.id)} />}
+                            className="min-w-0 max-w-full"
+                            data-attr="release-table-name"
+                        >
+                            <span className="truncate">{row.original.name}</span>
+                        </Button>
+                        <Text size="xs" variant="muted" className="w-full truncate px-2">
+                            {row.original.audience
+                                ? `${row.original.status} · ${row.original.audience}`
+                                : row.original.status}
+                        </Text>
+                    </div>
+                    <Badge variant={STAGE_TONE[row.original.stage]} className="shrink-0">
+                        {STAGE_LABEL[row.original.stage]}
+                    </Badge>
+                </div>
+            ),
+        },
+    ]
+}
+
 function ReleaseListContent(): JSX.Element {
     const { filteredRows, dataLoading, loadFailed, releases } = useValues(releaseLogic)
     const { showAutoImport } = useValues(releaseImportLogic)
+    const { ref, width = 0 } = useResizeObserver<HTMLDivElement>()
+    const narrow = width > 0 && width < NARROW_WIDTH
+    const columns = useMemo(() => (narrow ? narrowColumns(width) : COLUMNS), [narrow, width])
     const [sorting, setSorting] = useState<SortingState>([])
     const sortedRows = useMemo(() => sortRows(filteredRows, sorting), [filteredRows, sorting])
     const { visible, sentinel } = useInfiniteRows(sortedRows.length)
@@ -169,7 +211,7 @@ function ReleaseListContent(): JSX.Element {
                     </div>
                 }
             />
-            <div data-quill className="flex flex-col gap-3">
+            <div data-quill className="flex flex-col gap-3" ref={ref}>
                 {!showAutoImport && <ReleaseFilters />}
                 <ReleasePartialLoadWarning />
                 <ReleaseImportFailedNotice />
@@ -182,7 +224,8 @@ function ReleaseListContent(): JSX.Element {
                 ) : (
                     <Card size="sm" flush className="pt-0" data-attr="release-table">
                         <DataTable
-                            columns={COLUMNS}
+                            key={narrow ? 'narrow' : 'wide'}
+                            columns={columns}
                             data={shownRows}
                             sorting={sorting}
                             onSortingChange={setSorting}
