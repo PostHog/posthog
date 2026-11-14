@@ -685,11 +685,95 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
 
+    UNSUPPORTED_NESTED_GROUP_CASES: list[tuple[str, dict[str, Any]]] = [
+        (
+            "log_resource_attribute",
+            {"key": "k8s.namespace.name", "value": ["prod"], "operator": "exact", "type": "log_resource_attribute"},
+        ),
+        ("log", {"key": "message", "value": "timeout", "operator": "icontains", "type": "log"}),
+    ]
+
+    @staticmethod
+    def _nested_group_filters(leaf: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": [{"type": "OR", "values": [leaf]}]}]}
+        }
+
+    @parameterized.expand(UNSUPPORTED_NESTED_GROUP_CASES)
+    def test_create_rejects_unsupported_nested_filter_group(self, leaf_type, leaf):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(filters=self._nested_group_filters(leaf)),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+        assert leaf_type in response.json()["detail"]
+        assert not LogsAlertConfiguration.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(UNSUPPORTED_NESTED_GROUP_CASES)
+    def test_patch_rejects_unsupported_nested_filter_group(self, leaf_type, leaf):
+        created = self._create_via_api()
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"filters": self._nested_group_filters(leaf)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+        assert leaf_type in response.json()["detail"]
+        assert LogsAlertConfiguration.objects.get(id=created["id"]).filters == {"severityLevels": ["error"]}
+
+    def test_patch_disables_stored_alert_with_unsupported_nested_filter_group(self):
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Stored before validation",
+            threshold_count=10,
+            filters=self._nested_group_filters(self.UNSUPPORTED_NESTED_GROUP_CASES[0][1]),
+            created_by=self.user,
+        )
+        response = self.client.patch(f"{self.base_url}{alert.id}/", {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.enabled is False
+
     @parameterized.expand(
         [
             ("severity_levels", {"severityLevels": ["error"]}),
             ("service_names", {"serviceNames": ["my-service"]}),
             ("filter_group", {"filterGroup": {"type": "AND", "values": []}}),
+            (
+                "nested_log_attribute_group",
+                {
+                    "filterGroup": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "OR",
+                                        "values": [
+                                            {
+                                                "key": "user.id",
+                                                "value": "u1",
+                                                "operator": "exact",
+                                                "type": "log_attribute",
+                                            },
+                                            {
+                                                "key": "user_id",
+                                                "value": "u1",
+                                                "operator": "exact",
+                                                "type": "log_attribute",
+                                            },
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
         ]
     )
     def test_create_accepts_valid_filter(self, _name, filters):

@@ -7,7 +7,7 @@ and the next check reads back. Writing the copy here would fork it, so those are
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -640,12 +640,55 @@ def match_first_enabled_at(
     `first_enabled_of` maps the given source row ids to when each row was first turned on. A row never
     turned on, or one that is gone, is left out, and its copy stays as it is.
     """
+    return _match_copy_datetime(
+        "first_enabled_at",
+        source_kind=source_kind,
+        team_id=team_id,
+        source_values_of=first_enabled_of,
+        dry_run=dry_run,
+        batch_size=batch_size,
+    )
+
+
+def match_created_at(
+    *,
+    source_kind: SourceKind,
+    team_id: int,
+    created_at_of: Callable[[Collection[UUID]], Mapping[UUID, datetime]],
+    dry_run: bool,
+    batch_size: int = 500,
+) -> int:
+    """Sets `created_at` on each of the team's copies of `source_kind` to its source row's, where the two
+    differ, and returns how many it set, or would set with `dry_run`.
+
+    `created_at_of` maps the given source row ids to when each row was created. A row that is gone is
+    left out, and its copy stays as it is.
+    """
+    return _match_copy_datetime(
+        "created_at",
+        source_kind=source_kind,
+        team_id=team_id,
+        source_values_of=created_at_of,
+        dry_run=dry_run,
+        batch_size=batch_size,
+    )
+
+
+def _match_copy_datetime(
+    column: Literal["first_enabled_at", "created_at"],
+    *,
+    source_kind: SourceKind,
+    team_id: int,
+    source_values_of: Callable[[Collection[UUID]], Mapping[UUID, datetime]],
+    dry_run: bool,
+    batch_size: int,
+) -> int:
     copies = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind.value, legacy_configuration_id__isnull=False
     )
     matched = 0
-    for batch in _pages_by_id(copies, "legacy_configuration_id", "first_enabled_at", batch_size=batch_size):
-        source_values = first_enabled_of([legacy_id for _, legacy_id, _ in batch])
+    for batch in _pages_by_id(copies, "legacy_configuration_id", column, batch_size=batch_size):
+        source_values = source_values_of([legacy_id for _, legacy_id, _ in batch])
         found = {
             configuration_id: source_values[legacy_id]
             for configuration_id, legacy_id, current in batch
@@ -655,7 +698,7 @@ def match_first_enabled_at(
         if found and not dry_run:
             # `update()` rather than `save()`: the copy takes its source's history, which is not a user's edit.
             copies.filter(id__in=list(found)).update(
-                first_enabled_at=Case(*(When(id=key, then=Value(at)) for key, at in found.items()))
+                **{column: Case(*(When(id=key, then=Value(at)) for key, at in found.items()))}
             )
     return matched
 

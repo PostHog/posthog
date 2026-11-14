@@ -7,7 +7,6 @@ import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { percentage } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
@@ -19,15 +18,14 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { pageReportPath } from '../pageReports/pageReportsUtils'
-import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
-import { RANKINGS_DAYS, contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
+import { contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
 import { ContentAutopilotRankingsSkeleton } from './ContentAutopilotRankingsSkeleton'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 import { visibilityChange } from './rankingsReport'
-import { brandedAnswersNote, segmentPrompts } from './utils'
+import { brandedAnswersNote, filtersHeading, segmentPrompts } from './utils'
 
 const CHART_CONFIG: TimeSeriesLineChartConfig = {
     xAxis: { interval: 'day' },
@@ -79,23 +77,20 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     const header = (
         <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1 basis-80">
-                <h4 className="m-0">Last {RANKINGS_DAYS} days, all engines</h4>
+                <h4 className="m-0">{filtersHeading(rankings)}</h4>
                 <p className="m-0 text-xs text-muted" data-attr="content-autopilot-rankings-answers">
                     {brandedAnswersNote(rankings.branded, rankings.answers)} Visibility is the share of those answers
                     that name a brand or cite its site.{' '}
                     {rankings.competitors_confirmed ? (
                         <>
                             Competitors are the ones you confirmed in{' '}
-                            <Link to={urls.settings('environment-web-analytics', 'ai-visibility-brands')}>
-                                AI visibility brands
-                            </Link>
-                            .
+                            <Link onClick={() => setWorkspaceTab('settings')}>settings</Link>.
                         </>
                     ) : (
                         <>
                             Competitors are guessed from the sites the engines cite most.{' '}
                             <Link
-                                to={urls.settings('environment-web-analytics', 'ai-visibility-brands')}
+                                onClick={() => setWorkspaceTab('settings')}
                                 data-attr="content-autopilot-rankings-confirm-competitors"
                             >
                                 Confirm your competitors
@@ -105,18 +100,19 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                     )}
                 </p>
             </div>
-            <ContentAutopilotBrandedSegmentControl tab="rankings" />
         </div>
     )
-    if (rankings.answers === 0 && rankings.branded !== 'all') {
+    const narrowed = rankings.engine !== null || rankings.topic !== null
+    if (rankings.answers === 0 && (narrowed || rankings.branded !== 'all')) {
         return (
             <section className="flex flex-col gap-4" data-attr="content-autopilot-rankings">
                 {header}
                 <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-rankings-segment-empty">
                     <h4 className="m-0">
-                        No answers to {segmentPrompts(rankings.branded)} in the last {RANKINGS_DAYS} days
+                        No answers to {segmentPrompts(rankings.branded)} in the last {rankings.days} days
+                        {narrowed ? ' that match these filters' : ''}
                     </h4>
-                    <p className="m-0 mt-1 text-muted">Choose another option above to see the other answers.</p>
+                    <p className="m-0 mt-1 text-muted">Choose other filters above to see the other answers.</p>
                 </LemonCard>
             </section>
         )
@@ -203,7 +199,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Change',
                                     key: 'previous_visibility',
                                     align: 'right',
-                                    tooltip: `Compared with the ${RANKINGS_DAYS} days before, in percentage points.`,
+                                    tooltip: `Compared with the ${rankings.days} days before, in percentage points.`,
                                     render: (_, brand) => {
                                         const change = visibilityChange(brand.visibility, brand.previous_visibility)
                                         if (change === null) {
@@ -217,7 +213,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                             ? 'No change'
                                                             : `${change > 0 ? '+' : ''}${change} pts`,
                                                     direction: change > 0 ? 'up' : change < 0 ? 'down' : 'flat',
-                                                    tooltip: `${change > 0 ? '+' : ''}${change} percentage points against the ${RANKINGS_DAYS} days before`,
+                                                    tooltip: `${change > 0 ? '+' : ''}${change} percentage points against the ${rankings.days} days before`,
                                                 }}
                                             />
                                         )

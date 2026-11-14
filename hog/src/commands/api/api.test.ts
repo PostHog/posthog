@@ -11,6 +11,7 @@ import type {
 } from '@posthog/mcp/src/cli/library-types'
 
 import * as providers from '@/ci/providers/registry'
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { FAKE_WORKLOAD_PROVIDER, readJson, runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 mock.module('@/ci/providers/registry', () => ({ ...providers, WORKLOAD_PROVIDERS: [FAKE_WORKLOAD_PROVIDER] }))
@@ -97,7 +98,7 @@ describe('hog api', () => {
         ['when the key lookup fails', { env: TEST_CREDENTIALS }, fakeLibrary([], { lookupFails: true })],
     ])('tools are browsable %s', async (_name, options, library) => {
         const result = await runHog(['api', 'tools', 'Feature flags'], { ...options, apiTools: library })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toBe(
             '{"group":"feature-flags","kind":"read","missingScopes":null,"name":"flag-list","summary":"Summary of flag-list","usable":null}\n' +
                 '{"group":"feature-flags","kind":"destructive","missingScopes":null,"name":"flag-delete","summary":"Summary of flag-delete","usable":null}\n'
@@ -105,24 +106,29 @@ describe('hog api', () => {
     })
 
     test.each([
-        ['an unknown group', ['api', 'tools', 'nope'], 'unknown_group', 1],
-        ['an unknown tool', ['api', 'call', 'nope'], 'unknown_tool', 1],
-        ['input that is not JSON', ['api', 'call', 'flag-list', '{limit'], 'invalid_json', 2],
-        ['input that is not an object', ['api', 'call', 'flag-list', '[1]'], 'invalid_json', 2],
-        ['input the schema rejects', ['api', 'call', 'flag-list', '{"limit":"x"}'], 'invalid_input', 2],
-        ['a destructive tool without --confirm', ['api', 'call', 'flag-delete', '{"id":1}'], 'needs_confirmation', 1],
-        ['an empty --project-id', ['api', 'call', 'flag-list', '{}', '--project-id', ''], 'invalid_input', 2],
+        ['an unknown group', ['api', 'tools', 'nope'], 'unknown_group', EXIT_FAILURE],
+        ['an unknown tool', ['api', 'call', 'nope'], 'unknown_tool', EXIT_FAILURE],
+        ['input that is not JSON', ['api', 'call', 'flag-list', '{limit'], 'invalid_json', EXIT_USAGE],
+        ['input that is not an object', ['api', 'call', 'flag-list', '[1]'], 'invalid_json', EXIT_USAGE],
+        ['input the schema rejects', ['api', 'call', 'flag-list', '{"limit":"x"}'], 'invalid_input', EXIT_USAGE],
+        [
+            'a destructive tool without --confirm',
+            ['api', 'call', 'flag-delete', '{"id":1}'],
+            'needs_confirmation',
+            EXIT_FAILURE,
+        ],
+        ['an empty --project-id', ['api', 'call', 'flag-list', '{}', '--project-id', ''], 'invalid_input', EXIT_USAGE],
         [
             'a --project-id that is not a number',
             ['api', 'call', 'flag-list', '{}', '--project-id', 'abc'],
             'invalid_input',
-            2,
+            EXIT_USAGE,
         ],
         [
             'an empty --organization-id',
             ['api', 'call', 'flag-list', '{}', '--organization-id', ' '],
             'invalid_input',
-            2,
+            EXIT_USAGE,
         ],
     ])('call refuses %s before calling PostHog', async (_name, argv, code, exitCode) => {
         const library = fakeLibrary(['*'])
@@ -183,9 +189,20 @@ describe('hog api', () => {
             env: TEST_CREDENTIALS,
             apiTools: library,
         })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toEqual(output)
         expect(library.calls).toEqual(calls)
+    })
+
+    test('call passes a PostHog object through without reading its status as a wait', async () => {
+        const backfill = { id: 7, status: 'running' }
+        const result = await runHog(['api', 'call', 'flag-list', '{}'], {
+            env: TEST_CREDENTIALS,
+            apiTools: fakeLibrary(['*'], { callResult: { ok: true, value: backfill } }),
+        })
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.json()).toEqual(backfill)
     })
 
     test.each([
@@ -203,6 +220,7 @@ describe('hog api', () => {
             env: TEST_CREDENTIALS,
             apiTools: library,
         })
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.error()).toMatchObject({
             code: 'missing_scopes',
             message: `Your credentials need ${scopes} to call insight-create.`,
@@ -223,7 +241,7 @@ describe('hog api', () => {
                 apiTools: library,
             })
 
-            expect(result.exitCode).toBe(1)
+            expect(result.exitCode).toBe(EXIT_FAILURE)
             const hint = result.error().hint ?? ''
             expect(hint.includes('Update hog to the latest version, or run `hog api refresh`')).toBe(stale)
         }
@@ -247,7 +265,7 @@ describe('hog api', () => {
             apiTools: library,
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject({ code, hint: expect.stringContaining(hint) })
     })
 
@@ -429,7 +447,7 @@ describe('hog api tool catalog', () => {
                 url === CATALOG_URL ? { status: 200, body: catalog(['flag-list']) } : { status: 500, body: {} },
         })
 
-        expect(first.exitCode).toBe(0)
+        expect(first.exitCode).toBe(EXIT_SUCCESS)
         expect(catalogRequests(first)).toBe(1)
         expect(library.received()).toMatchObject({ build: 'abc123', tools: [{ name: 'flag-list' }] })
 
@@ -500,7 +518,7 @@ describe('hog api tool catalog', () => {
             respond: () => ({ status: 503, body: {} }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(library.received()).toEqual(expected === undefined ? undefined : expect.objectContaining(expected))
     })
 
@@ -644,7 +662,7 @@ describe('hog api tool catalog', () => {
             respond: () => reply,
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(library.received()).toBeUndefined()
         expect(result.stderr).toContain(
             `[debug] api catalog: the tools built into hog, because https://ph.example.com ${why}`
@@ -667,7 +685,7 @@ describe('hog api tool catalog', () => {
             respond: (url) => (url === CATALOG_URL ? { status: 200, body: served } : { status: 500, body: {} }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(catalogRequests(result)).toBe(downloads)
         expect(library.received()).toBeUndefined()
     })
@@ -747,7 +765,7 @@ describe('hog api tool catalog', () => {
                         : { status: 500, body: {} },
             })
 
-            expect(result.exitCode).toBe(0)
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
             expect(catalogRequests(result)).toBe(1)
             expect(result.json()).toEqual({
                 status: 'updated',
@@ -775,7 +793,7 @@ describe('hog api tool catalog', () => {
                     url === CATALOG_URL ? { status: 200, body: catalog(['flag-list']) } : { status: 500, body: {} },
             })
 
-            expect(result.exitCode).toBe(0)
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
             expect(result.stdout).toContain('The API tool catalog is up to date')
         })
 
@@ -796,7 +814,7 @@ describe('hog api tool catalog', () => {
                 respond,
             })
 
-            expect(result.exitCode).toBe(1)
+            expect(result.exitCode).toBe(EXIT_FAILURE)
             expect(result.error().code).toBe(code)
             expect(savedEntry(result.files)?.catalog).toEqual(catalog(['flag-list']))
         })

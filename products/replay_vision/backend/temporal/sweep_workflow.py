@@ -39,9 +39,6 @@ from products.replay_vision.backend.temporal.sweep_types import (
 )
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
 
-# Deprecated, so the call can be deleted once no sweep that recorded the patch marker is still running.
-SWEEP_SINGLE_ACTIVITY_PATCH = "replay-vision-sweep-single-activity-2026-11"
-
 # Retries target fast ClickHouse admission rejections (code 202). The waits are long enough for a
 # burst to drain, so retries do not take the slots that free up first from API queries.
 _FIND_RETRY_POLICY = common.RetryPolicy(
@@ -58,7 +55,6 @@ class SweepScannerWorkflow(PostHogWorkflow):
 
     @wf.run
     async def run(self, inputs: SweepScannerInputs) -> None:
-        wf.deprecate_patch(SWEEP_SINGLE_ACTIVITY_PATCH)
         tick = await wf.execute_activity(
             sweep_scanner_tick_activity,
             inputs,

@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router'
-import { type ReactElement, useCallback } from 'react'
+import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
 
 import { liveCountriesHref } from '@/features/views/viewRoutes'
@@ -23,19 +23,16 @@ interface LiveMapCardProps {
     paused: boolean
 }
 
-/** Visitors per country on a world map. The card, or a country on its map, opens Visitors by country. */
+/** Visitors per country on a world map. The card opens Visitors by country. */
 export function LiveMapCard({ world, paused }: LiveMapCardProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
-    const openCountry = useCallback(
-        (code: string | null): void => {
-            useLiveWorldShare.setState({ world, paused })
-            trackLiveMapOpened({ from: code ? 'map_country' : 'card' })
-            router.push(liveCountriesHref(code))
-        },
-        [router, world, paused]
-    )
+    const openCountries = (): void => {
+        useLiveWorldShare.setState({ world, paused })
+        trackLiveMapOpened()
+        router.push(liveCountriesHref())
+    }
 
     const leader = world?.countries[0]
     if (!world || !leader) {
@@ -50,7 +47,7 @@ export function LiveMapCard({ world, paused }: LiveMapCardProps): ReactElement {
     }
     const countries = plural(world.countries.length, 'country', 'countries')
     return (
-        <LiveCard onPress={() => openCountry(null)} accessibilityLabel={`${TITLE}, ${countries}`} testID="live-map">
+        <LiveCard onPress={openCountries} accessibilityLabel={`${TITLE}, ${countries}`} testID="live-map">
             <View style={styles.head}>
                 <View style={styles.headText}>
                     <Text style={styles.title}>{TITLE}</Text>
@@ -58,7 +55,7 @@ export function LiveMapCard({ world, paused }: LiveMapCardProps): ReactElement {
                 </View>
                 <ChevronRightIcon size={iconSizes.small} color={colors.tertiary} />
             </View>
-            <WorldMap counts={world.counts} onSelect={openCountry} testID="live-map-canvas" />
+            <WorldMap counts={world.counts} testID="live-map-canvas" />
             <Text style={styles.caption} numberOfLines={1}>
                 {countryText(leader)} leads with {plural(leader.count, 'visitor')}
             </Text>
