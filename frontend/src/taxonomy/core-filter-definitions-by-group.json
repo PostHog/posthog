@@ -1785,6 +1785,43 @@
             "examples": ["call", "info", "unrecognized"],
             "label": "MCP exec verb"
         },
+        "$mcp_feedback_details": {
+            "description": "Optional longer context for the feedback, on $mcp_feedback: what the agent tried, the parameters and error text it saw, and any workaround. PII-redacted like $mcp_intent.",
+            "label": "MCP feedback details"
+        },
+        "$mcp_feedback_friction_points": {
+            "description": "Optional: the specific moments that slowed the agent down, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "label": "MCP feedback friction points"
+        },
+        "$mcp_feedback_sentiment": {
+            "description": "Optional: how the agent says the experience felt overall, on $mcp_feedback.",
+            "examples": ["positive", "neutral", "negative", "mixed"],
+            "label": "MCP feedback sentiment"
+        },
+        "$mcp_feedback_suggested_improvement": {
+            "description": "Optional: the concrete change the agent says would have helped, such as a tool to add or an error message to improve, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "label": "MCP feedback suggested improvement"
+        },
+        "$mcp_feedback_summary": {
+            "description": "The agent's one-sentence summary of its feedback, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "examples": ["No tool to delete multiple cohorts in one call."],
+            "label": "MCP feedback summary"
+        },
+        "$mcp_feedback_task_completed": {
+            "description": "Optional: whether the agent says it still completed the user's task despite the problem it reported, on $mcp_feedback.",
+            "label": "MCP feedback task completed",
+            "type": "Boolean"
+        },
+        "$mcp_feedback_tool": {
+            "description": "Optional: the existing tool the feedback is about, on $mcp_feedback. Usually set for 'issue' and 'praise' and empty for 'missing_capability'. Agent-written, so it may hold prose rather than an exact tool name.",
+            "examples": ["query-trends"],
+            "label": "MCP feedback tool"
+        },
+        "$mcp_feedback_type": {
+            "description": "What kind of feedback the agent sent through `send_feedback`, on $mcp_feedback. 'missing_capability' means no tool provides what it needed; 'issue' means an existing tool failed or misled it; 'praise' and 'other' cover the rest. An unrecognized value falls back to 'other'.",
+            "examples": ["missing_capability", "issue", "praise", "other"],
+            "label": "MCP feedback type"
+        },
         "$mcp_input_aliases_used": {
             "description": "Declared parameter aliases the call relied on, as `alias:canonical` (for example `experimentId:id`). Present only when the call did not send the canonical name and used one of its aliases instead. Both names come from the tool's own alias map. Recorded by the @posthog/mcp SDK helper. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
             "examples": ["experimentId:id", "flagKey:key"],
@@ -3474,6 +3511,11 @@
             "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
             "label": "MCP custom event"
         },
+        "$mcp_feedback": {
+            "description": "Fires when an agent sends feedback through the `send_feedback` virtual tool (when `collectFeedback` is enabled): a capability it needed that no tool provides, a tool that failed or misled it, or praise. Carries `$mcp_feedback_type`, `$mcp_feedback_summary`, and the other `$mcp_feedback_*` properties; the summary and details double as `$mcp_intent`. Never also counted as a `$mcp_tool_call`. Supersedes `$mcp_missing_capability` for new integrations.",
+            "label": "MCP feedback",
+            "primary_property": "$mcp_feedback_type"
+        },
         "$mcp_initialize": {
             "description": "Fires when an MCP client completes the handshake with the server. Carries the client and server name/version so you can break down usage by client. Canonical replacement for the legacy `mcp_initialize`.",
             "label": "MCP initialize"
@@ -3841,6 +3883,43 @@
             "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
             "examples": ["call", "info", "unrecognized"],
             "label": "MCP exec verb"
+        },
+        "$mcp_feedback_details": {
+            "description": "Optional longer context for the feedback, on $mcp_feedback: what the agent tried, the parameters and error text it saw, and any workaround. PII-redacted like $mcp_intent.",
+            "label": "MCP feedback details"
+        },
+        "$mcp_feedback_friction_points": {
+            "description": "Optional: the specific moments that slowed the agent down, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "label": "MCP feedback friction points"
+        },
+        "$mcp_feedback_sentiment": {
+            "description": "Optional: how the agent says the experience felt overall, on $mcp_feedback.",
+            "examples": ["positive", "neutral", "negative", "mixed"],
+            "label": "MCP feedback sentiment"
+        },
+        "$mcp_feedback_suggested_improvement": {
+            "description": "Optional: the concrete change the agent says would have helped, such as a tool to add or an error message to improve, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "label": "MCP feedback suggested improvement"
+        },
+        "$mcp_feedback_summary": {
+            "description": "The agent's one-sentence summary of its feedback, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "examples": ["No tool to delete multiple cohorts in one call."],
+            "label": "MCP feedback summary"
+        },
+        "$mcp_feedback_task_completed": {
+            "description": "Optional: whether the agent says it still completed the user's task despite the problem it reported, on $mcp_feedback.",
+            "label": "MCP feedback task completed",
+            "type": "Boolean"
+        },
+        "$mcp_feedback_tool": {
+            "description": "Optional: the existing tool the feedback is about, on $mcp_feedback. Usually set for 'issue' and 'praise' and empty for 'missing_capability'. Agent-written, so it may hold prose rather than an exact tool name.",
+            "examples": ["query-trends"],
+            "label": "MCP feedback tool"
+        },
+        "$mcp_feedback_type": {
+            "description": "What kind of feedback the agent sent through `send_feedback`, on $mcp_feedback. 'missing_capability' means no tool provides what it needed; 'issue' means an existing tool failed or misled it; 'praise' and 'other' cover the rest. An unrecognized value falls back to 'other'.",
+            "examples": ["missing_capability", "issue", "praise", "other"],
+            "label": "MCP feedback type"
         },
         "$mcp_input_aliases_used": {
             "description": "Declared parameter aliases the call relied on, as `alias:canonical` (for example `experimentId:id`). Present only when the call did not send the canonical name and used one of its aliases instead. Both names come from the tool's own alias map. Recorded by the @posthog/mcp SDK helper. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
@@ -6108,6 +6187,43 @@
             "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
             "examples": ["call", "info", "unrecognized"],
             "label": "MCP exec verb"
+        },
+        "$mcp_feedback_details": {
+            "description": "Optional longer context for the feedback, on $mcp_feedback: what the agent tried, the parameters and error text it saw, and any workaround. PII-redacted like $mcp_intent.",
+            "label": "MCP feedback details"
+        },
+        "$mcp_feedback_friction_points": {
+            "description": "Optional: the specific moments that slowed the agent down, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "label": "MCP feedback friction points"
+        },
+        "$mcp_feedback_sentiment": {
+            "description": "Optional: how the agent says the experience felt overall, on $mcp_feedback.",
+            "examples": ["positive", "neutral", "negative", "mixed"],
+            "label": "MCP feedback sentiment"
+        },
+        "$mcp_feedback_suggested_improvement": {
+            "description": "Optional: the concrete change the agent says would have helped, such as a tool to add or an error message to improve, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "label": "MCP feedback suggested improvement"
+        },
+        "$mcp_feedback_summary": {
+            "description": "The agent's one-sentence summary of its feedback, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "examples": ["No tool to delete multiple cohorts in one call."],
+            "label": "MCP feedback summary"
+        },
+        "$mcp_feedback_task_completed": {
+            "description": "Optional: whether the agent says it still completed the user's task despite the problem it reported, on $mcp_feedback.",
+            "label": "MCP feedback task completed",
+            "type": "Boolean"
+        },
+        "$mcp_feedback_tool": {
+            "description": "Optional: the existing tool the feedback is about, on $mcp_feedback. Usually set for 'issue' and 'praise' and empty for 'missing_capability'. Agent-written, so it may hold prose rather than an exact tool name.",
+            "examples": ["query-trends"],
+            "label": "MCP feedback tool"
+        },
+        "$mcp_feedback_type": {
+            "description": "What kind of feedback the agent sent through `send_feedback`, on $mcp_feedback. 'missing_capability' means no tool provides what it needed; 'issue' means an existing tool failed or misled it; 'praise' and 'other' cover the rest. An unrecognized value falls back to 'other'.",
+            "examples": ["missing_capability", "issue", "praise", "other"],
+            "label": "MCP feedback type"
         },
         "$mcp_input_aliases_used": {
             "description": "Declared parameter aliases the call relied on, as `alias:canonical` (for example `experimentId:id`). Present only when the call did not send the canonical name and used one of its aliases instead. Both names come from the tool's own alias map. Recorded by the @posthog/mcp SDK helper. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
