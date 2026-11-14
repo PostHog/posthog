@@ -419,14 +419,10 @@ and packaged into `dist/skills.zip` with deterministic timestamps for reproducib
 
 Distribution is automatic – once a skill lands on `master`,
 `ci-agent-skills.yml` builds `dist/skills.zip` and publishes it as the `agent-skills-latest` GitHub release.
-Two downstream repositories pull that release, together with context-mill's, in a daily sync at 12:00 UTC:
+The MCP server's `learn` catalog serves skills from that release, so agents connected to the MCP server get the "how" and the "what" together.
 
-- [`PostHog/ai-plugin`](https://github.com/PostHog/ai-plugin) –
-  the PostHog plugin for AI clients.
-  It bundles the skills with the MCP server, so agents get the "how" and the "what" together.
-  Its README has the install steps for each supported client:
-  Claude Code, Claude Cowork, Cursor, Codex, Antigravity, Gemini CLI and Grok.
-  Point users there rather than copying install steps into other docs.
+One downstream repository pulls that release, together with context-mill's, in a daily sync at 12:00 UTC:
+
 - [`PostHog/skills`](https://github.com/PostHog/skills) –
   a mirror with each built skill as a standalone directory,
   for agents that load skills without a plugin.
@@ -434,7 +430,7 @@ Two downstream repositories pull that release, together with context-mill's, in 
 
 PostHog Desktop and the Tasks sandbox pull `agent-skills-latest` themselves (see the table below).
 You don't need to handle distribution yourself:
-a merged skill reaches the plugin and the mirror after the next daily sync, and users get it when their client updates the plugin.
+a merged skill reaches the MCP server and the mirror without any further step.
 
 ### Context-mill skills override this repo's
 
@@ -467,7 +463,6 @@ because its references are docs snapshots that would crowd out workflow skills;
 | Desktop harness bundle                | `packages/agent/packages/harness/tsup.config.ts` – context-mill only, this repo's skills are absent rather than overwritten |
 | Tasks sandbox base image              | `.github/workflows/cd-sandbox-base-image.yml`                                                                               |
 | `PostHog/skills` mirror               | that repo's `.github/workflows/sync-omnibus.yml`                                                                            |
-| `PostHog/ai-plugin` plugin            | that repo's `.github/workflows/sync-skills.yml`                                                                             |
 
 Note what is missing from that list: local builds.
 `LocalSkillsCache.ensure_built()` renders only `products/*/skills/` and wipes the dist dir first,
