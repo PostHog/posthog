@@ -197,7 +197,10 @@ const CohortsReplaceStaticMembersSchema = () => {
                 _create_static_person_ids: true,
             }).shape
         )
-        .extend({ id: z.preprocess(castStringToInt, CohortsPartialUpdateParams.shape['id']) })
+        .extend({
+            id: z.preprocess(castStringToInt, CohortsPartialUpdateParams.shape['id']),
+            query: CohortsPartialUpdateBody.shape['query'].nonoptional(),
+        })
 }
 
 const cohortsReplaceStaticMembers = (): ToolBase<
