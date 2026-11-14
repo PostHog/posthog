@@ -143,12 +143,8 @@ export async function lease(
     return manifest
 }
 
-export async function release(controller: Controller, evidenceBucket: string, manifest: Manifest): Promise<void> {
+export async function release(controller: Controller, manifest: Manifest): Promise<void> {
     await deleteSchedules(controller, manifest)
-    await evidenceOf(controller.aws, evidenceBucket).put(
-        keyOf(manifest.runId, 'teardown.json'),
-        JSON.stringify({ releasedAt: controller.now().toISOString() })
-    )
     controller.print(`Released run ${manifest.runId}.`)
 }
 
