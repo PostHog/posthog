@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.sources.sdk import IncrementalField, incremental_field
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, incremental_field
 
 TWELVE_DATA_BASE_URL = "https://api.twelvedata.com"
 
@@ -14,6 +14,24 @@ MAX_SYMBOLS = 100
 MAX_TIME_SERIES_PAGES_PER_SYMBOL = 50
 
 TIME_SERIES_ENDPOINT = "time_series"
+MARKET_CAP_ENDPOINT = "market_cap"
+
+# /market_cap accepts this `outputsize` (verified against the live API); a daily series is a few
+# hundred rows per symbol, so one page usually holds the whole history.
+MARKET_CAP_PAGE_SIZE = 5000
+MAX_MARKET_CAP_PAGES_PER_SYMBOL = 10
+
+# The market-wide calendars are synced over a rolling window around today, so the table holds
+# recent and upcoming events rather than an ever-growing history.
+CALENDAR_LOOKBACK_DAYS = 7
+CALENDAR_LOOKAHEAD_DAYS = 30
+# Calendars without a record cap are paged in pages of this size (500 is the documented maximum).
+CALENDAR_PAGE_SIZE = 500
+MAX_CALENDAR_PAGES = 20
+# /earnings_calendar silently truncates at 1200 records, so the window is requested a week at a
+# time, and a chunk that hits the cap is split in half until it fits or covers a single day.
+EARNINGS_CALENDAR_RECORD_LIMIT = 1200
+EARNINGS_CALENDAR_CHUNK_DAYS = 7
 
 TIME_SERIES_INTERVALS = (
     "1min",
@@ -46,6 +64,15 @@ class TwelveDataEndpointConfig:
     # Static query params sent on every request to the endpoint.
     params: dict[str, str] = field(default_factory=dict)
     partition_key: str | None = None
+    # Rows per request for endpoints paged with `page` and `outputsize`.
+    page_size: int | None = None
+    # Market-wide event calendar, requested over the rolling calendar window instead of per symbol.
+    calendar: bool = False
+    # Rows are grouped under date keys ({"2024-04-30": [...]}); the key becomes the row's `date`.
+    date_keyed: bool = False
+    # Records the API returns at most per request; a window that reaches it is split.
+    record_limit: int | None = None
+    chunk_days: int | None = None
 
 
 ENDPOINTS: dict[str, TwelveDataEndpointConfig] = {
@@ -150,11 +177,79 @@ ENDPOINTS: dict[str, TwelveDataEndpointConfig] = {
         meta_fields=("currency", "period"),
         primary_keys=["symbol", "period", "fiscal_date"],
     ),
+    "income_statements": TwelveDataEndpointConfig(
+        path="/income_statement",
+        data_key="income_statement",
+        per_symbol=True,
+        params={"period": "quarterly", "outputsize": "1000"},
+        meta_fields=("currency", "period"),
+        primary_keys=["symbol", "period", "fiscal_date"],
+    ),
+    MARKET_CAP_ENDPOINT: TwelveDataEndpointConfig(
+        path="/market_cap",
+        data_key="market_cap",
+        per_symbol=True,
+        page_size=MARKET_CAP_PAGE_SIZE,
+        meta_fields=("currency",),
+        primary_keys=["symbol", "date"],
+        partition_key="date",
+    ),
+    # Only the top holders are returned, as a snapshot of the latest filings.
+    "institutional_holders": TwelveDataEndpointConfig(
+        path="/institutional_holders",
+        data_key="institutional_holders",
+        per_symbol=True,
+        meta_fields=("currency",),
+        primary_keys=["symbol", "entity_name"],
+    ),
+    "fund_holders": TwelveDataEndpointConfig(
+        path="/fund_holders",
+        data_key="fund_holders",
+        per_symbol=True,
+        meta_fields=("currency",),
+        primary_keys=["symbol", "entity_name"],
+    ),
+    "direct_holders": TwelveDataEndpointConfig(
+        path="/direct_holders",
+        data_key="direct_holders",
+        per_symbol=True,
+        meta_fields=("currency",),
+        primary_keys=["symbol", "entity_name"],
+    ),
+    # Market-wide event calendars.
+    "earnings_calendar": TwelveDataEndpointConfig(
+        path="/earnings_calendar",
+        data_key="earnings",
+        calendar=True,
+        date_keyed=True,
+        record_limit=EARNINGS_CALENDAR_RECORD_LIMIT,
+        chunk_days=EARNINGS_CALENDAR_CHUNK_DAYS,
+        primary_keys=["symbol", "mic_code", "date"],
+    ),
+    "dividends_calendar": TwelveDataEndpointConfig(
+        path="/dividends_calendar",
+        calendar=True,
+        page_size=CALENDAR_PAGE_SIZE,
+        primary_keys=["symbol", "mic_code", "ex_date"],
+    ),
+    "splits_calendar": TwelveDataEndpointConfig(
+        path="/splits_calendar",
+        calendar=True,
+        page_size=CALENDAR_PAGE_SIZE,
+        primary_keys=["symbol", "mic_code", "date"],
+    ),
+    "ipo_calendar": TwelveDataEndpointConfig(
+        path="/ipo_calendar",
+        calendar=True,
+        date_keyed=True,
+        primary_keys=["symbol", "mic_code", "date"],
+    ),
 }
 
-# Only /time_series exposes a genuine server-side timestamp filter (start_date); the catalog and
-# fundamentals endpoints are full refresh.
+# Only /time_series and /market_cap expose a genuine server-side timestamp filter (start_date); the
+# catalog, fundamentals and calendar endpoints are full refresh.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     **{endpoint: [] for endpoint in ENDPOINTS},
     TIME_SERIES_ENDPOINT: [incremental_field("datetime")],
+    MARKET_CAP_ENDPOINT: [incremental_field("date", IncrementalFieldType.Date)],
 }
