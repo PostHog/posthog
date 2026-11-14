@@ -21,6 +21,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
+use std::mem::size_of;
 
 use crate::kafka::KafkaSink;
 use metrics::counter;
@@ -414,6 +415,26 @@ fn data_point_count(metric: &Metric) -> usize {
     }
 }
 
+fn exponential_histogram_bucket_bytes(metric: &Metric) -> usize {
+    let Some(Data::ExponentialHistogram(histogram)) = &metric.data else {
+        return 0;
+    };
+    histogram.data_points.iter().fold(0, |bytes, point| {
+        let bucket_count = point
+            .positive
+            .as_ref()
+            .map_or(0, |buckets| buckets.bucket_counts.len())
+            .saturating_add(
+                point
+                    .negative
+                    .as_ref()
+                    .map_or(0, |buckets| buckets.bucket_counts.len()),
+            )
+            .saturating_add(usize::from(point.zero_count > 0));
+        bytes.saturating_add(bucket_count.saturating_mul(size_of::<f64>() + size_of::<i64>()))
+    })
+}
+
 pub(crate) fn expansion_rejection(limit: usize) -> (StatusCode, Json<serde_json::Value>) {
     counter!("capture_logs_expanded_request_rejected_total").increment(1);
     (
@@ -422,6 +443,48 @@ pub(crate) fn expansion_rejection(limit: usize) -> (StatusCode, Json<serde_json:
             "error": format!("Request expands to more than {limit} bytes of rows. Send fewer records per request.")
         })),
     )
+}
+
+/// Rejects a metrics request when the rows `flatten_metric` builds for it would pass `limit` bytes.
+pub fn check_metrics_expansion(
+    request: &ExportMetricsServiceRequest,
+    limit: usize,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let mut expanded_bytes: usize = 0;
+    for resource_metrics in &request.resource_metrics {
+        let resource_attributes = extract_resource_attributes(resource_metrics.resource.as_ref());
+        let resource_bytes = ROW_OVERHEAD_BYTES
+            .saturating_add(attributes_bytes(&resource_attributes))
+            .saturating_add(
+                resource_attributes
+                    .get("service.name")
+                    .map_or(0, String::len),
+            );
+        for scope_metrics in &resource_metrics.scope_metrics {
+            let scope_bytes = scope_metrics.scope.as_ref().map_or(0, |scope| {
+                scope
+                    .name
+                    .len()
+                    .saturating_add(scope.version.len())
+                    .saturating_add(1)
+            });
+            for metric in &scope_metrics.metrics {
+                let row_bytes = resource_bytes
+                    .saturating_add(metric.name.len())
+                    .saturating_add(metric.unit.len())
+                    .saturating_add(scope_bytes);
+                // flatten_metric converts the resource even for a metric with no data points.
+                expanded_bytes = expanded_bytes
+                    .saturating_add(data_point_count(metric).max(1).saturating_mul(row_bytes))
+                    .saturating_add(exponential_histogram_bucket_bytes(metric))
+                    .saturating_add(metric.encoded_len());
+                if expanded_bytes > limit {
+                    return Err(expansion_rejection(limit));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn decode_body_if_gzip_magic(
@@ -837,28 +900,14 @@ pub async fn export_metrics_http(
         },
     };
 
+    check_metrics_expansion(&export_request, service.max_expanded_request_bytes)?;
+
     let mut rows: Vec<KafkaMetricRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
-    let mut expanded_bytes: usize = 0;
 
     for resource_metrics in &export_request.resource_metrics {
-        let resource_bytes = ROW_OVERHEAD_BYTES
-            + attributes_bytes(&extract_resource_attributes(
-                resource_metrics.resource.as_ref(),
-            ));
         for scope_metrics in &resource_metrics.scope_metrics {
             for metric in &scope_metrics.metrics {
-                // flatten_metric converts the resource even for a metric with no data points.
-                expanded_bytes = expanded_bytes
-                    .saturating_add(
-                        data_point_count(metric)
-                            .max(1)
-                            .saturating_mul(resource_bytes),
-                    )
-                    .saturating_add(metric.encoded_len());
-                if expanded_bytes > service.max_expanded_request_bytes {
-                    return Err(expansion_rejection(service.max_expanded_request_bytes));
-                }
                 let (metric_rows, overridden) = match flatten_metric(
                     metric.clone(),
                     resource_metrics.resource.as_ref(),
@@ -1038,5 +1087,146 @@ mod tests {
         let err = decode_body_if_gzip_magic(body, 1024).unwrap_err();
 
         assert_eq!(err.0, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    fn metrics_request(attribute_bytes: usize, data_points: usize) -> ExportMetricsServiceRequest {
+        use opentelemetry_proto::tonic::common::v1::{any_value, AnyValue, KeyValue};
+        use opentelemetry_proto::tonic::metrics::v1::{
+            Gauge, NumberDataPoint, ResourceMetrics, ScopeMetrics,
+        };
+        use opentelemetry_proto::tonic::resource::v1::Resource;
+
+        ExportMetricsServiceRequest {
+            resource_metrics: vec![ResourceMetrics {
+                resource: Some(Resource {
+                    attributes: vec![KeyValue {
+                        key: "a".to_string(),
+                        value: Some(AnyValue {
+                            value: Some(any_value::Value::StringValue("x".repeat(attribute_bytes))),
+                        }),
+                    }],
+                    ..Default::default()
+                }),
+                scope_metrics: vec![ScopeMetrics {
+                    metrics: vec![Metric {
+                        name: "m".to_string(),
+                        data: Some(Data::Gauge(Gauge {
+                            data_points: vec![NumberDataPoint::default(); data_points],
+                        })),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        }
+    }
+
+    #[test]
+    fn check_metrics_expansion_charges_shared_fields_per_data_point() {
+        use opentelemetry_proto::tonic::common::v1::InstrumentationScope;
+
+        const LIMIT: usize = 64 * 1024 * 1024;
+        const LARGE_FIELD: usize = 1024 * 1024;
+
+        assert!(check_metrics_expansion(&metrics_request(64, 10_000), LIMIT).is_ok());
+
+        for field in [
+            "resource",
+            "service_name",
+            "name",
+            "unit",
+            "scope_name",
+            "scope_version",
+        ] {
+            for data_points in [10, 100] {
+                let resource_bytes = match field {
+                    "resource" => LARGE_FIELD,
+                    "service_name" => LARGE_FIELD / 2,
+                    _ => 64,
+                };
+                let mut request = metrics_request(resource_bytes, data_points);
+                if field == "service_name" {
+                    request.resource_metrics[0]
+                        .resource
+                        .as_mut()
+                        .unwrap()
+                        .attributes[0]
+                        .key = "service.name".to_string();
+                }
+                let scope_metrics = &mut request.resource_metrics[0].scope_metrics[0];
+                match field {
+                    "name" => scope_metrics.metrics[0].name = "m".repeat(LARGE_FIELD),
+                    "unit" => scope_metrics.metrics[0].unit = "u".repeat(LARGE_FIELD),
+                    "scope_name" => {
+                        scope_metrics.scope = Some(InstrumentationScope {
+                            name: "s".repeat(LARGE_FIELD),
+                            ..Default::default()
+                        });
+                    }
+                    "scope_version" => {
+                        scope_metrics.scope = Some(InstrumentationScope {
+                            version: "v".repeat(LARGE_FIELD),
+                            ..Default::default()
+                        });
+                    }
+                    _ => {}
+                }
+
+                let result = check_metrics_expansion(&request, LIMIT);
+                if data_points == 10 {
+                    assert!(result.is_ok(), "{field}");
+                } else {
+                    assert_eq!(
+                        result.unwrap_err().0,
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "{field}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn check_metrics_expansion_charges_materialized_histogram_buckets() {
+        use opentelemetry_proto::tonic::metrics::v1::{
+            exponential_histogram_data_point::Buckets, ExponentialHistogram,
+            ExponentialHistogramDataPoint,
+        };
+
+        const LIMIT: usize = 8 * 1024;
+        for bucket_count in [16, 1024] {
+            let buckets = Buckets {
+                bucket_counts: vec![1; bucket_count],
+                ..Default::default()
+            };
+            for data in [
+                Data::ExponentialHistogram(ExponentialHistogram {
+                    data_points: vec![ExponentialHistogramDataPoint {
+                        positive: Some(buckets.clone()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                Data::ExponentialHistogram(ExponentialHistogram {
+                    data_points: vec![ExponentialHistogramDataPoint {
+                        negative: Some(buckets.clone()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+            ] {
+                let mut request = metrics_request(0, 0);
+                request.resource_metrics[0].scope_metrics[0].metrics[0].data = Some(data);
+                assert!(request.encoded_len() < LIMIT);
+
+                let result = check_metrics_expansion(&request, LIMIT);
+                if bucket_count == 16 {
+                    assert!(result.is_ok());
+                } else {
+                    assert_eq!(result.unwrap_err().0, StatusCode::PAYLOAD_TOO_LARGE);
+                }
+            }
+        }
     }
 }
