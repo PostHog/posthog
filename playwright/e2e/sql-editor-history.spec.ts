@@ -12,6 +12,7 @@ test.describe('SQL editor history', () => {
         workspace = await playwrightSetup.createWorkspace({
             use_current_time: true,
             skip_onboarding: true,
+            no_demo_data: true,
             insights: [
                 {
                     name: 'Seeded SQL insight',

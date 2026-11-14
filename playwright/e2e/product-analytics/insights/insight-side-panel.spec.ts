@@ -8,6 +8,7 @@ test.describe('Insight side panel actions', () => {
         workspace = await playwrightSetup.createWorkspace({
             use_current_time: true,
             skip_onboarding: true,
+            no_demo_data: true,
         })
     })
 

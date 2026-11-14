@@ -7,7 +7,11 @@ test.describe('Early Access Management', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+        workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
+            skip_onboarding: true,
+            no_demo_data: true,
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {

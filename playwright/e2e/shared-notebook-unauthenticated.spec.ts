@@ -15,7 +15,7 @@ async function createSharedNotebook(
     playwrightSetup: PlaywrightSetup,
     orgName: string
 ): Promise<{ sharingData: SharingConfigurationType; notebookTitle: string; paragraphText: string }> {
-    const workspace = await playwrightSetup.createWorkspace(orgName)
+    const workspace = await playwrightSetup.createWorkspace({ organization_name: orgName, no_demo_data: true })
     const authHeaders = {
         Authorization: `Bearer ${workspace.personal_api_key}`,
         'Content-Type': 'application/json',

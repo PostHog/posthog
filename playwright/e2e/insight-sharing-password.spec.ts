@@ -14,7 +14,10 @@ type InsightCreationPayload = {
 
 test('password-protected insight sharing', async ({ page, playwrightSetup }) => {
     // Create workspace with API key
-    const workspace = await playwrightSetup.createWorkspace('Password Sharing Test Org')
+    const workspace = await playwrightSetup.createWorkspace({
+        organization_name: 'Password Sharing Test Org',
+        no_demo_data: true,
+    })
 
     // Create a trends insight via API
     const payload: InsightCreationPayload = {
