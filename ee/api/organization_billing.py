@@ -63,6 +63,7 @@ from ee.billing.grants import (
     effective_billing_grants,
     visible_team_ids,
 )
+from ee.billing.quota_limiting import DAILY_USAGE_FIELD, counts_after_latest_report
 
 BILLING_ACCESS_DENIED = "You do not have access to Billing for this organization."
 
@@ -77,16 +78,28 @@ class CatalogKind(models.TextChoices):
 ORGANIZATION_BILLING_PROVIDER = {"posthog": "stripe", "vercel": "vercel"}
 
 
-def _with_todays_usage(products: list[dict[str, Any]], organization_usage: dict[str, Any]) -> list[dict[str, Any]]:
-    """Product and add-on rows with today's usage added to the count and the ratio, as the root
-    billing read does. Billing's figures stop at the last report; PostHog holds today's."""
+def _with_unreported_usage(
+    products: list[dict[str, Any]],
+    organization_usage: dict[str, Any],
+    period_start: Optional[str],
+    usage_reported_through: Optional[str],
+) -> list[dict[str, Any]]:
+    """Product and add-on rows with PostHog's counts for the days after billing's latest report
+    added to the count and the ratio. The root billing read does the same. Billing's figures stop
+    at `usage_reported_through`. Without daily counts, PostHog adds only today's count."""
 
     def add(item: dict[str, Any]) -> dict[str, Any]:
         own = organization_usage.get(item.get("usage_key") or "")
-        todays = own.get("todays_usage") if isinstance(own, dict) else None
-        if not todays:
+        if not isinstance(own, dict):
             return item
-        current = int(item.get("current_usage") or 0) + int(todays)
+        daily_usage = own.get(DAILY_USAGE_FIELD)
+        if daily_usage is not None and period_start:
+            unreported = counts_after_latest_report(daily_usage, period_start, usage_reported_through)
+        else:
+            unreported = own.get("todays_usage") or 0
+        if not unreported:
+            return item
+        current = int(item.get("current_usage") or 0) + int(unreported)
         limit = item.get("usage_limit")
         return {**item, "current_usage": current, "usage_ratio": current / limit if limit else 0}
 
@@ -1168,12 +1181,19 @@ class OrganizationBillingViewSet(BillingReadViewSet):
                     "quota_limiting_suspended_until": _iso(own.get("quota_limiting_suspended_until")),
                 }
             )
+        billing_period = _billing_period(data.get("billing_period"))
+        usage_reported_through = data.get("usage_reported_through")
         return Response(
             {
-                "billing_period": _billing_period(data.get("billing_period")),
-                "usage_reported_through": data.get("usage_reported_through"),
+                "billing_period": billing_period,
+                "usage_reported_through": usage_reported_through,
                 "usage_summary": usage_summary,
-                "products": _with_todays_usage(data.get("products", []), organization_usage),
+                "products": _with_unreported_usage(
+                    data.get("products", []),
+                    organization_usage,
+                    billing_period["current_period_start"] if billing_period else None,
+                    usage_reported_through,
+                ),
             }
         )
 

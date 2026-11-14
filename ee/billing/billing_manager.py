@@ -43,7 +43,12 @@ from posthog.models.user import User
 from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
 from ee.billing.grants import EffectiveBillingGrants
-from ee.billing.quota_limiting import BILLING_STATUS_STAMP_KEYS, set_org_usage_summary, update_org_billing_quotas
+from ee.billing.quota_limiting import (
+    BILLING_STATUS_STAMP_KEYS,
+    quota_usage,
+    set_org_usage_summary,
+    update_org_billing_quotas,
+)
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -492,12 +497,14 @@ class BillingManager:
                 continue
             usage = response.get("usage_summary", {}).get(usage_key, {})
             usage_limit = usage.get("limit")
-            billing_reported_usage = usage.get("usage") or 0
-            current_usage = billing_reported_usage
-
-            if usage.get("todays_usage"):
-                todays_usage = usage["todays_usage"]
-                current_usage = billing_reported_usage + todays_usage
+            current_usage = (usage.get("usage") or 0) + (usage.get("todays_usage") or 0)
+            if organization.usage:
+                org_usage = organization.usage.get(usage_key)
+                if isinstance(org_usage, dict):
+                    # Quota limiting compares this sum with the limit. From midnight until yesterday's
+                    # report arrives, billing's total lacks yesterday. The total plus today can then
+                    # read under the limit for a product that quota limiting blocks.
+                    current_usage = quota_usage(organization.usage, org_usage)
 
             product["current_usage"] = current_usage
             product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
