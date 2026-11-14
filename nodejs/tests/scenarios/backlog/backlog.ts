@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import path from 'path'
+import { Client } from 'pg'
 
 import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2/manager'
 import { CyclotronV2JobInit } from '~/cdp/services/cyclotron-v2/types'
@@ -18,6 +19,11 @@ export type ResidentRows = {
     transitions: number
     stateBytes: number
 }
+
+const BACKLOG_STATEMENT_TIMEOUT_MS = 10 * 60_000
+
+const withBacklog = <T>(run: (client: Client) => Promise<T>, cyclotronUrl: string): Promise<T> =>
+    withPostgres(run, cyclotronUrl, BACKLOG_STATEMENT_TIMEOUT_MS)
 
 export type Footprint = { table: number; indexes: number; toast: number }
 
@@ -97,7 +103,7 @@ function* batchesOf(jobs: Iterable<CyclotronV2JobInit>): Generator<CyclotronV2Jo
 }
 
 export async function residentRows(cyclotronUrl: string): Promise<ResidentRows[]> {
-    return await withPostgres(async (client) => {
+    return await withBacklog(async (client) => {
         const { rows } = await client.query<ResidentRows>(
             `SELECT team_id AS "teamId", queue_name AS queue, status::text AS status, count(*)::int AS rows,
                     sum(transition_count)::int AS transitions,
@@ -110,7 +116,7 @@ export async function residentRows(cyclotronUrl: string): Promise<ResidentRows[]
 }
 
 async function liveRowsPerQueue(cyclotronUrl: string): Promise<Map<string, number>> {
-    return await withPostgres(async (client) => {
+    return await withBacklog(async (client) => {
         const { rows } = await client.query<{ queue: string; live: number }>(
             `SELECT queue_name AS queue, count(*)::int AS live
              FROM cyclotron_jobs WHERE team_id >= $1 AND status = 'available' AND scheduled > now() GROUP BY 1`,
@@ -121,7 +127,7 @@ async function liveRowsPerQueue(cyclotronUrl: string): Promise<Map<string, numbe
 }
 
 async function footprintOf(cyclotronUrl: string): Promise<Footprint> {
-    return await withPostgres(async (client) => {
+    return await withBacklog(async (client) => {
         const { rows } = await client.query<Record<keyof Footprint, string>>(
             `SELECT pg_relation_size(oid) AS table,
                     pg_indexes_size(oid) AS indexes,
@@ -142,7 +148,7 @@ export async function seedBacklog(
     const now = new Date()
     const manifest = manifestPathOf(stateDir)
     rmSync(manifest, { force: true })
-    await withPostgres(
+    await withBacklog(
         (client) => client.query('DELETE FROM cyclotron_jobs WHERE team_id >= $1', [RESIDENT_TEAMS_FROM]),
         cyclotronUrl
     )
