@@ -1,3 +1,5 @@
+import hmac
+import hashlib
 from io import StringIO
 
 from posthog.test.base import BaseTest
@@ -9,6 +11,8 @@ from parameterized import parameterized
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.validation import compile_hog as compile_hog_for_check
+
+from common.hogvm.python.execute import execute_bytecode
 
 # The powerplatform branch the migration must splice into stale Microsoft Teams functions.
 POWERPLATFORM_BRANCH = "environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/(.*/)?workflows"
@@ -144,6 +148,35 @@ if (res.status >= 400) {
     throw Error(f'Error from api.linkedin.com (status {res.status}): {res.body}')
 }
 """.strip()
+
+
+# The signature check of the Stripe webhook source template before the fix, with the code between its lines trimmed.
+STRIPE_STALE_PARSING = """let timestamp := null
+let v1Signature := null
+for (let _, part in splitByString(',', request.headers['stripe-signature'])) {
+    let trimmed := trim(part)
+    if (trimmed like 't=%') {
+        timestamp := splitByString('=', trimmed, 2)[2]
+    }
+    if (trimmed like 'v1=%') {
+        let v1Parts := splitByString('=', trimmed, 2)
+        v1Signature := v1Parts[2]
+    }
+}
+if (empty(timestamp) or empty(v1Signature)) {
+    return {'httpResponse': {'status': 400, 'body': 'Could not parse signature'}}
+}
+let computedSignature := sha256HmacChainHex([inputs.signing_secret, concat(timestamp, '.', request.stringBody)])
+if (computedSignature != v1Signature) {
+    return {'httpResponse': {'status': 400, 'body': 'Bad signature'}}
+}
+"""
+
+# A function whose owner rewrote the comparison. A partial rewrite would leave it reading a variable that no longer
+# exists, so the migration must leave it alone.
+STRIPE_HAND_EDITED_PARSING = STRIPE_STALE_PARSING.replace(
+    "if (computedSignature != v1Signature) {", "if (lower(computedSignature) != lower(v1Signature)) {"
+)
 
 
 class TestUpdateHogFunctionCode(BaseTest):
@@ -385,7 +418,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         self.assertIn("Failed: 1", output)
         self.assertIn(str(bad_function.id), output)
 
-    @patch("products.cdp.backend.validation.compile_hog")
+    @patch("posthog.management.commands.update_hog_function_code.compile_hog")
     def test_invalid_replace_key(self, mock_compile_hog):
         """Test handling of invalid replace key."""
         out = StringIO()
@@ -405,7 +438,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         output = out.getvalue()
         self.assertIn("Invalid replace key provided: None", output)
 
-    @patch("products.cdp.backend.validation.compile_hog")
+    @patch("posthog.management.commands.update_hog_function_code.compile_hog")
     def test_no_matching_functions(self, mock_compile_hog):
         """Test when no functions match the criteria."""
         # Delete all LinkedIn functions
@@ -619,3 +652,41 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "'dataProvider': 'posthog'" in stale.hog
         assert edited.hog == edited_hog
         compile_hog_for_check(stale.hog, "destination")
+
+    def test_stripe_signature_header_parsing_migration(self) -> None:
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            stale, hand_edited = (
+                HogFunction.objects.create(
+                    team=self.team,
+                    name="Stripe webhook",
+                    type="source_webhook",
+                    template_id="template-source-stripe-webhook",
+                    hog=hog,
+                    bytecode=compile_hog_for_check(hog, "source_webhook"),
+                    enabled=True,
+                )
+                for hog in (STRIPE_STALE_PARSING, STRIPE_HAND_EDITED_PARSING)
+            )
+        assert _run_stripe_delivery(stale.bytecode) == {"httpResponse": {"status": 400, "body": "Bad signature"}}
+
+        for expected in ("Updated: 1", "Updated: 0"):
+            out = StringIO()
+            call_command("update_hog_function_code", replace_key="stripe-signature-header-parsing", stdout=out)
+            self.assertIn(expected, out.getvalue())
+
+        stale.refresh_from_db()
+        hand_edited.refresh_from_db()
+        assert _run_stripe_delivery(stale.bytecode) is None
+        assert _run_stripe_delivery(stale.bytecode, signed_with="whsec_forged") == {
+            "httpResponse": {"status": 400, "body": "Bad signature"}
+        }
+        assert hand_edited.hog == STRIPE_HAND_EDITED_PARSING
+
+
+def _run_stripe_delivery(bytecode: list, signed_with: str = "whsec_test") -> object:
+    body = '{"type": "invoice.paid"}'
+    timestamp = "1700000000"
+    signature = hmac.new(signed_with.encode(), f"{timestamp}.{body}".encode(), hashlib.sha256).hexdigest()
+    header = f"t={timestamp},v1={signature},v1={'f' * 64},secret=whsec_test,destination=we_test,payload=a1b2c3d4"
+    request = {"headers": {"stripe-signature": header}, "stringBody": body}
+    return execute_bytecode(bytecode, {"request": request, "inputs": {"signing_secret": "whsec_test"}}).result

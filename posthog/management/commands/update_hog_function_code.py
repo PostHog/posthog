@@ -24,6 +24,9 @@ class _ReplaceOption(TypedDict):
     # would otherwise also match code deliberately left behind (e.g. a sunset version kept dead on
     # purpose), this pins the run to the intended cohort.
     only_if_contains: NotRequired[str]
+    function_type: NotRequired[str]
+    # Skip a function unless every replacement matches, so a variable renamed across lines is never half renamed.
+    all_or_nothing: NotRequired[bool]
 
 
 class Command(BaseCommand):
@@ -164,6 +167,30 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Stripe sends one `v1` per signing secret and fields such as `secret=`, which the old parser misread.
+            # Warehouse Stripe sources need no rewrite because they run the template's bytecode.
+            "stripe-signature-header-parsing": {
+                "template_id": "template-source-stripe-webhook",
+                "function_type": "source_webhook",
+                "all_or_nothing": True,
+                "replacements": [
+                    {"from_string": "let v1Signature := null", "to_string": "let v1Signatures := []"},
+                    {"from_string": "if (trimmed like 't=%') {", "to_string": "if (startsWith(trimmed, 't=')) {"},
+                    {"from_string": "if (trimmed like 'v1=%') {", "to_string": "if (startsWith(trimmed, 'v1=')) {"},
+                    {
+                        "from_string": "v1Signature := v1Parts[2]",
+                        "to_string": "v1Signatures := arrayPushBack(v1Signatures, v1Parts[2])",
+                    },
+                    {
+                        "from_string": "if (empty(timestamp) or empty(v1Signature)) {",
+                        "to_string": "if (empty(timestamp) or empty(v1Signatures)) {",
+                    },
+                    {
+                        "from_string": "if (computedSignature != v1Signature) {",
+                        "to_string": "if (not has(v1Signatures, computedSignature)) {",
+                    },
+                ],
+            },
             # Existing Microsoft Ads destinations hash email and phone in a form Microsoft cannot match, and do
             # not send the required dataProvider. One replacement covers both checks, so it cannot half-apply.
             "microsoft-ads-capi-normalization": {
@@ -249,7 +276,9 @@ if (not empty(inputs.phone)) {
         replaceOption = replaceOptions[replace_key]
 
         queryset = HogFunction.objects.filter(
-            type="destination", deleted=False, template_id=replaceOption["template_id"]
+            type=replaceOption.get("function_type", "destination"),
+            deleted=False,
+            template_id=replaceOption["template_id"],
         )
 
         updated_count = 0
@@ -273,6 +302,11 @@ if (not empty(inputs.phone)) {
                 if not destination.hog:
                     continue
 
+                if replaceOption.get("all_or_nothing") and not all(
+                    replacement["from_string"] in destination.hog for replacement in replaceOption["replacements"]
+                ):
+                    continue
+
                 required_marker = replaceOption.get("only_if_contains")
                 if required_marker and required_marker not in destination.hog:
                     continue
@@ -287,7 +321,7 @@ if (not empty(inputs.phone)) {
 
                 # A single destination with uncompilable (e.g. hand-edited) hog must not abort the whole run.
                 try:
-                    # The queryset filters on type="destination", so the type is set.
+                    # The queryset filters on type, so the type is set.
                     new_bytecode = compile_hog(new_hog, cast(str, destination.type))
                 except Exception as e:
                     failed.append((str(destination.id), destination.team_id, destination.enabled, str(e)))
