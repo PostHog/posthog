@@ -1,3 +1,5 @@
+import ipaddr from 'ipaddr.js'
+
 import { CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
@@ -7,6 +9,8 @@ export const MAX_CONDITIONS_PER_RULE = 10
 // The per-list and per-rule caps multiply, so the aggregate cap is what limits a query.
 export const MAX_TOTAL_CONDITIONS = 100
 export const MAX_PATTERN_LENGTH = 200
+export const MAX_IP_RANGES_PER_CONDITION = 500
+export const MAX_TOTAL_IP_RANGES = 1000
 export const MAX_NAME_LENGTH = 100
 
 // Mirrors CUSTOM_BOT_FIELDS in
@@ -90,7 +94,7 @@ export function defaultMatcherFor(key: CustomBotField): CustomBotMatcher {
 
 export function patternPlaceholderFor(key: CustomBotField, matcher: CustomBotMatcher): string {
     if (matcher === CustomBotMatcher.Cidr) {
-        return '192.0.2.0/24'
+        return '192.0.2.0/24\n198.51.100.10-198.51.100.40'
     }
     if (matcher === CustomBotMatcher.Regex) {
         return key === CustomBotField.RawUserAgent ? 'AcmeBot/[0-9]+' : '^/api/'
@@ -165,94 +169,262 @@ function compileCustomBotRegex(pattern: string): RegExp {
     return new RegExp(body, flags)
 }
 
-/** An address as a number, with the width of its family. Null when it does not parse. */
-function parseIp(address: string): { value: bigint; width: bigint } | null {
-    if (!address.includes(':')) {
-        const octets = address.split('.')
-        if (octets.length !== 4) {
-            return null
-        }
-        let value = 0n
-        for (const octet of octets) {
-            // No leading zeros: Python's ipaddress rejects them, so the server would 400 a rule
-            // the tester had called valid.
-            if (!/^(0|[1-9]\d{0,2})$/.test(octet) || Number(octet) > 255) {
-                return null
-            }
-            value = (value << 8n) | BigInt(octet)
-        }
-        return { value, width: 32n }
-    }
+type IpAddress = ipaddr.IPv4 | ipaddr.IPv6
 
-    const halves = address.split('::')
-    if (halves.length > 2) {
+type IpEntry =
+    | { kind: 'cidr'; address: IpAddress; prefix: number }
+    | { kind: 'range'; start: IpAddress; end: IpAddress }
+
+function parseIpAddress(text: string): IpAddress | null {
+    const value = text.trim()
+    if (value.includes('%')) {
         return null
     }
-    const abbreviated = halves.length === 2
-    const head = halves[0] ? halves[0].split(':') : []
-    const tail = abbreviated && halves[1] ? halves[1].split(':') : []
-    const missing = 8 - head.length - tail.length
-    if (abbreviated ? missing < 0 : missing !== 0) {
-        return null
+    if (value.includes(':')) {
+        const hexValue = withHexIPv4Tail(value)
+        return hexValue !== null && ipaddr.IPv6.isValid(hexValue) ? ipaddr.IPv6.parse(hexValue) : null
     }
-    const groups = [...head, ...Array.from({ length: abbreviated ? missing : 0 }, () => '0'), ...tail]
-    let value = 0n
-    for (const group of groups) {
-        if (!/^[0-9a-f]{1,4}$/i.test(group)) {
-            return null
-        }
-        value = (value << 16n) | BigInt(parseInt(group, 16))
-    }
-    return { value, width: 128n }
+    return ipaddr.IPv4.isValidFourPartDecimal(value) ? ipaddr.IPv4.parse(value) : null
 }
 
-/** Parse "192.0.2.0/24" or a bare address. The server validates with Python's `ipaddress`, which
- * is the authority — this catches a typo while it is being typed. */
-function parseCidr(pattern: string): { value: bigint; width: bigint; prefix: bigint } | null {
-    const [address, prefixText, ...rest] = pattern.trim().split('/')
-    if (rest.length > 0) {
+function withHexIPv4Tail(value: string): string | null {
+    const tailStart = value.lastIndexOf(':') + 1
+    const tail = value.slice(tailStart)
+    if (!tail.includes('.')) {
+        return value
+    }
+    if (!ipaddr.IPv4.isValidFourPartDecimal(tail)) {
         return null
     }
-    const parsed = parseIp(address)
-    if (!parsed) {
-        return null
-    }
+    const [a, b, c, d] = ipaddr.IPv4.parse(tail).octets
+    return `${value.slice(0, tailStart)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`
+}
+
+function parseIpRange(entry: string): IpEntry | null {
+    const [startText, endText, ...extraEnds] = entry.split('-')
+    const start = parseIpAddress(startText)
+    const end = parseIpAddress(endText)
+    return start && end && extraEnds.length === 0 ? { kind: 'range', start, end } : null
+}
+
+function parsePrefixLength(entry: string, address: IpAddress, prefixText: string | undefined): number | null {
     if (prefixText === undefined) {
-        return { ...parsed, prefix: parsed.width }
+        return address instanceof ipaddr.IPv4 ? 32 : 128
     }
-    if (!/^\d{1,3}$/.test(prefixText) || BigInt(prefixText) > parsed.width) {
+    if (ipaddr.isValidCIDR(entry)) {
+        return ipaddr.parseCIDR(entry)[1]
+    }
+    if (address instanceof ipaddr.IPv4 && ipaddr.IPv4.isValidFourPartDecimal(prefixText)) {
+        return ipaddr.IPv4.parse(prefixText).prefixLengthFromSubnetMask()
+    }
+    return null
+}
+
+function parseIpNetwork(entry: string): IpEntry | null {
+    const [addressText, prefixText, ...extraPrefixes] = entry.split('/')
+    const address = parseIpAddress(addressText)
+    if (!address || extraPrefixes.length > 0) {
         return null
     }
-    return { ...parsed, prefix: BigInt(prefixText) }
+    const prefix = parsePrefixLength(entry, address, prefixText)
+    return prefix === null ? null : { kind: 'cidr', address, prefix }
+}
+
+function parseIpEntry(entry: string): IpEntry | null {
+    return entry.includes('-') ? parseIpRange(entry) : parseIpNetwork(entry)
+}
+
+function asIPv6(address: IpAddress): ipaddr.IPv6 {
+    return address instanceof ipaddr.IPv4 ? address.toIPv4MappedAddress() : address
+}
+
+function compareAddresses(left: ipaddr.IPv6, right: ipaddr.IPv6): number {
+    const leftBytes = left.toByteArray()
+    const rightBytes = right.toByteArray()
+    const index = leftBytes.findIndex((byte, position) => byte !== rightBytes[position])
+    return index === -1 ? 0 : leftBytes[index] - rightBytes[index]
+}
+
+type IpBounds = { version: string; start: bigint; end: bigint }
+
+function addressToBigInt(address: IpAddress): bigint {
+    return address.toByteArray().reduce((value, byte) => (value << 8n) | BigInt(byte), 0n)
+}
+
+function ipEntryBounds(entry: IpEntry): IpBounds {
+    if (entry.kind === 'range') {
+        return { version: entry.start.kind(), start: addressToBigInt(entry.start), end: addressToBigInt(entry.end) }
+    }
+    const hostBits = BigInt((entry.address instanceof ipaddr.IPv4 ? 32 : 128) - entry.prefix)
+    const start = (addressToBigInt(entry.address) >> hostBits) << hostBits
+    return { version: entry.address.kind(), start, end: start + (1n << hostBits) - 1n }
+}
+
+function mergedBounds(bounds: IpBounds[]): IpBounds[] {
+    const sorted = [...bounds].sort(
+        (left, right) =>
+            left.version.localeCompare(right.version) ||
+            (left.start < right.start ? -1 : left.start > right.start ? 1 : 0)
+    )
+    const merged: IpBounds[] = []
+    for (const current of sorted) {
+        const last = merged[merged.length - 1]
+        if (last && last.version === current.version && current.start <= last.end + 1n) {
+            last.end = current.end > last.end ? current.end : last.end
+        } else {
+            merged.push({ ...current })
+        }
+    }
+    return merged
+}
+
+function blockCount({ start, end }: IpBounds, limit: number): number {
+    let count = 0
+    let current = start
+    while (current <= end && count <= limit) {
+        let size = current === 0n ? 1n << 128n : current & -current
+        while (current + size - 1n > end) {
+            size >>= 1n
+        }
+        current += size
+        count++
+    }
+    return count
+}
+
+function networkBlockCount(entries: (IpEntry | null)[]): number {
+    const bounds = entries.flatMap((entry) => (entry ? [ipEntryBounds(entry)] : []))
+    let count = 0
+    for (const merged of mergedBounds(bounds)) {
+        count += blockCount(merged, MAX_IP_RANGES_PER_CONDITION - count)
+        if (count > MAX_IP_RANGES_PER_CONDITION) {
+            break
+        }
+    }
+    return count
+}
+
+function ipEntryError(entry: string, parsed: IpEntry | null): string | null {
+    if (!parsed) {
+        return `'${entry}' is not a valid IP address or range.`
+    }
+    if (parsed.kind === 'range') {
+        if (parsed.start.kind() !== parsed.end.kind()) {
+            return `In '${entry}', both ends must be the same IP version.`
+        }
+        if (compareAddresses(asIPv6(parsed.start), asIPv6(parsed.end)) > 0) {
+            return `In '${entry}', the start comes after the end.`
+        }
+    }
+    return null
+}
+
+function ipEntryMatches(entry: IpEntry, address: ipaddr.IPv6): boolean {
+    if (entry.kind === 'cidr') {
+        const prefix = entry.address instanceof ipaddr.IPv4 ? entry.prefix + 96 : entry.prefix
+        return address.match(asIPv6(entry.address), prefix)
+    }
+    return compareAddresses(asIPv6(entry.start), address) <= 0 && compareAddresses(address, asIPv6(entry.end)) <= 0
+}
+
+export function conditionRanges(condition: CustomBotCondition): string[] {
+    return (condition.patterns ?? [])
+        .flatMap((value) => value.split(','))
+        .map((entry) => entry.trim().replace(/\s*-\s*/, '-'))
+        .filter(Boolean)
+}
+
+type IpRangeAnalysis = { ranges: string[]; entries: (IpEntry | null)[]; error: string | null; blockCount: number }
+
+const MAX_CACHED_IP_RANGE_ANALYSES = 256
+const ipRangeAnalyses = new Map<string, IpRangeAnalysis>()
+
+function rangeListError(ranges: string[], entries: (IpEntry | null)[]): string | null {
+    for (const [index, entry] of ranges.entries()) {
+        if (entry.length > MAX_PATTERN_LENGTH) {
+            return `An IP range cannot be longer than ${MAX_PATTERN_LENGTH} characters.`
+        }
+        const error = ipEntryError(entry, entries[index])
+        if (error) {
+            return error
+        }
+    }
+    return null
+}
+
+function analyzeRanges(ranges: string[]): IpRangeAnalysis {
+    if (ranges.length > MAX_IP_RANGES_PER_CONDITION) {
+        const error = `A condition can have at most ${MAX_IP_RANGES_PER_CONDITION} IP ranges.`
+        return { ranges, entries: [], error, blockCount: 0 }
+    }
+    const entries = ranges.map(parseIpEntry)
+    const blockCount = networkBlockCount(entries)
+    const blockError =
+        blockCount > MAX_IP_RANGES_PER_CONDITION
+            ? `These ranges cover more than ${MAX_IP_RANGES_PER_CONDITION} network blocks. Use fewer or wider ranges.`
+            : null
+    return { ranges, entries, error: rangeListError(ranges, entries) ?? blockError, blockCount }
+}
+
+function ipRangeAnalysis(condition: CustomBotCondition): IpRangeAnalysis {
+    const cacheKey = JSON.stringify(condition.patterns ?? [])
+    const cached = ipRangeAnalyses.get(cacheKey)
+    if (cached) {
+        return cached
+    }
+    const analysis = analyzeRanges(conditionRanges(condition))
+    if (ipRangeAnalyses.size >= MAX_CACHED_IP_RANGE_ANALYSES) {
+        ipRangeAnalyses.delete(ipRangeAnalyses.keys().next().value as string)
+    }
+    ipRangeAnalyses.set(cacheKey, analysis)
+    return analysis
+}
+
+function validateIpRanges(condition: CustomBotCondition): string | null {
+    const analysis = ipRangeAnalysis(condition)
+    if (analysis.ranges.length === 0) {
+        return 'Add an IP address or range to match.'
+    }
+    if (condition.key !== CustomBotField.IP) {
+        return 'Ranges only work with the IP address property.'
+    }
+    return analysis.error
+}
+
+export function withMatcher(
+    condition: CustomBotCondition,
+    key: CustomBotField,
+    matcher: CustomBotMatcher
+): CustomBotCondition {
+    const { pattern, patterns, ...rest } = condition
+    if (matcher === CustomBotMatcher.Cidr) {
+        return { ...rest, key, matcher, patterns: patterns?.length ? patterns : [pattern ?? ''] }
+    }
+    return { ...rest, key, matcher, pattern: pattern ?? conditionRanges(condition)[0] ?? '' }
 }
 
 export function validateCustomBotCondition(condition: CustomBotCondition): string | null {
-    if (!condition.pattern.trim()) {
-        return condition.matcher === CustomBotMatcher.Cidr
-            ? 'Add an IP address or range to match.'
-            : 'Add a value to match.'
-    }
-    if (condition.pattern.length > MAX_PATTERN_LENGTH) {
-        return `Pattern cannot be longer than ${MAX_PATTERN_LENGTH} characters.`
-    }
-
     if (condition.matcher === CustomBotMatcher.Cidr) {
-        if (condition.key !== CustomBotField.IP) {
-            return 'Ranges only work with the IP address property.'
-        }
-        return parseCidr(condition.pattern) ? null : 'This is not a valid IP address or range.'
+        return validateIpRanges(condition)
+    }
+    const value = condition.pattern ?? ''
+    if (!value.trim()) {
+        return 'Add a value to match.'
+    }
+    if (value.length > MAX_PATTERN_LENGTH) {
+        return `Pattern cannot be longer than ${MAX_PATTERN_LENGTH} characters.`
     }
 
     if (condition.matcher !== CustomBotMatcher.Regex) {
         return null
     }
     for (const { pattern, label } of UNSUPPORTED_CONSTRUCTS) {
-        if (pattern.test(condition.pattern)) {
+        if (pattern.test(value)) {
             return `This uses a ${label}, which is not supported here.`
         }
     }
     try {
-        compileCustomBotRegex(condition.pattern)
+        compileCustomBotRegex(value)
     } catch {
         return 'This is not a valid regular expression.'
     }
@@ -287,6 +459,13 @@ export function validateCustomBotRuleSet(rules: CustomBotRule[]): string | null 
     if (total > MAX_TOTAL_CONDITIONS) {
         return `You can have at most ${MAX_TOTAL_CONDITIONS} conditions across all rules.`
     }
+    const totalRanges = rules
+        .flatMap((rule) => rule.items)
+        .filter((condition) => condition.matcher === CustomBotMatcher.Cidr)
+        .reduce((sum, condition) => sum + ipRangeAnalysis(condition).blockCount, 0)
+    if (totalRanges > MAX_TOTAL_IP_RANGES) {
+        return `You can have at most ${MAX_TOTAL_IP_RANGES} IP network blocks across all rules.`
+    }
     return null
 }
 
@@ -296,25 +475,26 @@ export function conditionMatchesValue(condition: CustomBotCondition, value: stri
         return false
     }
     if (condition.matcher === CustomBotMatcher.Cidr) {
-        const network = parseCidr(condition.pattern)
-        const candidate = parseIp(value.trim())
-        if (!network || !candidate || network.width !== candidate.width) {
+        const candidate = parseIpAddress(value)
+        if (!candidate) {
             return false
         }
-        const mask = ((1n << network.prefix) - 1n) << (network.width - network.prefix)
-        return (network.value & mask) === (candidate.value & mask)
+        const address = asIPv6(candidate)
+        return ipRangeAnalysis(condition).entries.some((entry) => entry !== null && ipEntryMatches(entry, address))
     }
+    const rawPattern = condition.pattern ?? ''
+    const pattern = rawPattern.trim()
     if (condition.matcher === CustomBotMatcher.Regex) {
         try {
-            return compileCustomBotRegex(condition.pattern).test(value)
+            return compileCustomBotRegex(rawPattern).test(value)
         } catch {
             return false
         }
     }
     if (condition.matcher === CustomBotMatcher.Exact) {
-        return value === condition.pattern.trim()
+        return value === pattern
     }
-    return value.toLowerCase().includes(condition.pattern.trim().toLowerCase())
+    return value.toLowerCase().includes(pattern.toLowerCase())
 }
 
 /** Whether a rule matches the test values, one value per property, combined the way the query is. */
@@ -333,8 +513,13 @@ function isCondition(value: unknown): value is CustomBotCondition {
     const condition = value as CustomBotCondition
     // Enum membership matters: an unknown matcher would read as valid in the editor and then 400
     // on save against the server's strict parsing.
+    const hasValues =
+        typeof condition.pattern === 'string' ||
+        (condition.matcher === CustomBotMatcher.Cidr &&
+            Array.isArray(condition.patterns) &&
+            condition.patterns.every((entry) => typeof entry === 'string'))
     return (
-        typeof condition.pattern === 'string' &&
+        hasValues &&
         CUSTOM_BOT_FIELD_OPTIONS.some((option) => option.value === condition.key) &&
         Object.values(CustomBotMatcher).includes(condition.matcher)
     )
@@ -376,12 +561,20 @@ export function parseCustomBotRules(raw: unknown): CustomBotRule[] {
             id: uniqueId(current.id, `rule-${index}`),
             combiner: current.combiner === FilterLogicalOperator.Or ? current.combiner : FilterLogicalOperator.And,
             items: current.items.map((condition, conditionIndex) => ({
-                ...condition,
+                ...withMatcher(condition, condition.key, condition.matcher),
                 id: uniqueId(condition.id, `rule-${index}-${conditionIndex}`),
             })),
         })
     })
     return rules
+}
+
+function sanitizeCondition(condition: CustomBotCondition): CustomBotCondition {
+    const base = { id: condition.id, key: condition.key, matcher: condition.matcher }
+    if (condition.matcher === CustomBotMatcher.Cidr) {
+        return { ...base, patterns: Array.from(new Set(conditionRanges(condition))) }
+    }
+    return { ...base, pattern: (condition.pattern ?? '').trim() }
 }
 
 export function sanitizeCustomBotRules(rules: CustomBotRule[]): CustomBotRule[] {
@@ -392,13 +585,8 @@ export function sanitizeCustomBotRules(rules: CustomBotRule[]): CustomBotRule[] 
             category: rule.category || CUSTOM_BOT_CATEGORY,
             combiner: rule.combiner,
             items: rule.items
-                .filter((condition) => condition.pattern.trim())
-                .map((condition) => ({
-                    id: condition.id,
-                    key: condition.key,
-                    matcher: condition.matcher,
-                    pattern: condition.pattern.trim(),
-                })),
+                .map(sanitizeCondition)
+                .filter((condition) => (condition.patterns ? condition.patterns.length > 0 : condition.pattern)),
         }))
         .filter((rule) => rule.name && rule.items.length > 0)
 }

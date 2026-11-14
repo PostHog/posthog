@@ -5,9 +5,11 @@ import {
     conditionMatchesValue,
     ruleMatchesValues,
     parseCustomBotRules,
+    sanitizeCustomBotRules,
     validateCustomBotCondition,
     validateCustomBotRule,
     validateCustomBotRuleSet,
+    withMatcher,
 } from './customBotRulesUtils'
 
 const condition = (overrides: Partial<CustomBotCondition> = {}): CustomBotCondition => ({
@@ -26,8 +28,14 @@ const rule = (overrides: Partial<CustomBotRule> = {}): CustomBotRule => ({
     ...overrides,
 })
 
-const ipCondition = (pattern: string): CustomBotCondition =>
-    condition({ key: CustomBotField.IP, matcher: CustomBotMatcher.Cidr, pattern })
+const ipCondition = (...patterns: string[]): CustomBotCondition =>
+    condition({ key: CustomBotField.IP, matcher: CustomBotMatcher.Cidr, pattern: undefined, patterns })
+
+const separateAddresses = (count: number, start = 0): string[] =>
+    Array.from({ length: count }, (_, i) => `10.${Math.floor((start + i) / 200)}.${(start + i) % 200}.1`)
+
+const adjacentAddresses = (count: number, start = 0): string[] =>
+    Array.from({ length: count }, (_, i) => `10.0.${Math.floor((start + i) / 256)}.${(start + i) % 256}`)
 
 describe('customBotRulesUtils', () => {
     // These rules mirror the ones the API enforces. When they drift, a rule the editor calls valid
@@ -54,7 +62,7 @@ describe('customBotRulesUtils', () => {
             ],
             [
                 'a range on a property that is not an IP',
-                { matcher: CustomBotMatcher.Cidr, pattern: '192.0.2.0/24' },
+                { matcher: CustomBotMatcher.Cidr, pattern: undefined, patterns: ['192.0.2.0/24'] },
                 'Ranges only work with the IP address property.',
             ],
         ])('rejects %s', (_name, overrides, expected) => {
@@ -62,23 +70,61 @@ describe('customBotRulesUtils', () => {
         })
 
         test.each([
-            ['a bare address', '192.0.2.7'],
-            ['a v4 range', '192.0.2.0/24'],
-            ['a v6 range', '2001:db8::/32'],
-            ['host bits set', '192.0.2.7/24'],
-        ])('accepts %s', (_name, pattern) => {
-            expect(validateCustomBotCondition(ipCondition(pattern))).toBeNull()
+            ['a bare address', '192.0.2.7', true],
+            ['a v4 range', '192.0.2.0/24', true],
+            ['a v6 range', '2001:db8::/32', true],
+            ['host bits set', '192.0.2.7/24', true],
+            ['an IPv4-mapped address', '::ffff:192.0.2.1', true],
+            ['an IPv4-mapped range', '::ffff:192.0.2.0/120', true],
+            ['a netmask range', '192.0.2.0/255.255.255.0', true],
+            ['a start-end range', '192.0.2.10-192.0.2.40', true],
+            ['a start-end range with spaces', '192.0.2.10 - 192.0.2.40', true],
+            ['a v6 start-end range', '2001:db8::1-2001:db8::ff', true],
+            ['a hostname', 'not-an-ip', false],
+            ['an octet over 255', '192.0.2.999', false],
+            // Python's ipaddress rejects leading zeros, so the tester must too or Save 400s.
+            ['a leading-zero octet', '192.168.001.1', false],
+            ['an octal-looking octet', '010.0.0.1', false],
+            ['a shortened address', '127.1', false],
+            ['a hex octet', '0x7f.0.0.1', false],
+            ['a leading-zero octet in an IPv6 address', '::ffff:192.168.001.1', false],
+            ['a hex octet in an IPv6 address', '::ffff:0x7f.0.0.1', false],
+            ['a prefix wider than the family', '192.0.2.0/33', false],
+            ['too many parts', '192.0.2.0/24/8', false],
+            ['a netmask with gaps', '192.0.2.0/255.0.255.0', false],
+            ['a zone identifier', 'fe80::1%eth0', false],
+            ['a start-end range that ends before it starts', '192.0.2.40-192.0.2.10', false],
+            ['a start-end range across ip versions', '192.0.2.1-2001:db8::1', false],
+        ])('matches the server on %s', (_name, entry, accepted) => {
+            expect(validateCustomBotCondition(ipCondition(entry)) === null).toBe(accepted)
         })
 
         test.each([
-            ['a hostname', 'not-an-ip'],
-            ['an octet over 255', '192.0.2.999'],
-            // Python's ipaddress rejects leading zeros, so the tester must too or Save 400s.
-            ['a leading-zero octet', '192.168.001.1'],
-            ['a prefix wider than the family', '192.0.2.0/33'],
-            ['too many parts', '192.0.2.0/24/8'],
-        ])('rejects %s as a range', (_name, pattern) => {
-            expect(validateCustomBotCondition(ipCondition(pattern))).toEqual('This is not a valid IP address or range.')
+            ['no ranges', ipCondition(), 'Add an IP address or range to match.'],
+            ['only blank lines', ipCondition('', '  '), 'Add an IP address or range to match.'],
+            [
+                'one bad entry in a list',
+                ipCondition('192.0.2.0/24', 'nope', '2001:db8::/32'),
+                "'nope' is not a valid IP address or range.",
+            ],
+            [
+                'a bad entry inside a comma-separated line',
+                ipCondition('192.0.2.0/24, 192.0.2.999'),
+                "'192.0.2.999' is not a valid IP address or range.",
+            ],
+            [
+                'a start-end range that ends before it starts',
+                ipCondition('192.0.2.40-192.0.2.10'),
+                "In '192.0.2.40-192.0.2.10', the start comes after the end.",
+            ],
+            ['too many ranges', ipCondition(...separateAddresses(501)), 'A condition can have at most 500 IP ranges.'],
+            [
+                'ranges that split into too many network blocks',
+                ipCondition(...Array.from({ length: 126 }, (_, n) => `10.0.${n}.1-10.0.${n}.6`)),
+                'These ranges cover more than 500 network blocks. Use fewer or wider ranges.',
+            ],
+        ])('rejects %s', (_name, value, expected) => {
+            expect(validateCustomBotCondition(value)).toEqual(expected)
         })
 
         test.each([
@@ -135,6 +181,25 @@ describe('customBotRulesUtils', () => {
 
             expect(validateCustomBotRuleSet(rules)).toEqual('You can have at most 100 conditions across all rules.')
             expect(validateCustomBotRuleSet(rules.slice(0, 10))).toBeNull()
+        })
+
+        it('rejects a set over the aggregate IP range budget', () => {
+            const rules = Array.from({ length: 3 }, (_, i) =>
+                rule({ id: String(i), items: [ipCondition(...separateAddresses(400, i * 400))] })
+            )
+
+            expect(validateCustomBotRuleSet(rules)).toEqual(
+                'You can have at most 1000 IP network blocks across all rules.'
+            )
+            expect(validateCustomBotRuleSet(rules.slice(0, 2))).toBeNull()
+        })
+
+        it('counts adjacent addresses as the network blocks they merge into', () => {
+            const rules = Array.from({ length: 3 }, (_, i) =>
+                rule({ id: String(i), items: [ipCondition(...adjacentAddresses(400, i * 400))] })
+            )
+
+            expect(validateCustomBotRuleSet(rules)).toBeNull()
         })
     })
 
@@ -203,8 +268,26 @@ describe('customBotRulesUtils', () => {
             ['a v6 address outside a v6 range', '2001:db8::/32', '2001:dba9::1', false],
             ['a v4 address is not inside a v6 range', '2001:db8::/32', '192.0.2.55', false],
             ['a v6 address is not inside a v4 range', '192.0.2.0/24', '2001:db8::1', false],
+            ['an address inside a start-end range', '192.0.2.10-192.0.2.40', '192.0.2.25', true],
+            ['the last address of a start-end range', '192.0.2.10-192.0.2.40', '192.0.2.40', true],
+            ['an address past a start-end range', '192.0.2.10-192.0.2.40', '192.0.2.41', false],
+            ['an address inside a netmask range', '192.0.2.0/255.255.255.0', '192.0.2.55', true],
+            ['an IPv4-mapped value inside a v4 range', '192.0.2.0/24', '::ffff:192.0.2.55', true],
+            ['a v4 value inside an IPv4-mapped range', '::ffff:192.0.2.0/120', '192.0.2.55', true],
+            ['a v4 value outside an IPv4-compatible range', '::192.0.2.0/120', '192.0.2.55', false],
         ])('range matching, %s', (_name, pattern, value, expected) => {
             expect(conditionMatchesValue(ipCondition(pattern), value)).toBe(expected)
+        })
+
+        test.each([
+            ['the first range', '192.0.2.55', true],
+            ['a start-end range later in the list', '198.51.100.25', true],
+            ['a v6 range in the list', '2001:db8::5', true],
+            ['none of the ranges', '203.0.113.9', false],
+        ])('a list of ranges matches %s', (_name, value, expected) => {
+            const list = ipCondition('192.0.2.0/24', '198.51.100.10-198.51.100.40, 2001:db8::/32')
+
+            expect(conditionMatchesValue(list, value)).toBe(expected)
         })
 
         it('does not match when the value is not an address', () => {
@@ -251,6 +334,55 @@ describe('customBotRulesUtils', () => {
         })
     })
 
+    describe('withMatcher', () => {
+        test.each([
+            [
+                'moves a value into the range list',
+                condition({ key: CustomBotField.IP, matcher: CustomBotMatcher.Contains, pattern: '192.0.2.7' }),
+                CustomBotMatcher.Cidr,
+                { pattern: undefined, patterns: ['192.0.2.7'] },
+            ],
+            [
+                'keeps a saved range when the range list is empty',
+                condition({
+                    key: CustomBotField.IP,
+                    matcher: CustomBotMatcher.Cidr,
+                    pattern: '192.0.2.0/24',
+                    patterns: [],
+                }),
+                CustomBotMatcher.Cidr,
+                { pattern: undefined, patterns: ['192.0.2.0/24'] },
+            ],
+            [
+                'moves the first range back into a value',
+                ipCondition('192.0.2.0/24', '198.51.100.0/24'),
+                CustomBotMatcher.Exact,
+                { pattern: '192.0.2.0/24', patterns: undefined },
+            ],
+        ])('%s', (_name, value, matcher, expected) => {
+            const changed = withMatcher(value, CustomBotField.IP, matcher)
+
+            expect({ pattern: changed.pattern, patterns: changed.patterns }).toEqual(expected)
+        })
+    })
+
+    describe('sanitizeCustomBotRules', () => {
+        it('splits, trims and dedupes a pasted list', () => {
+            const pasted = ipCondition('192.0.2.0/24, 198.51.100.0/24', '', ' 192.0.2.10 - 192.0.2.40 ', '192.0.2.0/24')
+
+            const [sanitized] = sanitizeCustomBotRules([rule({ items: [pasted] })])
+
+            expect(sanitized.items).toEqual([
+                {
+                    id: 'c1',
+                    key: CustomBotField.IP,
+                    matcher: CustomBotMatcher.Cidr,
+                    patterns: ['192.0.2.0/24', '198.51.100.0/24', '192.0.2.10-192.0.2.40'],
+                },
+            ])
+        })
+    })
+
     describe('parseCustomBotRules', () => {
         it('mints deterministic ids so id-less rules do not collapse in the id-keyed editor', () => {
             const raw = [rule({ id: '', name: 'One' }), rule({ id: '', name: 'Two' })]
@@ -280,6 +412,23 @@ describe('customBotRulesUtils', () => {
 
         it('keeps parseable rules and drops what does not parse', () => {
             const current = rule()
+            const ipList = rule({
+                id: '2',
+                name: 'Fleet',
+                items: [{ ...ipCondition('192.0.2.0/24', '198.51.100.0/24'), id: 'ip1' }],
+            })
+            const legacyRange = rule({
+                id: '3',
+                name: 'Office',
+                items: [
+                    condition({
+                        id: 'ip2',
+                        key: CustomBotField.IP,
+                        matcher: CustomBotMatcher.Cidr,
+                        pattern: '192.0.2.0/24',
+                    }),
+                ],
+            })
 
             // A malformed entry must be dropped, not blind-cast: it would otherwise throw in
             // validation during render and crash the settings scene. An unknown matcher must
@@ -288,13 +437,29 @@ describe('customBotRulesUtils', () => {
             expect(
                 parseCustomBotRules([
                     current,
+                    ipList,
+                    legacyRange,
                     'garbage',
                     { id: '1', name: 'Flat', key: '$raw_user_agent', matcher: 'contains', pattern: 'AcmeBot' },
                     { id: 'x', items: [{}] },
                     { items: [condition()], name: null },
                     { id: 'y', name: 'n', items: [{ ...condition(), matcher: 'startswith' }] },
                 ])
-            ).toEqual([current])
+            ).toEqual([
+                current,
+                ipList,
+                {
+                    ...legacyRange,
+                    items: [
+                        {
+                            id: 'ip2',
+                            key: CustomBotField.IP,
+                            matcher: CustomBotMatcher.Cidr,
+                            patterns: ['192.0.2.0/24'],
+                        },
+                    ],
+                },
+            ])
         })
     })
 })
