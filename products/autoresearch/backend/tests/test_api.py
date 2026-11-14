@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -757,6 +758,21 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
+            ("unexpected", RuntimeError("boom"), "unavailable"),
+        ]
+    )
+    def test_validate_reports_why_the_check_did_not_run(self, _name: str, exc: Exception, expected_code: str):
+        with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows", side_effect=exc):
+            resp = self.client.post(f"{self.base_url}/validate/", {"target_event": "$signup"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["can_proceed"] is False
+        assert data["error_code"] == expected_code
+        assert data["error"]
+
+    @parameterized.expand(
+        [
             ("missing_target", {}),
             ("list_shaped_target_definition", {"target_event": "$signup", "target_definition": [1]}),
         ]
@@ -1134,7 +1150,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         body = resp.json()
         assert (body["used"], body["limit"]) == (1, limit)
         if limit:
-            assert body["next_slot_at"] == (started_at + timedelta(hours=24)).isoformat().replace("+00:00", "Z")
+            assert body["next_slot_at"] == (started_at + timedelta(hours=22)).isoformat().replace("+00:00", "Z")
         else:
             assert body["next_slot_at"] is None
         mock_run_training.assert_not_called()
@@ -1257,10 +1273,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.json() == {
             "max_training_runs_per_day": 1,
             "training_runs_used": 1,
-            "next_slot_at": (started_at + timedelta(hours=24)).isoformat().replace("+00:00", "Z"),
+            "next_slot_at": (started_at + timedelta(hours=22)).isoformat().replace("+00:00", "Z"),
             "max_iterations_per_run": 10,
             "max_live_pipelines": 2,
             "live_pipelines": 1,
+            "max_training_runs_per_day_source": "default",
+            "max_iterations_per_run_source": "code",
+            "max_live_pipelines_source": "default",
         }
 
     # ──────────────────────────────────── update restrictions ─────────────────────────────────────

@@ -16,6 +16,10 @@
         "record_id": {
             "description": "Filter by the ID of a specific feature flag.",
             "type": "string"
+        },
+        "record_ids": {
+            "description": "Comma-separated feature flag IDs. Returns the schedules of any of them, at most 200 IDs.",
+            "type": "string"
         }
     },
     "type": "object"

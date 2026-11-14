@@ -12,12 +12,17 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from typing import overload
+from typing import TYPE_CHECKING, overload
 from uuid import UUID
 
 from ..logic import legacy, session
 from . import contracts
 from .enums import Action, Level, SubjectType
+
+if TYPE_CHECKING:
+    from posthog.user_permissions import UserPermissions
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 @contextmanager
@@ -29,6 +34,18 @@ def authorization_session() -> Iterator[None]:
     """
     with session.scope():
         yield
+
+
+def reuse_current_rules(
+    user_access_control: UserAccessControl, user_permissions: UserPermissions | None = None
+) -> None:
+    """Let the checks in the current session read the rules and memberships that a view already loaded.
+
+    The current access rules answer every check, so the checks then skip a second load of the same
+    rules. It has no effect outside a session, or for rules that no project scopes.
+    """
+    # TODO: remove after the migration to the SDK. Only views that load UserAccessControl themselves need it.
+    legacy.reuse(user_access_control, user_permissions)
 
 
 def synchronize_organization(organization_id: UUID) -> None:

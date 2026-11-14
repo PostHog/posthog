@@ -4,6 +4,7 @@ import { IconDatabase, IconLeave, IconPeople, IconServer, IconShieldLock, IconTo
 import {
     Button,
     DropdownMenu,
+    DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
@@ -17,13 +18,18 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { newEventsTableLogic } from '~/layout/navigation/newEventsTableLogic'
+
 import { todayMenuLinkItem } from './todayMenuLinkItem'
 
-export function TodayAccountMenu(): JSX.Element {
+/** The account menu, on the rail or in the phone layout's sidebar footer. */
+export function TodayAccountMenu({ placement = 'rail' }: { placement?: 'rail' | 'phone-footer' }): JSX.Element {
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
+    const { newEventsTableAvailable, newEventsTableEnabled } = useValues(newEventsTableLogic)
+    const { setNewEventsTable } = useActions(newEventsTableLogic)
 
     return (
         <DropdownMenu open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
@@ -39,7 +45,7 @@ export function TodayAccountMenu(): JSX.Element {
                     </Button>
                 }
             />
-            <DropdownMenuContent side="right" align="end" className="w-64">
+            <DropdownMenuContent side={placement === 'phone-footer' ? 'top' : 'right'} align="end" className="w-64">
                 <DropdownMenuItem
                     render={todayMenuLinkItem(urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone'))}
                     className="h-auto"
@@ -93,6 +99,15 @@ export function TodayAccountMenu(): JSX.Element {
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
                     </>
+                )}
+                {newEventsTableAvailable && (
+                    <DropdownMenuCheckboxItem
+                        checked={newEventsTableEnabled}
+                        onCheckedChange={setNewEventsTable}
+                        data-attr="new-events-table-switch"
+                    >
+                        New events table
+                    </DropdownMenuCheckboxItem>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => logout()} data-attr="new-account-menu-logout-button">

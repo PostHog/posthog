@@ -167,6 +167,18 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         ),
     )
 
+    # Set only by PostHog staff in the admin, like `supports_step_up`. An admin who grants the
+    # scope makes PostHog trust this client's issuer to sign in members of their organization.
+    can_manage_ema_issuer: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "True if this client may request ema_issuer:manage, which registers its ID-JAG issuer as trusted "
+            "for an organization. Only grant this to clients PostHog has agreed enterprise-managed auth with. "
+            "Removing it also makes PostHog reject assertions from every issuer this client registered."
+        ),
+    )
+
     auth_brand: models.CharField = models.CharField(
         max_length=32,
         choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],
@@ -767,6 +779,8 @@ class OAuthDeviceGrant(AbstractDeviceGrant):
     # The scopes the client asked for, already clamped to the application's ceiling. The token
     # gets these, never the scopes the client sends when it polls.
     scope: models.TextField = models.TextField(null=True)
+    # The requested scopes the person can't remove at approval, such as the new scopes of a step-up.
+    required_scope: models.TextField = models.TextField(null=True, blank=True)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 

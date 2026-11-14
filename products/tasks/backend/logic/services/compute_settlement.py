@@ -3,7 +3,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from enum import StrEnum
-from typing import Any
+from typing import Any, NoReturn
 from uuid import UUID
 
 from django.conf import settings
@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.llm.gateway_internal_client import (
     AIGatewayNotConfigured,
     ReportedSpendResponse,
-    get_usage_report,
+    get_usage_report_rows,
     report_spend,
 )
 from posthog.models.project_secret_api_key import find_project_secret_api_key
@@ -76,6 +76,31 @@ ParkReason = SandboxSession.ComputeSettleParkReason
 
 class ComputeSettlementDeploymentError(Exception):
     pass
+
+
+def _reject_settle_since(raw: str, reason: str) -> NoReturn:
+    observe_compute_settlement("deployment_error")
+    logger.error("compute_settlement.invalid_settle_since", value=raw, reason=reason)
+    raise ComputeSettlementDeploymentError(f"GATEWAY_COMPUTE_SETTLE_SINCE {reason}")
+
+
+def _settle_since() -> datetime | None:
+    raw = settings.GATEWAY_COMPUTE_SETTLE_SINCE
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        _reject_settle_since(raw, "is not a valid ISO timestamp")
+    value = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    if value > timezone.now():
+        _reject_settle_since(raw, "is in the future")
+    return value
+
+
+def reconcile_window_since(since: datetime) -> datetime:
+    cutoff = _settle_since()
+    return cutoff if cutoff is not None and cutoff > since else since
 
 
 def _unsettled(queryset: QuerySet[SandboxSession]) -> QuerySet[SandboxSession]:
@@ -178,6 +203,8 @@ def wallet_team_id() -> int:
     mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
     record = find_project_secret_api_key(mint_key) if mint_key else None
     if record is None:
+        observe_compute_settlement("deployment_error")
+        logger.error("compute_settlement.wallet_unresolved")
         raise ComputeSettlementDeploymentError("SANDBOX_AI_GATEWAY_MINT_KEY does not resolve to a wallet team")
     return record.team_id
 
@@ -337,15 +364,24 @@ def settle_task_run_compute(task_run_id: UUID | str, team_id: int) -> list[Settl
         return []
     run_uuid = task_run_id if isinstance(task_run_id, UUID) else UUID(task_run_id)
     sessions = _unsettled(SandboxSession.objects.for_team(team_id).filter(task_run_id=run_uuid, ended_at__isnull=False))
+    since = _settle_since()
+    if since is not None:
+        sessions = sessions.filter(ended_at__gte=since)
     return [settle_sandbox_session(session) for session in sessions]
 
 
-def _overdue_ended(now: datetime, batch_size: int, processed: set[UUID]) -> list[SandboxSession]:
+def _overdue_ended(
+    now: datetime, batch_size: int, processed: set[UUID], since: datetime | None
+) -> list[SandboxSession]:
+    overdue = _unsettled(SandboxSession.objects.unscoped()).filter(
+        user_attributed_at__isnull=False, ended_at__lt=now - ENDED_GRACE
+    )
+    if since is not None:
+        overdue = overdue.filter(ended_at__gte=since)
     return list(
-        _unsettled(SandboxSession.objects.unscoped())
-        .filter(user_attributed_at__isnull=False, ended_at__lt=now - ENDED_GRACE)
-        .exclude(id__in=processed)
-        .order_by(F("compute_settle_attempted_at").asc(nulls_first=True), "ended_at")[:batch_size]
+        overdue.exclude(id__in=processed).order_by(F("compute_settle_attempted_at").asc(nulls_first=True), "ended_at")[
+            :batch_size
+        ]
     )
 
 
@@ -359,19 +395,20 @@ def _overdue_open_modal(now: datetime, batch_size: int, processed: set[UUID]) ->
     )
 
 
-def _push_sweep_gauges(now: datetime) -> None:
+def _push_sweep_gauges(now: datetime, since: datetime | None) -> None:
     hogland_open_over_day = (
         SandboxSession.objects.unscoped()
         .filter(sandbox_backend="hogland", ended_at__isnull=True, created_at__lt=now - HOGLAND_OPEN_ALERT_AGE)
         .count()
     )
-    unsettled_over_hour = (
-        _unsettled(SandboxSession.objects.unscoped())
-        .filter(user_attributed_at__isnull=False, ended_at__lt=now - UNSETTLED_ALERT_AGE)
-        .count()
-        if settings.GATEWAY_COMPUTE_DEBIT_ENABLED
-        else 0
-    )
+    unsettled_over_hour = 0
+    if settings.GATEWAY_COMPUTE_DEBIT_ENABLED:
+        overdue = _unsettled(SandboxSession.objects.unscoped()).filter(
+            user_attributed_at__isnull=False, ended_at__lt=now - UNSETTLED_ALERT_AGE
+        )
+        if since is not None:
+            overdue = overdue.filter(ended_at__gte=since)
+        unsettled_over_hour = overdue.count()
     parked_counts = {
         row["compute_settle_park_reason"]: row["rows"]
         for row in SandboxSession.objects.unscoped()
@@ -416,6 +453,7 @@ def _park_repeated_contract_errors(
 def settle_overdue_sandbox_compute(
     now: datetime, batch_size: int = 50, time_budget: timedelta = timedelta(minutes=15)
 ) -> list[SettlementOutcome]:
+    since: datetime | None = None
     try:
         if not settings.GATEWAY_COMPUTE_DEBIT_ENABLED:
             return []
@@ -423,8 +461,9 @@ def settle_overdue_sandbox_compute(
         results: list[tuple[SandboxSession, SettlementOutcome]] = []
         processed: set[UUID] = set()
         try:
+            since = _settle_since()
             while True:
-                batch = _overdue_ended(now, batch_size, processed)
+                batch = _overdue_ended(now, batch_size, processed, since)
                 for session in batch:
                     processed.add(session.id)
                     results.append((session, _settle_safely(session)))
@@ -445,7 +484,7 @@ def settle_overdue_sandbox_compute(
             logger.exception("compute_settlement.sweep_stopped", error=str(error))
         return [outcome for _, outcome in results]
     finally:
-        _push_sweep_gauges(now)
+        _push_sweep_gauges(now, since)
 
 
 def _settle_safely(session: SandboxSession) -> SettlementOutcome:
@@ -527,13 +566,14 @@ def _deltas(
 
 
 def reconcile_compute_settlement(since: datetime, until: datetime, wallet_team: int) -> ComputeReconciliation:
-    rows = get_usage_report(
+    rows = get_usage_report_rows(
         {
             "team_id": str(wallet_team),
             "group_by": "obo,charge_kind",
             "charge_kind": "compute",
             "from": since.isoformat(),
             "to": until.isoformat(),
+            "limit": "1000",
         }
     )
     gateway_compute = _report_column(rows, "compute_usd")

@@ -175,8 +175,13 @@ class TestTeam(BaseTest):
         assert team.primary_dashboard is not None
         self.assertEqual(team.primary_dashboard.name, "Your starter dashboard")
 
-        # Ensure insights are created and linked (8 insight tiles + 5 text tiles + 3 button tiles)
-        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 16)
+        # Ensure insights are created and linked (9 insight tiles + 5 text tiles + 3 button tiles)
+        tiles = DashboardTile.objects.filter(dashboard=team.primary_dashboard)
+        self.assertEqual(tiles.count(), 17)
+        self.assertEqual(
+            {tile.group_key for tile in tiles if tile.group_key},
+            set(team.primary_dashboard.customization["groups"]),
+        )
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):

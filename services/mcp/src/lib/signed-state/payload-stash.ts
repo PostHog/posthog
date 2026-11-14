@@ -12,11 +12,7 @@
  * `take()` doubles as the single-use guard on this path: GET-then-DEL is
  * not atomic, but only the caller whose DEL returns 1 proceeds, so two
  * concurrent executes can both read the payload while exactly one gets to
- * act on it. No separate nonce-ledger round-trip is needed.
- *
- * Requiring Redis here does not weaken the paradigm's "any server instance
- * can serve execute" property — the single-use nonce ledger already made
- * every execute depend on shared Redis.
+ * act on it.
  */
 
 import { PAYLOAD_KEY_PREFIX, PAYLOAD_QUOTA_KEY_PREFIX } from './constants'

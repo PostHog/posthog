@@ -19,7 +19,6 @@ from posthog.schema import (
     EventsQuery,
     EventsQueryResponse,
     FilterLogicalOperator,
-    HogQLQueryModifiers,
     PersonsOnEventsMode,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -29,10 +28,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.flag_evaluations import (
-    EVENTS_LIST_JOINED_FIELDS,
-    add_events_list_fields_to_flag_evaluations,
-)
+from posthog.hogql.database.schema.flag_evaluations import EVENTS_LIST_JOINED_FIELDS, join_persons_to_flag_evaluations
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
     action_to_expr,
@@ -65,8 +61,7 @@ from posthog.utils import relative_date_parse
 from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import ActionNotFound, ActionStep
 from products.event_definitions.backend.models import PropertyDefinition
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import reads_flag_calls_from_flag_evaluations
 
 logger = structlog.get_logger(__name__)
 
@@ -455,7 +450,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             return EVENTS_LIST_TABLE
         if set(self._event_names()) != {FLAG_EVALUATIONS_SOURCE_EVENT}:
             return EVENTS_LIST_TABLE
-        if get_flag_evaluations_read_mode(self.team.organization_id) == FlagEvaluationsMode.EVENTS:
+        if not reads_flag_calls_from_flag_evaluations(self.team, self.modifiers):
             return EVENTS_LIST_TABLE
         return FLAG_EVALUATIONS_LIST_TABLE
 
@@ -492,19 +487,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         modifiers = self.query.modifiers
         return modifiers is None or modifiers.personsOnEventsMode not in STORED_PERSON_PROPERTIES_MODES
 
-    def _query_modifiers(self, table: EventsListTable) -> HogQLQueryModifiers:
-        # add_events_list_fields_to_flag_evaluations makes `person` a persons join. A person filter therefore joins persons.
-        # The pushdown limits that join to the persons that the page's flag calls reach.
-        # An explicit personIdPushdown value on the team or the query still wins.
-        if self._adds_persons_join(table) and self.modifiers.personIdPushdown is None:
-            return self.modifiers.model_copy(update={"personIdPushdown": True})
-        return self.modifiers
-
     def _query_context(self, table: EventsListTable) -> HogQLContext:
         context = self.build_hogql_context()
         assert context.database is not None
         if self._adds_persons_join(table):
-            add_events_list_fields_to_flag_evaluations(context.database)
+            join_persons_to_flag_evaluations(context.database)
         return context
 
     def _filter_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:
@@ -767,13 +754,12 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         # Only this path reads flag_evaluations. Callers that run to_query() in their own context keep reading
         # events. Their select or database may need columns that flag_evaluations lacks.
         table = self._list_table
-        modifiers = self._query_modifiers(table)
         query_result = self.paginator.execute_hogql_query(
             query=self._build_query(table),
             team=self.team,
             query_type="EventsQuery",
             timings=self.timings,
-            modifiers=modifiers,
+            modifiers=self.modifiers,
             limit_context=self.limit_context,
             user=self.user,
             context=self._query_context(table),
@@ -796,7 +782,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             types=[t for _, t in query_result.types] if query_result.types else [],
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
-            modifiers=modifiers,
+            modifiers=self.modifiers,
             nextCursor=self._next_cursor(),
             **self.paginator.response_params(),
         )

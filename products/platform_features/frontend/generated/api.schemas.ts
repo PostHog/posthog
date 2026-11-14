@@ -190,6 +190,19 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly uses_most_specific_access_resolution: boolean | null
+    /**
+     * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
+     * @items.maxLength 64
+     */
+    ip_restrictions?: string[]
+    /** When False, the IP allowlist is kept but not enforced. */
+    ip_restrictions_enabled?: boolean
+    /**
+     * A warning when the current request's IP address is not in the saved allowlist.
+     * @nullable
+     */
+    readonly ip_restrictions_warning: string | null
 }
 
 export interface PaginatedOrganizationListApi {
@@ -303,6 +316,19 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly uses_most_specific_access_resolution?: boolean | null
+    /**
+     * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
+     * @items.maxLength 64
+     */
+    ip_restrictions?: string[]
+    /** When False, the IP allowlist is kept but not enforced. */
+    ip_restrictions_enabled?: boolean
+    /**
+     * A warning when the current request's IP address is not in the saved allowlist.
+     * @nullable
+     */
+    readonly ip_restrictions_warning?: string | null
 }
 
 export interface OrganizationRemoveBlockedMembersResponseApi {
@@ -743,7 +769,7 @@ export interface DiagnosticRemediationApi {
 }
 
 export interface DiagnosticCheckResultApi {
-    /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+    /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, capture_v1, cert_expiry). */
     id: string
     /** Human-readable check name. */
     name: string
@@ -1557,6 +1583,7 @@ export type ActivityLogListParams = {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -1623,6 +1650,7 @@ export type ActivityLogListParams = {
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
      * * `ReviewInstallationClaim` - ReviewInstallationClaim
+     * * `RecommendationResolution` - RecommendationResolution
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1678,6 +1706,7 @@ export const ActivityLogListScope = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    OrganizationIPRestrictions: 'OrganizationIPRestrictions',
     IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
@@ -1744,6 +1773,7 @@ export const ActivityLogListScope = {
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
     ReviewInstallationClaim: 'ReviewInstallationClaim',
+    RecommendationResolution: 'RecommendationResolution',
 } as const
 
 /**
@@ -1786,6 +1816,7 @@ export const ActivityLogListScope = {
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
  * * `OrganizationDomain` - OrganizationDomain
+ * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
  * * `IdentityProviderConfig` - IdentityProviderConfig
  * * `OrganizationMembership` - OrganizationMembership
  * * `Role` - Role
@@ -1852,6 +1883,7 @@ export const ActivityLogListScope = {
  * * `ReviewRepository` - ReviewRepository
  * * `ReviewProjectSettings` - ReviewProjectSettings
  * * `ReviewInstallationClaim` - ReviewInstallationClaim
+ * * `RecommendationResolution` - RecommendationResolution
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1895,6 +1927,7 @@ export const ActivityLogListScopesItem = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    OrganizationIPRestrictions: 'OrganizationIPRestrictions',
     IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
@@ -1961,6 +1994,7 @@ export const ActivityLogListScopesItem = {
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
     ReviewInstallationClaim: 'ReviewInstallationClaim',
+    RecommendationResolution: 'RecommendationResolution',
 } as const
 
 export type AdvancedActivityLogsListParams = {

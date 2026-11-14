@@ -1,12 +1,19 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "destination_ids": {
+            "description": "Destination IDs, from `destinations[].id`, to delete with their HogFunctions.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
         "hog_function_ids": {
             "description": "HogFunction IDs to delete as one atomic destination group.",
             "items": {
                 "type": "string"
             },
-            "minItems": 1,
             "type": "array"
         },
         "id": {
@@ -14,6 +21,6 @@
             "type": "string"
         }
     },
-    "required": ["id", "hog_function_ids"],
+    "required": ["id"],
     "type": "object"
 }

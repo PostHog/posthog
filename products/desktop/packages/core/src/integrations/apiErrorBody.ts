@@ -1,6 +1,7 @@
 export interface ApiErrorBody {
   code: string | null;
   detail: string | null;
+  error: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -13,5 +14,6 @@ export function readApiErrorBody(error: unknown): ApiErrorBody {
   return {
     code: typeof body?.code === "string" ? body.code : null,
     detail: typeof body?.detail === "string" ? body.detail : null,
+    error: typeof body?.error === "string" ? body.error : null,
   };
 }

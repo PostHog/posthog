@@ -1,9 +1,14 @@
+from posthog.test.base import BaseTest
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
+from posthog.models.team.team import Team
+
 from products.review_hog.backend.models import ReviewInstallationClaim, ReviewRepository
-from products.review_hog.backend.ownership import RepositoryRef, resolve_owner
+from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef, resolve_owner
 
 INSTALLATION = "1001"
 PROJECT_A, PROJECT_B = 11, 22
@@ -57,3 +62,21 @@ class TestResolveOwner(SimpleTestCase):
         owner = resolve_owner(WEB, rows, claim)
 
         assert (owner.team_id if owner is not None else None) == expected_team_id
+
+
+class TestInstallationIdsForAccount(BaseTest):
+    def test_finds_installations_across_projects_ignoring_case_and_other_kinds(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        for team, kind, external_id, account in [
+            (self.team, "github", "2002", "Example-Org"),
+            (other_team, "github", "1001", "example-org"),
+            (other_team, "github", "2002", "example-org"),
+            (self.team, "github", "3003", "someone-else"),
+            (self.team, "slack", "4004", "example-org"),
+        ]:
+            Integration.objects.create(
+                team=team, kind=kind, integration_id=external_id, config={"account": {"name": account}}
+            )
+
+        assert RepositoryOwnership.installation_ids_for_account("EXAMPLE-ORG") == ["1001", "2002"]
+        assert RepositoryOwnership.installation_ids_for_account("missing") == []

@@ -42,8 +42,12 @@ from products.ai_observability.backend.text_repr.formatters.trace_formatter impo
 )
 from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_RADIUS, BK_DRILLDOWN_MAX_RADIUS
 from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.posthog_ai.backend.models.assistant import AgentArtifact
+from products.product_analytics.backend.facade.api import (
+    insights_including_soft_deleted_for_team,
+    record_agent_insight_read,
+)
 from products.warehouse_sources.backend.facade.api import column_sensitivity, column_sensitivity_enabled
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -439,6 +443,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         if isinstance(result, ModelArtifactResult):
             await self.check_object_access(result.model, "viewer", action="read")
+            await database_sync_to_async(record_agent_insight_read)(
+                team=self._team, user_id=self._user.id, insight_id=result.model.id
+            )
 
         insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
 
@@ -704,28 +711,31 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
     async def _read_dashboard(self, dashboard_id: str, execute: bool) -> tuple[str, ToolMessagesArtifact | None]:
         try:
-            dashboard = (
-                await Dashboard.objects.select_related("team")
-                .prefetch_related("tiles__insight")
-                .aget(id=int(dashboard_id), team=self._team, deleted=False)
-            )
-        except (Dashboard.DoesNotExist, ValueError):
+            parsed_id = int(dashboard_id)
+        except ValueError:
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+        dashboard = await database_sync_to_async(dashboards_api.get_dashboard)(
+            team_id=self._team.id, dashboard_id=parsed_id
+        )
+        # A dashboard of the project's team would be checked against this team's rules, so it counts as missing.
+        if dashboard is None or dashboard.team_id != self._team.id:
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
-        await self.check_object_access(dashboard, "viewer", action="read")
+        await self.check_object_access(dashboard.access_ref, "viewer", action="read")
 
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
-        tiles = [
-            tile
-            async for tile in dashboard.tiles.exclude(insight__deleted=True)
-            .exclude(deleted=True)
-            .select_related("insight")
-        ]
+        tiles = await database_sync_to_async(dashboards_api.insight_tiles)(dashboard_id=dashboard.id)
+        insights_by_id = {
+            insight.id: insight
+            for insight in await database_sync_to_async(insights_including_soft_deleted_for_team)(
+                team_id=self._team.id, insight_ids=[tile.insight_id for tile in tiles]
+            )
+        }
 
         # Build DashboardInsightContext models for all tiles
         insights_data: list[DashboardInsightContext] = []
         for tile in tiles:
-            insight = tile.insight
+            insight = insights_by_id.get(tile.insight_id)
             if not insight or not insight.query:
                 continue
 

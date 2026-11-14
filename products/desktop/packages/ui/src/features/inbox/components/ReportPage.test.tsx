@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   routerNavigate: vi.fn(),
   triageOrigin: undefined as { reportId: string } | undefined,
-  triageEnabled: true,
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -30,10 +29,6 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@posthog/ui/router/routerRef", () => ({
   getRouterOrNull: () => ({ navigate: mocks.routerNavigate }),
-}));
-
-vi.mock("@posthog/ui/features/feature-flags/useTriageFocusEnabled", () => ({
-  useTriageFocusEnabled: () => mocks.triageEnabled,
 }));
 
 vi.mock("@posthog/ui/features/inbox/components/InboxReportDetailGate", () => ({
@@ -84,7 +79,6 @@ describe("ReportPage", () => {
     vi.clearAllMocks();
     mocks.source = undefined;
     mocks.triageOrigin = undefined;
-    mocks.triageEnabled = true;
     mocks.report = { id: "report-1", status: "ready" } as SignalReport;
   });
 

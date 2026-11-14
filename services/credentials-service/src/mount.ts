@@ -20,6 +20,13 @@ import type { Secret, MountedSecrets } from './types'
  */
 export const RESERVED_PREFIX = '__'
 
+/**
+ * OAuth client secrets and minter keys (for example a GitHub App private key). Reserved, so
+ * `/v1/secrets/resolve` never serves one to any caller. Only the in-process provider code reads
+ * them.
+ */
+export const PROVIDER_PREFIX = `${RESERVED_PREFIX}PROVIDER_`
+
 /** Comma-separated names of the secrets that are in recovery. */
 export const RECOVERY_KEYS = 'CREDENTIALS_RECOVERY_KEYS'
 
@@ -36,7 +43,10 @@ function commaList(value: string | undefined): string[] {
         .filter(Boolean)
 }
 
-/** Every file on the mount, by name. Kubelet's own dot-prefixed bookkeeping is skipped. */
+/**
+ * Every file on the mount, by name. Kubelet's own dot-prefixed bookkeeping is skipped.
+ * Null when the directory or any one entry cannot be read.
+ */
 export async function readMount(dir: string): Promise<Record<string, string> | null> {
     // Kubelet swaps `..data` atomically between versions. Reading through the resolved
     // target pins one version for the whole loop, so a swap mid-read cannot hand back a
@@ -67,6 +77,9 @@ export async function readMount(dir: string): Promise<Record<string, string> | n
                 key: entry,
                 error: err instanceof Error ? err.message : String(err),
             })
+            // A partial snapshot would drop every entry that failed, such as an allowlist,
+            // which would leave its deployment unrestricted.
+            return null
         }
     }
 

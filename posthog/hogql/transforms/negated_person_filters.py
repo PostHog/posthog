@@ -28,8 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import PERSONS
-from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
+from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
 from posthog.hogql.database.schema.persons import persons_join_is_inner
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.resolver_utils import get_long_table_name
@@ -153,10 +152,9 @@ def _is_string_column(column: "MaterializedColumn | None") -> bool:
 def _is_events(table_type: ast.Type | None) -> TypeGuard[ast.TableType | ast.LazyTableType | ast.TableAliasType]:
     if isinstance(table_type, ast.TableAliasType):
         table_type = table_type.table_type
-    # The union of events and flag_evaluations has the events fields, and its `person_id` is the join key.
-    return isinstance(table_type, (ast.TableType, ast.LazyTableType)) and isinstance(
-        table_type.table, (EventsTable, EventsWithFlagCallsTable)
-    )
+    # flag_evaluations and the union of events and flag_evaluations have the events fields. When `person` on one of
+    # them joins persons, the join is on `person_id`.
+    return isinstance(table_type, (ast.TableType, ast.LazyTableType)) and isinstance(table_type.table, EVENT_ROW_TABLES)
 
 
 def _exclusion(person_key: list[str | int], filters: list[ast.Expr]) -> ast.Expr:

@@ -15,6 +15,11 @@ flag for every team, and builds the agent skills bundle.
 > workspace and app once this guide is working — see
 > [slack-local-setup-guide.md](./slack-local-setup-guide.md).
 
+## Test egress identity
+
+Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for behavior and limits.
+
 ## GitHub App
 
 Each engineer needs their own GitHub App. The setup command will print these
@@ -112,7 +117,7 @@ orchestrates these activities:
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
 
-Repository clone activities allow six attempts in total. Failed git commands, including RPC errors and repository-not-found responses, retry after 1, 2, 16, 32, and 64 seconds. Explicit authentication failures stop immediately. Each attempt keeps the five-minute timeout and reuses the sandbox and credential. Activity timeouts and infrastructure exceptions use Temporal's default exponential backoff within the same six-attempt limit. The `repository_clone_failed` worker log records the run, repository, sandbox, clone mode, exit code, and whether a GitHub token was supplied. Its stdout, stderr, and execution error fields redact the supplied token and sandbox command credentials before truncation to 500 characters each; the same diagnostics are attached to the Temporal error.
+Repository clone activities allow six attempts in total. Failed git commands, including RPC errors, authentication failures, and repository-not-found responses, retry after 1, 2, 16, 32, and 64 seconds. A resolved GitHub installation marked unavailable fails immediately; clone denial alone does not establish that state. Each attempt keeps the five-minute timeout and reuses the sandbox. When an installation-backed token is denied, its cached token is evicted. Retries resolve fresh credentials even when the initial attempt had no token; public repositories can still clone anonymously. Activity timeouts and infrastructure exceptions use Temporal's default exponential backoff within the same six-attempt limit. The `repository_clone_failed` worker log records the run, repository, sandbox, clone mode, exit code, and whether a GitHub token was supplied. Its stdout, stderr, and execution error fields redact the supplied token and sandbox command credentials before truncation to 500 characters each; the same diagnostics are attached to the Temporal error.
 
 The agent's `finish` tool marks a TaskRun terminal and triggers sandbox cleanup.
 ReviewHog and scout suggestion tasks do not expose it because their callers own session completion.

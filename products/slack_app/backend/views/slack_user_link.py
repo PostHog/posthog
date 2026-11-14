@@ -41,18 +41,26 @@ from posthog.api.github_callback.redirects import PERSONAL_INTEGRATIONS_SETTINGS
 from posthog.models.integration import SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.models.user_integration import user_slack_integration_from_identity
+from posthog.models.user_integration import UserIntegration, user_slack_integration_from_identity
 from posthog.views import login_required
 
+from products.mcp_store.backend.facade.api import connect_slack_mcp_from_slack_link, slack_mcp_user_scopes
 from products.slack_app.backend.analytics import alias_slack_user, capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_link_search_scopes_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_link_search_scopes_enabled,
+    is_slack_app_oauth_enabled,
+    is_slack_app_slack_mcp_enabled,
+)
 from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
+from products.slack_app.backend.logic.onboarding.step import OnboardingContext
+from products.slack_app.backend.logic.onboarding.work_focus import start_work_focus
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
     SlackUserOAuthError,
     build_authorize_url,
     exchange_code,
+    granted_user_scopes,
 )
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
@@ -147,6 +155,10 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
             state=callback_state,
             slack_team_id=invite.slack_team_id,
             search_scopes=search_scopes,
+            # The same token then connects the person's Slack MCP, so they see one consent screen.
+            mcp_user_scopes=slack_mcp_user_scopes(invite.posthog_team_id, request.user.id)
+            if search_scopes and is_slack_app_slack_mcp_enabled(workspace_integration)
+            else (),
         )
     except SlackUserOAuthError:
         logger.exception("slack_app_user_link_authorize_misconfigured")
@@ -253,7 +265,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
             workspace_integration, "org_mismatch", slack_user_id=identity.slack_user_id, posthog_user=posthog_user
         )
 
-    user_slack_integration_from_identity(
+    link = user_slack_integration_from_identity(
         posthog_user,
         slack_user_id=identity.slack_user_id,
         slack_team_id=identity.slack_team_id,
@@ -279,8 +291,35 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         thread_ts=state.thread_ts,
     )
     request_onboarding(workspace_integration, identity.slack_user_id, may_start=False)
+    if state.search_scopes and "search:read.public" in granted_user_scopes(identity.user_scopes):
+        start_work_focus(workspace_integration, identity.slack_user_id)
+    if state.search_scopes and is_slack_app_slack_mcp_enabled(workspace_integration):
+        _connect_slack_mcp(workspace_integration, posthog_user, link, identity.slack_user_id)
 
     return _settings_redirect()
+
+
+def _connect_slack_mcp(
+    integration: WorkspaceIntegration, posthog_user: User, link: UserIntegration, slack_user_id: str
+) -> None:
+    """Never raises, so the Slack MCP never fails the account link. The person can still connect it in PostHog."""
+    # The link is an organization matter. The installation is a project write, so a member who cannot reach this
+    # project gets the link and nothing in the project.
+    if not OnboardingContext(integration=integration, slack_user_id=slack_user_id).has_project_access:
+        return
+    try:
+        connected = connect_slack_mcp_from_slack_link(integration.team_id, posthog_user, slack_link_id=str(link.id))
+    except Exception:
+        logger.warning("slack_app_user_link_slack_mcp_connect_failed", exc_info=True)
+        return
+    if connected:
+        # pinned: analytics event name, renaming breaks dashboards
+        capture_slack_event(
+            integration,
+            "slack app slack mcp connected",
+            slack_user_id=slack_user_id,
+            posthog_user=posthog_user,
+        )
 
 
 def _post_link_success_followup(

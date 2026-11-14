@@ -6,6 +6,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     QueryMatchingTest,
     _create_event,
+    _create_flag_evaluations,
     _create_person,
     create_person_id_override_by_distinct_id,
     flush_persons_and_events,
@@ -29,6 +30,8 @@ from posthog.models.person.util import create_person
 
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -41,6 +44,7 @@ INTERNAL_PERSONS = {"internal", "changed_to_internal", "merged"}
 INTERNAL_OR_EXAMPLE_PERSONS = INTERNAL_PERSONS | {"external", "changed_to_external"}
 
 PERSONS_JOIN = re.compile(r"AS \w+__person ON")
+PERSON_ID_PUSHDOWN = re.compile(r"in\(person\.id, \(SELECT", re.IGNORECASE)
 
 MATERIALIZED_PERSON_COLUMNS = {
     "person": {
@@ -73,16 +77,21 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.enterContext(materialized("person", "email"))
+        self.enterContext(
+            patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True)
+        )
         timestamp = datetime(2024, 1, 2, 12)
 
         def person(distinct_id: str, properties: dict):
             created = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties=properties)
             _create_event(event=distinct_id, distinct_id=distinct_id, team=self.team, timestamp=timestamp)
+            _create_flag_evaluations(self.team.pk, "flag", distinct_id=distinct_id, person_id=created.uuid)
             return created
 
         person("internal", {"email": "alice@internal.example"})
         person("external", {"email": "bob@example.com"})
         _create_event(event="personless", distinct_id="personless", team=self.team, timestamp=timestamp)
+        _create_flag_evaluations(self.team.pk, "flag", distinct_id="personless")
         deleted = person("deleted_internal", {"email": "dana@internal.example"})
         to_external = person("changed_to_external", {"email": "erin@internal.example"})
         to_internal = person("changed_to_internal", {"email": "frank@example.com"})
@@ -111,12 +120,16 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
             )
         create_person_id_override_by_distinct_id("merged", "internal", self.team.pk)
 
-    def _run(self, select: str, filters: list[dict], mode: PersonsOnEventsMode, rewrite: bool) -> tuple[set[str], str]:
+    def _run(
+        self, select: str, filters: list[dict], mode: PersonsOnEventsMode, rewrite: bool, pushdown: bool = False
+    ) -> tuple[set[str], str]:
         response = execute_hogql_query(
             parse_select(f"{select} WHERE {{where}}"),
             self.team,
             placeholders={"where": property_to_expr(filters, self.team)},
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=mode, negatedPersonFiltersNotIn=rewrite),
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=mode, negatedPersonFiltersNotIn=rewrite, personIdPushdown=pushdown
+            ),
         )
         assert response.clickhouse is not None
         return {row[0] for row in response.results}, response.clickhouse
@@ -147,6 +160,21 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
             ),
             param("two_filters", [INTERNAL, EXAMPLE], INTERNAL_OR_EXAMPLE_PERSONS),
             param(
+                "flag_evaluations",
+                [INTERNAL],
+                INTERNAL_PERSONS,
+                select="SELECT distinct_id FROM posthog.flag_evaluations",
+            ),
+            param(
+                "flag_evaluations_under_person_id_pushdown",
+                # The pushdown copies only WHERE terms that read flag_evaluations.
+                [INTERNAL, {"key": "$browser", "type": "event", "operator": "is_not_set"}],
+                INTERNAL_PERSONS,
+                select="SELECT distinct_id FROM posthog.flag_evaluations",
+                pushdown=True,
+            ),
+            param("dotted_events", [INTERNAL], INTERNAL_PERSONS, select="SELECT event FROM posthog.events"),
+            param(
                 "select_alias_named_person_id",
                 [INTERNAL],
                 INTERNAL_PERSONS,
@@ -169,13 +197,15 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
         excluded: set[str],
         mode: PersonsOnEventsMode = JOINED,
         select: str = "SELECT event FROM events",
+        pushdown: bool = False,
     ):
-        joined, joined_sql = self._run(select, filters, mode, rewrite=False)
-        rewritten, rewritten_sql = self._run(select, filters, mode, rewrite=True)
+        joined, joined_sql = self._run(select, filters, mode, rewrite=False, pushdown=pushdown)
+        rewritten, rewritten_sql = self._run(select, filters, mode, rewrite=True, pushdown=pushdown)
 
         assert joined == self.EVENTS - excluded
         assert rewritten == joined
         assert PERSONS_JOIN.search(joined_sql)
+        assert bool(PERSON_ID_PUSHDOWN.search(joined_sql)) == pushdown
         assert not PERSONS_JOIN.search(rewritten_sql)
         assert "where_optimization" in rewritten_sql
 
@@ -201,6 +231,7 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
         mode: PersonsOnEventsMode = JOINED,
         materialization_mode: MaterializationMode | None = None,
         team_on_context: bool = True,
+        person_id_pushdown: bool | None = None,
     ) -> str:
         context = HogQLContext(
             team_id=self.team.pk,
@@ -212,6 +243,7 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
                     personsOnEventsMode=mode,
                     materializationMode=materialization_mode,
                     negatedPersonFiltersNotIn=True,
+                    personIdPushdown=person_id_pushdown,
                 ),
             ),
         )
@@ -226,6 +258,43 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
         assert not PERSONS_JOIN.search(sql)
         assert "where_optimization" in sql
         self.assertQueryMatchesSnapshot(sql)
+
+    @parameterized.expand(
+        [
+            param("flag_evaluations", "posthog.flag_evaluations", False),
+            param("flag_evaluations_with_pushdown", "posthog.flag_evaluations", True),
+            param("events_with_pushdown", "events", True),
+            param(
+                "union_with_pushdown",
+                "events",
+                True,
+                union_filter="event IN ('$pageview', '$feature_flag_called') AND ",
+            ),
+        ]
+    )
+    def test_rewrite_on_event_row_tables(
+        self, _name: str, table: str, person_id_pushdown: bool, union_filter: str = ""
+    ):
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS},
+        )
+        with (
+            patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-union",
+            ),
+        ):
+            sql = self._print(
+                f"SELECT event FROM {table} WHERE {union_filter}{{where}}",
+                {"where": property_to_expr([INTERNAL], self.team)},
+                person_id_pushdown=person_id_pushdown,
+            )
+
+        assert not PERSONS_JOIN.search(sql)
+        assert "where_optimization" in sql
+        assert ("UNION ALL" in sql) == bool(union_filter)
 
     @parameterized.expand(
         [

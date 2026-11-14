@@ -17,6 +17,7 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
+    Skeleton,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
@@ -173,6 +174,20 @@ function FilterAllRow({
     )
 }
 
+/** Placeholder rows shaped like option rows, so the menu keeps its size while options load. */
+function FilterSkeletonRows({ count }: { count: number }): React.ReactElement {
+    return (
+        <div role="status" aria-label="Loading" className="flex flex-col gap-1 p-1">
+            {Array.from({ length: count }, (_, i) => (
+                <div key={i} className="flex h-7 items-center gap-2 px-2">
+                    <Skeleton className="size-3.5 shrink-0" />
+                    <Skeleton className="h-3 flex-1" />
+                </div>
+            ))}
+        </div>
+    )
+}
+
 function FilterOptionRows<Value extends string>({
     options,
     selected,
@@ -252,6 +267,8 @@ export function FilterCheckboxSubMenu<Value extends string>({
     )
 }
 
+const SCROLL_END_THRESHOLD_PX = 64
+
 /** A filter with several choices from a long list, such as people or tags. An empty selection means all of them. */
 export function FilterSearchSubMenu({
     label,
@@ -265,6 +282,11 @@ export function FilterSearchSubMenu({
     emptyText,
     onOpen,
     onOpened,
+    onClose,
+    onSearchChange,
+    onScrollEnd,
+    error,
+    onRetry,
     dataAttr,
     optionDataAttr,
 }: {
@@ -281,15 +303,22 @@ export function FilterSearchSubMenu({
     onOpen?: () => void
     /** Called once the open submenu has painted, with how long that took and how many options it listed. */
     onOpened?: (timing: FilterMenuOpenTiming) => void
+    onClose?: () => void
+    /** Called as the search text changes, for a caller that searches on the server instead of filtering the options it has. */
+    onSearchChange?: (search: string) => void
+    onScrollEnd?: () => void
+    error?: string
+    onRetry?: () => void
     dataAttr?: string
     optionDataAttr?: string
 }): React.ReactElement {
     // Values the options do not know yet, such as a tag from the URL before the list loads, still count as picked.
     const unknown = selected.filter((value) => !options.some((option) => option.value === value))
-    const known: FilterOption[] = [...options, ...unknown.map((value) => ({ value, label: value }))]
+    const known: FilterOption[] = [...unknown.map((value) => ({ value, label: value })), ...options]
     const picked = known.filter((option) => selected.includes(option.value))
     const handleOpenChange = (open: boolean): void => {
         if (!open) {
+            onClose?.()
             return
         }
         onOpen?.()
@@ -304,7 +333,7 @@ export function FilterSearchSubMenu({
         }
     }
     return (
-        <DropdownMenuFilterProvider autoHighlight>
+        <DropdownMenuFilterProvider autoHighlight onValueChange={onSearchChange}>
             <DropdownMenuSub onOpenChange={handleOpenChange}>
                 <FilterSubMenuRow
                     label={label}
@@ -320,8 +349,22 @@ export function FilterSearchSubMenu({
                 <DropdownMenuSubContent flush className="w-64">
                     {/* Autofocus because Base UI leaves the focus on the row when hover opens the submenu, and typing would go nowhere. */}
                     <DropdownMenuInput autoFocus placeholder={searchPlaceholder} aria-label={searchPlaceholder} />
-                    <DropdownMenuEmpty>{emptyText}</DropdownMenuEmpty>
-                    <DropdownMenuList>
+                    {!loading && !error && <DropdownMenuEmpty>{emptyText}</DropdownMenuEmpty>}
+                    <DropdownMenuList
+                        onScroll={
+                            onScrollEnd
+                                ? (event) => {
+                                      const list = event.currentTarget
+                                      if (
+                                          list.scrollHeight - list.scrollTop - list.clientHeight <
+                                          SCROLL_END_THRESHOLD_PX
+                                      ) {
+                                          onScrollEnd()
+                                      }
+                                  }
+                                : undefined
+                        }
+                    >
                         <FilterAllRow
                             label={allLabel}
                             checked={selected.length === 0}
@@ -335,7 +378,19 @@ export function FilterSearchSubMenu({
                             dataAttr={optionDataAttr}
                         />
                     </DropdownMenuList>
-                    {loading && <div className="p-2 text-xs text-muted-foreground">Loading…</div>}
+                    {error ? (
+                        <div className="flex items-center justify-between gap-2 p-2 text-xs text-muted-foreground">
+                            {error}
+                            {onRetry && (
+                                <Button size="sm" variant="outline" onClick={onRetry}>
+                                    Try again
+                                </Button>
+                            )}
+                        </div>
+                    ) : loading ? (
+                        // A full list while the first page loads; a couple of rows under the list while more load.
+                        <FilterSkeletonRows count={options.length === 0 ? 5 : 2} />
+                    ) : null}
                 </DropdownMenuSubContent>
             </DropdownMenuSub>
         </DropdownMenuFilterProvider>

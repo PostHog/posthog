@@ -319,6 +319,10 @@ class PRSnapshotArtefact(BaseModel):
     skipped_paths: list[str] = Field(
         default_factory=list, description="The changed files the review left out (lock, generated, test files)."
     )
+    devex_lens_files: list[str] = Field(
+        default_factory=list,
+        description="The changed files the devex team owns, the scope of the devex lens session. Empty on a turn without it.",
+    )
 
 
 class TurnMarkerArtefact(BaseModel):
@@ -346,6 +350,13 @@ class TurnMarkerArtefact(BaseModel):
     )
     review_design: str | None = Field(
         default=None, description="The design the turn ran on (pipeline or single_agent)."
+    )
+    clean_full_coverage: bool | None = Field(
+        default=None,
+        description=(
+            "Set when a Standard automatic turn finished: true when it kept no valid finding, read every file, "
+            "and reviewed the PR without capping the lens parts. None on every other turn."
+        ),
     )
 
 

@@ -109,7 +109,14 @@ class TestConditionChanges(TestCase):
                 ConditionsChangeShape.CONDITIONS_CHANGED,
                 0,
             ),
-            ("rollout_only", [_condition(PRO, rollout=100)], [_condition(PRO, rollout=20)], None, None),
+            (
+                "rollout_lowered",
+                [_condition(PRO, rollout=100)],
+                [_condition(PRO, rollout=20)],
+                None,
+                ConditionsChangeShape.ROLLOUT_REDUCED,
+            ),
+            ("rollout_raised", [_condition(PRO, rollout=20)], [_condition(PRO, rollout=100)], None, None),
             ("override_to_no_variant_removed", [_condition(PRO, variant="holdout")], [_condition(PRO)], None, None),
             ("description_only", [_condition(PRO)], [_condition(PRO, description="Pro users")], None, None),
             ("filters_reordered", [_condition(PRO, EU)], [_condition(EU, PRO)], None, None),
@@ -146,6 +153,21 @@ class TestConditionChanges(TestCase):
         effect = conditions_net_effect([change] if change else [], current=None)
 
         self.assertEqual(effect.shape if effect else None, expected)
+
+    def test_rollout_lowered_after_a_raise_counts_from_the_raise(self) -> None:
+        effect = conditions_net_effect(
+            [
+                _change([_condition(PRO, rollout=20)], [_condition(PRO, rollout=10)]),
+                _change([_condition(PRO, rollout=100)], [_condition(PRO, rollout=50)], minutes=17),
+            ],
+            current=None,
+        )
+
+        assert effect is not None
+        self.assertEqual(
+            [(rollout.condition_number, rollout.before, rollout.after) for rollout in effect.lowered_rollouts],
+            [(1, 100, 50)],
+        )
 
     def test_conditions_set_back_are_reverted(self) -> None:
         effect = conditions_net_effect(

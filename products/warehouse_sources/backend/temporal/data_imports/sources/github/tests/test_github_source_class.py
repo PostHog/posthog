@@ -182,6 +182,9 @@ class TestGithubSource:
             "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))",
             # A read timeout on the same call.
             "HTTPSConnectionPool(host='api.github.com', port=443): Read timed out. (read timeout=10)",
+            # An empty/non-JSON body on the same call, e.g. a GitHub-side error page or a truncated
+            # response rather than the expected token payload.
+            "Non-JSON response when refreshing installation token: ",
         ],
     )
     def test_token_mint_transport_error_is_retryable_not_non_retryable(self, observed_error):
@@ -499,6 +502,7 @@ class TestGithubSource:
         integration.access_token = "gho_token"
         with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
             mock_github_integration.return_value.access_token_expired.return_value = False
+            mock_github_integration.return_value.integration = integration
             assert self.source._get_access_token(config, self.team_id) == "gho_token"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration")
@@ -512,6 +516,7 @@ class TestGithubSource:
         integration.access_token = None
         with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
             mock_github_integration.return_value.access_token_expired.return_value = False
+            mock_github_integration.return_value.integration = integration
             with pytest.raises(ValueError, match="GitHub access token not found"):
                 self.source._get_access_token(config, self.team_id)
 
@@ -522,8 +527,9 @@ class TestGithubSource:
         [
             lambda source, config, url, team_id: source.delete_webhook(config, url, team_id),
             lambda source, config, url, team_id: source.get_external_webhook_info(config, url, team_id),
+            lambda source, config, url, team_id: source.create_webhook(config, url, team_id),
         ],
-        ids=["delete_webhook", "get_external_webhook_info"],
+        ids=["delete_webhook", "get_external_webhook_info", "create_webhook"],
     )
     def test_webhook_calls_skip_gracefully_when_integration_deleted(self, call):
         # The OAuth integration can be deleted while the source still references it (on source deletion,

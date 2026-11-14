@@ -6,6 +6,7 @@ from rest_framework.response import Response
 
 from posthog.api.snuffle_proxy import SnuffleProxyViewSet
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.clickhouse.workload import Workload
 from posthog.event_usage import get_request_analytics_properties
 from posthog.models import User
 
@@ -38,6 +39,7 @@ class PrometheusQueryViewSet(SnuffleProxyViewSet):
 
     scope_object = "metrics"
     upstream_prefix = "/api/v1"
+    workload = Workload.METRICS
     allowed_paths = (
         re.compile(r"query"),
         re.compile(r"query_range"),

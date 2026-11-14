@@ -349,6 +349,33 @@ export namespace Schemas {
         table_name: string;
         uses_history_table?: (boolean | null) | undefined;
     };
+    export type WarehouseSuggestionNoteKind = "materialize" | "unmaterialize";
+    export type WarehouseSuggestionNote = {
+        /**
+         * Whether this user can edit the view, which accepting the suggestion needs.
+         */
+        can_act: boolean;
+        /**
+         * The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`.
+         */
+        id: string;
+        /**
+         * What the suggestion proposes.
+         */
+        kind: WarehouseSuggestionNoteKind;
+        /**
+         * Plain-language note for the person, with the next step.
+         */
+        message: string;
+        /**
+         * Absolute link to the view's page in Models.
+         */
+        url: string;
+        /**
+         * The view's current name.
+         */
+        view_name: string;
+    };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
         /**
@@ -404,6 +431,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -452,6 +482,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -722,6 +755,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -2049,6 +2085,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -2314,6 +2353,7 @@ export namespace Schemas {
         color: DataColorToken | null;
         customColor: string | null;
         hidden: boolean | null;
+        label: string | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
         assignmentBy: string;
@@ -2672,6 +2712,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -2849,6 +2892,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -3045,6 +3091,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -3217,6 +3266,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -3279,6 +3331,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -3388,6 +3443,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -3623,6 +3681,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -3715,6 +3776,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -3969,6 +4033,15 @@ export namespace Schemas {
         unit: ExperimentWarehouseNativeUnitBinding;
         version?: (number | null) | undefined;
     };
+    export type ExperimentMetricValueFormatType =
+        | "currency"
+        | "duration"
+        | "duration_ms"
+        | "percentage"
+        | "percentage_scaled";
+    export type ExperimentMetricValueFormat = {
+        type: ExperimentMetricValueFormatType;
+    };
     export type ExperimentMeanMetric = {
         breakdownFilter?: (BreakdownFilter | null) | undefined;
         conversion_window?: (number | null) | undefined;
@@ -3993,6 +4066,7 @@ export namespace Schemas {
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentFunnelMetric = {
@@ -4016,6 +4090,7 @@ export namespace Schemas {
         series: Array<EventsNode | ActionsNode | ExperimentDataWarehouseNode>;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentMetricOutlierHandling = Partial<{
@@ -4054,6 +4129,7 @@ export namespace Schemas {
         response?: (Record<string, unknown> | null) | undefined;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentExposureNode = Partial<{
@@ -4090,6 +4166,33 @@ export namespace Schemas {
             | ExperimentExposureNode;
         start_handling: StartHandling;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
+        version?: (number | null) | undefined;
+    };
+    export type ExperimentQuantileMetric = {
+        breakdownFilter?: (BreakdownFilter | null) | undefined;
+        conversion_window?: (number | null) | undefined;
+        conversion_window_unit?:
+            | (FunnelConversionWindowTimeUnit | null)
+            | undefined;
+        fingerprint?: (string | null) | undefined;
+        goal?: (ExperimentMetricGoal | null) | undefined;
+        isSharedMetric?: (boolean | null) | undefined;
+        kind?: string | undefined;
+        metric_type?: string | undefined;
+        name?: (string | null) | undefined;
+        /**
+         * Quantile level, for example 0.9 for p90.
+         */
+        quantile: number;
+        response?: (Record<string, unknown> | null) | undefined;
+        sharedMetricId?: (number | null) | undefined;
+        /**
+         * Must set `math_property`, the numeric property to take the quantile of. `math` is ignored.
+         */
+        source: EventsNode | ActionsNode;
+        uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type PrecomputationMode = "precomputed" | "direct";
@@ -4112,6 +4215,7 @@ export namespace Schemas {
         key: string;
         number_of_samples: number;
         numerator_denominator_sum_product?: (number | null) | undefined;
+        quantile_grid?: (Array<number> | null) | undefined;
         step_counts?: (Array<number> | null) | undefined;
         step_sessions?: (Array<Array<SessionData>> | null) | undefined;
         sum: number;
@@ -4132,6 +4236,7 @@ export namespace Schemas {
         number_of_samples: number;
         numerator_denominator_sum_product?: (number | null) | undefined;
         p_value?: (number | null) | undefined;
+        quantile_grid?: (Array<number> | null) | undefined;
         significant?: (boolean | null) | undefined;
         step_counts?: (Array<number> | null) | undefined;
         step_sessions?: (Array<Array<SessionData>> | null) | undefined;
@@ -4153,6 +4258,7 @@ export namespace Schemas {
         method?: string | undefined;
         number_of_samples: number;
         numerator_denominator_sum_product?: (number | null) | undefined;
+        quantile_grid?: (Array<number> | null) | undefined;
         significant?: (boolean | null) | undefined;
         step_counts?: (Array<number> | null) | undefined;
         step_sessions?: (Array<Array<SessionData>> | null) | undefined;
@@ -4198,7 +4304,8 @@ export namespace Schemas {
             | ExperimentMeanMetric
             | ExperimentFunnelMetric
             | ExperimentRatioMetric
-            | ExperimentRetentionMetric;
+            | ExperimentRetentionMetric
+            | ExperimentQuantileMetric;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
         precomputation_mode?: (PrecomputationMode | null) | undefined;
@@ -4420,6 +4527,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   DataWarehouseSyncWarning | AccessControlFilterWarning
@@ -4441,6 +4551,9 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
         offset?: (number | null) | undefined;
+        /**
+         * The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response, or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit. With `sendRawQuery`, no default limit applies and `hasMore` is not set.
+         */
         query: string;
         response?: (HogQLQueryResponse | null) | undefined;
         sendRawQuery?: (boolean | null) | undefined;
@@ -5867,6 +5980,13 @@ export namespace Schemas {
          */
         updated_at: string | null;
     };
+    /**
+     * * `history_over_limit` - History over limit
+     * * `too_large_to_build` - Too large to build
+     */
+    export type CohortRealtimeUnavailableReasonEnum =
+        | "history_over_limit"
+        | "too_large_to_build";
     export type CohortRealtimeReadiness = {
         /**
          * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
@@ -5888,6 +6008,17 @@ export namespace Schemas {
          * The build preparing the cohort. Null unless the state is `building` or `rebuilding`.
          */
         build: CohortHistoryBuild | null;
+        /**
+         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+         *
+         * * `history_over_limit` - History over limit
+         * * `too_large_to_build` - Too large to build
+         */
+        reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
+        /**
+         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         */
+        history_limit_days: number | null;
     };
     export type SearchMatchTypeEnum = "exact" | "similar";
     export type Cohort = {
@@ -6788,7 +6919,7 @@ export namespace Schemas {
     };
     export type MetricsTableWidgetConfig = Partial<{
         dateRange: WidgetDateRange | null;
-        groupBy: string | null;
+        groupBy: string | Array<string> | null;
         columns: Array<MetricsTableColumn>;
         interval: ("minute" | "minute_5" | "minute_15" | "hour" | "day") | null;
         orderByColumn: number;
@@ -6863,6 +6994,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -6894,6 +7028,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -6924,6 +7061,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -6957,6 +7097,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   DataWarehouseSyncWarning | AccessControlFilterWarning
@@ -6985,6 +7128,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7020,6 +7166,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7048,6 +7197,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7074,6 +7226,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7108,6 +7263,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7146,6 +7304,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7172,6 +7333,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7202,6 +7366,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7243,6 +7410,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7268,6 +7438,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7308,6 +7481,7 @@ export namespace Schemas {
         | "stripe"
         | "intercom"
         | "email"
+        | "email_sandbox"
         | "twilio"
         | "linear"
         | "github"
@@ -7373,6 +7547,21 @@ export namespace Schemas {
         | "resolved"
         | "pending_release"
         | "suppressed";
+    export type ErrorTrackingIssueTag = {
+        /**
+         * What the tag means, for a tooltip.
+         */
+        description: string;
+        /**
+         * Key of the tag definition.
+         */
+        key: string;
+        /**
+         * Short name of the tag.
+         */
+        label: string;
+        source?: (string | null) | undefined;
+    };
     export type ErrorTrackingIssue = {
         aggregations?: (ErrorTrackingIssueAggregations | null) | undefined;
         assignee?: (ErrorTrackingIssueAssignee | null) | undefined;
@@ -7392,6 +7581,7 @@ export namespace Schemas {
         severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         source?: (string | null) | undefined;
         status: ErrorTrackingIssueStatus;
+        tags?: (Array<ErrorTrackingIssueTag> | null) | undefined;
     };
     export type Response14 = {
         columns?: (Array<string> | null) | undefined;
@@ -7410,6 +7600,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7442,6 +7635,7 @@ export namespace Schemas {
         population: Population;
         severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         status: ErrorTrackingIssueStatus;
+        tags?: (Array<ErrorTrackingIssueTag> | null) | undefined;
     };
     export type Response15 = {
         columns?: (Array<string> | null) | undefined;
@@ -7460,6 +7654,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7535,6 +7732,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7561,6 +7761,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7593,6 +7796,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7636,6 +7842,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7771,6 +7980,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7951,6 +8163,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7994,6 +8209,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8057,6 +8275,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8126,6 +8347,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8235,6 +8459,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8311,6 +8538,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8351,6 +8581,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8507,6 +8740,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8577,6 +8813,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8626,6 +8865,16 @@ export namespace Schemas {
         version?: (number | null) | undefined;
         webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
+    export type ErrorTrackingIssueTagFilter = {
+        /**
+         * True matches the issues the tag is applied to. False matches every other issue.
+         */
+        applied: boolean;
+        /**
+         * Key of the tag definition.
+         */
+        key: string;
+    };
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
@@ -8664,6 +8913,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8683,6 +8935,7 @@ export namespace Schemas {
         groupKey?: (string | null) | undefined;
         groupTypeIndex?: (number | null) | undefined;
         issueId?: (string | null) | undefined;
+        issueTag?: (ErrorTrackingIssueTagFilter | null) | undefined;
         kind?: string | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -8727,6 +8980,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8762,6 +9018,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8834,6 +9093,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8898,6 +9160,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8949,6 +9214,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -9166,6 +9434,24 @@ export namespace Schemas {
         | "medium"
         | "high"
         | "critical";
+    export type ErrorTrackingIssueTagRead = {
+        /**
+         * Key of the tag. Pass it as `issueTag.key` to filter the issue list.
+         */
+        key: string;
+        /**
+         * Short name of the tag.
+         */
+        label: string;
+        /**
+         * What the tag means, for a tooltip.
+         */
+        description: string;
+        /**
+         * The tagger that applied the tag: `jev` for AI, `manual` for a person.
+         */
+        source: string;
+    };
     /**
      * Read-only serializer for issue contract types returned by the facade.
      */
@@ -9182,6 +9468,10 @@ export namespace Schemas {
         assignee: ErrorTrackingIssueAssigneeRead | null;
         external_issues: Array<ErrorTrackingExternalReferenceResult>;
         cohort: ErrorTrackingIssueCohortRead | null;
+        /**
+         * Read-only serializer for issue contract types returned by the facade.
+         */
+        tags?: Array<ErrorTrackingIssueTagRead> | undefined;
     };
     export type ErrorTrackingIssueRedirectResponse = {
         /**
@@ -9933,7 +10223,8 @@ export namespace Schemas {
         | ExperimentMeanMetric
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
-        | ExperimentRetentionMetric;
+        | ExperimentRetentionMetric
+        | ExperimentQuantileMetric;
     /**
      * A shared metric's link to one experiment, as the experiment API returns it.
      */
@@ -10047,7 +10338,8 @@ export namespace Schemas {
         | "funnel"
         | "mean"
         | "ratio"
-        | "retention";
+        | "retention"
+        | "quantile";
     export type Kind3 = "EventsNode" | "ActionsNode" | "ExperimentExposureNode";
     export type ExperimentApiRetentionStart = {
         event?: (string | null) | undefined;
@@ -10088,6 +10380,7 @@ export namespace Schemas {
         numerator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
+        quantile?: (number | null) | undefined;
         retention_window_end?: (number | null) | undefined;
         retention_window_start?: (number | null) | undefined;
         retention_window_unit?:
@@ -10100,6 +10393,7 @@ export namespace Schemas {
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
     };
     /**
      * List wrapper for OpenAPI schema generation — the field stores an array of metrics.
@@ -10128,6 +10422,7 @@ export namespace Schemas {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -10137,6 +10432,7 @@ export namespace Schemas {
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
      * * `flag_shared` - Flag Shared
+     * * `stale_experiment` - Stale Experiment
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -10155,6 +10451,7 @@ export namespace Schemas {
         | "srm"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
@@ -10163,7 +10460,8 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "early_significance"
         | "metrics_not_matured"
-        | "flag_shared";
+        | "flag_shared"
+        | "stale_experiment";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10182,6 +10480,9 @@ export namespace Schemas {
      * * `add_secondary_metric` - Add Secondary Metric
      * * `edit_exposure_criteria` - Edit Exposure Criteria
      * * `edit_release_conditions` - Edit Release Conditions
+     * * `end_experiment` - End Experiment
+     * * `freeze_exposure` - Freeze Exposure
+     * * `move_start_date` - Move Start Date
      */
     export type ExperimentHealthFindingActionKindEnum =
         | "open_feature_flag"
@@ -10191,7 +10492,10 @@ export namespace Schemas {
         | "add_primary_metric"
         | "add_secondary_metric"
         | "edit_exposure_criteria"
-        | "edit_release_conditions";
+        | "edit_release_conditions"
+        | "end_experiment"
+        | "freeze_exposure"
+        | "move_start_date";
     /**
      * * `flag_state` - Flag State
      * * `flag_shared` - Flag Shared
@@ -10211,9 +10515,11 @@ export namespace Schemas {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      */
@@ -10236,9 +10542,11 @@ export namespace Schemas {
         | "exposure_filters"
         | "early_significance"
         | "metrics_not_matured"
+        | "stale_experiment"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
         | "srm"
+        | "unserved_variant_exposures"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share";
     export type ExperimentHealthFinding = {
@@ -10261,6 +10569,7 @@ export namespace Schemas {
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
@@ -10270,6 +10579,7 @@ export namespace Schemas {
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
          * * `flag_shared` - Flag Shared
+         * * `stale_experiment` - Stale Experiment
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10329,9 +10639,11 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
          */
@@ -10358,6 +10670,8 @@ export namespace Schemas {
      * * `since_launch_hours` - Hours since launch
      * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
      * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+     * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
      * * `primary_metric_count` - Primary metrics that the calculation computes
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -10369,6 +10683,40 @@ export namespace Schemas {
      * * `flag_deleted` - Whether the feature flag is deleted
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
      * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+     * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+     * * `before` - What a change of the feature flag changed, as it was before the change, in words
+     * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `event` - The name of an event that the check looked up
+     * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+     * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+     * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+     * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+     * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+     * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+     * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
      */
     export type ExperimentHealthValueKeyEnum =
         | "exposed_count"
@@ -10380,6 +10728,8 @@ export namespace Schemas {
         | "since_launch_hours"
         | "exposed_without_test_account_filter_count"
         | "kept_by_test_account_filter_percentage"
+        | "unserved_exposed_count"
+        | "unserved_exposed_percentage"
         | "only_count_matured_users"
         | "primary_metric_count"
         | "waiting_metric_count"
@@ -10390,7 +10740,41 @@ export namespace Schemas {
         | "flag_active"
         | "flag_deleted"
         | "flag_rolled_out"
-        | "shipped_variant";
+        | "shipped_variant"
+        | "flag_last_called_at"
+        | "since_start_hours"
+        | "daily_calculation_ends_at"
+        | "metric_name"
+        | "metric_role"
+        | "ratio_side"
+        | "sample_count"
+        | "planned_sample_count"
+        | "data_hours"
+        | "variant"
+        | "difference_percentage"
+        | "detectable_difference_percentage"
+        | "significant"
+        | "forced_condition_count"
+        | "matched_count"
+        | "variant_matched_count"
+        | "forced_count"
+        | "forced_percentage"
+        | "traffic_since_at"
+        | "changed_at"
+        | "before_exposure"
+        | "changed_setting"
+        | "before"
+        | "after"
+        | "flag_service_call_percentage"
+        | "event"
+        | "event_received"
+        | "invalid_metric_count"
+        | "unchecked_metric_count"
+        | "flag_split"
+        | "baseline_variant"
+        | "other_running_experiment_count"
+        | "assigned_outside_count"
+        | "other_draft_experiment_count";
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
@@ -10413,6 +10797,8 @@ export namespace Schemas {
          * * `since_launch_hours` - Hours since launch
          * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
          * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+         * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+         * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
          * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
          * * `primary_metric_count` - Primary metrics that the calculation computes
          * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -10424,6 +10810,40 @@ export namespace Schemas {
          * * `flag_deleted` - Whether the feature flag is deleted
          * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
          * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+         * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+         * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+         * * `metric_name` - The name of a metric
+         * * `metric_role` - Whether a metric is primary or secondary
+         * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+         * * `sample_count` - Users or groups in a metric's results, across the variants
+         * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+         * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+         * * `variant` - The key of a variant
+         * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+         * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+         * * `significant` - Whether a variant's difference from the control is significant
+         * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+         * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+         * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+         * * `forced_count` - Users or groups that a release condition with a variant override served
+         * * `forced_percentage` - forced_count as a share of variant_matched_count
+         * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `changed_at` - When a change of the feature flag was saved
+         * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+         * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+         * * `before` - What a change of the feature flag changed, as it was before the change, in words
+         * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+         * * `event` - The name of an event that the check looked up
+         * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+         * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+         * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+         * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+         * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+         * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+         * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+         * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -10444,6 +10864,8 @@ export namespace Schemas {
          * * `since_launch_hours` - Hours since launch
          * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
          * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+         * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+         * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
          * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
          * * `primary_metric_count` - Primary metrics that the calculation computes
          * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -10455,6 +10877,40 @@ export namespace Schemas {
          * * `flag_deleted` - Whether the feature flag is deleted
          * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
          * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+         * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+         * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+         * * `metric_name` - The name of a metric
+         * * `metric_role` - Whether a metric is primary or secondary
+         * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+         * * `sample_count` - Users or groups in a metric's results, across the variants
+         * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+         * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+         * * `variant` - The key of a variant
+         * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+         * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+         * * `significant` - Whether a variant's difference from the control is significant
+         * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+         * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+         * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+         * * `forced_count` - Users or groups that a release condition with a variant override served
+         * * `forced_percentage` - forced_count as a share of variant_matched_count
+         * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `changed_at` - When a change of the feature flag was saved
+         * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+         * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+         * * `before` - What a change of the feature flag changed, as it was before the change, in words
+         * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+         * * `event` - The name of an event that the check looked up
+         * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+         * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+         * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+         * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+         * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+         * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+         * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+         * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -10501,9 +10957,11 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
          */
@@ -10537,6 +10995,61 @@ export namespace Schemas {
          * How the check decides. The same for every experiment and every status. Null for a check without a numeric rule.
          */
         rule: ExperimentHealthCheckRule | null;
+        /**
+         * What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list.
+         */
+        rows: Array<Record<string, string | number | boolean | null>>;
+    };
+    export type ExperimentHealthReleaseCondition = {
+        /**
+         * The share of the users matching the condition set's filters who get the flag, from 0 to 100.
+         */
+        rollout_percentage: number;
+        /**
+         * The number of filters a user must match, such as properties and cohorts. 0 matches all users.
+         */
+        property_count: number;
+        /**
+         * The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when it assigns them by user.
+         */
+        aggregation_group_type_index: number | null;
+    };
+    export type ExperimentHealthSetup = {
+        /**
+         * The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`.
+         */
+        release_conditions: Array<ExperimentHealthReleaseCondition>;
+        /**
+         * Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the user out. Otherwise such a user goes on to the next set.
+         */
+        early_exit: boolean;
+        /**
+         * The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.
+         *
+         * * `distinct_id` - User ID (default)
+         * * `device_id` - Device ID
+         */
+        bucketing_identifier: BucketingIdentifierEnum;
+        /**
+         * The flag's own group type, which the exposure counts and the results use. A condition set can override it. Null for users.
+         */
+        aggregation_group_type_index: number | null;
+        /**
+         * The flag's `evaluation_runtime`. Null on the flag reads as all.
+         *
+         * * `server` - Server
+         * * `client` - Client
+         * * `all` - All
+         */
+        evaluation_runtime: EvaluationRuntimeEnum;
+        /**
+         * The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag has none.
+         */
+        evaluation_contexts: Array<string>;
+        /**
+         * The flag's 'Persist flag across authentication steps' setting.
+         */
+        ensure_experience_continuity: boolean;
     };
     export type ExperimentHealth = {
         /**
@@ -10547,6 +11060,7 @@ export namespace Schemas {
          * The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`.
          */
         checks: Array<ExperimentHealthCheckResult>;
+        setup?: (ExperimentHealthSetup | null) | undefined;
     };
     /**
      * Full experiment representation for the detail, create, and update endpoints.
@@ -10594,6 +11108,15 @@ export namespace Schemas {
          */
         feature_flag_key: string;
         feature_flag: MinimalFeatureFlag & unknown;
+        /**
+         * Full experiment representation for the detail, create, and update endpoints.
+         *
+         * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+         * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+         * fields, and refreshes stale action names while serializing. The list endpoint uses the
+         * leaner ``ExperimentBasicSerializer`` instead.
+         */
+        feature_flag_rule_id?: (string | null) | undefined;
         holdout: ExperimentHoldout & unknown;
         /**
          * Full experiment representation for the detail, create, and update endpoints.
@@ -10879,7 +11402,8 @@ export namespace Schemas {
         | "srm"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
-        | "test_account_filter_removes_exposures";
+        | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures";
     export type ExperimentExposureHealthValueKey =
         | "exposed_count"
         | "compared_count"
@@ -10889,7 +11413,9 @@ export namespace Schemas {
         | "p_value"
         | "since_launch_hours"
         | "exposed_without_test_account_filter_count"
-        | "kept_by_test_account_filter_percentage";
+        | "kept_by_test_account_filter_percentage"
+        | "unserved_exposed_count"
+        | "unserved_exposed_percentage";
     export type ExperimentExposureHealthRuleMinimum = {
         /**
          * The value that the key must reach. Below it, the check reports no finding.
@@ -10955,13 +11481,15 @@ export namespace Schemas {
         | "open_feature_flag"
         | "edit_exposure_criteria"
         | "adjust_distribution"
-        | "use_first_seen_variant";
+        | "use_first_seen_variant"
+        | "move_start_date";
     export type ExperimentExposureHealthFindingCode =
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
-        | "test_account_filter_removes_exposures";
+        | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
@@ -11017,6 +11545,7 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponse = {
         bias_risk?: (BiasRisk | null) | undefined;
         date_range: DateRange;
+        exposed_by_library?: (Record<string, number> | null) | undefined;
         health_checks?:
             | (Array<ExperimentExposureHealthCheck> | null)
             | undefined;
@@ -11114,6 +11643,10 @@ export namespace Schemas {
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
          */
         feature_flag?: ExperimentFeatureFlagInput | undefined;
+        /**
+         * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
+         */
+        feature_flag_rule_id?: (string | null) | undefined;
         holdout: ExperimentHoldout & unknown;
         /**
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
@@ -11292,7 +11825,6 @@ export namespace Schemas {
         | "objectid"
         | "xid";
     /**
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -11303,8 +11835,7 @@ export namespace Schemas {
      * * `7day` - 7day
      * * `30day` - 30day
      */
-    export type ExternalDataSchemaSyncFrequencyEnum =
-        | "never"
+    export type SettableSyncFrequencyEnum =
         | "5min"
         | "15min"
         | "30min"
@@ -11351,6 +11882,14 @@ export namespace Schemas {
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         should_sync?: boolean | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        live_query_enabled?: boolean | undefined;
+        /**
+         * Why this table can't be made queryable live without syncing it, or null when it can.
+         */
+        live_query_unavailable_reason: string | null;
         last_synced_at: string | null;
         /**
          * The latest error that occurred when syncing this schema.
@@ -11383,9 +11922,7 @@ export namespace Schemas {
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
-        sync_frequency?:
-            | (ExternalDataSchemaSyncFrequencyEnum | NullEnum)
-            | undefined;
+        sync_frequency?: (SettableSyncFrequencyEnum | NullEnum) | undefined;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
@@ -11411,6 +11948,10 @@ export namespace Schemas {
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        copy_access_rules_to_history?: boolean | undefined;
         /**
          * Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
          *
@@ -11488,7 +12029,7 @@ export namespace Schemas {
          */
         drop_history_table?: boolean | undefined;
         /**
-         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table` to stop writing history, a name means the history table was kept, for example because a sync started meanwhile. An update that adds a mask with `drop_history_table` keeps the table and its access rules, and deletes only its contents.
          */
         registered_history_table_name: string | null;
         /**
@@ -11498,6 +12039,7 @@ export namespace Schemas {
             id: string;
             source_type: string;
             access_method: string;
+            direct_query_enabled: boolean;
             supports_column_selection: boolean;
             supports_row_filters: boolean;
             requires_exact_column_metadata: boolean;
@@ -11530,6 +12072,7 @@ export namespace Schemas {
          */
         id: string;
         should_sync?: boolean | undefined;
+        live_query_enabled?: boolean | undefined;
         sync_type?: (ExternalDataSchemaSyncTypeEnum | NullEnum) | undefined;
         incremental_field?: (string | null) | undefined;
         incremental_field_type?: (string | null) | undefined;
@@ -11607,10 +12150,66 @@ export namespace Schemas {
         | "mcp"
         | "wizard"
         | "self_driving";
+    /**
+     * * `unresolved_secret_ref` - Unresolved secret reference
+     * * `credential_not_found` - Stored credential not found
+     * * `credential_expired` - Stored credential expired
+     * * `credential_source_type_mismatch` - Stored credential is for another source type
+     * * `reserved_name` - Reserved source name
+     * * `direct_query_unsupported` - Direct query not supported for this source type
+     * * `direct_query_name_required` - Direct query sources need a name
+     * * `duplicate_source` - A source of this type already exists without a prefix
+     * * `duplicate_prefix` - Prefix already used by another source of this type
+     * * `billing_limit_reached` - Monthly sync limit reached
+     * * `max_instances_reached` - Too many sources of this type
+     * * `source_unavailable` - Source cannot be set up this way
+     * * `invalid_config` - Invalid source config
+     * * `credential_validation_failed` - Credential validation failed
+     * * `schema_discovery_failed` - Table discovery failed
+     * * `no_tables_found` - No tables found
+     * * `cdc_unsupported_source_type` - Source type does not support CDC
+     * * `invalid_cdc_management_mode` - Invalid CDC management mode
+     * * `host_not_allowed` - Host not allowed
+     * * `connection_failed` - Connection failed
+     */
+    export type SourceSetupErrorCodeEnum =
+        | "unresolved_secret_ref"
+        | "credential_not_found"
+        | "credential_expired"
+        | "credential_source_type_mismatch"
+        | "reserved_name"
+        | "direct_query_unsupported"
+        | "direct_query_name_required"
+        | "duplicate_source"
+        | "duplicate_prefix"
+        | "billing_limit_reached"
+        | "max_instances_reached"
+        | "source_unavailable"
+        | "invalid_config"
+        | "credential_validation_failed"
+        | "schema_discovery_failed"
+        | "no_tables_found"
+        | "cdc_unsupported_source_type"
+        | "invalid_cdc_management_mode"
+        | "host_not_allowed"
+        | "connection_failed";
+    export type ExternalDataSourceErrorResponse = {
+        /**
+         * Human-readable explanation of why the request failed and what to do next.
+         */
+        message: string;
+        code?: SourceSetupErrorCodeEnum | undefined;
+    };
     export type ExternalDataSourceRevenueAnalyticsConfig = Partial<{
         enabled: boolean;
         include_invoiceless_charges: boolean;
     }>;
+    export type SourceUpdatePayload = {
+        /**
+         * Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds.
+         */
+        credential_id: string;
+    };
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -11701,6 +12300,10 @@ export namespace Schemas {
          * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
          */
         connection_warning: string | null;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        payload?: (SourceUpdatePayload & unknown) | undefined;
     };
     export type FeatureFlagExperimentSetMetadata = {
         /**
@@ -11920,6 +12523,38 @@ export namespace Schemas {
         rollout: FeatureFlagRolloutSummary;
     };
     export type FlagEvaluationsModeEnum = 0 | 1 | 2;
+    export type GitLabProject = {
+        /**
+         * GitLab numeric project ID.
+         */
+        id: number;
+        /**
+         * Full project path, including nested groups, such as `acme/platform/api`. Use it as a task repository.
+         */
+        path_with_namespace: string;
+        /**
+         * Project page on GitLab.
+         */
+        web_url: string;
+        /**
+         * Default branch of the project. Null for a project without commits.
+         */
+        default_branch: string | null;
+    };
+    export type GitLabProjectsResponse = {
+        /**
+         * The connected project, when the token has the Developer role or higher on it. Empty when it does not, or when it does not match the search.
+         */
+        projects: Array<GitLabProject>;
+        /**
+         * Token scopes that coding tasks need and the token does not have. Empty when the token has them, or when GitLab does not report the token's scopes.
+         */
+        missing_scopes: Array<string>;
+        /**
+         * Date when the token expires. Null when it does not expire or GitLab does not report it.
+         */
+        token_expires_at: string | null;
+    };
     /**
      * * `draft` - Draft
      * * `active` - Active
@@ -12041,6 +12676,7 @@ export namespace Schemas {
      * * `conditional_branch` - conditional_branch
      * * `random_cohort_branch` - random_cohort_branch
      * * `exit` - exit
+     * * `email_sandbox` - email_sandbox
      */
     export type HogFlowActionTypeEnum =
         | "trigger"
@@ -12053,7 +12689,8 @@ export namespace Schemas {
         | "wait_until_time_window"
         | "conditional_branch"
         | "random_cohort_branch"
-        | "exit";
+        | "exit"
+        | "email_sandbox";
     export type HogFlowAction = {
         /**
          * Unique node ID within the workflow.
@@ -12069,7 +12706,7 @@ export namespace Schemas {
         updated_at?: number | undefined;
         filters?: (HogFunctionFilters | null) | undefined;
         /**
-         * One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.
+         * One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit | email_sandbox.
          *
          * * `trigger` - trigger
          * * `function` - function
@@ -12082,10 +12719,11 @@ export namespace Schemas {
          * * `conditional_branch` - conditional_branch
          * * `random_cohort_branch` - random_cohort_branch
          * * `exit` - exit
+         * * `email_sandbox` - email_sandbox
          */
         type: HogFlowActionTypeEnum;
         /**
-         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
          */
         config:
             | Record<string, unknown>
@@ -13294,13 +13932,15 @@ export namespace Schemas {
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
      * * `connector` - Signed up through an OAuth connector
+     * * `device_login` - Signed up through an OAuth device login
      */
     export type OnboardingSkippedReasonEnum =
         | "delegated"
         | "later"
         | "other"
         | "provisioned"
-        | "connector";
+        | "connector"
+        | "device_login";
     /**
      * * `1` - member
      * * `8` - administrator
@@ -14614,6 +15254,12 @@ export namespace Schemas {
          * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
          */
         uses_most_specific_access_resolution: boolean | null;
+        ip_restrictions?: Array<string> | undefined;
+        ip_restrictions_enabled?: boolean | undefined;
+        /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         */
+        ip_restrictions_warning: string | null;
     };
     /**
      * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
@@ -15081,6 +15727,49 @@ export namespace Schemas {
         | "posthog_mobile"
         | "posthog_web";
     /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack
+     */
+    export type TaskClientEnum =
+        | "posthog_desktop"
+        | "posthog_mobile"
+        | "posthog_web"
+        | "slack";
+    /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done
+     */
+    export type TaskStatusEnum = "queued" | "running" | "idle" | "done";
+    /**
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled
+     */
+    export type TaskStatusReasonEnum =
+        | "turn_closed"
+        | "user_stopped"
+        | "provision_failed"
+        | "unexpected_failure"
+        | "timed_out"
+        | "budget_spent"
+        | "credit_spent"
+        | "access_changed"
+        | "finished"
+        | "closed"
+        | "cancelled";
+    /**
      * Detail response for a task.
      *
      * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
@@ -15177,6 +15866,54 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        repository_integration?: (number | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status?: (TaskStatusEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status_reason?: (TaskStatusReasonEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status_detail?: (string | null) | undefined;
     };
     /**
      * Basic list response for a task, returned when the list is asked for ``basic=true``.
@@ -15302,6 +16039,72 @@ export namespace Schemas {
          */
         client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
         /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        last_client_at?: (string | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        repository_integration?: (number | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        status?: (TaskStatusEnum | NullEnum) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        status_reason?: (TaskStatusReasonEnum | NullEnum) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        status_detail?: (string | null) | undefined;
+        /**
          * First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text.
          */
         description_preview: string;
@@ -15403,6 +16206,14 @@ export namespace Schemas {
          * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
          */
         latest_run?: (TaskRunSummary | null) | undefined;
+        /**
+         * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
+         */
+        status?: (TaskStatusEnum | NullEnum) | undefined;
+        /**
+         * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
+         */
+        status_reason?: (TaskStatusReasonEnum | NullEnum) | undefined;
     };
     export type PaginatedTaskSummaryDTOList = {
         count: number;
@@ -15668,6 +16479,7 @@ export namespace Schemas {
         end_date: string | null;
         feature_flag_key: string;
         feature_flag: ExperimentFeatureFlagInput;
+        feature_flag_rule_id: string | null;
         holdout: ExperimentHoldout & unknown;
         holdout_id: number | null;
         exposure_cohort: number | null;
@@ -15742,6 +16554,7 @@ export namespace Schemas {
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
         connection_warning: string | null;
+        payload: SourceUpdatePayload & unknown;
     }>;
     /**
      * * `errors` - Errors or bugs
@@ -16099,6 +16912,7 @@ export namespace Schemas {
         responses_limit: number | null;
         iteration_count: number | null;
         iteration_frequency_days: number | null;
+        repeat_until_stopped: boolean | null;
         iteration_start_dates: Array<string | null> | null;
         current_iteration: number | null;
         current_iteration_start_date: string | null;
@@ -16229,6 +17043,7 @@ export namespace Schemas {
         repository: string | null;
         repositories: Array<string>;
         github_integration: number | null;
+        repository_integration: number | null;
         github_user_integration: string | null;
         signal_report: string | null;
         signal_report_task_relationship: string;
@@ -17290,6 +18105,10 @@ export namespace Schemas {
         /**
          * Mixin for serializers to add user access control fields
          */
+        repeat_until_stopped?: (boolean | null) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         /**
          * Mixin for serializers to add user access control fields
@@ -17597,6 +18416,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -17650,6 +18470,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -17728,6 +18549,7 @@ export namespace Schemas {
         repository: string | null;
         repositories: Array<string>;
         github_integration: number | null;
+        repository_integration: number | null;
         github_user_integration: string | null;
         signal_report: string | null;
         signal_report_task_relationship: string;
@@ -17746,6 +18568,8 @@ export namespace Schemas {
         auto_publish: boolean | null;
         channel: string | null;
         scheduled_at: string | null;
+        warm_submission_id: string | null;
+        warm_run_id: string | null;
         start_run: boolean;
         signal_report_discussion_question: string;
         naming_source: string;
@@ -17861,6 +18685,54 @@ export namespace Schemas {
          * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        repository_integration?: (number | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status?: (TaskStatusEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status_reason?: (TaskStatusReasonEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        status_detail?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
         run_error?: string | undefined;
     };
     export type TaskReviewFile = {
@@ -17949,6 +18821,7 @@ export namespace Schemas {
         | CodexTaskRunCreateSchema
         | TaskRunResumeRequestSchema;
     export type TaskRunErrorResponse = Partial<{
+        id: unknown;
         detail: string;
         error: string;
         type: string;
@@ -18055,6 +18928,48 @@ export namespace Schemas {
          * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
          * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        last_client_at?: (string | null) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        repository_integration?: (number | null) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        status?: (TaskStatusEnum | NullEnum) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        status_reason?: (TaskStatusReasonEnum | NullEnum) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        status_detail?: (string | null) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
         run_error?: string | undefined;
         /**
          * The task ``run`` action's response: the refreshed task detail plus the run this call made.
@@ -18078,6 +18993,7 @@ export namespace Schemas {
         repository: string | null;
         repositories: Array<string>;
         github_integration: number | null;
+        repository_integration: number | null;
         github_user_integration: string | null;
         signal_report: string | null;
         signal_report_task_relationship: string;
@@ -18196,6 +19112,14 @@ export namespace Schemas {
         github_issue_number: number | null;
         zendesk_ticket_id: number | null;
         /**
+         * Intercom conversation id when the ticket was imported from Intercom. Null otherwise.
+         */
+        intercom_conversation_id: string | null;
+        /**
+         * Pylon issue id when the ticket was imported from Pylon. Null otherwise.
+         */
+        pylon_issue_id: string | null;
+        /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          */
         organization_id: string | null;
@@ -18232,6 +19156,23 @@ export namespace Schemas {
          * The user's resolved GitHub login, or null when no GitHub identity is linked.
          */
         github_login: string | null;
+    };
+    /**
+     * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+     */
+    export type WarmTaskResponse = {
+        /**
+         * Id of the draft Task birthed for the warm Run.
+         */
+        task_id: string;
+        /**
+         * Id of the idling warm Run. The normal create+run path reuses and activates it on submit.
+         */
+        run_id: string;
+        /**
+         * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+         */
+        permission_mode_mutable?: boolean | undefined;
     };
     export type _DateRange = Partial<{
         date_from: string | null;
@@ -18771,7 +19712,13 @@ export namespace Endpoints {
         path: "/api/projects/{project_id}/external_data_sources/";
         requestFormat: "json";
         parameters: {
-            query: Partial<{ limit: number; offset: number; search: string }>;
+            query: Partial<{
+                compact: boolean;
+                include_schemas: boolean;
+                limit: number;
+                offset: number;
+                search: string;
+            }>;
             path: { project_id: string };
         };
         responses: { 200: Schemas.PaginatedExternalDataSourceSerializersList };
@@ -18788,7 +19735,10 @@ export namespace Endpoints {
 
             body: Schemas.ExternalDataSourceCreate;
         };
-        responses: { 201: Schemas.ExternalDataSourceCreateResponse };
+        responses: {
+            201: Schemas.ExternalDataSourceCreateResponse;
+            400: Schemas.ExternalDataSourceErrorResponse;
+        };
     };
     /**
      * Create, Read, Update and Delete External data Sources.
@@ -18798,6 +19748,7 @@ export namespace Endpoints {
         path: "/api/projects/{project_id}/external_data_sources/{id}/";
         requestFormat: "json";
         parameters: {
+            query: Partial<{ compact: boolean; include_schemas: boolean }>;
             path: { id: string; project_id: string };
         };
         responses: { 200: Schemas.ExternalDataSourceSerializers };
@@ -18877,6 +19828,7 @@ export namespace Endpoints {
                 excluded_properties: string;
                 excluded_tags: string;
                 has_evaluation_contexts: "false" | "true";
+                ids: string;
                 key: string;
                 limit: number;
                 offset: number;
@@ -19061,12 +20013,13 @@ export namespace Endpoints {
         responses: { 204: unknown };
     };
     /**
-     * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+     * Run a workflow with a `schedule` or `manual` trigger now, once.
      *
-     * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
-     * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
-     * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
-     * the scheduler itself applies in `internal_process_due_schedules`.
+     * A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+     * workflow runs for the calling user, as the trigger button in the editor does. Other
+     * triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+     * trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+     * active, same gate the scheduler itself applies in `internal_process_due_schedules`.
      *
      * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
      * after a timed-out request): a repeat with the same key returns the first call's result
@@ -19207,6 +20160,16 @@ export namespace Endpoints {
             path: { id: number; project_id: string };
         };
         responses: { 204: unknown };
+    };
+    export type get_Integrations_gitlab_projects_retrieve = {
+        method: "GET";
+        path: "/api/projects/{project_id}/integrations/{id}/gitlab_projects/";
+        requestFormat: "json";
+        parameters: {
+            query: Partial<{ search: string }>;
+            path: { id: number; project_id: string };
+        };
+        responses: { 200: Schemas.GitLabProjectsResponse };
     };
     /**
      * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
@@ -19536,6 +20499,7 @@ export namespace Endpoints {
                     | "completed"
                     | "failed"
                     | "cancelled";
+                task_status: "queued" | "running" | "idle" | "done";
             }>;
             path: { project_id: string };
         };
@@ -19652,6 +20616,7 @@ export namespace Endpoints {
             402: Schemas.TaskRunErrorResponse;
             403: Schemas.TaskRunErrorResponse;
             404: unknown;
+            409: Schemas.TaskRunErrorResponse;
             429: Schemas.TaskRunErrorResponse;
             503: Schemas.TaskRunErrorResponse;
         };
@@ -19803,6 +20768,7 @@ export type EndpointByMethod = {
         "/api/projects/{project_id}/hog_flows/{id}/schedules/": Endpoints.get_Hog_flows_schedules_list;
         "/api/projects/{project_id}/insights/{id}/": Endpoints.get_Insights_retrieve;
         "/api/projects/{project_id}/integrations/{id}/": Endpoints.get_Integrations_retrieve;
+        "/api/projects/{project_id}/integrations/{id}/gitlab_projects/": Endpoints.get_Integrations_gitlab_projects_retrieve;
         "/api/projects/{project_id}/persons/": Endpoints.get_Persons_list;
         "/api/projects/{project_id}/persons/{id}/": Endpoints.get_Persons_retrieve;
         "/api/projects/{project_id}/session_recordings/{id}/": Endpoints.get_Session_recordings_retrieve;

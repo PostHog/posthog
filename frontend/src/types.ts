@@ -113,6 +113,7 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
+    ExternalDataSchemaApi,
     ExternalDataSchemaApiAvailableColumnsItem,
     ExternalDataSchemaApiAvailableColumnsItemSensitivity,
     IncrementalSyncBlockedReasonEnumApi,
@@ -255,9 +256,12 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    IP_RESTRICTIONS = 'ip_restrictions',
     MEMBER_GOVERNANCE = 'member_governance',
     SSF = 'ssf',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
+    SELF_DRIVING_TRIAL_ALLOWANCE_MICROUSD = 'self_driving_trial_allowance_microusd',
+    SELF_DRIVING_TRIAL_REPORTS = 'self_driving_trial_reports',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -398,7 +402,14 @@ export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 // Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
 // hard dependency on generated types; when adopting generated `UserApi`, switch to
 // `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
-export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | 'connector' | null
+export type OnboardingSkippedReason =
+    | 'delegated'
+    | 'later'
+    | 'other'
+    | 'provisioned'
+    | 'connector'
+    | 'device_login'
+    | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -649,6 +660,9 @@ export interface OrganizationType extends OrganizationBasicType {
     read_only_mcp_access?: boolean
     member_notice?: OrganizationMemberNoticeApi | null
     allow_publicly_shared_resources: boolean
+    ip_restrictions?: string[]
+    ip_restrictions_enabled?: boolean
+    ip_restrictions_warning?: string | null
     metadata?: OrganizationMetadata
     member_count: number
     default_anonymize_ips?: boolean
@@ -4063,16 +4077,6 @@ export type ProductTourType = 'tour' | 'announcement'
 
 export type ProductTourDisplayFrequency = 'show_once' | 'until_interacted' | 'always'
 
-export interface ProductTourGeneratedStepContent {
-    step_id: string
-    title: string
-    description: string
-}
-
-export interface ProductTourAIGenerationResponse {
-    steps: ProductTourGeneratedStepContent[]
-}
-
 export interface ProductTourContent {
     type?: ProductTourType
     steps: ProductTourStep[]
@@ -4666,6 +4670,8 @@ export interface EarlyAccessFeatureType {
     stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
+    /** Image URL, such as a screenshot of the feature. Can be empty. */
+    image_url?: string
     /** Custom JSON payload for the early access feature */
     payload?: Record<string, any>
     created_at: string
@@ -4939,6 +4945,8 @@ export interface EventDefinition {
     is_action?: boolean
     is_data_warehouse?: boolean
     hidden?: boolean
+    /** Set after ingestion of the event is stopped. The definition is deleted after this time. */
+    scheduled_deletion_at?: string | null
     default_columns?: string[]
     enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
@@ -5058,6 +5066,8 @@ export interface GroupType {
     name_plural?: string | null
     detail_dashboard?: number | null
     default_columns?: string[]
+    /** When ingestion auto-created this group type. Null for types created before this was recorded. */
+    created_at?: string | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
@@ -5280,8 +5290,6 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 export interface AppContext {
     /** The page left out the user's data, and the app fetches it at boot. See lib/utils/deferredAppContext. */
     deferred?: boolean
-    /** The user's variant in the deferred app context experiment. Absent outside the experiment. */
-    deferred_app_context_variant?: string
     run_mode?: 'US' | 'EU' | 'DEV' | 'E2E' | 'LOCAL' | 'HOBBY'
     current_user: UserType | null
     current_project: ProjectType | null
@@ -5317,6 +5325,8 @@ export interface AppContext {
     oauth_consent_access_controls_apply?: boolean
     /** The scope set `/authorize` resolved for this request; the consent screen must render this, not the URL's `scope`. */
     oauth_scope_resolution?: OAuthScopeResolution
+    /** Set when the client requested `ema_issuer:manage`: the consent screen asks which organization will trust the client's issuer. */
+    oauth_ema_issuer_consent?: OAuthEmaIssuerConsent
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
@@ -5663,6 +5673,7 @@ export const INTEGRATION_KINDS = [
     'stripe',
     'intercom',
     'email',
+    'email_sandbox',
     'twilio',
     'linear',
     'github',
@@ -5710,8 +5721,10 @@ export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 export enum SlackIntegrationScope {
     APP_MENTIONS_READ = 'app_mentions:read',
     ASSISTANT_WRITE = 'assistant:write',
+    CANVASES_READ = 'canvases:read',
     CANVASES_WRITE = 'canvases:write',
     CHANNELS_HISTORY = 'channels:history',
+    CHANNELS_JOIN = 'channels:join',
     CHANNELS_MANAGE = 'channels:manage',
     CHANNELS_READ = 'channels:read',
     CHAT_WRITE = 'chat:write',
@@ -5737,13 +5750,11 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
 // Scopes that wait on Slack app review. Only DEV and local development request them, because the
 // US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
+// Empty while no scope waits on review. Keep it for the next scope that needs review.
 /** @schemaEnum */
-export enum SlackIntegrationScopeInReview {
-    CANVASES_READ = 'canvases:read',
-    CHANNELS_JOIN = 'channels:join',
-}
+export enum SlackIntegrationScopeInReview {}
 
-export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW: string[] = Object.values(SlackIntegrationScopeInReview)
 
 export function slackRequestedScopes(includeInReview: boolean): string[] {
     return includeInReview
@@ -6162,6 +6173,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    ORGANIZATION_IP_RESTRICTIONS = 'OrganizationIPRestrictions',
     OAUTH_APPLICATION = 'OAuthApplication',
     WORKLOAD_TRUST_POLICY = 'WorkloadTrustPolicy',
     WORKLOAD_TRUST_POLICY_REQUEST = 'WorkloadTrustPolicyRequest',
@@ -6203,6 +6215,7 @@ export enum ActivityScope {
     REVIEW_REPOSITORY = 'ReviewRepository',
     REVIEW_PROJECT_SETTINGS = 'ReviewProjectSettings',
     REVIEW_INSTALLATION_CLAIM = 'ReviewInstallationClaim',
+    RECOMMENDATION_RESOLUTION = 'RecommendationResolution',
 }
 
 export type CommentType = {
@@ -6329,8 +6342,8 @@ export interface DataWarehouseSavedQuery {
     /** Whether the view is set up to update incrementally. A run can still rebuild the whole table,
      * for example on its first run or after the query changes. */
     is_incremental?: boolean
-    /** The view stores raw Trino SQL. Only hosted Trino can run it, and HogQL cannot reference it. */
-    is_raw_managed_trino?: boolean
+    /** The engine that runs this view, and what the product can do with it */
+    engine?: DataWarehouseSavedQueryApi['engine']
     /** Engine → suspension details */
     suspended?: DataWarehouseSavedQueryApiSuspended
     created_by?: UserBasicType | null
@@ -6606,8 +6619,11 @@ export type SchemaIncrementalFieldsResponse = {
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
     primary_key_detection_supported?: boolean
-    cdc_available?: boolean
+    /** `null` when CDC is off for the source, `false` when this table has no primary key for CDC. */
+    cdc_available?: boolean | null
     xmin_available?: boolean
+    /** Whether the organization can keep a history table for an incremental table. */
+    incremental_history_available?: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -6620,6 +6636,9 @@ export interface IncrementalField {
     field_type: IncrementalFieldType // the actual database field type
     nullable?: boolean // whether the field allows null values
     is_indexed?: boolean // leading column of an index/clustering/sort/partition key on the source
+    recommended?: boolean // the backend's pick among the candidates, set for database sources
+    picked_by_model?: boolean // the decision model, not the name rules, chose this field
+    notes?: string[] // trade-offs of picking this field, for the person choosing
 }
 
 export interface ExternalDataSourceSyncSchema {
@@ -6637,8 +6656,10 @@ export interface ExternalDataSourceSyncSchema {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
-    cdc_available?: boolean
+    /** `null` when CDC is off for the source, `false` when this table has no primary key for CDC. */
+    cdc_available?: boolean | null
     xmin_available?: boolean
+    incremental_history_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
     /** True when the resource has no API list endpoint and can only be populated via webhooks
@@ -6737,6 +6758,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
     /** The requesting user's effective access level for this table (inherits the source). */
     user_access_level?: AccessControlLevel
+    live_query_enabled?: ExternalDataSchemaApi['live_query_enabled']
+    live_query_unavailable_reason?: ExternalDataSchemaApi['live_query_unavailable_reason']
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
@@ -6744,6 +6767,7 @@ export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
     access_method?: ExternalDataSource['access_method']
+    direct_query_enabled?: boolean
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     requires_exact_column_metadata?: boolean
@@ -7974,9 +7998,27 @@ export interface ProjectTreeRef {
     ref: string | null
 }
 
+export type OAuthEmaIssuerConsentOrganization = {
+    id: string
+    name: string
+    verified_domains: string[]
+    /** Why this organization can't trust the client's issuer, or null when it can. */
+    disabled_reason: string | null
+}
+
+export type OAuthEmaIssuerConsent = {
+    scope: string
+    organizations: OAuthEmaIssuerConsentOrganization[]
+}
+
 export type OAuthMcpConsentContext = {
     is_mcp_resource: boolean
     scopes?: string[]
+}
+
+export type OAuthGrantAccess = {
+    scoped_teams: number[]
+    scoped_organizations: string[]
 }
 
 export type OAuthScopeResolution = {
@@ -7984,10 +8026,10 @@ export type OAuthScopeResolution = {
     scopes: string[]
     /** Whether the client sent no usable `scope` (omitted, or cut off mid-token), so the server picked the set. */
     was_defaulted: boolean
-    /** Scopes of `scopes` the user granted this app before, which a step-up keeps. Shown as granted and not removable. */
+    /** Scopes of `scopes` the user granted this app before for `earlier_access`, which a step-up there keeps. Shown as granted and not removable. */
     already_granted_scopes?: string[]
     /** Where the newest earlier grant applies. A step-up pre-selects it, so the token keeps its projects. Both lists empty means all of them. */
-    earlier_access?: { scoped_teams: number[]; scoped_organizations: string[] }
+    earlier_access?: OAuthGrantAccess
 }
 
 export type OAuthApplicationPublicMetadata = {

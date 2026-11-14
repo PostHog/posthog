@@ -46,6 +46,7 @@ import { AIObservabilitySessionsPlaylist } from './AIObservabilitySessionsPlayli
 import {
     buildApplyUrlStatePayload,
     AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID,
+    AIObservabilityTabId,
     aiObservabilitySharedLogic,
 } from './aiObservabilitySharedLogic'
 import { AIObservabilityTools } from './AIObservabilityTools'
@@ -55,7 +56,8 @@ import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyStat
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
-import { toFullPageListParams } from './redesign/trace/adapter/toBackLink'
+import { ShellHost } from './redesign/shell/ShellHost'
+import { toFullPageListParams } from './redesign/trace/traceBackLink'
 import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
 import { withoutTraceDrawerParams } from './redesign/trace/traceDrawerRows'
 import { useTraceDrawerRows } from './redesign/trace/TraceDrawerRowsHost'
@@ -529,7 +531,51 @@ export function AIObservabilityScene(): JSX.Element {
     )
 }
 
+const TAB_BODIES: Partial<Record<AIObservabilityTabId, () => JSX.Element>> = {
+    dashboard: () => <AIObservabilityDashboard />,
+    traces: () => <AIObservabilityTraces />,
+    generations: () => <AIObservabilityGenerations />,
+    users: () => <AIObservabilityUsers />,
+    'self-driving': () => <AIObservabilitySelfDriving />,
+    errors: () => <AIObservabilityErrors />,
+    tools: () => <AIObservabilityTools />,
+    sentiment: () => (
+        <>
+            {/* Sentiment filters evaluation results, not generations, so the generation property filters don't apply */}
+            <Filters hidePropertyFilters />
+            <AIObservabilitySentiment />
+        </>
+    ),
+    sessions: () => (
+        <>
+            <Filters />
+            <AIObservabilitySessionsPlaylist />
+        </>
+    ),
+    reviews: () => <AIObservabilityHumanReviews />,
+}
+
+function TabBody({ tab }: { tab: AIObservabilityTabId }): JSX.Element | null {
+    return TAB_BODIES[tab]?.() ?? null
+}
+
 function AIObservabilitySceneContent(): JSX.Element {
+    const { activeTab, featureFlags } = useValues(aiObservabilitySharedLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN]) {
+        return <AIObservabilityTabbedContent />
+    }
+    if (activeTab === 'self-driving' && !featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING]) {
+        return <NotFound object="page" />
+    }
+    return (
+        <ShellHost>
+            <TabBody tab={activeTab} />
+        </ShellHost>
+    )
+}
+
+function AIObservabilityTabbedContent(): JSX.Element {
     const { activeTab, featureFlags } = useValues(aiObservabilitySharedLogic)
     const { searchParams } = useValues(router)
     const tabParams = withoutTraceDrawerParams(searchParams)
@@ -606,28 +652,28 @@ function AIObservabilitySceneContent(): JSX.Element {
         {
             key: 'dashboard',
             label: 'Dashboard',
-            content: <AIObservabilityDashboard />,
+            content: <TabBody tab="dashboard" />,
             link: combineUrl(urls.aiObservabilityDashboard(), tabParams).url,
             'data-attr': 'dashboard-tab',
         },
         {
             key: 'traces',
             label: 'Traces',
-            content: <AIObservabilityTraces />,
+            content: <TabBody tab="traces" />,
             link: combineUrl(urls.aiObservabilityTraces(), tabParams).url,
             'data-attr': 'traces-tab',
         },
         {
             key: 'generations',
             label: 'Generations',
-            content: <AIObservabilityGenerations />,
+            content: <TabBody tab="generations" />,
             link: combineUrl(urls.aiObservabilityGenerations(), tabParams).url,
             'data-attr': 'generations-tab',
         },
         {
             key: 'users',
             label: 'Users',
-            content: <AIObservabilityUsers />,
+            content: <TabBody tab="users" />,
             link: combineUrl(urls.aiObservabilityUsers(), tabParams).url,
             'data-attr': 'users-tab',
         },
@@ -644,7 +690,7 @@ function AIObservabilitySceneContent(): JSX.Element {
                     </LemonTag>
                 </>
             ),
-            content: <AIObservabilitySelfDriving />,
+            content: <TabBody tab="self-driving" />,
             link: combineUrl(urls.aiObservabilitySelfDriving(), tabParams).url,
             'data-attr': 'self-driving-tab',
         })
@@ -653,7 +699,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     tabs.push({
         key: 'errors',
         label: 'Errors',
-        content: <AIObservabilityErrors />,
+        content: <TabBody tab="errors" />,
         link: combineUrl(urls.aiObservabilityErrors(), tabParams).url,
         'data-attr': 'errors-tab',
     })
@@ -661,7 +707,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     tabs.push({
         key: 'tools',
         label: 'Tools',
-        content: <AIObservabilityTools />,
+        content: <TabBody tab="tools" />,
         link: combineUrl(urls.aiObservabilityTools(), tabParams).url,
         'data-attr': 'tools-tab',
     })
@@ -669,13 +715,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     tabs.push({
         key: 'sentiment',
         label: 'Sentiment',
-        content: (
-            <>
-                {/* Sentiment filters evaluation results, not generations, so the generation property filters don't apply */}
-                <Filters hidePropertyFilters />
-                <AIObservabilitySentiment />
-            </>
-        ),
+        content: <TabBody tab="sentiment" />,
         link: combineUrl(urls.aiObservabilitySentiment(), tabParams).url,
         'data-attr': 'llma-sentiment-tab',
     })
@@ -683,12 +723,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     tabs.push({
         key: 'sessions',
         label: 'Sessions',
-        content: (
-            <>
-                <Filters />
-                <AIObservabilitySessionsPlaylist />
-            </>
-        ),
+        content: <TabBody tab="sessions" />,
         link: combineUrl(urls.aiObservabilitySessions(), tabParams).url,
         'data-attr': 'sessions-tab',
     })
@@ -696,7 +731,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     tabs.push({
         key: 'reviews',
         label: 'Reviews',
-        content: <AIObservabilityHumanReviews />,
+        content: <TabBody tab="reviews" />,
         link: combineUrl(urls.aiObservabilityReviews(), tabParams).url,
         'data-attr': 'llma-reviews-tab',
     })

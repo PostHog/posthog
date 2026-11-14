@@ -11,10 +11,9 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api, { ApiError } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { uuid } from 'lib/utils/dom'
 import { PrecheckResponseType } from 'scenes/authentication/auth/loginLogic'

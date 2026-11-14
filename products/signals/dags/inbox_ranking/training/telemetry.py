@@ -118,8 +118,8 @@ def promotion_event(
     """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout.
     The incumbent is the served model when it has `model_name`, else `none`.
 
-    Training never moves the served pointer, so `promoted` is always false. A person promotes
-    through `inbox_ranking_promote_job`, which captures `MODEL_PROMOTED_EVENT`.
+    Training never moves the served pointer, so `promoted` is always false. The daily serving
+    publish or `inbox_ranking_promote_job` moves it later and captures `MODEL_PROMOTED_EVENT`.
     The two recipe hashes are None for a version written before the hash existed."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
@@ -217,12 +217,15 @@ def _pair_comparison_event(
 def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head of an experiment candidate's `vs_baseline` block. The per-seed AUC lists
     stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps.
-    The non-dogfood macro delta also carries its team interval. A pair experiment's block gives one
+    The non-dogfood macro delta also carries its team interval, and an experiment that reads feature
+    groups carries each group's importance as `group_importance_<group>_<read>` and the late groups
+    training zeroed as `zeroed_feature_groups`. A pair experiment's block gives one
     event per head, scope and slice instead."""
     block = metadata.get("vs_baseline") or {}
     context = {key: metadata.get(key) for key in ("model_name", "model_version", "run_id", "recipe_hash")}
     if block.get("grain") == PAIR_GRAIN:
         return _pair_comparison_events(block, context)
+    importance = (block.get("group_importance") or {}).get("heads") or {}
     return [
         TrainingEvent(
             event=EXPERIMENT_COMPARED_EVENT,
@@ -239,16 +242,36 @@ def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEv
                     ).get(key)
                     for key in _INTERVAL_KEYS
                 },
+                **(
+                    {"zeroed_feature_groups": block["zeroed_feature_groups"]}
+                    if "zeroed_feature_groups" in block
+                    else {}
+                ),
+                **{
+                    f"group_importance_{group}_{read}": drop
+                    for group, reads in (importance.get(head) or {}).items()
+                    for read, drop in reads.items()
+                },
             },
         )
         for head, grade in (block.get("heads") or {}).items()
     ]
 
 
-def model_promoted_event(*, model_key: str, previous_key: str | None, reason: str, run_id: str) -> TrainingEvent:
+def model_promoted_event(
+    *, model_key: str, previous_key: str | None, reason: str, run_id: str, auto: bool
+) -> TrainingEvent:
+    """`auto` is true when the daily serving publish moved the pointer, and false for
+    `inbox_ranking_promote_job`. A read of served scores uses it to date each automatic swap."""
     return TrainingEvent(
         event=MODEL_PROMOTED_EVENT,
-        properties={"model_key": model_key, "previous_key": previous_key, "reason": reason, "run_id": run_id},
+        properties={
+            "model_key": model_key,
+            "previous_key": previous_key,
+            "reason": reason,
+            "run_id": run_id,
+            "auto": auto,
+        },
     )
 
 

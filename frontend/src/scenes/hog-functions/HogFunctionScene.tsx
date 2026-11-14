@@ -446,7 +446,7 @@ function HogFunctionHeader(): JSX.Element {
                             logicKey={logicProps.id ?? 'new'}
                             src={configuration.icon_url}
                             onChange={(val) => setConfigurationValue('icon_url', val)}
-                            size="small"
+                            size="xsmall"
                         />
                     ),
                 }}
@@ -524,6 +524,10 @@ export function HogFunctionScene(): JSX.Element {
                 caption="This function may belong to a different project. Switch to that project, or ask the person who shared the link which one it's in."
             />
         )
+    }
+
+    if (templateId && !loaded) {
+        return <NotFound object="template" caption="Check the link, or pick another template from the list." />
     }
 
     if (!templateId && !id) {

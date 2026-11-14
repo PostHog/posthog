@@ -77,7 +77,9 @@ class TestInboxOnboarding(APIBaseTest):
         assert self.source.enabled is False
         assert SignalTeamConfig.objects.get(team=self.team).autostart_enabled is None
 
-    def test_exposure_is_recorded_once(self) -> None:
+    @parameterized.expand([(None,), ("agent",)])
+    def test_exposure_is_recorded_once(self, onboarding_origin: str | None) -> None:
+        body = {"onboarding_origin": onboarding_origin} if onboarding_origin else {}
         with (
             patch("posthog.event_usage.posthoganalytics.capture") as capture,
             patch(
@@ -85,16 +87,18 @@ class TestInboxOnboarding(APIBaseTest):
             ) as flag,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            first = self.client.post(f"{self.url}expose/")
-            second = self.client.post(f"{self.url}expose/")
+            first = self.client.post(f"{self.url}expose/", body, format="json")
+            second = self.client.post(f"{self.url}expose/", body, format="json")
         assert first.status_code == 200, first.json()
         assert first.json() == second.json()
         assert capture.call_count == 1
         assert capture.call_args.kwargs["properties"]["setup_mode"] is None
         assert capture.call_args.kwargs["properties"]["self_driving_ubp"] is True
+        assert capture.call_args.kwargs["properties"]["onboarding_origin"] == (onboarding_origin or "app")
         state = SignalTeamConfig.objects.get(team=self.team).onboarding
         assert state is not None
         assert state["exposed_by"] == self.user.pk
+        assert state["onboarding_origin"] == (onboarding_origin or "app")
         assert "variant" not in state
         assert capture.call_args.kwargs["properties"]["$set_once"] == {"email": self.user.email}
         assert capture.call_args.kwargs["groups"]["project"] == str(self.team.uuid)
@@ -133,20 +137,22 @@ class TestInboxOnboarding(APIBaseTest):
 
     @parameterized.expand(
         [
-            (None, False, None),
-            ("guided", False, None),
-            ("guided", False, "test-sol"),
-            ("guided", False, "control"),
-            ("quick", False, None),
-            ("quick", True, "test-sol"),
+            (None, False, None, None),
+            ("guided", False, None, None),
+            ("guided", False, "test-sol", "agent"),
+            ("guided", False, "control", None),
+            ("quick", False, None, "agent"),
+            ("quick", True, "test-sol", None),
         ]
     )
     def test_completion_is_durable_and_retry_safe(
-        self, setup_mode: str | None, automatic_implementation: bool, arm: str | None
+        self, setup_mode: str | None, automatic_implementation: bool, arm: str | None, onboarding_origin: str | None
     ) -> None:
         self.draft["automatic_implementation"] = automatic_implementation
         if setup_mode:
             self.draft["setup_mode"] = setup_mode
+        if onboarding_origin:
+            self.draft["onboarding_origin"] = onboarding_origin
         quick = setup_mode == "quick"
         has_scout = quick and automatic_implementation
         if has_scout:
@@ -194,6 +200,7 @@ class TestInboxOnboarding(APIBaseTest):
             "project_id": self.team.id,
             "flow_version": "ui-first-v1",
             "inbox_client": "cloud",
+            "onboarding_origin": onboarding_origin or "app",
             "setup_mode": setup_mode or "guided",
             "self_driving_ubp": not automatic_implementation,
             "automatic_implementation": automatic_implementation,
@@ -590,6 +597,106 @@ class TestInboxOnboarding(APIBaseTest):
         assert response.json()["jobs"] == {"scout": "started", "recommendations": expected_status}
         config.refresh_from_db()
         assert config.onboarding["jobs"]["recommendations"] == "started"
+
+    @parameterized.expand(
+        [
+            ("no_payload", None, None, [], ["signals-scout-general"]),
+            (
+                "team_layer",
+                {"setup_default_skills": ["signals-scout-anomaly-detection"]},
+                {"setup_default_skills": ["signals-scout-logs"]},
+                [],
+                ["signals-scout-general", "signals-scout-anomaly-detection"],
+            ),
+            (
+                "malformed_team_layer_falls_through",
+                {"setup_default_skills": "signals-scout-anomaly-detection"},
+                {"setup_default_skills": ["signals-scout-logs"]},
+                [],
+                ["signals-scout-general", "signals-scout-logs"],
+            ),
+            (
+                "drops_unusable_names",
+                {
+                    "setup_default_skills": [
+                        "signals-scout-logs",
+                        "signals-scout-not-shipped",
+                        "signals-scout-first-report",
+                        "signals-scout-error-tracking",
+                        "signals-scout-general",
+                        "signals-scout-logs",
+                    ],
+                    "withheld_skills": ["signals-scout-error-tracking"],
+                },
+                None,
+                [],
+                ["signals-scout-general", "signals-scout-logs"],
+            ),
+            (
+                "draft_cap",
+                {
+                    "setup_default_skills": [
+                        "signals-scout-logs",
+                        "signals-scout-apm",
+                        "signals-scout-surveys",
+                        "signals-scout-experiments",
+                        "signals-scout-web-vitals",
+                    ]
+                },
+                None,
+                [],
+                [
+                    "signals-scout-general",
+                    "signals-scout-logs",
+                    "signals-scout-apm",
+                    "signals-scout-surveys",
+                    "signals-scout-experiments",
+                ],
+            ),
+            (
+                "enabled_scout_cap",
+                {
+                    "setup_default_skills": ["signals-scout-logs", "signals-scout-apm"],
+                    "max_enabled_scouts": 3,
+                },
+                None,
+                ["custom-scout"],
+                ["signals-scout-general", "signals-scout-logs"],
+            ),
+            (
+                "enabled_scout_cap_keeps_listed_enabled_scouts",
+                {
+                    "setup_default_skills": ["signals-scout-logs", "signals-scout-apm"],
+                    "max_enabled_scouts": 3,
+                },
+                None,
+                ["signals-scout-apm", "custom-scout"],
+                ["signals-scout-general", "signals-scout-apm"],
+            ),
+        ]
+    )
+    def test_state_reports_setup_default_skills_from_flag_payload(
+        self,
+        _name: str,
+        team_layer: dict | None,
+        default_layer: dict | None,
+        enabled_skills: list[str],
+        expected: list[str],
+    ) -> None:
+        payload = (
+            None
+            if team_layer is None and default_layer is None
+            else {
+                "team_configs": {str(self.team.id): team_layer} if team_layer else {},
+                "default_team_config": default_layer or {},
+            }
+        )
+        for skill_name in enabled_skills:
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name, enabled=True)
+        with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value=payload):
+            response = self.client.get(self.url)
+        assert response.status_code == 200, response.content
+        assert response.json()["setup_default_skills"] == expected
 
 
 class TestInboxOnboardingActivation(BaseTest):

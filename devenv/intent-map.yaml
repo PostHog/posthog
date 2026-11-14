@@ -131,14 +131,17 @@ capabilities:
         docker_profiles: []
 
     # Node.js capability groups - control which consumers run to reduce event loop contention
+    # The CDP groups run CyclotronV2 workers, which poll cyclotron_jobs in the
+    # cyclotron_node database. Requiring cyclotron pulls in migrate-cyclotron;
+    # without it the table never exists and the workers error in a loop.
     nodejs_cdp:
         description: 'Node.js CDP - destinations, webhooks, and realtime alerts'
-        requires: [event_ingestion]
+        requires: [event_ingestion, cyclotron]
         docker_profiles: []
 
     nodejs_cdp_workflows:
         description: 'Node.js CDP + Workflows - full CDP with HogFlow workflow automation'
-        requires: [event_ingestion]
+        requires: [event_ingestion, cyclotron]
         docker_profiles: []
 
     nodejs_realtime_cohorts:

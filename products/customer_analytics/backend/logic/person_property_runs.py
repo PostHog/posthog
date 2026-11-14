@@ -7,6 +7,7 @@ account-path ``sourceSyncStatus`` UI helper works for person sources too.
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import F
@@ -63,6 +64,15 @@ def _parse_iso(value: str | None) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _parse_uuid(value: str | None) -> UUID | None:
+    if not value:
+        return None
+    try:
+        return UUID(value)
     except ValueError:
         return None
 
@@ -130,6 +140,11 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
                 "skipped_missing_person": record.skipped_missing_person,
                 "error": record.error,
             }
+            # Every attempt of a run shares its workflow, and a record without ids must not clear them.
+            if record.workflow_id:
+                fields["workflow_id"] = record.workflow_id
+            if workflow_run_id := _parse_uuid(record.workflow_run_id):
+                fields["workflow_run_id"] = workflow_run_id
             if run is not None:
                 if run.trigger in _USER_TRIGGERS:
                     fields.pop("trigger")

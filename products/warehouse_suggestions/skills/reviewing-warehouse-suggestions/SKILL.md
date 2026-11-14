@@ -24,6 +24,16 @@ If the list is empty, call `warehouse-suggestions-status`: it says whether sugge
 Call `warehouse-suggestions-get` for a suggestion the user wants to discuss.
 Its `evidence` has the read counts behind it.
 
+### Suggestions on query responses
+
+A query that reads a view can return its open suggestions without a separate call.
+The `/query` response, `execute-sql` and the typed query tools carry them in `warehouse_suggestions`, on fresh runs only.
+A cached result has none. To see them again, call `warehouse-suggestions-list` with `status=proposed`, which runs no query.
+
+- Each item has `id`, `kind` (`materialize` or `unmaterialize`), `view_name`, `message`, `url` and `can_act`.
+- Mention them to the person. Do not accept or dismiss one unless the person asks.
+- To act on one, pass its `id` to `warehouse-suggestions-get`, then follow the steps below.
+
 ## 2. Explain it with its own numbers
 
 Tell the user what accepting does and what it costs, using the payload fields.
@@ -33,6 +43,8 @@ Do not invent a score or a confidence level.
   - A view that is not stored is computed on every read, and again on every refresh of each materialized view that reads it. `recomputed_by_views` counts those materialized views. When it is above 0, the saving comes mostly from their refreshes, not from people's reads.
   - `saves_seconds_per_month` and `saves_bytes_per_month` are what those computations stop costing.
   - Materializing adds a recurring refresh cost, which these numbers already subtract.
+  - A negative `saves_bytes_per_month` means its refreshes scan more than its reads do today. Name that cost to the user.
+  - When `measurement_capped` is true, measuring the view hit the time limit. Every cost and saving is a lower bound, so say "at least", not "about".
   - `freshness_today_seconds` and `freshness_after_seconds` say how old the data can be now and after.
   - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `fastest_schedule` (PostHog refreshes views no more often), `read_rate` (people read the view no more often), `consumer_refresh` (the materialized views that read it refresh no more often) or `savings` (a shorter interval costs more than it saves).
   - `refresh_mode` is `incremental` when each refresh can read only new rows, by `incremental_key`, and update rows by `unique_key`. Otherwise it is `full`, and each refresh rebuilds the whole table.

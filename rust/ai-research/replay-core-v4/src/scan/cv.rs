@@ -37,12 +37,61 @@ pub fn decode(bytes: &[u8], span: Span) -> Result<Vec<u8>, CvError> {
 }
 
 fn compressed_bytes(bytes: &[u8], span: Span) -> Result<Vec<u8>, CvError> {
+    match latin1_bytes(bytes, span) {
+        Some(compressed) => Ok(compressed),
+        None => unescaped_latin1(bytes, span),
+    }
+}
+
+fn unescaped_latin1(bytes: &[u8], span: Span) -> Result<Vec<u8>, CvError> {
     let text = scan::unescape(bytes, span).map_err(|e| CvError::Malformed(e.0))?;
     let mut compressed = Vec::with_capacity(text.len());
     for c in text.chars() {
         compressed.push(u8::try_from(u32::from(c)).map_err(|_| CvError::NotLatin1)?);
     }
     Ok(compressed)
+}
+
+/// What [`unescaped_latin1`] returns for a string of latin-1 characters, in one pass. `None` for any other string.
+fn latin1_bytes(bytes: &[u8], span: Span) -> Option<Vec<u8>> {
+    let raw = bytes.get(span.0..span.1)?;
+    let inner = raw.strip_prefix(b"\"")?.strip_suffix(b"\"")?;
+    let mut out = Vec::with_capacity(inner.len());
+    let mut at = 0;
+    while let Some(&byte) = inner.get(at) {
+        at += 1;
+        let decoded = match byte {
+            b'\\' => {
+                at += 1;
+                match *inner.get(at - 1)? {
+                    escaped @ (b'"' | b'\\' | b'/') => escaped,
+                    b'b' => 0x08,
+                    b'f' => 0x0c,
+                    b'n' => b'\n',
+                    b'r' => b'\r',
+                    b't' => b'\t',
+                    b'u' => {
+                        let (character, consumed) = scan::decode_unicode(inner, at).ok()?;
+                        at += consumed;
+                        u8::try_from(u32::from(character)).ok()?
+                    }
+                    _ => return None,
+                }
+            }
+            0x00..=0x7f => byte,
+            0xc2 | 0xc3 => {
+                let next = *inner.get(at)?;
+                if next & 0xc0 != 0x80 {
+                    return None;
+                }
+                at += 1;
+                ((byte & 0x03) << 6) | (next & 0x3f)
+            }
+            _ => return None,
+        };
+        out.push(decoded);
+    }
+    Some(out)
 }
 
 fn decompress(compressed: &[u8]) -> Result<Vec<u8>, CvError> {
@@ -98,12 +147,11 @@ fn repaired_len(decoded: &[u8]) -> usize {
         .sum()
 }
 
-fn json_text(decoded: Vec<u8>) -> Option<Vec<u8>> {
-    let mut text = match String::from_utf8(decoded) {
-        Ok(text) => text.into_bytes(),
-        Err(error) => String::from_utf8_lossy(error.as_bytes())
-            .into_owned()
-            .into_bytes(),
+fn json_text(decoded: Vec<u8>, valid_utf8: bool) -> Option<Vec<u8>> {
+    let mut text = if valid_utf8 {
+        decoded
+    } else {
+        String::from_utf8_lossy(&decoded).into_owned().into_bytes()
     };
     if text.starts_with("\u{feff}".as_bytes()) {
         text.drain(..3);
@@ -279,11 +327,17 @@ fn expand_within(inner: &[u8], event: &Event, room: usize) -> (Expansion, usize)
             };
             let decoded_len = decoded.len();
             // The player's repair turns each invalid byte into three, so the repaired text must fit too.
-            if repaired_len(&decoded) > room.saturating_sub(cost) {
+            let valid_utf8 = std::str::from_utf8(&decoded).is_ok();
+            let repaired = if valid_utf8 {
+                decoded_len
+            } else {
+                repaired_len(&decoded)
+            };
+            if repaired > room.saturating_sub(cost) {
                 return (Expansion::Skipped, cost.saturating_add(decoded_len));
             }
             cost = cost.saturating_add(decoded_len);
-            let Some(json) = json_text(decoded) else {
+            let Some(json) = json_text(decoded, valid_utf8) else {
                 return (Expansion::Failed, cost);
             };
             // U+FFFD takes three bytes where an invalid byte took one.
@@ -880,6 +934,44 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_latin1_string_in_one_pass_as_the_unescaper_does() {
+        let mut strings: Vec<Vec<u8>> = Vec::new();
+        for code in 0..=0x17f_u32 {
+            let character = char::from_u32(code).unwrap();
+            strings.push(serde_json::to_vec(&format!("a{character}b")).unwrap());
+            strings.push(format!(r#""\u{code:04x}\u{code:04X}""#).into_bytes());
+        }
+        strings.push(br#""\"\\\/\b\f\n\r\t""#.to_vec());
+        for malformed in [
+            &br#""\q""#[..],
+            br#""\"#,
+            br#""\u00""#,
+            br#""\ud83d\ude00""#,
+            br#""\ud83d""#,
+            b"\"\xc3\"",
+            b"\"\xc3\x28\"",
+            b"\"\xc0\x80\"",
+            b"\"\x80\"",
+            b"\"\xe2\x82\xac\"",
+            b"\"",
+            b"no quotes",
+        ] {
+            strings.push(malformed.to_vec());
+        }
+        let mut read = 0;
+        for string in &strings {
+            let span = (0, string.len());
+            let expected = unescaped_latin1(string, span);
+            if let Some(bytes) = latin1_bytes(string, span) {
+                read += 1;
+                assert_eq!(Ok(bytes), expected, "{}", string.escape_ascii());
+            }
+            assert_eq!(compressed_bytes(string, span), expected);
+        }
+        assert_eq!(read, 2 * 256 + 1);
+    }
+
+    #[test]
     fn leaves_a_cv_event_that_does_not_decode_as_it_arrived() {
         let image = format!(
             "data:image/png;base64,{}",
@@ -957,6 +1049,14 @@ mod tests {
                 draw(bitmap(
                     "image/avif",
                     b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf",
+                )),
+                format!("/data/commands/0/args/0{blob}"),
+                Outcome::Stored("image/avif"),
+            ),
+            (
+                draw(bitmap(
+                    "image/avif",
+                    b"\x00\x00\x00\x20ftypavis\x00\x00\x00\x00avisavifmif1msf1",
                 )),
                 format!("/data/commands/0/args/0{blob}"),
                 Outcome::Marker(ImageDecline::Avif),

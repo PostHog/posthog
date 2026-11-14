@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.applovin._config import AppLovinSourceConfig
 from products.warehouse_sources.sources.applovin.applovin import (
+    ADVERTISER_KEY_ON_PUBLISHER_REPORT_PREFIX,
     AUTH_ERROR_PREFIX,
     BAD_REQUEST_ERROR_PREFIX,
     MANAGEMENT_AUTH_ERROR_PREFIX,
@@ -106,6 +107,7 @@ class AppLovinSource(ResumableSource[AppLovinSourceConfig, AppLovinResumeConfig]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            ADVERTISER_KEY_ON_PUBLISHER_REPORT_PREFIX: "This Report Key belongs to an AppLovin advertiser account, which has no publisher data. Turn off the publisher_report table, or reconnect with a Report Key from a publisher account.",
             AUTH_ERROR_PREFIX: "AppLovin rejected your Report Key. Generate a new one under your account menu > Keys in the AppLovin dashboard, then reconnect.",
             BAD_REQUEST_ERROR_PREFIX: "AppLovin rejected the report request. This usually means your account can't access the requested report.",
             MANAGEMENT_AUTH_ERROR_PREFIX: "AppLovin rejected your Campaign Management API key or account ID. Check both under your account menu in the AppLovin dashboard, then update this source.",

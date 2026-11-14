@@ -1,5 +1,7 @@
 from django.db import models, transaction
 
+from posthog.integrations import IntegrationRecord
+from posthog.integrations.lifecycle import register_delete_hook
 from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API, OBSERVATION_COMMENT_SCOPES, Comment
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.signals import mutable_receiver
@@ -99,3 +101,11 @@ def mirror_comment_reply_to_slack_on_create(sender, instance: Comment, created: 
         mirror_comment_reply_to_slack.delay(comment_id=comment_id)
 
     transaction.on_commit(_enqueue)
+
+
+def delete_slack_threads_of_integration(row: IntegrationRecord) -> None:
+    # Does the work of the CASCADE foreign key, which goes away when the rows leave this database.
+    CommentSlackThread.objects.for_team(row.team_id).filter(integration_id=row.id).delete()
+
+
+register_delete_hook(delete_slack_threads_of_integration)

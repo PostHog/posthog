@@ -22,6 +22,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.cli_catalog import cli_catalog
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.livestream import LivestreamAuthorizationView
@@ -31,7 +32,7 @@ from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.ee_urls import ee_urlpatterns
-from posthog.frontend_views import app_context, home, home_with_region_redirect
+from posthog.frontend_views import app_context, device_approval_page, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.linear.provider import build_linear_provider
 from posthog.ingress.views import build_webhook_view
@@ -71,12 +72,15 @@ from products.slack_app.backend.api import (
 )
 from products.slack_app.backend.views import (
     slack_app_command_handler,
+    slack_tool_connect,
+    slack_tool_connected,
     slack_user_link_authorize,
     slack_user_link_callback,
 )
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
+from products.tasks.backend.presentation.views.agent_egress import AgentEgressRegistrationView
 from products.tasks.backend.presentation.views.artifact_preview import task_artifact_preview
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
@@ -174,6 +178,7 @@ urlpatterns = [
     *signals_user_urlpatterns,
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/sdk_health/", sdk_health),
+    path("api/cli/catalog.json", cli_catalog),
     # Conversations serves its widget and channel API from backend/api/, which its routes module
     # may not import (import-linter contract "routes must only import presentation"), so the mount
     # stays here until those views move into presentation/.
@@ -275,7 +280,20 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/status",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"put": "internal_update_batch_job_status"})),
     ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/audience_snapshot",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_batch_job_audience_snapshot"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/audience_page",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_batch_job_audience_page"})),
+    ),
     *signals_internal_urlpatterns,
+    path(
+        "api/projects/<int:team_id>/internal/agent_egress/runs/<uuid:run_id>/executions/<uuid:execution_id>",
+        AgentEgressRegistrationView.as_view(),
+        name="agent-egress-registration",
+    ),
     # Ticket route for the CDP worker's workflow actions (auth: scoped service JWT)
     path(
         "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>",
@@ -308,15 +326,15 @@ urlpatterns = [
     path("integrations/connect/<str:kind>/", login_required(integration_connect_redirect)),
     path(
         "shared_dashboard/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve", "post": "retrieve"}),
     ),
     path(
         "shared/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve", "post": "retrieve"}),
     ),
     path(
         "embedded/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve", "post": "retrieve"}),
     ),
     path("render_query", render_query, name="render_query"),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
@@ -354,6 +372,8 @@ urlpatterns = [
     # and likewise must precede `social_django.urls` for the same reason.
     path("complete/slack-link/start/", slack_user_link_authorize, name="slack_link_start"),
     path("complete/slack-link/", slack_user_link_callback, name="slack_link_complete"),
+    path("complete/slack-tool-connect/", slack_tool_connect, name="slack_tool_connect"),
+    path("complete/slack-tool-connected/", slack_tool_connected, name="slack_tool_connected"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
@@ -411,5 +431,6 @@ urlpatterns = [
     # OAuth redirect target when logging the local frontend into a remote cloud region;
     # the SPA handles the code→token exchange client-side, so it must load without auth.
     re_path(r"^oauth/callback", home),
+    opt_slash_path("device", device_approval_page),
     re_path(r"^.*", home_with_region_redirect),
 ]

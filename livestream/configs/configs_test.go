@@ -20,9 +20,16 @@ func TestLoadConfig(t *testing.T) {
 			setup: func() {
 				// Values already set in setupTestConfig
 				_ = os.Setenv("LIVESTREAM_JWT_SECRET", "token")
+				t.Setenv("LIVESTREAM_IS_BEHIND_PROXY", "1")
+				t.Setenv("LIVESTREAM_TRUST_ALL_PROXIES", "True")
+				t.Setenv("LIVESTREAM_TRUSTED_PROXIES", "10.0.0.2/32,2001:db8::1/128")
+				t.Setenv("LIVESTREAM_AUTHORIZATION_SIGNING_KEYS", "test-primary-service-key,test-old-service-key")
 			},
 			want: &Config{
+				IsBehindProxy:    true,
+				TrustAllProxies:  true,
 				Debug:            true,
+				TrustedProxies:   []string{"10.0.0.2/32", "2001:db8::1/128"},
 				MMDB:             MMDBConfig{Path: "mmdb.db"},
 				Parallelism:      7,
 				CORSAllowOrigins: []string{"https://example.com", "https://sub.example.com"},
@@ -49,8 +56,9 @@ func TestLoadConfig(t *testing.T) {
 					},
 				},
 				JWT: JWTConfig{
-					Secret:          "token",
-					SecretFallbacks: []string{"<previous secret key>"},
+					AuthorizationSigningKeys: []string{"test-primary-service-key", "test-old-service-key"},
+					Secret:                   "token",
+					SecretFallbacks:          []string{"<previous secret key>"},
 				},
 				SessionRecording: SessionRecordingConfig{
 					MaxLRUEntries: 2_000_000_000,
@@ -83,18 +91,18 @@ func TestLoadConfig(t *testing.T) {
 
 func TestValidateConsumerConfig(t *testing.T) {
 	tests := []struct {
-		name       string
+		name         string
 		consumerName string
-		config     ConsumerConfig
-		wantErr    string
+		config       ConsumerConfig
+		wantErr      string
 	}{
 		{
-			name:       "disabled consumer skips validation",
+			name:         "disabled consumer skips validation",
 			consumerName: "event",
-			config:     ConsumerConfig{Enabled: false},
+			config:       ConsumerConfig{Enabled: false},
 		},
 		{
-			name:       "valid config passes",
+			name:         "valid config passes",
 			consumerName: "event",
 			config: ConsumerConfig{
 				Enabled:          true,
@@ -105,7 +113,7 @@ func TestValidateConsumerConfig(t *testing.T) {
 			},
 		},
 		{
-			name:       "missing brokers",
+			name:         "missing brokers",
 			consumerName: "event",
 			config: ConsumerConfig{
 				Enabled:          true,
@@ -116,7 +124,7 @@ func TestValidateConsumerConfig(t *testing.T) {
 			wantErr: "consumers.event.brokers must be set",
 		},
 		{
-			name:       "missing topic",
+			name:         "missing topic",
 			consumerName: "session_recording",
 			config: ConsumerConfig{
 				Enabled:          true,
@@ -127,7 +135,7 @@ func TestValidateConsumerConfig(t *testing.T) {
 			wantErr: "consumers.session_recording.topic must be set",
 		},
 		{
-			name:       "missing security_protocol",
+			name:         "missing security_protocol",
 			consumerName: "notification",
 			config: ConsumerConfig{
 				Enabled: true,
@@ -138,7 +146,7 @@ func TestValidateConsumerConfig(t *testing.T) {
 			wantErr: "consumers.notification.security_protocol must be set",
 		},
 		{
-			name:       "missing group_id",
+			name:         "missing group_id",
 			consumerName: "event",
 			config: ConsumerConfig{
 				Enabled:          true,

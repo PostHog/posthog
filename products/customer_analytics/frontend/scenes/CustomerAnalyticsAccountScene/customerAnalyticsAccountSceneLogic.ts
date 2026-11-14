@@ -29,17 +29,12 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeople'
-import { tagsModel } from '~/models/tagsModel'
 import { Breadcrumb, UserType } from '~/types'
 
 import {
     cleanDomains,
     cleanEmails,
 } from 'products/customer_analytics/frontend/components/Accounts/accountEmailMatching'
-import {
-    AccountExpansionTab,
-    getVisibleAccountExpansionTab,
-} from 'products/customer_analytics/frontend/components/Accounts/accountsExpansionLogic'
 import { getAccountsBackUrl } from 'products/customer_analytics/frontend/components/Accounts/accountsViewSessionLogic'
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import {
@@ -140,7 +135,6 @@ export interface customerAnalyticsAccountSceneLogicValues {
     accountLoading: boolean
     accountPresenceError: unknown
     accountPresenceViewers: AccountPresenceViewerApi[]
-    activeTab: AccountExpansionTab
     breadcrumbs: Breadcrumb[]
     eventStreamModalOpen: boolean
     isAccountFormSubmitting: boolean
@@ -247,7 +241,6 @@ export interface customerAnalyticsAccountSceneLogicActions {
 export interface customerAnalyticsAccountSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        activeTab: (requestedTab: string, featureFlags: FeatureFlagsSet) => AccountExpansionTab
         isAccountMissing: (
             account: AccountApi | null,
             accountLoading: boolean,
@@ -436,11 +429,6 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         eventStreamModalOpen: [false, { openEventStreamModal: () => true, closeEventStreamModal: () => false }],
     })),
     selectors({
-        activeTab: [
-            (s) => [s.requestedTab, s.featureFlags],
-            (requestedTab: string, featureFlags: FeatureFlagsSet): AccountExpansionTab =>
-                getVisibleAccountExpansionTab(requestedTab, featureFlags),
-        ],
         isAccountMissing: [
             (s, _) => [s.account, s.accountLoading, s.accountLoadError, (_, props) => props.invalidRoute === true],
             (
@@ -554,15 +542,6 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             if (!props.externalId) {
                 return
             }
-            if (!values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]) {
-                const externalRoute = parseExternalAccountPath(router.values.location.pathname)
-                router.actions.replace(
-                    urls.customerAnalyticsAccount(account.id, externalRoute?.tab),
-                    router.values.currentLocation.searchParams,
-                    router.values.currentLocation.hashParams
-                )
-                return
-            }
             actions.startAccountPresencePolling(account.id)
         },
         loadAccountFailure: ({ error }) => {
@@ -620,7 +599,6 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 const account = await accountsPartialUpdate(String(projectId), accountId, { tags })
                 await breakpoint()
                 actions.updateTagsDone(account)
-                tagsModel.findMounted()?.actions.loadTags()
                 posthog.capture(AccountsEvents.TagsUpdated, { tag_count: tags.length })
             } catch (error) {
                 if (error instanceof Error && isBreakpoint(error)) {

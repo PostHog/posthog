@@ -213,6 +213,18 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
         ),
+    labels: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.'
+        ),
+    annotations: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.'
+        ),
 })
 
 export const logsAlertsUpdateBodyNameMax = 255
@@ -376,6 +388,18 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
+    labels: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.'
+        ),
+    annotations: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.'
         ),
 })
 
@@ -541,6 +565,18 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
         ),
+    labels: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.'
+        ),
+    annotations: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.'
+        ),
 })
 
 /**
@@ -584,12 +620,18 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
+export const logsAlertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
 
 export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.uuid())
-        .min(1)
+        .optional()
         .describe('HogFunction IDs to delete as one atomic destination group.'),
+    destination_ids: zod
+        .array(zod.uuid())
+        .max(logsAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .optional()
+        .describe('Destination IDs, from `destinations[].id`, to delete with their HogFunctions.'),
 })
 
 /**
@@ -730,6 +772,72 @@ export const LogsAnomaliesSeriesBandsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.\n\n\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60"
         ),
+})
+
+export const logsContextCreateBodyQueryOneLimitDefault = 100
+export const logsContextCreateBodyQueryOneLimitMax = 500
+
+export const LogsContextCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            anchor: zod
+                .object({
+                    logUuid: zod.string().optional().describe('uuid of one log line. Needs `timestamp`.'),
+                    timestamp: zod.iso
+                        .datetime({ offset: true })
+                        .optional()
+                        .describe('ISO 8601 timestamp of the `logUuid` log line.'),
+                    traceId: zod.string().optional().describe('Trace id, 32 hex characters or base64.'),
+                    attribute: zod
+                        .object({
+                            key: zod.string().describe('Log attribute key, e.g. \"workflow_run_id\".'),
+                            value: zod.string().describe('Exact attribute value to follow.'),
+                        })
+                        .optional()
+                        .describe('Follow every log with this attribute value.'),
+                    around: zod.iso
+                        .datetime({ offset: true })
+                        .optional()
+                        .describe(
+                            'ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans.'
+                        ),
+                })
+                .describe('Exactly one anchor: a log line, a trace, or an attribute value.'),
+            padding: zod
+                .string()
+                .optional()
+                .describe(
+                    'Time on each side of the anchor: \"30s\", \"5m\", \"1h\" (max 6h). Default 30s for a trace, 5m otherwise.'
+                ),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Keep only these severities in the timeline.'),
+            serviceNames: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Restrict the timeline to these services. Default: the trace's services, the log's service, or all."
+                ),
+            include: zod
+                .array(zod.enum(['spans']).describe('\* `spans` - Spans'))
+                .optional()
+                .describe('\"spans\" adds spans_summary for a trace anchor.'),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsContextCreateBodyQueryOneLimitMax)
+                .default(logsContextCreateBodyQueryOneLimitDefault)
+                .describe('Maximum timeline rows.'),
+            after: zod.string().optional().describe('`next_cursor` of a previous call with the same anchor.'),
+        })
+        .describe('The context query.'),
 })
 
 export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
@@ -1166,11 +1274,11 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                     'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\". Ignored when groupBys is provided.'
                 ),
             groupBySource: zod
-                .enum(['log', 'resource', 'column'])
-                .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                .enum(['log', 'resource', 'column', 'body'])
+                .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body')
                 .default(logsGroupByCreateBodyQueryOneGroupBySourceDefault)
                 .describe(
-                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields, \"body\" for a JSON path into the body. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body'
                 ),
             groupBys: zod
                 .array(
@@ -1178,14 +1286,16 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template).'
+                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\"); when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template); when source is \"body\", a dot-separated JSON path into the log body (e.g. \"fields.message\").'
                             ),
                         source: zod
-                            .enum(['log', 'resource', 'column'])
-                            .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                            .enum(['log', 'resource', 'column', 'body'])
+                            .describe(
+                                '\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body'
+                            )
                             .default(logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault)
                             .describe(
-                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields, \"body\" for a JSON path into the body.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body'
                             ),
                     })
                 )
@@ -1926,6 +2036,23 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 ),
         })
         .describe('The logs query to execute.'),
+    trigger: zod
+        .enum([
+            'initial_load',
+            'filter_change',
+            'filters_restored',
+            'sort_change',
+            'column_change',
+            'scope_change',
+            'refresh',
+        ])
+        .describe(
+            '\* `initial_load` - initial_load\n\* `filter_change` - filter_change\n\* `filters_restored` - filters_restored\n\* `sort_change` - sort_change\n\* `column_change` - column_change\n\* `scope_change` - scope_change\n\* `refresh` - refresh'
+        )
+        .optional()
+        .describe(
+            'What caused the PostHog app to run this query. Used for usage analytics only, with no effect on results. API clients omit it.\n\n\* `initial_load` - initial_load\n\* `filter_change` - filter_change\n\* `filters_restored` - filters_restored\n\* `sort_change` - sort_change\n\* `column_change` - column_change\n\* `scope_change` - scope_change\n\* `refresh` - refresh'
+        ),
 })
 
 /**
@@ -2099,6 +2226,13 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .optional()
+        .describe(
+            'Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.\n\n\* `logs` - Logs\n\* `spans` - Spans'
+        ),
 })
 
 export const logsSamplingRulesUpdateBodyNameMax = 255
@@ -2151,6 +2285,13 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .describe(
             'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
+        ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .optional()
+        .describe(
+            'Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.\n\n\* `logs` - Logs\n\* `spans` - Spans'
         ),
 })
 
@@ -2211,10 +2352,17 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .optional()
+        .describe(
+            'Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.\n\n\* `logs` - Logs\n\* `spans` - Spans'
+        ),
 })
 
 /**
- * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1). Log and span rules have separate orders; the `source` query parameter picks which one.
  */
 export const LogsSamplingRulesReorderCreateBody = /* @__PURE__ */ zod.object({
     ordered_ids: zod

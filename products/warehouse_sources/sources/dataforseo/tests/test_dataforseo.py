@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 
@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.dataforseo.dataforseo import (
     DATAFORSEO_BASE_URL,
     MAX_PAGES_PER_TARGET,
     PAGE_SIZE,
+    CredentialCheck,
     DataForSEOAPIError,
     DataForSEOResumeConfig,
     DataForSEORetryableError,
@@ -20,6 +21,8 @@ from products.warehouse_sources.sources.dataforseo.dataforseo import (
 from products.warehouse_sources.sources.dataforseo.settings import DATAFORSEO_ENDPOINTS, ENDPOINTS, KEYWORD_SCOPES
 from products.warehouse_sources.sources.dataforseo.source import DataForSEOSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+
+MODULE = "products.warehouse_sources.sources.dataforseo.dataforseo"
 
 TARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope == "target"]
 UNTARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope != "target"]
@@ -403,15 +406,47 @@ class TestDataForSEOSourceResponse:
 
 
 class TestValidateCredentials:
-    def test_unauthorized_is_invalid(self) -> None:
-        with scripted_network([ScriptedResponse(status=401, json={})]) as network:
-            assert validate_credentials("login", "password") is False
+    @pytest.mark.parametrize(
+        ("scripted", "expected", "reported"),
+        [
+            (ScriptedResponse(status=401, json={}), CredentialCheck.REJECTED, False),
+            (ScriptedResponse(status=403, json={}), CredentialCheck.REJECTED, False),
+            (
+                ScriptedResponse(json={"status_code": 40100, "status_message": "unauthorized"}),
+                CredentialCheck.REJECTED,
+                False,
+            ),
+            (ScriptedResponse(json={"status_code": 20000, "status_message": "Ok."}), CredentialCheck.VALID, False),
+            (ScriptedResponse(status=500, json={}), CredentialCheck.UNAVAILABLE, True),
+            (
+                ScriptedResponse(json={"status_code": 50000, "status_message": "error"}),
+                CredentialCheck.UNAVAILABLE,
+                True,
+            ),
+            (ScriptedResponse(body=b"<html>not json</html>"), CredentialCheck.UNAVAILABLE, True),
+        ],
+    )
+    def test_classifies_the_response(
+        self, scripted: ScriptedResponse, expected: CredentialCheck, reported: bool
+    ) -> None:
+        with (
+            scripted_network([scripted]) as network,
+            patch(f"{MODULE}.capture_exception") as capture,
+        ):
+            assert validate_credentials("login", "password") is expected
         assert network.requests_log[0].path == "/v3/appendix/user_data"
+        assert capture.called is reported
 
-    def test_error_body_is_invalid(self) -> None:
-        with scripted_network([ScriptedResponse(json={"status_code": 40100, "status_message": "unauthorized"})]):
-            assert validate_credentials("login", "password") is False
+    def test_transport_error_is_unavailable_and_reported(self) -> None:
+        with (
+            patch(f"{MODULE}._make_session", side_effect=requests.ConnectionError("boom")),
+            patch(f"{MODULE}.capture_exception") as capture,
+        ):
+            assert validate_credentials("login", "password") is CredentialCheck.UNAVAILABLE
+        capture.assert_called_once()
 
     @pytest.mark.parametrize(("login", "password"), [("", "password"), ("login", ""), (" ", " ")])
-    def test_blank_credentials_are_invalid_without_a_request(self, login: str, password: str) -> None:
-        assert validate_credentials(login, password) is False
+    def test_blank_credentials_are_rejected_without_a_request(self, login: str, password: str) -> None:
+        with patch(f"{MODULE}._make_session") as make_session:
+            assert validate_credentials(login, password) is CredentialCheck.REJECTED
+        make_session.assert_not_called()

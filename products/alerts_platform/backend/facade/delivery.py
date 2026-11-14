@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from products.alerts_platform.backend.delivery import (
     addresses,
@@ -11,18 +11,25 @@ from products.alerts_platform.backend.delivery import (
     destinations,
     legacy_webhook,
     recipients,
+    refusal_notices,
+    subscribers,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     AlertDestinationData,
     DeliveryPathChooser,
     DestinationResolver,
+    LateImageResult,
     LegacyEventEmitter,
     LegacyWebhookBody,
+    LiveHogFunctionLookup,
+    SourceAlertCreator,
     SourceDescriber,
     SourceImageResolver,
     SourceKind,
     SourceRecipients,
     SourceSlackRenderer,
+    SubscriberAccess,
 )
 
 if TYPE_CHECKING:
@@ -33,8 +40,21 @@ def register_destination_resolver(resolver: DestinationResolver) -> None:
     destinations.register(resolver)
 
 
+def register_live_hog_function_lookup(lookup: LiveHogFunctionLookup) -> None:
+    """The product that owns HogFunctions says which still exist, so a destination row that copies one waits for it to go."""
+    destinations.register_live_hog_function_lookup(lookup)
+
+
 def register_source_recipients(source: SourceKind, lookup: SourceRecipients) -> None:
     recipients.register(source, lookup)
+
+
+def register_subscriber_access(source: SourceKind, access: SubscriberAccess) -> None:
+    subscribers.register(source, access)
+
+
+def register_source_alert_creator(source: SourceKind, lookup: SourceAlertCreator) -> None:
+    refusal_notices.register_creator(source, lookup)
 
 
 def register_source_describer(source: SourceKind, describer: SourceDescriber) -> None:
@@ -82,3 +102,15 @@ def has_legacy_webhook_body(source: SourceKind) -> bool:
 
 def register_source_slack_renderer(source: SourceKind, renderer: SourceSlackRenderer) -> None:
     describers.register_slack_renderer(source, renderer)
+
+
+def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -> LateImageResult:
+    """Puts the image the source draws from `late_detail` into the Slack messages the evaluation's
+    firings opened, once they have gone out without it. `late_detail` is what the check would have
+    recorded in `source_detail` had it been ready."""
+    # Imported here, so the modules that import this facade as they load do not pull in every transport.
+    from products.alerts_platform.backend.delivery.evaluation import (  # noqa: PLC0415
+        add_late_image as add_late_image_to_evaluation,
+    )
+
+    return add_late_image_to_evaluation(request, late_detail)
