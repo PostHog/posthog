@@ -38,11 +38,17 @@ def _trend_result(label: str, data: list[float]) -> dict[str, Any]:
 @pytest.mark.parametrize(
     "alerted,expected_label",
     [
-        # The label wins over a position that has shifted since the check ran.
-        (AlertedSeries(series_index=0, breakdown_label="gpt", breakdown_index=0), "gpt"),
-        # A check saved before the label falls back to the position.
-        (AlertedSeries(series_index=0, breakdown_index=1), "gpt"),
-        (AlertedSeries(series_index=0, breakdown_label="retired-model", breakdown_index=0), None),
+        pytest.param(
+            AlertedSeries(series_index=0, breakdown_label="gpt", breakdown_index=0),
+            "gpt",
+            id="label_beats_a_shifted_position",
+        ),
+        pytest.param(AlertedSeries(series_index=0, breakdown_index=1), "gpt", id="unlabelled_check_uses_position"),
+        pytest.param(
+            AlertedSeries(series_index=0, breakdown_label="retired-model", breakdown_index=0),
+            None,
+            id="label_no_longer_in_results",
+        ),
     ],
 )
 @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
@@ -182,10 +188,10 @@ def test_run_detector_simulation_never_rescores_an_ai_alert(
         ({"series_index": 1, "kind": "drop"}, AlertedSeries(series_index=1, breakdown_index=1)),
         ({"kind": "drop"}, AlertedSeries(series_index=2)),
         ({"series_index": True}, AlertedSeries(series_index=2)),
-        # On a breakdown check series_index is the fired value's position, not a query series.
-        (
+        pytest.param(
             {"series_index": 3, "breakdown_label": "gpt"},
             AlertedSeries(series_index=2, breakdown_label="gpt", breakdown_index=3),
+            id="breakdown_check_position_is_not_a_query_series",
         ),
     ],
 )

@@ -865,7 +865,6 @@ def _evaluated_series(alert, evaluated) -> AlertedSeries:
     label = metadata.get("breakdown_label")
     if isinstance(label, str):
         return AlertedSeries(series_index=configured, breakdown_label=label, breakdown_index=saved_index)
-    # A breakdown check saved before the label was carries only the position.
     return AlertedSeries(
         series_index=saved_index if saved_index is not None else configured, breakdown_index=saved_index
     )

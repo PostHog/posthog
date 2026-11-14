@@ -1,8 +1,7 @@
 from html import escape
 
-# A breakdown value is an event property value, so anyone who can send events to the project
-# chooses its text. It goes into the context escaped inside a data tag, and capped so that a
-# long value cannot crowd out the rest of the context.
+# Anyone who can send events chooses a breakdown value, so it is escaped inside a data tag and
+# capped so that it cannot crowd out the rest of the context.
 MAX_BREAKDOWN_LABEL_CHARS = 120
 
 SYSTEM_PROMPT = """\
@@ -203,8 +202,7 @@ def build_anomaly_context(
     # The prompt frames it as a prior to check rather than as a conclusion.
     rationale = str(md.pop("rationale", "") or "").strip()
     rationale_line = f"The detector's own read of this fire: {rationale}\n" if rationale else ""
-    # On a breakdown insight series_index is the fired value's position, which reads as a query
-    # series to the agent. The label is what tells it which value fired.
+    # On a breakdown check series_index is the fired value's position, which the agent would read as a query series.
     breakdown_label = md.pop("breakdown_label", None)
     breakdown_line = ""
     if isinstance(breakdown_label, str):
