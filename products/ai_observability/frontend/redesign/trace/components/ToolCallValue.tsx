@@ -3,6 +3,7 @@ import { useLayoutEffect, useMemo, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 
 import { isPlainObject, searchableText, toDisplayText } from './jsonText'
+import { JsonTree } from './JsonTree'
 import { KeyValueTable } from './KeyValueTable'
 
 // A value longer than this folds to one line, so a message with several tool calls still shows every call.
@@ -18,12 +19,20 @@ function isLong(text: string): boolean {
     return text.length > FOLDED_CHARS || text.split('\n').length > FOLDED_LINES
 }
 
-function ValueBody({ value }: { value: unknown }): JSX.Element {
-    return isPlainObject(value) && Object.keys(value).length > 0 ? (
-        <KeyValueTable entries={Object.entries(value)} className="gap-x-4 gap-y-1 font-mono text-xs" />
-    ) : (
-        <pre className="m-0 whitespace-pre-wrap break-words text-xs">{toDisplayText(value)}</pre>
-    )
+function ValueBody({ value, highlightQuery }: Required<ToolCallValueProps>): JSX.Element {
+    if (isPlainObject(value) && Object.keys(value).length > 0) {
+        return (
+            <KeyValueTable
+                entries={Object.entries(value)}
+                className="gap-x-4 gap-y-1 font-mono text-xs"
+                highlightQuery={highlightQuery}
+            />
+        )
+    }
+    if (Array.isArray(value) && value.length > 0) {
+        return <JsonTree src={value} highlightQuery={highlightQuery} />
+    }
+    return <pre className="m-0 whitespace-pre-wrap break-words text-xs">{toDisplayText(value)}</pre>
 }
 
 function FoldedValue({ value, highlightQuery }: Required<ToolCallValueProps>): JSX.Element {
@@ -59,7 +68,7 @@ function FoldedValue({ value, highlightQuery }: Required<ToolCallValueProps>): J
                     </span>
                 )}
             </summary>
-            {isOpen ? <ValueBody value={value} /> : null}
+            {isOpen ? <ValueBody value={value} highlightQuery={highlightQuery} /> : null}
         </details>
     )
 }
@@ -70,7 +79,7 @@ export function ToolCallValue({ value, highlightQuery = null }: ToolCallValuePro
     }
     return (
         <div className="min-w-0 px-2 py-1">
-            <ValueBody value={value} />
+            <ValueBody value={value} highlightQuery={highlightQuery} />
         </div>
     )
 }

@@ -36,28 +36,42 @@ describe('ThreadTurn', () => {
         expect(getByText('Two seats were added.').closest('.opacity-50') !== null).toBe(faded)
     })
 
-    test('shows a side the server returned as json in its place', () => {
+    test.each([
+        ['as plain text', 'Why did my invoice go up?', 'Why did my invoice go up?'],
+        ['as the fields of a JSON string', '{"question": "Why did my invoice go up?"}', 'question'],
+    ])('shows a side the server returned as json in its place, %s', (_name, value, shownText) => {
         const { getByText } = render(
             <ThreadTurn
-                turn={{ ...turn, input: { kind: 'json', value: 'Why did my invoice go up?' } }}
+                turn={{ ...turn, input: { kind: 'json', value } }}
                 isActive={false}
                 onSelectMessage={() => {}}
             />
         )
 
         expect(getByText('Input')).toBeTruthy()
-        expect(getByText('Why did my invoice go up?')).toBeTruthy()
+        expect(getByText(shownText)).toBeTruthy()
         expect(getByText('Two seats were added.')).toBeTruthy()
     })
 
+    const jsonTurn: ConversationTurn = {
+        ...turn,
+        input: { kind: 'json', value: '{"filters": {"types": ["invoice"]}}' },
+    }
+
     test.each([
-        ['cuts a bubble taller than the window', null, 1],
-        ['shows a bubble that holds the search query in full', 'seats', 0],
-    ])('%s', (_name, highlightQuery, readMoreCount) => {
-        const height = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(window.innerHeight + 1)
+        ['cuts a bubble taller than the window', turn, window.innerHeight + 1, null, 1],
+        ['shows a bubble that holds the search query in full', turn, window.innerHeight + 1, 'seats', 0],
+        ['cuts a JSON field taller than half the window', jsonTurn, window.innerHeight / 2 + 1, null, 1],
+    ])('%s', (_name, shownTurn, contentHeight, highlightQuery, readMoreCount) => {
+        const height = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(contentHeight)
         try {
             const { queryAllByText } = render(
-                <ThreadTurn turn={turn} isActive={false} onSelectMessage={() => {}} highlightQuery={highlightQuery} />
+                <ThreadTurn
+                    turn={shownTurn}
+                    isActive={false}
+                    onSelectMessage={() => {}}
+                    highlightQuery={highlightQuery}
+                />
             )
 
             expect(queryAllByText('Show more')).toHaveLength(readMoreCount)
