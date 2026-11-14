@@ -24,7 +24,7 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.api.cohort import CohortFilters
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import CHQueryErrorS3Error
+from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -41,6 +41,7 @@ from posthog.test.persons import create_person
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPopulationMode
 from products.cohorts.backend.models.util import (
+    CLICKHOUSE_QUORUM_LOCKED_CODE,
     COHORT_QUERY_TIMEOUT_SECONDS,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX,
@@ -64,6 +65,7 @@ from products.cohorts.backend.models.util import (
     insert_cohort_members,
     insert_cohort_people_into_pg,
     insert_cohort_query_actors_into_ch,
+    insert_static_cohort,
     legacy_groups_to_filters,
     list_cohort_member_ids,
     mint_population_marker,
@@ -1536,6 +1538,40 @@ class TestCohortUtils(BaseTest):
                 for token in expected_tokens:
                     self.assertIn(token, sql)
                 insert_cohort_query_actors_into_ch(cohort, team=self.team)
+
+
+class TestAddDuringReplace(BaseTest):
+    @parameterized.expand([("replace_in_flight", CohortPopulationMode.REPLACE, True), ("no_replace", None, False)])
+    def test_an_add_is_a_quorum_write_only_while_a_replace_runs(
+        self, _name: str, mode: str | None, expect_quorum: bool
+    ) -> None:
+        cohort = _create_cohort(team=self.team, name="static", groups=[], is_static=True)
+        person = _create_person(team_id=self.team.pk, distinct_ids=["added"])
+        flush_persons_and_events()
+        Cohort.objects.filter(pk=cohort.pk).update(is_calculating=mode is not None, pending_population_mode=mode)
+
+        with patch("products.cohorts.backend.models.util.sync_execute") as mock_sync_execute:
+            cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk, save_state=False)
+
+        insert_settings = next(
+            call.kwargs["settings"]
+            for call in mock_sync_execute.call_args_list
+            if "INSERT INTO" in call.args[0] and "person_static_cohort" in call.args[0]
+        )
+        if expect_quorum:
+            self.assertEqual(insert_settings, REPLACE_INSERT_QUORUM_SETTINGS)
+        else:
+            self.assertEqual(insert_settings, {"async_insert": 1, "wait_for_async_insert": 1})
+
+    def test_a_quorum_add_waits_out_another_inserts_quorum(self) -> None:
+        locked = InternalCHQueryError("quorum for previous write", code=CLICKHOUSE_QUORUM_LOCKED_CODE)
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", side_effect=[locked, None]) as mock_sync_execute,
+            patch("products.cohorts.backend.models.util.time.sleep"),
+        ):
+            insert_static_cohort([uuid4()], 1, team_id=self.team.pk, quorum=True)
+
+        self.assertEqual(mock_sync_execute.call_count, 2)
 
 
 class TestGetNestedCohortIds(BaseTest):

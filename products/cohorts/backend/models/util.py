@@ -833,7 +833,21 @@ def _trim_trailing_settings(sql: str) -> str:
 STATIC_COHORT_ASYNC_INSERT_MAX_ROWS = 100
 
 
-def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
+# UNSATISFIED_QUORUM_FOR_PREVIOUS_WRITE. With insert_quorum_parallel=0, a quorum insert fails up front while another
+# quorum insert to the table still waits for its quorum, before it writes anything, so retrying it can't duplicate rows.
+CLICKHOUSE_QUORUM_LOCKED_CODE = 286
+QUORUM_LOCK_RETRY_WAITS_SECONDS = (0.5, 1.5)
+
+
+def insert_static_cohort(
+    person_uuids: Sequence[Optional[uuid.UUID]], cohort_id: int, *, team_id: int, quorum: bool = False
+):
+    """Write the people's rows to person_static_cohort, stamped with the current second.
+
+    With ``quorum``, the rows are written as a synchronous quorum insert, never buffered, so a sequentially
+    consistent read that follows either sees them or fails. A replace's prune reads that way, so an add made
+    during a replace uses it. A quorum lock held by another insert is waited out and retried.
+    """
     tag_queries(
         product=ProductKey.COHORTS,
         cohort_id=cohort_id,
@@ -851,6 +865,15 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
         }
         for person_uuid in person_uuids
     ]
+    if quorum:
+        for wait_seconds in (*QUORUM_LOCK_RETRY_WAITS_SECONDS, None):
+            try:
+                sync_execute(INSERT_PERSON_STATIC_COHORT, persons, settings=REPLACE_INSERT_QUORUM_SETTINGS)
+                return
+            except Exception as err:
+                if wait_seconds is None or getattr(err, "code", None) != CLICKHOUSE_QUORUM_LOCKED_CODE:
+                    raise
+                time.sleep(wait_seconds)
     # wait_for_async_insert returns only after the buffer is flushed, so a failed write still raises and a
     # following membership read sees the row.
     insert_settings = (

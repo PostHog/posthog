@@ -1235,14 +1235,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         if insert_in_clickhouse:
             existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
+            replace_in_flight = self._replace_in_flight()
             # A replace in flight removes every member without a row at or after its marker, so a re-add
             # during it writes a fresh row even for an existing member. Readers use DISTINCT, so the
             # duplicate row is harmless.
-            if existing_uuids and self._replace_in_flight():
+            if replace_in_flight:
                 existing_uuids = set()
             new_uuids = [UUID(u) for u in person_uuids if u not in existing_uuids]
             if new_uuids:
-                insert_static_cohort(new_uuids, self.pk, team_id=team_id)
+                # During a replace the row is a quorum write, so the prune's sequentially consistent read sees it
+                # or fails. A buffered row could reach that replica too late, and the prune would then delete the
+                # person from Postgres while the row kept them in ClickHouse.
+                insert_static_cohort(new_uuids, self.pk, team_id=team_id, quorum=replace_in_flight)
 
         insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
 
