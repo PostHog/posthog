@@ -65,7 +65,12 @@ def _event(team: Team, event: str, at: datetime, properties: dict[str, Any]) -> 
     )
 
 
-def _chat_traffic(team: Team, end: datetime) -> None:
+def _content(captured: bool, messages: list[dict[str, Any]], choices: list[dict[str, Any]]) -> dict[str, Any]:
+    """The input and output of a generation, or nothing, as an SDK in privacy mode sends it."""
+    return {"$ai_input": messages, "$ai_output_choices": choices} if captured else {}
+
+
+def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True) -> None:
     """60 chat turns over three days. Every action goes through one dispatcher tool, answers link to docs,
     some turns pause for approval, and 3 turns end on a timeout nobody retried."""
     for index in range(60):
@@ -87,8 +92,7 @@ def _chat_traffic(team: Team, end: datetime) -> None:
                 {
                     **trace,
                     **model,
-                    "$ai_input": messages,
-                    "$ai_output_choices": [assistant],
+                    **_content(capture_content, messages, [assistant]),
                     "$ai_tools_called": "run_action",
                     "$ai_tool_call_count": 1,
                 },
@@ -130,7 +134,7 @@ def _chat_traffic(team: Team, end: datetime) -> None:
             team,
             "$ai_generation",
             at + timedelta(seconds=1),
-            {**trace, **model, "$ai_input": messages, "$ai_output_choices": [answer]},
+            {**trace, **model, **_content(capture_content, messages, [answer])},
         )
 
 
@@ -209,6 +213,18 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         # Paid stages were off, and the handoff is gone once the run published.
         assert run.stages["screening"] == {"status": "skipped", "detail": "free stages only"}
         assert run.handoff == {}
+
+    def test_a_team_that_captures_no_content_gets_only_fix_cards(self) -> None:
+        now = timezone.now()
+        _chat_traffic(self.team, now - timedelta(minutes=30), capture_content=False)
+        dead_judge = _dead_judge(self.team)
+        run = create_run(self.team, "manual")
+
+        suggestions = _run_stages(self.team, run, include_paid=True, now=now)
+
+        assert [s.dedupe_key for s in suggestions] == [f"fix:{dead_judge.id}:no_runs"]
+        run.refresh_from_db()
+        assert run.stages["applicability"]["status"] == "skipped"
 
 
 class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
