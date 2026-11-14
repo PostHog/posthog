@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import tldextract
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.aeo.backend.brand import SEGMENT_SQL, brand_names, segment_sql_params
@@ -280,10 +281,18 @@ def _brand_domains(host: str, domains: set[str]) -> list[str]:
     return [suffix for index in range(len(labels)) if (suffix := ".".join(labels[index:])) in domains]
 
 
-def _cited_brand_hosts(rows: list[tuple[str, int]], domains: set[str]) -> tuple[list[str], list[str]]:
-    """Parallel host and brand-domain arrays for the cited hosts of the `MAX_COMPETITOR_CANDIDATE_BRANDS` most
-    cited candidates. Candidates rank by the smaller of their two counts, which never exceeds the citations, so
-    the cap only ever drops brands that were too rarely cited to reach the top of the list anyway."""
+@frozen
+class _CitedBrandHosts:
+    """The window's cited hosts and the candidate brand each one belongs to, as the arrays the query unnests."""
+
+    hosts: list[str]
+    domains: list[str]
+
+
+def _cited_brand_hosts(rows: list[tuple[str, int]], domains: set[str]) -> _CitedBrandHosts:
+    """The cited hosts of the `MAX_COMPETITOR_CANDIDATE_BRANDS` most cited candidates. Candidates rank by the
+    smaller of their two counts, which never exceeds the citations, so the cap only ever drops brands that were
+    too rarely cited to reach the top of the list anyway."""
     hosts: dict[str, list[str]] = defaultdict(list)
     citations: Counter[str] = Counter()
     for host, answers in rows:
@@ -292,7 +301,7 @@ def _cited_brand_hosts(rows: list[tuple[str, int]], domains: set[str]) -> tuple[
             citations[domain] += answers
     top = sorted(hosts, key=lambda domain: (-citations[domain], domain))[:MAX_COMPETITOR_CANDIDATE_BRANDS]
     pairs = [(host, domain) for domain in top for host in hosts[domain]]
-    return [host for host, _ in pairs], [domain for _, domain in pairs]
+    return _CitedBrandHosts(hosts=[host for host, _ in pairs], domains=[domain for _, domain in pairs])
 
 
 def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandidate]:
@@ -322,13 +331,22 @@ def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandida
     segment = segment_sql_params(BrandedSegment.NON_BRANDED, own)
     with connection.cursor() as cursor:
         cursor.execute(_CITED_HOSTS_SQL, [team_id, since, *segment])
-        hosts, mapped = _cited_brand_hosts(cursor.fetchall(), set(brands))
-        if not mapped:
+        cited_hosts = _cited_brand_hosts(cursor.fetchall(), set(brands))
+        if not cited_hosts.domains:
             return []
-        cited = sorted(set(mapped))
+        cited = sorted(set(cited_hosts.domains))
         cursor.execute(
             _COMPETITOR_CANDIDATES_SQL,
-            [team_id, since, *segment, hosts, mapped, cited, [patterns[domain] for domain in cited], limit],
+            [
+                team_id,
+                since,
+                *segment,
+                cited_hosts.hosts,
+                cited_hosts.domains,
+                cited,
+                [patterns[domain] for domain in cited],
+                limit,
+            ],
         )
         rows = cursor.fetchall()
     return [
