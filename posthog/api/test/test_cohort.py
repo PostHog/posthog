@@ -24,7 +24,6 @@ from django.utils import timezone
 
 from parameterized import param, parameterized
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
@@ -959,6 +958,7 @@ email@example.org
             self.assertFalse(cohort.is_calculating)
             self.assertIsNone(cohort.pending_population_mode)
             self.assertIsNone(cohort.population_marker)
+            self.assertIsNone(cohort.population_claimed_at)
             retried = self.client.patch(url, **request_kwargs())
 
         self.assertEqual(failed.status_code, 400, failed.json())
@@ -1018,34 +1018,6 @@ email@example.org
         self.assertIsNone(cohort.population_marker)
         mock_delay.assert_called_once_with(cohort.pk, self.team.id)
 
-    def test_enqueue_query_population_failure_clears_db_and_memory(self) -> None:
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="static",
-            is_static=True,
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_marker=timezone.now(),
-        )
-        serializer = CohortSerializer(context={"team_id": self.team.id, "request": MagicMock()})
-        with patch(
-            "posthog.tasks.calculate_cohort.insert_cohort_from_query.delay",
-            side_effect=ConnectionError("broker down"),
-        ):
-            with self.assertRaises(ValidationError):
-                serializer._enqueue_query_population(cohort)
-
-        # In memory
-        self.assertFalse(cohort.is_calculating)
-        self.assertIsNone(cohort.pending_population_mode)
-        self.assertIsNone(cohort.population_marker)
-
-        # In DB
-        cohort.refresh_from_db()
-        self.assertFalse(cohort.is_calculating)
-        self.assertIsNone(cohort.pending_population_mode)
-        self.assertIsNone(cohort.population_marker)
-
     def test_calculation_history_endpoint_and_serializer_expose_mode(self) -> None:
         cohort = Cohort.objects.create(team=self.team, name="Static with History", is_static=True)
         history = CohortCalculationHistory.objects.create(
@@ -1069,7 +1041,7 @@ email@example.org
         serializer = CohortCalculationHistorySerializer(
             data={"mode": "append", "cohort": cohort.id, "team": self.team.id, "filters": {}}
         )
-        serializer.is_valid()
+        self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertNotIn("mode", serializer.validated_data)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
