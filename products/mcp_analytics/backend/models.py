@@ -218,6 +218,17 @@ class MCPIntentTopic(UUIDModel, TeamScopedRootMixin):
         return np.frombuffer(bytes(self.centroid), dtype=np.float32)
 
 
+class MCPIntentWriteBarrier(TeamScopedRootMixin):
+    team = models.OneToOneField(
+        "posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
+    )
+    invalidation_id = models.UUIDField(null=True)
+    frozen_at = models.DateTimeField(null=True)
+
+    class Meta:
+        db_table = "posthog_mcp_analytics_intent_write_barrier"
+
+
 class MCPIntentClusteringRun(UUIDModel, TeamScopedRootMixin):
     """Bookkeeping for one pipeline run (hourly sync, nightly assign, weekly refit)."""
 
@@ -247,6 +258,8 @@ class MCPIntentClusteringRun(UUIDModel, TeamScopedRootMixin):
     params = models.JSONField(default=dict)
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    writer_registered_at = models.DateTimeField(null=True)
+    writer_completed_at = models.DateTimeField(null=True)
 
     class Meta:
         db_table = "posthog_mcp_analytics_intent_clustering_run"

@@ -1,0 +1,391 @@
+import os
+import json
+from uuid import uuid4
+
+os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")
+
+from datetime import timedelta  # noqa: E402
+from functools import partial  # noqa: E402
+
+import pytest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events  # noqa: E402
+from unittest.mock import patch
+
+import numpy as np  # noqa: E402
+import responses
+
+from posthog.hogql.query import execute_hogql_query  # noqa: E402
+
+from posthog.api.embedding_worker import _EMBEDDING_URL
+from posthog.clickhouse.client import sync_execute
+from posthog.models.team.team import Team  # noqa: E402
+
+from products.mcp_analytics.backend.intent_hash import intent_hash  # noqa: E402
+from products.mcp_analytics.backend.intent_topics import embedding_sync, persist, pipeline  # noqa: E402
+from products.mcp_analytics.backend.intent_topics.invalidation import freeze_writes, has_pending_registered_writers
+from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel  # noqa: E402
+from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic  # noqa: E402
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin  # noqa: E402
+from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding, recent_hour, unit_vector
+from products.mcp_analytics.backend.tests.test_intent_topics_clustering import skip_without_umap  # noqa: E402
+
+NOW = recent_hour(days_ago=0)
+
+
+def _blob_vectors(axis: int, n: int, seed: int) -> list[list[float]]:
+    rng = np.random.default_rng(seed)
+    base = np.zeros(256)
+    base[axis] = 1.0
+    return (base + rng.normal(scale=0.02, size=(n, 256))).tolist()
+
+
+class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self.worker = responses.RequestsMock(assert_all_requests_are_fired=False)
+        self.worker.start()
+        self.addCleanup(self.worker.stop)
+        self.worker.add(
+            responses.POST, _EMBEDDING_URL, json={"embedding": unit_vector(0), "tokens_used": 3, "did_truncate": False}
+        )
+
+    def test_emits_only_intents_without_a_vector_and_records_the_run(self) -> None:
+        for text in ("new intent", "new intent", "already embedded"):
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="a",
+                timestamp=NOW - timedelta(minutes=30),
+                properties={"$mcp_tool_name": "query-trends", "$mcp_intent": text},
+            )
+        flush_persons_and_events()
+        insert_intent_embedding(
+            self.team.pk, intent_hash("already embedded"), "already embedded", at=NOW - timedelta(days=1)
+        )
+
+        outcome = pipeline.run_sync(self.team, window_start=NOW - timedelta(hours=1), window_end=NOW)
+
+        assert (outcome.status, outcome.n_intents, outcome.n_embeddings_requested) == ("succeeded", 2, 1)
+        rows = execute_hogql_query(
+            query="SELECT document_id, metadata.calls FROM posthog.document_embeddings_text_embedding_3_small_256 WHERE content = 'new intent'",
+            team=self.team,
+        ).results
+        assert rows == [(intent_hash("new intent"), "2")]
+        assert len(self.worker.calls) == 1
+        run = MCPIntentClusteringRun.objects.get(team=self.team, run_id=outcome.run_id)
+        assert run.kind == "sync" and run.n_embeddings_requested == 1
+        assert run.writer_completed_at is not None
+
+    def _call(self, text: str, at, team: Team | None = None) -> None:
+        _create_event(
+            team=team or self.team,
+            event="$mcp_tool_call",
+            distinct_id="a",
+            timestamp=at,
+            properties={"$mcp_tool_name": "query-trends", "$mcp_intent": text},
+        )
+
+    def test_a_window_over_the_budget_is_drained_across_runs_without_losing_intents(self) -> None:
+        start = NOW - timedelta(hours=3)
+        for text, hour in (("a", 0), ("b", 0), ("a", 1), ("c", 1), ("d", 2)):
+            self._call(text, start + timedelta(hours=hour, minutes=20))
+        flush_persons_and_events()
+
+        first = pipeline.run_sync(self.team, window_start=start, window_end=NOW, budget=2, page_size=1)
+
+        assert (first.status, first.n_intents) == ("succeeded", 2)
+        first_end = start + pipeline.SYNC_RESUME_OVERLAP + pipeline.SYNC_SLICE
+        assert MCPIntentClusteringRun.objects.get(run_id=first.run_id).window_end == first_end
+        resume = pipeline.sync_window_start(self.team, now=NOW)
+        # The replayed overlap does not eat into the hour a budget-stopped run advances.
+        assert resume - start == pipeline.SYNC_SLICE
+
+        second = pipeline.run_sync(self.team, window_start=resume, window_end=NOW, budget=100, page_size=1)
+
+        assert second.status == "succeeded"
+        assert MCPIntentClusteringRun.objects.get(run_id=second.run_id).window_end == NOW
+        emitted = [json.loads(call.request.body)["content"] for call in self.worker.calls]
+        assert sorted(emitted) == ["a", "b", "c", "d"]
+
+    def test_one_hour_over_the_budget_is_still_drained_whole(self) -> None:
+        start = NOW - timedelta(hours=1)
+        for text in ("a", "b", "c"):
+            self._call(text, start + timedelta(minutes=10))
+        flush_persons_and_events()
+
+        outcome = pipeline.run_sync(self.team, window_start=start, window_end=NOW, budget=1, page_size=1)
+
+        assert (outcome.status, outcome.n_intents, outcome.n_embeddings_requested) == ("succeeded", 3, 3)
+        assert MCPIntentClusteringRun.objects.get(run_id=outcome.run_id).window_end == NOW
+
+    def test_each_environment_resumes_from_its_own_syncs(self) -> None:
+        sibling = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Sibling"
+        )
+        sibling_end = NOW - timedelta(hours=5)
+
+        pipeline.run_sync(sibling, window_start=sibling_end - timedelta(hours=1), window_end=sibling_end)
+        pipeline.run_sync(self.team, window_start=NOW - timedelta(hours=1), window_end=NOW)
+
+        assert pipeline.sync_window_start(sibling, now=NOW) == sibling_end - pipeline.SYNC_RESUME_OVERLAP
+        assert pipeline.sync_window_start(self.team, now=NOW) == NOW - pipeline.SYNC_RESUME_OVERLAP
+
+    def test_skips_without_consent(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        outcome = pipeline.run_sync(self.team, window_start=NOW - timedelta(hours=1), window_end=NOW)
+
+        assert outcome.status == "skipped_no_consent"
+        assert not self.worker.calls
+
+    def test_partial_hour_resumes_without_losing_intents_or_moving_backwards(self) -> None:
+        start = NOW - timedelta(hours=1)
+        for text in ("a", "b", "c"):
+            self._call(text, start + timedelta(minutes=10))
+        flush_persons_and_events()
+
+        with (
+            patch.object(embedding_sync, "EMBEDDING_BATCH_SIZE", 1),
+            patch.object(pipeline, "monotonic", return_value=0.0) as clock,
+        ):
+
+            def respond(request):
+                clock.return_value = pipeline.SYNC_WORK_BUDGET_SECONDS + 1
+                return (200, {}, json.dumps({"embedding": unit_vector(0), "tokens_used": 3, "did_truncate": False}))
+
+            self.worker.reset()
+            self.worker.add_callback(responses.POST, _EMBEDDING_URL, callback=respond)
+            first = pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+            assert first.n_embeddings_requested == 1
+            assert MCPIntentClusteringRun.objects.get(run_id=first.run_id).window_end == start
+            assert pipeline.sync_window_start(self.team, now=NOW) == start
+
+            with patch.object(pipeline, "SYNC_WORK_BUDGET_SECONDS", 0):
+                pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+            assert pipeline.sync_window_start(self.team, now=NOW) == start
+
+        self.worker.reset()
+        self.worker.add(
+            responses.POST, _EMBEDDING_URL, json={"embedding": unit_vector(0), "tokens_used": 3, "did_truncate": False}
+        )
+        second = pipeline.run_sync(
+            self.team, window_start=pipeline.sync_window_start(self.team, now=NOW), window_end=NOW
+        )
+
+        assert second.n_embeddings_requested == 2
+        rows = execute_hogql_query(
+            query="SELECT content FROM posthog.document_embeddings_text_embedding_3_small_256 ORDER BY content",
+            team=self.team,
+        ).results
+        assert rows == [("a",), ("b",), ("c",)]
+        operation = uuid4()
+        freeze_writes(self.team, invalidation_id=operation)
+        assert not has_pending_registered_writers(self.team, invalidation_id=operation)
+
+    def test_lost_insert_acknowledgment_stays_pending_after_a_successful_retry(self) -> None:
+        start = NOW - timedelta(hours=1)
+        self._call("a", start + timedelta(minutes=10))
+        flush_persons_and_events()
+
+        def lose_ack(*args, **kwargs):
+            sync_execute(*args, **kwargs)
+            raise TimeoutError("Lost insert acknowledgment")
+
+        with patch.object(embedding_sync, "sync_execute", side_effect=lose_ack), pytest.raises(TimeoutError):
+            pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+        failed = MCPIntentClusteringRun.objects.get(status="failed")
+        assert failed.writer_completed_at is None
+
+        retried = pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+
+        assert retried.status == "succeeded" and retried.n_embeddings_requested == 0
+        assert len(self.worker.calls) == 1
+        operation = uuid4()
+        freeze_writes(self.team, invalidation_id=operation)
+        assert has_pending_registered_writers(self.team, invalidation_id=operation)
+
+    def test_cached_pages_also_obey_the_work_deadline(self) -> None:
+        start = NOW - timedelta(hours=1)
+        for text in ("a", "b", "c"):
+            self._call(text, start + timedelta(minutes=10))
+            insert_intent_embedding(self.team.pk, intent_hash(text), text, at=start)
+        flush_persons_and_events()
+
+        with patch.object(pipeline, "monotonic", side_effect=[0.0, 0.0, 0.0, 241.0]):
+            outcome = pipeline.run_sync(self.team, window_start=start, window_end=NOW, page_size=1)
+
+        assert (outcome.n_intents, outcome.n_embeddings_requested) == (1, 0)
+        assert pipeline.sync_window_start(self.team, now=NOW) == start
+        assert not self.worker.calls
+
+
+@skip_without_umap
+class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        for i, vector in enumerate(_blob_vectors(0, 60, seed=1)):
+            self._embed(f"create insight {i}", vector, days_ago=2, calls=1 + i % 3)
+        for i, vector in enumerate(_blob_vectors(1, 60, seed=2)):
+            self._embed(f"list flags {i}", vector, days_ago=3)
+        flush_persons_and_events()
+
+    def _embed(self, text: str, vector: list[float], *, days_ago: int, calls: int = 1) -> None:
+        at = NOW - timedelta(days=days_ago)
+        for _ in range(calls):
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="agent-1",
+                timestamp=at,
+                properties={"$mcp_intent": text},
+            )
+        insert_intent_embedding(self.team.pk, intent_hash(text), text, at=at, embedding=vector, calls=99)
+
+    def _assignments(self) -> list[tuple]:
+        return execute_hogql_query(
+            query="SELECT topic_id, count(), countIf(is_outlier = 1) FROM posthog.mcp_intent_assignments GROUP BY topic_id ORDER BY count() DESC",
+            team=self.team,
+        ).results
+
+    @patch("products.mcp_analytics.backend.intent_topics.pipeline.labeling.label_topics")
+    def test_refit_creates_labelled_topics_and_assign_fills_the_table(self, mock_labels) -> None:
+        mock_labels.side_effect = lambda team, candidates: {
+            c.topic_id: TopicLabel(label=f"Label {i}", summary=f"Summary {i}") for i, c in enumerate(candidates)
+        }
+
+        refit = pipeline.run_refit(self.team, now=NOW)
+
+        assert refit.status == "succeeded"
+        assert refit.n_topics == 2
+        topics = list(MCPIntentTopic.active.filter(team=self.team))
+        assert sorted(t.label for t in topics) == ["Label 0", "Label 1"]
+        assert all(t.member_count == 60 for t in topics)
+        candidates = mock_labels.call_args.args[1]
+        assert all(len(c.sample_intents) == 10 for c in candidates)
+
+        assign = pipeline.run_assign(self.team, window_start=NOW - timedelta(days=7), window_end=NOW)
+
+        assert assign.status == "succeeded"
+        assert assign.n_intents == 120
+        rows = self._assignments()
+        assert sorted(r[0] for r in rows) == sorted(str(t.pk) for t in topics)
+        assert [r[1] for r in rows] == [60, 60]
+
+    @patch("products.mcp_analytics.backend.intent_topics.pipeline.labeling.label_topics", return_value={})
+    def test_second_refit_keeps_topic_ids(self, _mock_labels) -> None:
+        pipeline.run_refit(self.team, now=NOW)
+        first_ids = sorted(str(t.pk) for t in MCPIntentTopic.active.filter(team=self.team))
+
+        pipeline.run_refit(self.team, now=NOW + timedelta(hours=1))
+
+        assert sorted(str(t.pk) for t in MCPIntentTopic.active.filter(team=self.team)) == first_ids
+        assert MCPIntentClusteringRun.objects.filter(team=self.team, kind="refit", status="succeeded").count() == 2
+
+    @patch("products.mcp_analytics.backend.intent_topics.pipeline.labeling.label_topics", return_value={})
+    def test_assign_preserves_whole_window_counts_across_pages(self, _mock_labels) -> None:
+        first = NOW - timedelta(days=4)
+        for _ in range(2):
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="agent-1",
+                timestamp=first,
+                properties={"$mcp_intent": "create insight 0"},
+            )
+        flush_persons_and_events()
+        pipeline.run_refit(self.team, now=NOW)
+
+        with patch.object(
+            pipeline.corpus,
+            "iter_live_intent_pages",
+            wraps=partial(pipeline.corpus.iter_live_intent_pages, page_size=50),
+        ):
+            assign = pipeline.run_assign(self.team, window_start=NOW - timedelta(days=7), window_end=NOW)
+
+        assert assign.n_intents == 120
+        assert sum(r[1] for r in self._assignments()) == 120
+        [row] = execute_hogql_query(
+            query="SELECT calls_in_run, source_min_timestamp FROM posthog.mcp_intent_assignments WHERE intent_text = 'create insight 0'",
+            team=self.team,
+        ).results
+        assert row[0] == 3
+        assert row[1].replace(tzinfo=first.tzinfo) == first
+
+    def test_assign_without_topics_is_skipped(self) -> None:
+        outcome = pipeline.run_assign(self.team, window_start=NOW - timedelta(days=1), window_end=NOW)
+
+        assert outcome.status == "skipped_too_few"
+
+
+class TestRefitTooFew(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def test_skips_when_the_window_has_too_few_vectors(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="agent-1",
+            timestamp=NOW - timedelta(days=1),
+            properties={"$mcp_intent": "only one"},
+        )
+        flush_persons_and_events()
+        insert_intent_embedding(self.team.pk, intent_hash("only one"), "only one", at=NOW - timedelta(days=1))
+
+        outcome = pipeline.run_refit(self.team, now=NOW)
+
+        assert outcome.status == "skipped_too_few"
+        assert outcome.n_intents == 1
+
+
+class TestSyncWindow(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    def _succeeded_sync(self, window_end, status=MCPIntentClusteringRun.Status.SUCCEEDED) -> None:
+        MCPIntentClusteringRun.objects.create(
+            team=self.team,
+            run_id=f"sync-{window_end.isoformat()}",
+            kind="sync",
+            status=status,
+            window_start=window_end - timedelta(hours=1),
+            window_end=window_end,
+            params={persist.SOURCE_TEAM_PARAM: self.team.pk},
+        )
+
+    def test_first_run_covers_the_default_window(self) -> None:
+        start = pipeline.sync_window_start(self.team, now=NOW)
+
+        assert start == NOW - pipeline.DEFAULT_SYNC_LOOKBACK
+
+    def test_resumes_from_the_last_successful_sync_after_missed_runs(self) -> None:
+        self._succeeded_sync(NOW - timedelta(hours=5))
+        self._succeeded_sync(NOW - timedelta(hours=3), status=MCPIntentClusteringRun.Status.FAILED)
+
+        start = pipeline.sync_window_start(self.team, now=NOW)
+
+        assert start == NOW - timedelta(hours=5) - pipeline.SYNC_RESUME_OVERLAP
+
+    def test_catch_up_is_bounded(self) -> None:
+        self._succeeded_sync(NOW - timedelta(days=10))
+
+        start = pipeline.sync_window_start(self.team, now=NOW)
+
+        assert start == NOW - pipeline.MAX_SYNC_CATCH_UP
+
+    def test_latest_partial_run_wins_when_checkpoint_times_tie(self) -> None:
+        self._succeeded_sync(NOW)
+        MCPIntentClusteringRun.objects.update(started_at=NOW - timedelta(hours=1))
+        run = MCPIntentClusteringRun.objects.create(
+            team=self.team,
+            run_id="partial",
+            kind="sync",
+            status="succeeded",
+            window_start=NOW,
+            window_end=NOW,
+            params={persist.SOURCE_TEAM_PARAM: self.team.pk, persist.SYNC_RESUME_PARAM: NOW.isoformat()},
+        )
+        MCPIntentClusteringRun.objects.filter(pk=run.pk).update(started_at=NOW)
+
+        assert pipeline.sync_window_start(self.team, now=NOW) == NOW

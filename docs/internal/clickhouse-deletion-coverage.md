@@ -101,6 +101,14 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
   To remove them, turn off AI data analysis for the organization first, so no new summaries arrive during the run. Then run `delete_team_product_documents_job` with the `team_id` and the `product`. It deletes only that product's documents for that team, from the model tables and the ingestion buffer. It fails when the team has no documents for that product (a misspelled name), when the deletes run past `timeout_seconds`, or when any document survives.
 - `sharded_mcp_intent_assignments` — team deletion, through `delete_team_only_tables`. Its rows hold a copy of `$mcp_intent` text keyed by `(team_id, intent_hash)`, with no person id or event uuid, so only the team arm can name them. Every table in `TEAM_ONLY_TABLES` in `posthog/dags/deletes.py` is swept and counted, and a table that does not exist on any shard yet is skipped.
 
+Intent-topic runs register before reading source events or writing derived data.
+`intent_topics.invalidation.freeze_writes` closes admission for the parent project and its environments under the same PostgreSQL row lock.
+New sync runs use bounded ad-hoc inference followed by synchronous inserts into the model table on the main cluster.
+They stop scheduling work before the activity timeout and resume partially processed hours without advancing past missing vectors.
+Only an explicit confirmation of these inserts completes a sync registration. Failed or interrupted registrations do not expire, and legacy Kafka runs remain pending because enqueue success does not confirm ClickHouse delivery.
+`has_pending_registered_writers` checks only these registrations. Legacy session, snapshot and embedding-cache writers, queued embedding output, and physical derivative cleanup need separate coverage.
+The barrier has no reopening or deletion-completion operation. These primitives do not make event or person erasure complete for intent topics.
+
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
 They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
 The gate runs before shard processing and again during verification, with the same event, time-range, and insertion-marker bounds.
