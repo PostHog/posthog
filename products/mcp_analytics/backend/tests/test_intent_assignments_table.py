@@ -1,14 +1,17 @@
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, get_indexes_from_explain
 
 from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -107,7 +110,12 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
 
         raw = execute_hogql_query(query="SELECT topic_id FROM posthog.raw_mcp_intent_assignments", team=self.team)
         assert raw.results == [("older",)]
-        for suffix in ("", " WHERE topic_id = 'older'", " WHERE source_min_timestamp > now() - interval 2 month"):
+        for suffix in (
+            "",
+            " WHERE topic_id = 'older'",
+            " WHERE source_min_timestamp > now() - interval 2 month",
+            " WHERE intent_hash >= 'a' AND intent_hash < 'b'",
+        ):
             response = execute_hogql_query(
                 query=f"SELECT intent_hash FROM posthog.mcp_intent_assignments{suffix}", team=self.team
             )
@@ -127,6 +135,22 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
         assert response.results == [("a" * 64,)]
+
+    def test_hash_window_can_prune_storage_before_aggregation(self) -> None:
+        _insert_assignment(self.team.pk, "a" * 64, "topic-1")
+        _insert_assignment(self.team.pk, "b" * 64, "topic-2")
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(
+            parse_select(
+                "SELECT intent_hash, topic_id FROM posthog.mcp_intent_assignments "
+                "WHERE intent_hash >= 'b' AND intent_hash < 'c'"
+            ),
+            context,
+            "clickhouse",
+        )
+        indexes = get_indexes_from_explain(sql, context.values)
+        primary_key = next(index for index in indexes if index["Type"] == "PrimaryKey")
+        assert "intent_hash" in primary_key["Condition"]
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
     def test_tied_versions_keep_retention_provenance_with_the_selected_payload(self) -> None:

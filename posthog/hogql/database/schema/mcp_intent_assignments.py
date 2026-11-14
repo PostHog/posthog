@@ -88,10 +88,18 @@ def select_latest_assignments(requested_fields: dict[str, list[str | int]], cont
 
     if "intent_hash" not in requested_fields:
         requested_fields = {**requested_fields, "intent_hash": ["intent_hash"]}
-    chains = list(dict.fromkeys([*(tuple(chain) for chain in requested_fields.values()), ("source_min_timestamp",)]))
+    chains = list(
+        dict.fromkeys(
+            [
+                *(tuple(chain) for chain in requested_fields.values() if chain != ["intent_hash"]),
+                ("source_min_timestamp",),
+            ]
+        )
+    )
     # One aggregate tuple keeps payload and provenance together even when assignment timestamps tie.
     latest = SelectQuery(
         select=[
+            ast.Alias(alias="intent_hash", expr=ast.Field(chain=[RAW_TABLE_ALIAS, "intent_hash"])),
             ast.Alias(
                 alias="assignment",
                 expr=ast.Call(
@@ -101,7 +109,7 @@ def select_latest_assignments(requested_fields: dict[str, list[str | int]], cont
                         ast.Field(chain=[RAW_TABLE_ALIAS, "timestamp"]),
                     ],
                 ),
-            )
+            ),
         ],
         select_from=ast.JoinExpr(
             table=ast.Field(chain=["stored_mcp_intent_assignments"]),
@@ -112,6 +120,8 @@ def select_latest_assignments(requested_fields: dict[str, list[str | int]], cont
     )
 
     def latest_field(chain: list[str | int]) -> Expr:
+        if chain == ["intent_hash"]:
+            return ast.Field(chain=["latest", "intent_hash"])
         return ast.Call(
             name="tupleElement",
             args=[ast.Field(chain=["latest", "assignment"]), Constant(value=chains.index(tuple(chain)) + 1)],
