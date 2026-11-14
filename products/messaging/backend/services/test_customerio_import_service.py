@@ -312,6 +312,9 @@ user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
             team=self.team, identifier="removed@example.com", suppressed=False, deleted=True
         )
         MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team, identifier="soft@example.com", source=SuppressionSource.BOUNCE, suppressed=False
+        )
+        MessageSuppression.objects.for_team(self.team.id).create(
             team=self.team,
             identifier="earlier@example.com",
             source=SuppressionSource.BOUNCE,
@@ -343,6 +346,9 @@ user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
                 },
                 {"email": "earlier@example.com", "created": earlier_at, "status": "550", "reason": "Mailbox full"},
             ],
+            ("bounces", 4): [
+                {"email": "soft@example.com", "created": bounced_at, "status": "550", "reason": "No user"}
+            ],
             ("spam_reports", 0): [{"email": "spam@example.com", "created": spam_at, "status": "", "reason": ""}],
         }
 
@@ -360,7 +366,7 @@ user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
         result = CustomerIOImportService(import_team_id, self.api_key, self.user.id).import_api_data()
 
         assert result["status"] == "completed"
-        assert result["suppressions_imported"] == 2
+        assert result["suppressions_imported"] == 3
         assert any("invalid_emails" in error for error in result["errors"])
         rows = {
             row.identifier: (row.source, row.suppressed, row.deleted)
@@ -372,7 +378,14 @@ user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
             "manual@example.com": (SuppressionSource.MANUAL, True, False),
             "removed@example.com": (SuppressionSource.BOUNCE, False, True),
             "earlier@example.com": (SuppressionSource.BOUNCE, True, False),
+            "soft@example.com": (SuppressionSource.BOUNCE, True, False),
         }
+        hard_bounced = set(
+            MessageSuppression.objects.for_team(self.team.id)
+            .filter(hard_bounced_at__isnull=False)
+            .values_list("identifier", flat=True)
+        )
+        assert hard_bounced == {"bounced@example.com", "earlier@example.com", "soft@example.com"}
         details = {
             row.identifier: (
                 row.suppressed_at and int(row.suppressed_at.timestamp()),
