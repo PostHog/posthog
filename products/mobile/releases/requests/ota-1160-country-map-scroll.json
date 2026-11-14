@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-country-map-scroll",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-home-alignment",
+    "notes": "The visitor country map now scrolls with the page. Country selection and automatic scrolling are removed. Verify normal scrolling and Home map navigation on iOS and Android."
+}

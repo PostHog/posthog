@@ -284,6 +284,7 @@ rules:
                               |KnowledgeLibrary
                               |KnowledgeLibraryRepository
                               |KnowledgeLibrarySource
+                              |KnowledgeRunCitation
                               |KnowledgeSource
                               |KnowledgeUsageRecord
                               |PlaygroundChat
@@ -835,6 +836,7 @@ rules:
                         |KnowledgeLibrary
                         |KnowledgeLibraryRepository
                         |KnowledgeLibrarySource
+                        |KnowledgeRunCitation
                         |KnowledgeSource
                         |KnowledgeUsageRecord
                         |PlaygroundChat

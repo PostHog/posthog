@@ -50,9 +50,11 @@ function environmentWhoseResetFails(): Environment {
             }
             return edgeUrl
         },
-        role: (name) => ({ name, metricsUrl: '' }),
+        role: (name) => ({ name, url: '', metricsUrl: '' }),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
+        actuate: () => Promise.reject(new Error('the main test schedules no valves')),
         exits: () => [],
+        groupLag: () => Promise.resolve(0),
         down: () => Promise.resolve(),
     }
 }

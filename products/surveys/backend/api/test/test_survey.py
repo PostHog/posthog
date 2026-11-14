@@ -2940,7 +2940,7 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                         {
-                            "key": "$last_seen_survey_date",
+                            "key": "$survey_last_seen_date",
                             "type": "person",
                             "value": "is_not_set",
                             "operator": "is_not_set",
@@ -2965,7 +2965,7 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                         {
-                            "key": "$last_seen_survey_date",
+                            "key": "$survey_last_seen_date",
                             "type": "person",
                             "value": "7d",
                             "operator": "is_date_before",
@@ -3059,10 +3059,35 @@ class TestSurvey(APIBaseTest):
         assert len(survey.internal_targeting_flag.filters["groups"]) == 2
 
         second_group = survey.internal_targeting_flag.filters["groups"][1]
-        last_seen_property = next((p for p in second_group["properties"] if p["key"] == "$last_seen_survey_date"), None)
+        last_seen_property = next((p for p in second_group["properties"] if p["key"] == "$survey_last_seen_date"), None)
         assert last_seen_property is not None
         assert last_seen_property["value"] == "14d"
         assert last_seen_property["operator"] == "is_date_before"
+
+    @parameterized.expand(
+        [
+            ("text", "7"),
+            # A JSON integer has no width limit, and this one is wider than a float.
+            ("oversized_number", -(10**309)),
+        ]
+    )
+    def test_survey_rejects_a_wait_period_that_is_not_a_number(self, _name: str, wait_period_days: object):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with a bad wait period",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {
+                    "seenSurveyWaitPeriodInDays": wait_period_days,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "seenSurveyWaitPeriodInDays" in response_data["detail"]
+        assert not Survey.objects.filter(name="Survey with a bad wait period").exists()
 
     def test_can_list_surveys(self):
         self.client.post(
