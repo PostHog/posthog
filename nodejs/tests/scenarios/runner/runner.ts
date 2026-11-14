@@ -230,7 +230,7 @@ function messageOf(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
 }
 
-async function seedWithin(loaded: LoadedCard, seedingUrl: string, signal: AbortSignal): Promise<SeedState> {
+async function seedRun(loaded: LoadedCard, seedingUrl: string, signal: AbortSignal): Promise<SeedState> {
     if (signal.aborted) {
         throw new Error('seeding was interrupted')
     }
@@ -335,7 +335,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                     )
                     throw error
                 })
-                const seeded = await seedWithin(loaded, seedingUrlOf(specs[0]), signal).catch((error: unknown) => {
+                const seeded = await seedRun(loaded, seedingUrlOf(specs[0]), signal).catch((error: unknown) => {
                     if (error instanceof SeedingCutShort) {
                         restartRequired = new Error(
                             `The seeding stage of run ${runId} was cut short and its connections were destroyed, so a write it sent may still land in the next card. Restart the runner, then run the card again.`
