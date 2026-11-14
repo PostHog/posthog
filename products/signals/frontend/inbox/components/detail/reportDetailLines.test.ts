@@ -7,6 +7,7 @@ describe('reportDetailLines', () => {
 
     it('puts a failed check in the closed line, so nobody has to open it', () => {
         expect(reportChecksLine([check('passed'), check('failed'), check('active')], '3 · next Aug 30')).toEqual({
+            name: 'Check details',
             text: '1 of 3 failed',
             tone: 'risk',
         })
@@ -14,6 +15,7 @@ describe('reportDetailLines', () => {
 
     it('says what the checks wait for when none failed', () => {
         expect(reportChecksLine([check('pending')], '1 · waiting for resolve')).toEqual({
+            name: 'Check details',
             text: '1 check · Waiting for resolve',
         })
     })

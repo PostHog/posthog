@@ -105600,11 +105600,6 @@ export namespace Schemas {
       last_seen: string | null;
     }
 
-    export interface ReportPageEvidence {
-      /** Every signal the report page counts as evidence, newest first, one per source object. Taken from the report's newest 100 signals. */
-      evidence: SignalView[];
-    }
-
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
 
 

@@ -19,8 +19,8 @@ function signalHeadline(content: string): string {
         .split('\n')
         .map((line) => line.trim())
         .filter(Boolean)
-    // The row is plain text, so inline code marks would show as literal backticks.
-    const line = (lines[0]?.endsWith(':') && lines[1] ? lines[1] : (lines[0] ?? '')).replace(/`/g, '')
+    // The row is plain text, so inline code and bold marks would show as literal characters.
+    const line = (lines[0]?.endsWith(':') && lines[1] ? lines[1] : (lines[0] ?? '')).replace(/`|\*\*/g, '')
     const sentenceEnd = line.search(/[.!?](\s|$)/)
     return sentenceEnd === -1 ? line : line.slice(0, sentenceEnd + 1)
 }

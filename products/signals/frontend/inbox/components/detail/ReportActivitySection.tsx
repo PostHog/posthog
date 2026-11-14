@@ -46,6 +46,7 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
             collapsible
             defaultCollapsed
             line={{
+                name: 'Full log',
                 text: (
                     <>
                         <span>{`${artefacts.length} ${artefacts.length === 1 ? 'event' : 'events'} · Latest`}</span>

@@ -49,7 +49,8 @@ import { PrCommentsSection } from './PrCommentsSection'
 import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleton } from './PullRequestDiffPanel'
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { QuillReportDetail } from './QuillReportDetail'
-import { QuillReportDocumentSections } from './QuillReportDocumentSections'
+import { QuillReportFilesChangedLine } from './QuillReportFilesChangedLine'
+import { QuillReportFullReportLine } from './QuillReportFullReportLine'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { ReportChartsContext } from './reportChartsContext'
@@ -555,17 +556,22 @@ export function InboxDetailFrame({
             )}
         </>
     )
-    const detailSections = (
+    const pullRequestPicker = children
+    const reviewersAndSpend = (
         <>
-            {/* The pull request picker (when present), then reviewers, runs, and activity. */}
-            {children}
             <SuggestedReviewersSection report={report} />
             <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
                 <ReportSpendSection reportId={report.id} />
             </FlaggedFeature>
+        </>
+    )
+    const detailSections = (
+        <>
+            {/* The pull request picker (when present), then reviewers, runs, and activity. */}
+            {pullRequestPicker}
+            {reviewersAndSpend}
             <ReportTasksSection report={report} />
-            {/* The Lemon rail leads with the checks of a monitoring report. The Quill page has no rail. */}
-            {(!isMonitoring || todayRailNav) && <ReportChecksSection report={report} />}
+            {!isMonitoring && <ReportChecksSection report={report} />}
             <ReportActivitySection report={report} />
             {asideFooter}
         </>
@@ -698,6 +704,11 @@ export function InboxDetailFrame({
     )
 
     if (todayRailNav) {
+        const bound = (content: ReactNode): JSX.Element => (
+            <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
+                {content}
+            </BindLogic>
+        )
         return (
             <QuillReportDetail
                 report={report}
@@ -706,22 +717,42 @@ export function InboxDetailFrame({
                 actions={reportActions}
                 notesEnabled={notesEnabled}
                 banner={dataOnlyBanner}
-                fallback={lemonFrame}
-            >
-                <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
-                    {observationSection}
-                    {detailSections}
-                    <QuillReportDocumentSections
-                        report={report}
-                        fullReport={reportBody(null)}
-                        generatedAt={generatedAt}
-                        diffStat={diffStat}
-                        showFilesTab={!!showFilesTab}
-                        diffSection={diffSection}
-                        onToggle={captureSectionToggle}
-                    />
-                </BindLogic>
-            </QuillReportDetail>
+                specDetails={bound(
+                    <>
+                        {observationSection}
+                        <QuillReportFullReportLine
+                            report={report}
+                            generatedAt={generatedAt}
+                            onToggleCollapsed={captureSectionToggle('full_report')}
+                        >
+                            {reportBody(null)}
+                        </QuillReportFullReportLine>
+                    </>
+                )}
+                executeNote={
+                    report.tracker_issue_url || report.tracker_issue_error ? (
+                        <TrackerIssueNote report={report} />
+                    ) : undefined
+                }
+                executeDetails={bound(
+                    <>
+                        {pullRequestPicker}
+                        {reviewersAndSpend}
+                        <ReportTasksSection report={report} />
+                        {showFilesTab && (
+                            <QuillReportFilesChangedLine
+                                diffStat={diffStat}
+                                onToggleCollapsed={captureSectionToggle('files_changed')}
+                            >
+                                {diffSection}
+                            </QuillReportFilesChangedLine>
+                        )}
+                        {asideFooter}
+                    </>
+                )}
+                measureDetails={bound(<ReportChecksSection report={report} />)}
+                activityDetails={bound(<ReportActivitySection report={report} />)}
+            />
         )
     }
 
