@@ -3689,6 +3689,24 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         response = self.client.post(url, {}, format="json", **self._auth(key))
         assert response.status_code == 403, response.json()
 
+    # --- customize_destination action (POST detail, also writes HogFunctions) ---
+
+    @parameterized.expand(
+        [
+            ("logs_write_alone", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            ("with_hog_function_write", ["logs:write", "hog_function:write"], status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_customize_destination_needs_hog_function_write(self, _name: str, scopes: list[str], expected: int) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        response = self.client.post(
+            f"{self.base_url}{uuid4()}/destinations/customize/",
+            {"destination_id": str(uuid4())},
+            format="json",
+            **self._auth(key),
+        )
+        assert response.status_code == expected, response.json()
+
     # --- delete_destination action (POST detail, requires logs:write) ---
 
     def test_delete_destination_allowed_with_logs_write_scope(self):

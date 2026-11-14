@@ -2024,7 +2024,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "to edit."
         ),
     )
-    @action(detail=True, methods=["POST"], url_path="destinations/customize", required_scopes=["logs:write"])
+    # It writes HogFunctions, which the HogFunction API asks `hog_function:write` for.
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="destinations/customize",
+        required_scopes=["logs:write", "hog_function:write"],
+    )
     def customize_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertCustomizeDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
