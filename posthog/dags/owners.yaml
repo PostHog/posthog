@@ -7,3 +7,7 @@ rules:
           - '/flag_evaluations_backfill.py'
           - '/tests/test_flag_evaluations_backfill.py'
       owners: team-feature-flags
+    - match:
+          - '/geoip_*.py'
+          - '/tests/test_geoip_*.py'
+      owners: team-ingestion
