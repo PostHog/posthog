@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -12,7 +12,7 @@ from products.mcp_analytics.backend.intent_topics.embedding_sync import emit_int
 
 
 def _intent(text: str, calls: int = 1) -> DistinctIntent:
-    return DistinctIntent(hash=f"hash-{text}", text=text, calls=calls)
+    return DistinctIntent(hash=f"hash-{text}", text=text, calls=calls, source_min_timestamp=NOW - timedelta(days=3))
 
 
 NOW = datetime(2026, 10, 19, 10, 0, tzinfo=UTC)
@@ -29,12 +29,11 @@ class TestSelectIntentsToEmit:
 
 class TestEmitIntentEmbeddings(APIBaseTest):
     @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
-    def test_emits_one_request_per_intent_with_the_256_model_and_only_the_call_count(self, mock_emit) -> None:
+    def test_emits_the_source_timestamp_so_catch_up_does_not_extend_retention(self, mock_emit) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        now = datetime(2026, 10, 19, 10, 0, tzinfo=UTC)
 
-        emitted = emit_intent_embeddings(self.team, [_intent("list flags", calls=3)], now=now)
+        emitted = emit_intent_embeddings(self.team, [_intent("list flags", calls=3)])
 
         assert emitted == 1
         mock_emit.assert_called_once_with(
@@ -45,8 +44,8 @@ class TestEmitIntentEmbeddings(APIBaseTest):
             rendering="raw",
             document_id="hash-list flags",
             models=["text-embedding-3-small-256"],
-            timestamp=now,
-            metadata={"calls": 3},
+            timestamp=NOW - timedelta(days=3),
+            metadata={"calls": 3, "source_min_timestamp": (NOW - timedelta(days=3)).isoformat()},
         )
 
     @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
@@ -55,7 +54,7 @@ class TestEmitIntentEmbeddings(APIBaseTest):
         self.organization.save()
         huge = _intent("🦔" * 90_000)
 
-        emit_intent_embeddings(self.team, [huge], now=NOW)
+        emit_intent_embeddings(self.team, [huge])
 
         kwargs = mock_emit.call_args.kwargs
         assert (len(kwargs["content"]), kwargs["document_id"]) == (MAX_EMBEDDING_TEXT_LENGTH, huge.hash)
@@ -67,7 +66,7 @@ class TestEmitIntentEmbeddings(APIBaseTest):
         self.organization.save()
 
         try:
-            emit_intent_embeddings(self.team, [_intent("a")], now=NOW)
+            emit_intent_embeddings(self.team, [_intent("a")])
         except IntentGenerationUnavailable:
             pass
         else:
@@ -79,7 +78,7 @@ class TestEmitIntentEmbeddings(APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-        assert emit_intent_embeddings(self.team, [], now=NOW) == 0
+        assert emit_intent_embeddings(self.team, []) == 0
         mock_emit.assert_not_called()
 
     @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
@@ -93,6 +92,6 @@ class TestEmitIntentEmbeddings(APIBaseTest):
         mock_emit.side_effect = [delivered, failed]
 
         with pytest.raises(KafkaException):
-            emit_intent_embeddings(self.team, [_intent("a"), _intent("b")], now=NOW)
+            emit_intent_embeddings(self.team, [_intent("a"), _intent("b")])
 
         delivered.get.assert_called_once()

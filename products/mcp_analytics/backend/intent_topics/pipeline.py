@@ -126,7 +126,7 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budge
                 handled.update(intent.hash for intent in fresh)
                 seen = corpus.fetch_seen_hashes(team, [intent.hash for intent in fresh], now=window_end)
                 to_emit = embedding_sync.select_intents_to_emit(fresh, seen)
-                emitted += embedding_sync.emit_intent_embeddings(team, to_emit, now=window_end)
+                emitted += embedding_sync.emit_intent_embeddings(team, to_emit)
                 n_intents += len(fresh)
             drained_until = sync_slice.end
     except Exception as e:
@@ -175,7 +175,7 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
                 topics=topics,
                 pca=pca,
             )
-            query.execute(team, settings={"insert_distributed_sync": 1})
+            query.execute(team, settings={"insert_distributed_sync": 1, "async_insert": 0})
         response = execute_hogql_query(
             query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
             team=team,

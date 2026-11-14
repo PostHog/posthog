@@ -11,6 +11,7 @@ import numpy as np
 
 from posthog.models.team.team import Team
 
+from products.mcp_analytics.backend.intent_topics import invalidation
 from products.mcp_analytics.backend.intent_topics.assignment_sql import PcaBasis, TopicVector
 from products.mcp_analytics.backend.intent_topics.clustering import FitOutput, project_2d
 from products.mcp_analytics.backend.intent_topics.constants import TOPIC_ARCHIVE_AFTER_DAYS
@@ -58,14 +59,16 @@ def active_topic_vectors(team: Team) -> list[TopicVector]:
 def start_run(
     team: Team, *, kind: str, run_id: str, window_start: datetime, window_end: datetime
 ) -> MCPIntentClusteringRun:
-    return MCPIntentClusteringRun.objects.create(
-        team=project_team(team),
-        kind=kind,
-        run_id=run_id,
-        window_start=window_start,
-        window_end=window_end,
-        params={SOURCE_TEAM_PARAM: team.pk},
-    )
+    with invalidation.admit_writer(team):
+        return MCPIntentClusteringRun.objects.create(
+            team=project_team(team),
+            kind=kind,
+            run_id=run_id,
+            window_start=window_start,
+            window_end=window_end,
+            params={SOURCE_TEAM_PARAM: team.pk},
+            writer_registered_at=timezone.now(),
+        )
 
 
 def finish_run(
@@ -78,12 +81,26 @@ def finish_run(
 ) -> None:
     run.status = status
     run.error_message = error_message
+    update_fields = ["status", "error_message", "finished_at", *counts]
     if window_end is not None:
         run.window_end = window_end
+        update_fields.append("window_end")
     for name, value in counts.items():
         setattr(run, name, value)
     run.finished_at = timezone.now()
-    run.save()
+    # A successful Kafka enqueue does not confirm that the worker's output reached ClickHouse.
+    completed = status in (
+        MCPIntentClusteringRun.Status.SKIPPED_NO_CONSENT,
+        MCPIntentClusteringRun.Status.SKIPPED_TOO_FEW,
+    )
+    completed |= status == MCPIntentClusteringRun.Status.SUCCEEDED and (
+        run.kind in (MCPIntentClusteringRun.Kind.ASSIGN, MCPIntentClusteringRun.Kind.REFIT)
+        or (run.kind == MCPIntentClusteringRun.Kind.SYNC and counts.get("n_embeddings_requested") == 0)
+    )
+    if completed:
+        run.writer_completed_at = timezone.now()
+        update_fields.append("writer_completed_at")
+    run.save(update_fields=update_fields)
 
 
 def latest_pca_basis(team: Team) -> PcaBasis | None:

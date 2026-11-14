@@ -59,7 +59,7 @@ def insert_intent_embedding(
                 at,
                 at,
                 text,
-                json.dumps({"calls": calls, "tool": tool}),
+                json.dumps({"calls": calls, "tool": tool, "source_min_timestamp": at.isoformat()}),
                 embedding or unit_vector(0),
                 at,
                 0,
