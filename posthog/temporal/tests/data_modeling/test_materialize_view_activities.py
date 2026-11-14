@@ -20,6 +20,7 @@ import pyarrow.parquet as pq
 from temporalio.exceptions import ApplicationError
 from trino.exceptions import TrinoUserError
 
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
@@ -2205,7 +2206,7 @@ class _EmptyArrowClient:
     ) -> AsyncIterator[Any]:
         if query.startswith("DESCRIBE TABLE"):
             self.describe_calls.append((query, settings))
-            if self.describe_error is not None and settings is not None:
+            if self.describe_error is not None and len(self.describe_calls) == 1:
                 raise self.describe_error
             self.describe_settings = settings
             self.describe_query = query
@@ -2548,6 +2549,34 @@ class TestHogqlTableEmptyResults:
 
 
 class TestHogqlTableDescribeSettings:
+    @staticmethod
+    def _expected_ast_settings() -> dict[str, str]:
+        settings = HogQLGlobalSettings()
+        return {
+            name: str(value)
+            for name, value in {
+                "max_ast_elements": settings.max_ast_elements,
+                "max_expanded_ast_elements": settings.max_expanded_ast_elements,
+            }.items()
+            if value is not None
+        }
+
+    async def test_describe_probe_accepts_an_ast_larger_than_the_clickhouse_default(
+        self, ateam: Team, clickhouse_client: ClickHouseClient
+    ) -> None:
+        query = f"SELECT 1 AS oversized_ast WHERE 0 IN ({', '.join(['1'] * 50_001)})"
+
+        @contextlib.asynccontextmanager
+        async def get_test_client(**kwargs: object) -> AsyncIterator[ClickHouseClient]:
+            yield clickhouse_client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", get_test_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert batches[0][1] == [("oversized_ast", "UInt8")]
+
     @pytest.mark.parametrize(
         "operator,global_function",
         [("IN", "globalIn("), ("NOT IN", "globalNotIn(")],
@@ -2571,7 +2600,11 @@ class TestHogqlTableDescribeSettings:
         ):
             _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
-        assert client.describe_settings == {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
+        assert client.describe_settings == {
+            "distributed_product_mode": "allow",
+            "prefer_global_in_and_join": "0",
+            **self._expected_ast_settings(),
+        }
         assert client.describe_query is not None and global_function not in client.describe_query
         assert client.arrow_query is not None and global_function in client.arrow_query
 
@@ -2611,10 +2644,14 @@ class TestHogqlTableDescribeSettings:
                     _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
         expected_settings: list[dict[str, str] | None] = [
-            {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
+            {
+                "distributed_product_mode": "allow",
+                "prefer_global_in_and_join": "0",
+                **self._expected_ast_settings(),
+            }
         ]
         if should_fallback:
-            expected_settings.append(None)
+            expected_settings.append(self._expected_ast_settings())
             assert "globalIn(" in client.describe_calls[1][0]
         assert [settings for _, settings in client.describe_calls] == expected_settings
 
