@@ -26,6 +26,11 @@ one block. Therefore, the same array index identifies all fields of one point.
 During a merge, ClickHouse uses the same row sequence for each array.
 `groupArrayArray` keeps at most 10,000 elements from that sequence. `ARRAY JOIN`
 requires all parallel arrays to have the same length.
+
+`points_received` sums the points that reached a row, before either cap applied. Each sorting key
+(series-hour, bucket layout, expiry date) loses `greatest(0, sum(points_received) - 10000)` points
+once its rows merge into one, so the loss can be counted before and after the merge. Rows written
+before the column existed read 0.
 """
 
 from django.conf import settings
@@ -155,6 +160,7 @@ def WRITABLE_METRICS4_SAMPLES_TABLE_SQL(cluster: str | None = None) -> str:
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
     `histogram_bounds_hash` UInt64,
     `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
+    `points_received` SimpleAggregateFunction(sum, UInt64),
 {arrays}""",
         cluster=cluster,
     )
@@ -254,6 +260,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
     `histogram_bounds_hash` UInt64,
     `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
+    `points_received` SimpleAggregateFunction(sum, UInt64),
 {arrays},
     `timestamp_min` DateTime64(6) ALIAS arrayMin(timestamp_arr),
     `timestamp_max` DateTime64(6) ALIAS arrayMax(timestamp_arr),
@@ -409,6 +416,7 @@ def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV_SELECT() -> str:
     any(instrumentation_scope) AS instrumentation_scope,
     anyLast(histogram_bounds) AS histogram_bounds,
     any(_topic) AS _topic,
+    count() AS points_received,
 {group_arrays}
 FROM {_db()}.{METRICS4_INPUT_TABLE_NAME} AS input
 GROUP BY

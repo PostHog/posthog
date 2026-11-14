@@ -93,6 +93,7 @@ database "posthog" {
     column "histogram_bounds" { type = "SimpleAggregateFunction(anyLast, Array(Float64))" }
     column "histogram_bounds_hash" { type = "UInt64" }
     column "_topic" { type = "SimpleAggregateFunction(any, LowCardinality(String))" }
+    column "points_received" { type = "SimpleAggregateFunction(sum, UInt64)" }
     column "timestamp_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))" }
     column "observed_timestamp_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))" }
     column "value_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Float64))" }
@@ -252,6 +253,7 @@ database "posthog" {
     column "instrumentation_scope" { type = "String" }
     column "histogram_bounds" { type = "Array(Float64)" }
     column "_topic" { type = "String" }
+    column "points_received" { type = "UInt64" }
     column "timestamp_arr" { type = "Array(DateTime64(6))" }
     column "value_arr" { type = "Array(Float64)" }
     column "count_arr" { type = "Array(UInt64)" }
