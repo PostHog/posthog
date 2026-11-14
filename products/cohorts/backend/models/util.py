@@ -5,7 +5,7 @@ import time
 import uuid
 import functools
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -1653,8 +1653,6 @@ def clear_population_run_fields(cohort: Cohort, *, marker: datetime | None, mode
 # One prune page costs one member page, one person lookup per 250 ids, one ClickHouse check and at most
 # one delete call, so it must stay under the delete RPC's cap. The benchmark tunes the size.
 PRUNE_PAGE_SIZE = 5_000
-# The replica's cap on ids per GetPersons request.
-_GET_PERSONS_MAX_IDS = 250
 # A workflow add is not a quorum write, so its ClickHouse row can reach a replica after the prune read
 # it. The prune waits this long before re-checking what it removed. The repo has observed sub-second
 # lag between replicas; tests and local dev run one node.
@@ -1664,17 +1662,14 @@ REPLACE_PRUNE_SETTLE_SECONDS = 0 if settings.TEST or settings.DEBUG else 1
 REPLACE_PRUNE_SETTLE_BATCH = 50_000
 
 
-def _iter_cohort_member_id_pages(team_id: int, cohort_id: int, page_size: int):
-    """Yield the cohort's Postgres member ids a page at a time, read from the primary.
+def _cohort_member_id_pages(cohort_id: int, *, page_size: int, read_options: Any = None) -> Iterator[list[int]]:
+    """Yield the cohort's Postgres member ids a page at a time.
 
-    The RPC has no team_id, so ownership is checked here, and a mismatch raises: the caller prunes.
+    The RPC has no team_id, so callers check that the cohort belongs to the team first.
     """
-    from posthog.personhog_client import consistency_to_read_options
     from posthog.personhog_client.client import get_personhog_client, personhog_call
     from posthog.personhog_client.proto import ListCohortMemberIdsRequest
 
-    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
-        raise CohortOwnershipMismatch(f"Cohort {cohort_id} does not belong to team {team_id}")
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
@@ -1682,7 +1677,7 @@ def _iter_cohort_member_id_pages(team_id: int, cohort_id: int, page_size: int):
     cursor = 0
     while True:
         request = ListCohortMemberIdsRequest(
-            cohort_id=cohort_id, cursor=cursor, limit=page_size, read_options=consistency_to_read_options("strong")
+            cohort_id=cohort_id, cursor=cursor, limit=page_size, read_options=read_options
         )
         resp = personhog_call("list_cohort_member_ids", functools.partial(client.list_cohort_member_ids, request))
         if resp.person_ids:
@@ -1693,35 +1688,18 @@ def _iter_cohort_member_id_pages(team_id: int, cohort_id: int, page_size: int):
         cursor = resp.next_cursor
 
 
-def _resolve_person_uuids(team_id: int, person_ids: list[int]) -> dict[int, str]:
-    """Map person ids to uuids. An id that doesn't resolve is left out, and the prune keeps it.
+def _iter_cohort_member_id_pages(team_id: int, cohort_id: int, page_size: int) -> Iterator[list[int]]:
+    """Yield the cohort's Postgres member ids a page at a time, read from the primary.
 
-    The replica refuses strong person reads, so on this eventual read "not found" can mean a new person
-    that hasn't replicated yet, as well as a deleted one.
+    The RPC has no team_id, so ownership is checked here, and a mismatch raises: the caller prunes.
     """
-    from posthog.personhog_client.client import get_personhog_client, personhog_call
-    from posthog.personhog_client.proto import GetPersonsRequest, ReadOptions
+    from posthog.personhog_client import consistency_to_read_options
 
-    def fetch() -> dict[int, str]:
-        client = get_personhog_client()
-        if client is None:
-            raise RuntimeError("personhog client not configured")
-        resolved: dict[int, str] = {}
-        for start in range(0, len(person_ids), _GET_PERSONS_MAX_IDS):
-            resp = client.get_persons(
-                GetPersonsRequest(
-                    team_id=team_id,
-                    person_ids=person_ids[start : start + _GET_PERSONS_MAX_IDS],
-                    read_options=ReadOptions(field_mask=["id", "uuid", "team_id"]),
-                )
-            )
-            for person in resp.persons:
-                # id 0 is the server's "not found" sentinel.
-                if person.id:
-                    resolved[person.id] = str(uuid.UUID(person.uuid))
-        return resolved
-
-    return personhog_call("get_persons", fetch)
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        raise CohortOwnershipMismatch(f"Cohort {cohort_id} does not belong to team {team_id}")
+    yield from _cohort_member_id_pages(
+        cohort_id, page_size=page_size, read_options=consistency_to_read_options("strong")
+    )
 
 
 def _uuids_present_at_marker(cohort_id: int, team_id: int, person_uuids: list[str], marker: datetime) -> set[str]:
@@ -1774,12 +1752,15 @@ def prune_members_absent_from_replace(cohort: Cohort, *, team_id: int, marker: d
     page. It only ever restores people this prune removed, so it can't bring back a member a manual
     remove deleted while that remove's ClickHouse mutation is still pending.
     """
+    from posthog.models.person.util import get_person_uuids_by_ids
+
     removed_total = 0
     awaiting_recheck: dict[int, str] = {}
     last_delete_at = 0.0
     for page in _iter_cohort_member_id_pages(team_id, cohort.pk, PRUNE_PAGE_SIZE):
         require_current_population_marker(cohort.pk, marker)
-        uuids_by_id = _resolve_person_uuids(team_id, page)
+        # An id that doesn't resolve is left out, so the prune keeps it.
+        uuids_by_id = get_person_uuids_by_ids(team_id, page)
         present = _uuids_present_at_marker(cohort.pk, team_id, list(uuids_by_id.values()), marker)
         stale = {person_id: person_uuid for person_id, person_uuid in uuids_by_id.items() if person_uuid not in present}
         if not stale:
@@ -1888,29 +1869,15 @@ _LIST_COHORT_MEMBER_IDS_PAGE_SIZE = 10_000
 
 
 def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
-    from posthog.personhog_client.client import get_personhog_client
-    from posthog.personhog_client.proto import ListCohortMemberIdsRequest
-
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
-    all_ids: list[int] = []
-    cursor = 0
-    while True:
-        resp = client.list_cohort_member_ids(
-            ListCohortMemberIdsRequest(cohort_id=cohort_id, cursor=cursor, limit=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE)
-        )
-        all_ids.extend(resp.person_ids)
-        if resp.next_cursor == 0:
-            break
-        cursor = resp.next_cursor
-    return all_ids
+    return [
+        person_id
+        for page in _cohort_member_id_pages(cohort_id, page_size=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE)
+        for person_id in page
+    ]
 
 
 def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
     """Return all person IDs belonging to a static cohort via personhog."""
-    from posthog.personhog_client.client import personhog_call
 
     from products.cohorts.backend.models.cohort import Cohort
 
@@ -1920,10 +1887,7 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return []
 
-    return personhog_call(
-        "list_cohort_member_ids",
-        lambda: _list_cohort_member_ids_via_personhog(cohort_id),
-    )
+    return _list_cohort_member_ids_via_personhog(cohort_id)
 
 
 # ── Cohort write operations ─────────────────────────────────────────

@@ -4,7 +4,7 @@ import json
 import time
 import datetime
 import contextvars
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -58,6 +58,7 @@ from posthog.personhog_client.proto import (
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
+    GetPersonsRequest,
     GetPersonTombstonesRequest,
     LifecycleDeletePersonResult,
     LifecycleDeletePersonsRequest,
@@ -97,8 +98,23 @@ def _get_persons_for_uuid_batch(
     resp = client.get_persons_by_uuids(
         GetPersonsByUuidsRequest(team_id=team_id, uuids=batch, read_options=read_options)
     )
+    return _keep_team_persons(resp.persons, team_id, operation)
 
-    present_persons = [p for p in resp.persons if p.id]
+
+def _get_persons_for_id_batch(
+    client: PersonHogClient,
+    team_id: int,
+    batch: list[int],
+    operation: str,
+    read_options: ReadOptions | None,
+) -> list[person_pb2.Person]:
+    resp = client.get_persons(GetPersonsRequest(team_id=team_id, person_ids=batch, read_options=read_options))
+    return _keep_team_persons(resp.persons, team_id, operation)
+
+
+def _keep_team_persons(persons: Iterable[person_pb2.Person], team_id: int, operation: str) -> list[person_pb2.Person]:
+    """Drop the server's "not found" sentinels (id 0) and any person that belongs to another team."""
+    present_persons = [p for p in persons if p.id]
     batch_valid = [p for p in present_persons if p.team_id == team_id]
 
     mismatched = len(present_persons) - len(batch_valid)
@@ -676,6 +692,29 @@ def get_person_ids_and_uuids_by_uuids(team_id: int, uuids: list[str], *, concurr
         "get_person_ids_and_uuids_by_uuids",
         personhog_fn,
     )
+
+
+def get_person_uuids_by_ids(team_id: int, person_ids: list[int]) -> dict[int, str]:
+    """Map person ids to UUIDs for the persons in ``team_id``, one RPC per PERSONHOG_BATCH_SIZE batch.
+
+    An id that doesn't resolve is left out. Reads are eventual, so "not found" can mean a person that
+    hasn't replicated yet as well as a deleted one. Only the id, UUID and team are fetched.
+    """
+    if not person_ids:
+        return {}
+
+    def personhog_fn() -> dict[int, str]:
+        client = _get_client()
+        resolved: dict[int, str] = {}
+        for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE):
+            batch = person_ids[i : i + PERSONHOG_BATCH_SIZE]
+            for person in _get_persons_for_id_batch(
+                client, team_id, batch, "get_person_uuids_by_ids", _UUID_ONLY_READ_OPTIONS
+            ):
+                resolved[person.id] = str(UUID(person.uuid))
+        return resolved
+
+    return personhog_call("get_person_uuids_by_ids", personhog_fn)
 
 
 def get_person_uuids_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[str]:
