@@ -4,7 +4,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.test import override_settings
 
 import requests
@@ -96,6 +96,7 @@ class TestPrometheusQueryApi(APIBaseTest):
         self.request_mock = patcher.start()
         self.addCleanup(patcher.stop)
         cache.clear()
+        caches["metrics_prometheus_usage"].clear()
 
     def test_query_is_forwarded_to_the_prometheus_api_with_team_header(self):
         response = self.client.get(f"{self.base}/query", {"query": "sum(rate(http_requests_total[5m]))"})
@@ -220,8 +221,8 @@ class TestPrometheusQueryApi(APIBaseTest):
 
     def test_usage_tracking_failure_keeps_the_query_response(self):
         with (
-            patch(
-                "products.metrics.backend.prometheus_usage.cache.add", side_effect=ConnectionError("redis down")
+            patch.object(
+                caches["metrics_prometheus_usage"], "add", side_effect=ConnectionError("redis down")
             ) as add_mock,
             patch("products.metrics.backend.prometheus_usage.capture_exception") as capture_exception_mock,
         ):
@@ -232,6 +233,12 @@ class TestPrometheusQueryApi(APIBaseTest):
         add_mock.assert_called_once()
         capture_exception_mock.assert_called_once()
         assert isinstance(capture_exception_mock.call_args.args[0], ConnectionError)
+
+    def test_malformed_referer_keeps_the_query_response(self):
+        response = self.client.get(f"{self.base}/query", {"query": "up"}, headers={"referer": "http://["})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "success"
 
     def test_repeated_dashboard_queries_report_usage_once_per_window(self):
         headers = {

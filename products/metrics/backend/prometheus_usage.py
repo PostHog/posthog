@@ -5,7 +5,7 @@ time per window for each team, user, auth method and client. The event shows whi
 their metrics from outside PostHog, not how many requests they send.
 """
 
-from django.core.cache import cache
+from django.core.cache import caches
 
 from posthog.event_usage import AnalyticsProps, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -15,6 +15,9 @@ from posthog.models import Team, User
 PROMETHEUS_API_USED_EVENT = "metrics prometheus api used"
 USAGE_REPORT_WINDOW_SECONDS = 60 * 60
 
+# Has short socket deadlines, so a stalled Redis delays a query response by at most a fraction of a second.
+USAGE_CACHE_ALIAS = "metrics_prometheus_usage"
+
 
 def report_prometheus_api_usage(
     *, team: Team, user: User, auth_method: str, client: str, analytics_props: AnalyticsProps
@@ -22,7 +25,7 @@ def report_prometheus_api_usage(
     # Runs after the query succeeded, so a cache or analytics failure must not turn it into an error.
     try:
         window_key = f"metrics_prometheus_api_used:{team.pk}:{user.pk}:{auth_method}:{client}"
-        if not cache.add(window_key, True, timeout=USAGE_REPORT_WINDOW_SECONDS):
+        if not caches[USAGE_CACHE_ALIAS].add(window_key, True, timeout=USAGE_REPORT_WINDOW_SECONDS):
             return
         report_user_action(
             user,

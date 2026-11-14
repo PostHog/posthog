@@ -8,6 +8,7 @@ from posthog.api.snuffle_proxy import SnuffleProxyViewSet
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.workload import Workload
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 
 from products.metrics.backend.facade.api import record_promql_query, report_prometheus_api_usage
@@ -63,11 +64,17 @@ class PrometheusQueryViewSet(SnuffleProxyViewSet):
 
     def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Any:
         if self.action == "proxy" and response.status_code < 400:
-            report_prometheus_api_usage(
-                team=self.team,
-                user=cast(User, request.user),
-                auth_method=_auth_method(request),
-                client=_client(request),
-                analytics_props=get_request_analytics_properties(request),
-            )
+            # The query already succeeded: a malformed header must not turn it into an error.
+            try:
+                analytics_props = get_request_analytics_properties(request)
+            except Exception as e:
+                capture_exception(e, {"team_id": self.team.pk})
+            else:
+                report_prometheus_api_usage(
+                    team=self.team,
+                    user=cast(User, request.user),
+                    auth_method=_auth_method(request),
+                    client=_client(request),
+                    analytics_props=analytics_props,
+                )
         return super().finalize_response(request, response, *args, **kwargs)
