@@ -8,13 +8,13 @@ from parameterized import parameterized
 from posthog.models.team import Team
 from posthog.models.team.util import (
     RETIRED_LOOP_TABLES,
-    RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES,
     TeamPurgeStopped,
     _delete_event_properties_for_teams,
     _delete_group_type_mappings_for_teams,
     _delete_groups_for_teams,
     _delete_hash_key_overrides_for_teams,
     _delete_retired_loops_for_teams,
+    _delete_retired_user_interviews_for_teams,
     _delete_retired_warehouse_source_inputs_backups_for_teams,
 )
 
@@ -50,21 +50,37 @@ class TestDeleteRetiredLoopsForTeams(SimpleTestCase):
         assert not any(call.args[0].startswith("DELETE") for call in cursor.execute.call_args_list)
 
 
-class TestDeleteRetiredWarehouseSourceInputsBackupsForTeams(SimpleTestCase):
+class TestDeleteRetiredTablesForTeams(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "warehouse_source_inputs_backups",
+                _delete_retired_warehouse_source_inputs_backups_for_teams,
+                ["warehouse_sources_externaldatasourceinputsbackup"],
+            ),
+            (
+                "user_interviews",
+                _delete_retired_user_interviews_for_teams,
+                [
+                    "user_interviews_userinterview",
+                    "user_interviews_intervieweecontext",
+                    "user_interviews_userinterviewtopic",
+                ],
+            ),
+        ]
+    )
     @patch("posthog.models.team.util.connections")
-    def test_deletes_the_teams_backup_rows(self, mock_connections):
+    def test_deletes_the_teams_rows(self, _name, purge, expected_tables, mock_connections):
         cursor = MagicMock()
         cursor.__enter__.return_value = cursor
-        cursor.fetchone.side_effect = [(table,) for table in RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES]
+        cursor.fetchone.side_effect = [(table,) for table in expected_tables]
         cursor.rowcount = 0
         mock_connections.__getitem__.return_value.cursor.return_value = cursor
 
-        _delete_retired_warehouse_source_inputs_backups_for_teams([1, 2])
+        purge([1, 2])
 
         delete_statements = [call.args for call in cursor.execute.call_args_list if call.args[0].startswith("DELETE")]
-        assert [args[0].split('"')[1] for args in delete_statements] == [
-            "warehouse_sources_externaldatasourceinputsbackup"
-        ]
+        assert [args[0].split('"')[1] for args in delete_statements] == expected_tables
         assert all(args[1] == [[1, 2], 10000] for args in delete_statements)
 
 

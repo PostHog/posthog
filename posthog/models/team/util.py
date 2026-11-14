@@ -47,6 +47,13 @@ RETIRED_LOOP_TABLES = ("posthog_task_loop_fire", "posthog_task_loop_trigger", "p
 # Out of Django state since warehouse_sources/0199, so the Team cascade cannot reach it. It holds encrypted
 # source credentials. Delete with the table.
 RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES = ("warehouse_sources_externaldatasourceinputsbackup",)
+# Out of Django state since user_interviews/0011, so the Team cascade cannot reach them. They hold interviewee
+# emails and transcripts. Child-first order. Delete with the tables.
+RETIRED_USER_INTERVIEW_TABLES = (
+    "user_interviews_userinterview",
+    "user_interviews_intervieweecontext",
+    "user_interviews_userinterviewtopic",
+)
 
 
 class TeamPurgeStopped(Exception):
@@ -150,6 +157,10 @@ def _delete_retired_loops_for_teams(team_ids: list[int], batch_size: int = 10000
 
 def _delete_retired_warehouse_source_inputs_backups_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
     _delete_retired_team_rows(RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES, team_ids, batch_size)
+
+
+def _delete_retired_user_interviews_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
+    _delete_retired_team_rows(RETIRED_USER_INTERVIEW_TABLES, team_ids, batch_size)
 
 
 def _delete_retired_team_rows(tables: tuple[str, ...], team_ids: list[int], batch_size: int) -> None:
@@ -374,6 +385,10 @@ def delete_team_records(team_ids: list[int]) -> None:
     from posthog.models.team import Team
 
     from products.workflows.backend.facade.batch_jobs import delete_batch_jobs_for_teams
+
+    # Here, not in the misc small tables step: a deletion already past that step when this
+    # shipped would skip it, and the Team cascade no longer reaches these tables.
+    _delete_retired_user_interviews_for_teams(team_ids)
 
     with transaction.atomic():
         # nosemgrep: hot-parent-row-select-for-update -- Team deletion must block concurrent child inserts.

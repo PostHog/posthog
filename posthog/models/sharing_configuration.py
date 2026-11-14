@@ -42,13 +42,6 @@ class SharingConfiguration(models.Model):
         null=True,
         blank=True,
     )
-    interviewee_context = models.ForeignKey(
-        "user_interviews.IntervieweeContext",
-        related_name="sharing_configurations",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-    )
 
     shared_by = models.ForeignKey(
         "posthog.User",
@@ -104,7 +97,6 @@ class SharingConfiguration(models.Model):
         insight: models.Model | None = None,
         recording: models.Model | None = None,
         notebook: models.Model | None = None,
-        interviewee_context: models.Model | None = None,
     ) -> dict[str, Any]:
         return {
             "team_id": team_id,
@@ -112,7 +104,6 @@ class SharingConfiguration(models.Model):
             "insight": insight,
             "recording": recording,
             "notebook": notebook,
-            "interviewee_context": interviewee_context,
         }
 
     @classmethod
@@ -122,13 +113,6 @@ class SharingConfiguration(models.Model):
         exist?") - distinct from queryset_active_for_resource, which picks the current config row
         for a resource and ignores grace-period duplicates."""
         return models.Q(enabled=True) & (models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
-
-    @classmethod
-    def without_retired_resources_q(cls, prefix: str = "") -> models.Q:
-        """Excludes configs that share a resource of a retired product, so their tokens authenticate
-        nothing and resolve like an unknown token. Every access token lookup must apply it. Pass
-        ``prefix`` (for example ``"sharing_configuration__"``) when filtering a related model."""
-        return models.Q(**{f"{prefix}interviewee_context__isnull": True})
 
     @classmethod
     def queryset_active_for_resource(cls, **resource_lookup: Any) -> models.QuerySet["SharingConfiguration"]:
@@ -179,7 +163,7 @@ class SharingConfiguration(models.Model):
     def lock_resource(self) -> None:
         # Resolve each parent model from its own FK instead of importing it. This keeps the module
         # free of product imports.
-        for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
+        for field_name in ("dashboard", "insight", "notebook", "recording"):
             fk_value = getattr(self, f"{field_name}_id")
             if not fk_value:
                 continue
@@ -199,7 +183,6 @@ class SharingConfiguration(models.Model):
             insight=self.insight,
             recording=self.recording,
             notebook=self.notebook,
-            interviewee_context=self.interviewee_context,
         )
 
     def rotate_access_token(self) -> "SharingConfiguration":
@@ -238,7 +221,6 @@ class SharingConfiguration(models.Model):
                 insight=source.insight,
                 recording=source.recording,
                 notebook=source.notebook,
-                interviewee_context=source.interviewee_context,
                 enabled=source.enabled,
                 shared_by_id=source.shared_by_id,
                 settings=source.settings,
@@ -291,7 +273,7 @@ class SharingConfiguration(models.Model):
         if obj._meta.object_name == "Insight" and (self.dashboard or self.notebook):
             return cast(Insight, obj).id in self.get_connected_insight_ids()
 
-        for comparison in [self.insight, self.dashboard, self.recording, self.notebook, self.interviewee_context]:
+        for comparison in [self.insight, self.dashboard, self.recording, self.notebook]:
             if comparison and comparison == obj:
                 return True
 

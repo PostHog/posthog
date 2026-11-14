@@ -276,7 +276,6 @@ rules:
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
-                              |IntervieweeContext
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
@@ -535,10 +534,8 @@ rules:
                               |TransactionalEmailKey
                               |UploadedMedia
                               |UptimeMonitor
-                              |UserInterview
                               |UserActivitySummaryQueueState
                               |UserActivitySummaryVersion
-                              |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAlertConfiguration
                               |VisionAlertMatch
@@ -826,7 +823,6 @@ rules:
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
-                        |IntervieweeContext
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
@@ -1076,10 +1072,8 @@ rules:
                         |TransactionalEmailKey
                         |UploadedMedia
                         |UptimeMonitor
-                        |UserInterview
                         |UserActivitySummaryQueueState
                         |UserActivitySummaryVersion
-                        |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAlertConfiguration
                         |VisionAlertMatch
@@ -1276,7 +1270,6 @@ rules:
                         |InsightViewed
                         |Integration
                         |IntegrationRepositoryCacheEntry
-                        |IntervieweeContext
                         |KernelRuntime
                         |KnowledgeChunk
                         |KnowledgeDocument
@@ -1414,8 +1407,6 @@ rules:
                         |TransactionalEmailKey
                         |User
                         |UserGroup
-                        |UserInterview
-                        |UserInterviewTopic
                         |UserRepoPreference
                         |WarehouseSuggestionTeamConfig
                         |WebAnalyticsFilterPreset

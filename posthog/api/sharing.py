@@ -209,8 +209,6 @@ SHARING_RESOURCE_ACCESS_CHECKS: dict[str, SharingResourceAccessCheck | None] = {
     "insight": _require_resource_access("insight", "insight"),
     "recording": _require_resource_access("session_recording", "recording"),
     "notebook": _require_resource_access("notebook", "notebook"),
-    # The user interviews product is retired. No flow creates these configs, and this viewset never edits them.
-    "interviewee_context": None,
 }
 
 
@@ -932,7 +930,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     )
                     .filter(
                         Q(expires_at__isnull=True) | Q(expires_at__gt=now()),
-                        SharingConfiguration.without_retired_resources_q(),
                     )
                     .get(access_token=access_token)
                 )
