@@ -45,6 +45,11 @@ const ReleaseSidebar = lazyWithRetry(() =>
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
 )
+const TodayNotificationsPane = lazyWithRetry(() =>
+    import('products/notifications/frontend/pane/TodayNotificationsPane').then((m) => ({
+        default: m.TodayNotificationsPane,
+    }))
+)
 const NewSpaceDialog = lazyWithRetry(() =>
     import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
@@ -114,6 +119,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 <ReleaseSidebar />
             ) : activePane === 'settings' ? (
                 <TodaySettingsSidebar />
+            ) : activePane === 'notifications' ? (
+                <TodayNotificationsPane source={phoneLayout ? 'tab_bar' : 'rail'} />
             ) : (
                 <TodayProductsPane />
             )}

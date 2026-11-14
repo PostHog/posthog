@@ -1,16 +1,25 @@
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { IconSearch } from '@posthog/icons'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { TodayMoreMenu } from './TodayMoreMenu'
 import { TODAY_PANES } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
 import { TodayTabBarTab } from './TodayTabBarTab'
 
+const TodayNotificationsTab = lazyWithRetry(() =>
+    import('products/notifications/frontend/pane/TodayNotificationsTab').then(({ TodayNotificationsTab }) => ({
+        default: TodayNotificationsTab,
+    }))
+)
+
 export function TodayTabBar(): JSX.Element {
-    const { activePane, railPanes } = useValues(todayShellLogic)
+    const { activePane, featureFlags, railPanes } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
 
@@ -31,6 +40,14 @@ export function TodayTabBar(): JSX.Element {
                         />
                     )
                 })}
+                {featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS] && (
+                    <Suspense fallback={null}>
+                        <TodayNotificationsTab
+                            active={activePane === 'notifications'}
+                            onClick={() => clickRailPane('notifications')}
+                        />
+                    </Suspense>
+                )}
                 <TodayTabBarTab
                     label="Search"
                     icon={<IconSearch />}
