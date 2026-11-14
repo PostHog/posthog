@@ -273,12 +273,17 @@ def _update_comment(
     return True
 
 
-def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[dict]) -> int:
+def post_report_link_to_github_issues(
+    team: Team, report_id: str, signals: list[dict], *, update_existing: bool = False
+) -> int:
     """Bring the report's comments on GitHub issues up to date with its status.
 
-    A comment that went out already gets the current status line. A report that is visible in the
-    inbox also comments a link on each GitHub issue that contributed to it, or that the report names
-    as a `source_issue`, when that issue has no comment yet.
+    A report that is visible in the inbox comments a link on each GitHub issue that contributed to
+    it, or that the report names as a `source_issue`, when that issue has no comment yet. With
+    `update_existing`, a comment that went out already also gets the current status line.
+
+    Only a status transition passes `update_existing`. Finding a posted comment reads the issue's
+    comment pages, and the other callers run when nothing about the status changed.
 
     Returns the number of comments posted. Best-effort: a failure here must not fail the report's
     notification flow, so per-issue errors are logged rather than raised.
@@ -294,16 +299,17 @@ def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[
     marker = f"<!-- posthog:signal-report:{report_id} -->"
     body = _comment_body(build_report_url(team.pk, report_id, ReportLinkSource.GITHUB_COMMENT), status_line, marker)
     integrations: dict[str, GitHubIntegration | None] = {}
-    updated = sum(
-        _update_comment(
-            team_id=team.pk, report_id=report_id, claim=claim, body=body, marker=marker, integrations=integrations
+    if update_existing:
+        updated = sum(
+            _update_comment(
+                team_id=team.pk, report_id=report_id, claim=claim, body=body, marker=marker, integrations=integrations
+            )
+            for claim in SignalReportGithubComment.objects.for_team(team.pk).filter(
+                report_id=report_id, commented_at__isnull=False
+            )
         )
-        for claim in SignalReportGithubComment.objects.for_team(team.pk).filter(
-            report_id=report_id, commented_at__isnull=False
-        )
-    )
-    if updated:
-        logger.info("signals.github_writeback_updated", report_id=report_id, team_id=team.pk, updated=updated)
+        if updated:
+            logger.info("signals.github_writeback_updated", report_id=report_id, team_id=team.pk, updated=updated)
 
     if status not in COMMENT_STATUSES:
         return 0

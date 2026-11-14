@@ -105,12 +105,15 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
     @parameterized.expand(
         [
-            ("needs input to ready", SignalReport.Status.READY, True),
-            ("needs input to resolved", SignalReport.Status.RESOLVED, True),
-            ("status without a line", SignalReport.Status.CANDIDATE, False),
+            ("needs input to ready", SignalReport.Status.READY, True, True),
+            ("needs input to resolved", SignalReport.Status.RESOLVED, True, True),
+            ("status without a line", SignalReport.Status.CANDIDATE, True, False),
+            ("run that is not a status transition", SignalReport.Status.READY, False, False),
         ]
     )
-    def test_a_status_change_edits_the_posted_comment_instead_of_posting_again(self, _name, later_status, edits):
+    def test_a_status_change_edits_the_posted_comment_instead_of_posting_again(
+        self, _name, later_status, update_existing, edits
+    ):
         SignalReport.objects.filter(pk=self.report.pk).update(status=SignalReport.Status.PENDING_INPUT)
         _, first = self._post([self.signal])
         first_body = first.call_args.args[2]
@@ -122,10 +125,16 @@ class TestPostReportLinkToGithubIssues(BaseTest):
                 MagicMock(json=lambda: [{"id": 7, "body": "unrelated"}, {"id": 9, "body": first_body}]),
                 MagicMock(),
             ]
-            posted = post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal])
+            posted = post_report_link_to_github_issues(
+                self.team, str(self.report.id), [self.signal], update_existing=update_existing
+            )
 
         assert posted == 0
         github.comment_on_issue.assert_not_called()
+        if not update_existing:
+            # Finding the posted comment reads every comment page, so only a status transition pays for it.
+            github.api_request.assert_not_called()
+            return
         patches = [call for call in github.api_request.call_args_list if call.args[0] == "PATCH"]
         if not edits:
             assert patches == []
@@ -143,7 +152,7 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
             github = integration.first_for_team_repository.return_value
             github.api_request.return_value.json.return_value = [{"id": 9, "body": body}]
-            post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal])
+            post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal], update_existing=True)
 
         assert [call.args[0] for call in github.api_request.call_args_list] == ["GET"]
 
@@ -195,6 +204,8 @@ class TestPostReportLinkToGithubIssues(BaseTest):
             self.report.save(update_fields=["status", "updated_at"])
 
         assert writeback.delay.call_count == expected
+        if expected:
+            assert writeback.delay.call_args.kwargs["update_existing"] is True
 
     def test_comment_carries_no_report_content(self):
         # The comment is public on the issue thread while the report is behind the project's access
