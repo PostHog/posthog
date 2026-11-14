@@ -165,23 +165,15 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         })
     }
 
-    const unsignedBounce = (rule: FaultRule): string | undefined => {
-        if (rule.answer.kind !== 'bounce' || feedback) {
-            return undefined
-        }
-        const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
-        return `params.type: a bounce needs an edge with ${missing}`
-    }
-
     const addCardFault = (body: unknown): Reply => {
         const parsed = CardFault.safeParse(body)
         if (!parsed.success) {
             return { status: 400, body: { problems: problemsOf(parsed.error, 'fault') } }
         }
         const rule = ruleOf(parsed.data)
-        const problem = unsignedBounce(rule)
-        if (problem) {
-            return { status: 400, body: { problems: [problem] } }
+        if (rule.answer.kind === 'bounce' && !feedback) {
+            const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
+            return { status: 400, body: { problems: [`params.type: a bounce needs an edge with ${missing}`] } }
         }
         return { status: 201, body: { id: faults.add(rule) } }
     }
@@ -306,10 +298,6 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         sent,
         addFault: (rule) => faults.add(rule),
         hold: (rule) => {
-            const problem = unsignedBounce(rule)
-            if (problem) {
-                throw new Error(problem)
-            }
             const id = faults.add(rule)
             return {
                 observed: async (holdEnds) => {
