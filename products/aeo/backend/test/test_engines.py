@@ -418,12 +418,12 @@ def test_build_check_fields_cited() -> None:
     [
         ("Try Example for funnels.", None, True),
         ("A counterexample, nothing more.", None, False),
-        (None, None, False),
-        (None, "HTTPError: status=500", None),
+        ("", None, False),
+        ("", "HTTPError: status=500", None),
     ],
 )
 def test_build_check_fields_record_whether_the_answer_names_the_brand(
-    answer_text: str | None, error: str | None, expected: bool | None
+    answer_text: str, error: str | None, expected: bool | None
 ) -> None:
     fields = build_check_fields(
         check=CitationCheck(engine="exa-answer", model="exa-answer", answer_text=answer_text, error=error),

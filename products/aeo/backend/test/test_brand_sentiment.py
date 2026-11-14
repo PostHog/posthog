@@ -134,7 +134,7 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
         if check.brand_sentiment_sentences is None:
             return None
         return [
-            (check.answer_text[sentence["start"] : sentence["end"]], sentence["label"], sentence["score"])
+            ((check.answer_text or "")[sentence["start"] : sentence["end"]], sentence["label"], sentence["score"])
             for sentence in check.brand_sentiment_sentences
         ]
 
