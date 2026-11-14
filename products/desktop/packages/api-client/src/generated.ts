@@ -17723,6 +17723,10 @@ export namespace Schemas {
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
         /**
+         * Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table.
+         */
+        flag_calls_only_in_flag_evaluations: boolean;
+        /**
          * Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted.
          */
         api_host: string;

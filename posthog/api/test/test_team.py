@@ -3480,6 +3480,27 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(context["posthog_app_context"]["current_team"]["flag_evaluations_mode"], expected_mode)
 
+    @parameterized.expand(
+        [
+            ("events", FlagEvaluationsMode.EVENTS, False, False),
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
+            ("native_events_table", FlagEvaluationsMode.EVENTS, True, True),
+        ]
+    )
+    def test_page_load_team_flag_calls_only_in_flag_evaluations(self, _name, mode, native_events, expected):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(flag_evaluations_mode=mode)
+        request = RequestFactory().get("/?deferred_app_context=0")
+        request.user = self.user
+        request.session = self.client.session
+
+        with self.is_cloud(True), self.settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=native_events):
+            context = get_context_for_template("index.html", request)
+
+        self.assertEqual(
+            context["posthog_app_context"]["current_team"]["flag_calls_only_in_flag_evaluations"], expected
+        )
+
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
         # Scope to a primary team (team.id == project.id) so the env→project rewrite can address it directly.
         _, scoped_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)

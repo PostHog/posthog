@@ -1,6 +1,7 @@
 """The main serializer for project settings."""
 
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.utils import timezone
@@ -47,7 +48,10 @@ from posthog.utils import get_instance_region, get_ip_address, get_week_start_fo
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import (
+    flag_calls_only_in_flag_evaluations,
+    get_flag_evaluations_read_mode,
+)
 from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
 
 from . import (
@@ -83,6 +87,14 @@ def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], reque
     return representation
 
 
+def _flag_evaluations_read_mode(context: dict[str, Any], organization_id: UUID) -> int:
+    # Two fields read the mode. A list serializes every object with one context, so one lookup serves the list.
+    modes: dict[UUID, int] = context.setdefault("flag_evaluations_read_modes", {})
+    if organization_id not in modes:
+        modes[organization_id] = get_flag_evaluations_read_mode(organization_id)
+    return modes[organization_id]
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -97,6 +109,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
             "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+        )
+    )
+    flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(
+        help_text=(
+            "Whether this project's events table holds none of its new $feature_flag_called events, so "
+            "they can only be read from the flag_evaluations table."
         )
     )
     available_setup_task_ids = serializers.SerializerMethodField()
@@ -164,6 +182,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "flag_calls_only_in_flag_evaluations",
             "available_setup_task_ids",
             "api_host",
         )
@@ -189,6 +208,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "flag_calls_only_in_flag_evaluations",
             "available_setup_task_ids",
             "api_host",
         )
@@ -263,7 +283,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
-        return get_flag_evaluations_read_mode(obj.organization_id)
+        return _flag_evaluations_read_mode(self.context, obj.organization_id)
+
+    def get_flag_calls_only_in_flag_evaluations(self, obj: Team) -> bool:
+        return flag_calls_only_in_flag_evaluations(obj, _flag_evaluations_read_mode(self.context, obj.organization_id))
 
     @extend_schema_field(
         # nosemgrep: choices-need-a-class -- an existing list, moved here unchanged from posthog/api/team.py
