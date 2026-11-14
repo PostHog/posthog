@@ -1,5 +1,17 @@
-import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    kea,
+    path,
+    props,
+    reducers,
+    selectors,
+    useActions,
+    useMountedLogic,
+    useValues,
+} from 'kea'
 import { router, urlToAction } from 'kea-router'
+import { Suspense } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
@@ -7,10 +19,12 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -37,8 +51,33 @@ import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
 import { workflowsLogic } from './Workflows/workflowsLogic'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
-import { templateTypeForListType } from './Workflows/workflowTypeFilters'
+import { WorkflowTemplateTypeFilter, templateTypeForListType } from './Workflows/workflowTypeFilters'
 import { WorkflowsTemplates } from './WorkflowsTemplates'
+
+// The list chunk keeps its logic here once loaded, so "New workflow" reads the list's kind without an import.
+let loadedListV2Logic: typeof import('./Workflows/WorkflowsListV2/workflowsListV2Logic').workflowsListV2Logic | null =
+    null
+
+// Only teams with `workflows-list-v2` see the new list, so that code loads in its own chunk.
+const WorkflowsListV2 = lazyWithRetry(() =>
+    Promise.all([
+        import('./Workflows/WorkflowsListV2/WorkflowsListV2'),
+        import('./Workflows/WorkflowsListV2/workflowsListV2Logic'),
+    ]).then(([list, logic]) => {
+        loadedListV2Logic = logic.workflowsListV2Logic
+        return { default: list.WorkflowsListV2 }
+    })
+)
+const WorkflowsListV2ColumnsMenu = lazyWithRetry(() =>
+    import('./Workflows/WorkflowsListV2/WorkflowsListV2ColumnsMenu').then((m) => ({
+        default: m.WorkflowsListV2ColumnsMenu,
+    }))
+)
+
+// Before the list chunk loads, no list is shown, so the chooser opens on all templates.
+function listV2TemplateTypeFilter(): WorkflowTemplateTypeFilter {
+    return loadedListV2Logic?.findMounted()?.values.templateTypeFilter ?? 'all'
+}
 
 // pinned: URL path segments under /workflows - renaming breaks bookmarks
 const WORKFLOW_SCENE_TABS = [
@@ -192,18 +231,30 @@ function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
     return isMessagingSetupTab(tab) ? 'messaging-setup' : 'workflows'
 }
 
+// The scene holds the old list's logic on every tab, so its rows and filters survive a visit to another tab.
+function LegacyWorkflowsListState(): null {
+    useMountedLogic(workflowsLogic)
+    return null
+}
+
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
-    const { filters } = useValues(workflowsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const listV2 = useFeatureFlag('WORKFLOWS_LIST_V2')
     const { openImportModal } = useActions(customerioImportLogic)
 
     const workflowsTab = {
         label: 'Workflows',
         key: 'workflows' as const,
-        content: <WorkflowsTable />,
+        content: listV2 ? (
+            <Suspense fallback={<Spinner />}>
+                <WorkflowsListV2 />
+            </Suspense>
+        ) : (
+            <WorkflowsTable />
+        ),
         link: urls.workflows(),
     }
     const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
@@ -214,13 +265,20 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         })
         // Open the template chooser on the type the list shows, so a person on the
         // Messaging tab sees messaging templates first.
-        setTypeFilter(currentTab === 'workflows' ? templateTypeForListType(filters.type) : 'all')
+        setTypeFilter(
+            currentTab === 'workflows'
+                ? listV2
+                    ? listV2TemplateTypeFilter()
+                    : templateTypeForListType(workflowsLogic.findMounted()?.values.filters.type ?? 'all')
+                : 'all'
+        )
         startNewWorkflow()
     }
 
     if (currentTab === 'onboarding') {
         return (
             <SceneContent className="workflows">
+                {!listV2 && <LegacyWorkflowsListState />}
                 <WorkflowsOnboardingWizard />
             </SceneContent>
         )
@@ -228,6 +286,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
 
     return (
         <SceneContent className="workflows">
+            {!listV2 && <LegacyWorkflowsListState />}
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Workflows].name}
                 description={sceneConfigurations[Scene.Workflows].description}
@@ -271,6 +330,11 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                     </LemonButton>
                                 )}
                             </AccessControlAction>
+                        )}
+                        {currentTab === 'workflows' && listV2 && (
+                            <Suspense fallback={null}>
+                                <WorkflowsListV2ColumnsMenu />
+                            </Suspense>
                         )}
                         {currentTab !== 'workflows' && currentTab !== 'templates' && currentTab !== 'calendar' && (
                             <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />

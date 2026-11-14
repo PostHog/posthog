@@ -211,6 +211,10 @@ export const customerioImportLogic = kea<customerioImportLogicType>([
         runImportSuccess: ({ results }) => {
             if (results && !results.dryRun) {
                 workflowsLogic.findMounted()?.actions.loadWorkflows()
+                // The v2 list loads in its own chunk. When it is mounted, the chunk is already loaded.
+                void import('../WorkflowsListV2/workflowsListV2Logic').then(({ workflowsListV2Logic }) =>
+                    workflowsListV2Logic.findMounted()?.actions.refreshWorkflows()
+                )
             }
         },
         runImportFailure: ({ error }) => {
