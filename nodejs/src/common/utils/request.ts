@@ -385,26 +385,16 @@ class InsecureAgent extends Agent {
 const proxyUrl =
     process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || ''
 
-// The percentage form rolls per call rather than per team, so a destination that fails through the proxy gets a fresh
-// draw on its next retry.
-const proxyTeamMatcher = buildIntegerMatcherWithPercentage(requestConfig.EXTERNAL_REQUEST_PROXY_TEAMS)
-
-// The parser takes a fraction, so '*:10' reads as "always" rather than the ten percent an operator means by it, and
-// '*:bad' reads as "never" while the rollout looks live. Both defeat the staged rollout silently, so fail at startup
-// the way EXTERNAL_REQUEST_H2_CONNECTIONS does below. The parser keeps the last '*:' token it reads, so every one of
-// them has to hold rather than only the first.
-const proxyRolloutPercentages = requestConfig.EXTERNAL_REQUEST_PROXY_TEAMS.split(',')
-    .map((part) => part.trim())
-    .filter((part) => part.startsWith('*:'))
-    .map((part) => part.slice(2))
-for (const rolloutPercentage of proxyRolloutPercentages) {
-    const percentage = Number(rolloutPercentage)
-    if (rolloutPercentage === '' || !Number.isFinite(percentage) || percentage < 0 || percentage > 1) {
-        throw new Error(
-            `EXTERNAL_REQUEST_PROXY_TEAMS takes a fraction between 0 and 1 after '*:', got '${rolloutPercentage}'`
-        )
+// The percentage forms roll per call rather than per team, so a destination that fails through the proxy gets a fresh
+// draw on its next retry. A value that does not parse, such as '*:10' or '2:0.5x', would read as a different rollout
+// from the one the operator meant, so it stops the process at startup the way EXTERNAL_REQUEST_H2_CONNECTIONS does below.
+const proxyTeamMatcher = (() => {
+    try {
+        return buildIntegerMatcherWithPercentage(requestConfig.EXTERNAL_REQUEST_PROXY_TEAMS)
+    } catch (error) {
+        throw new Error(`EXTERNAL_REQUEST_PROXY_TEAMS: ${(error as Error).message}`)
     }
-}
+})()
 
 const proxyRolloutConfigured = requestConfig.EXTERNAL_REQUEST_PROXY_TEAMS.trim().length > 0
 

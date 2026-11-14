@@ -306,6 +306,13 @@ describe('secure HTTP/2 requests', () => {
             ['2,*:1', 3, true],
             ['*', 3, true],
             ['*:1', undefined, true],
+            // A team's own fraction applies to that team only, and it wins over the '*' fraction.
+            ['2:1', 2, true],
+            ['2:1', 3, false],
+            ['2:0', 2, false],
+            ['2:0,*:1', 2, false],
+            ['2:0,*:1', 3, true],
+            ['2,*', 3, true],
         ])(
             'with EXTERNAL_REQUEST_PROXY_TEAMS=%j and caller %s, proxied: %s',
             async (proxyTeams, caller, expectProxied) => {
@@ -320,12 +327,20 @@ describe('secure HTTP/2 requests', () => {
             10000
         )
 
-        it.each([['*:10'], ['*:bad'], ['2,*:'], ['*:0.1,*:10']])(
+        it.each([['*:10'], ['*:bad'], ['2,*:'], ['*:0.1,*:10'], ['2:1.5'], ['2:'], ['2:0.5x']])(
             'refuses to start with EXTERNAL_REQUEST_PROXY_TEAMS=%j',
             (proxyTeams) => {
                 // A fraction read as a percentage would proxy every team at once, which is what the staged rollout exists
                 // to prevent.
                 expect(() => loadWithProxyTeams(proxyTeams)).toThrow(/takes a fraction between 0 and 1/)
+            }
+        )
+
+        it.each([['abc'], ['2.5'], ['2,2:0.5'], ['*,*:0.1']])(
+            'refuses to start with the malformed EXTERNAL_REQUEST_PROXY_TEAMS=%j',
+            (proxyTeams) => {
+                // Before strict parsing, '2.5' read as team 2 and a repeated entry kept whichever came last.
+                expect(() => loadWithProxyTeams(proxyTeams)).toThrow(/^EXTERNAL_REQUEST_PROXY_TEAMS: /)
             }
         )
 
