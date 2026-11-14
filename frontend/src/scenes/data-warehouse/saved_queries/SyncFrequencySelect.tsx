@@ -566,6 +566,20 @@ export function defaultCadenceWithin(
     return pool.reduce((coarsest, cadence) => (rank(cadence) > rank(coarsest) ? cadence : coarsest))
 }
 
+function fastestAllowedSlowerThan(
+    bounds: SyncFrequencyBoundsApi,
+    ceilingLabel: string
+): DataModelingSyncInterval | null {
+    const ceilingCadence = ORDERED_CADENCES.find((cadence) => CADENCE_LABELS[cadence] === ceilingLabel)
+    const fastestAllowed = bounds.options.find((option) => option.allowed)?.cadence as
+        | DataModelingSyncInterval
+        | undefined
+    if (!ceilingCadence || !fastestAllowed) {
+        return null
+    }
+    return ORDERED_CADENCES.indexOf(fastestAllowed) > ORDERED_CADENCES.indexOf(ceilingCadence) ? fastestAllowed : null
+}
+
 export function buildExplanation(
     bounds?: SyncFrequencyBoundsApi | null,
     { omitCeiling = false }: { omitCeiling?: boolean } = {}
@@ -583,7 +597,14 @@ export function buildExplanation(
     const ceilingLead = ceiling?.blocker?.name ? `Downstream view ${ceiling.blocker.name}` : 'A downstream view'
     const ceilingMid = ceiling?.blocker?.name ? `downstream view ${ceiling.blocker.name}` : 'a downstream view'
 
-    if (floor && ceiling) {
+    const fastestReachable = floor && ceiling ? fastestAllowedSlowerThan(bounds, ceiling.label) : null
+    if (floor && ceiling && fastestReachable) {
+        parts.push(
+            `${floorName} syncs every ${floor.label}, so this can't refresh more often. ` +
+                `${ceilingLead} refreshes every ${ceiling.label}, ` +
+                `but gets new data from this view only every ${CADENCE_LABELS[fastestReachable]}.`
+        )
+    } else if (floor && ceiling) {
         parts.push(
             `Pick between ${floor.label} and ${ceiling.label}. ` +
                 `${floorName} syncs every ${floor.label}, ` +
