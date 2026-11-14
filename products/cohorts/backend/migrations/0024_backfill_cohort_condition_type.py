@@ -59,7 +59,7 @@ def backfill_condition_type(apps, schema_editor):
     last_id = 0
     batches = 0
     classified = 0
-    refreshed_teams: set[int] = set()
+    refreshes = 0
     while True:
         # Keyset pagination over the primary key, because a cohort without leaf conditions stays
         # null and would come back in every batch of a plain `IS NULL ... LIMIT` loop.
@@ -69,7 +69,7 @@ def backfill_condition_type(apps, schema_editor):
                 "cohort_condition_type_backfill_completed",
                 batches=batches,
                 classified=classified,
-                refreshed_teams=len(refreshed_teams),
+                refreshes=refreshes,
             )
             return
         last_id = batch[-1].id
@@ -90,11 +90,12 @@ def backfill_condition_type(apps, schema_editor):
         # batch was read keeps the value that the save computed from its newer filters.
         classified += unclassified.bulk_update(changed, ["condition_type"])
 
-        # Refreshed per batch, because a retry after a partial run finds these rows classified and
-        # would not refresh their teams again.
-        teams = {cohort.team_id for cohort in changed if _flags_routing_can_change(cohort)} - refreshed_teams
+        # Refreshed after every batch, even for a team an earlier batch refreshed: a rebuild that ran
+        # between the two batches read this batch's rows while they were still null. Refreshing per
+        # batch also covers a retry after a partial run, which finds these rows classified.
+        teams = {cohort.team_id for cohort in changed if _flags_routing_can_change(cohort)}
         _refresh_flags_caches(teams)
-        refreshed_teams |= teams
+        refreshes += len(teams)
 
         batches += 1
         if batches % LOG_EVERY_BATCHES == 0:

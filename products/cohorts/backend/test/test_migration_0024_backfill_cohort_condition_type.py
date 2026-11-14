@@ -1,3 +1,4 @@
+import importlib
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,7 +28,14 @@ BEHAVIORAL_FILTERS = {
 PERSON_FILTERS = {
     "properties": {"type": "AND", "values": [{"key": "email", "type": "person", "value": "x", "operator": "icontains"}]}
 }
+LIFECYCLE_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [{"key": "signed_up", "type": "behavioral", "value": "performed_event_first_time"}],
+    }
+}
 BEHAVIORAL_CONDITION_TYPE = {"person_properties": True, "behavioral": True, "lifecycle": False, "cohorts": False}
+LIFECYCLE_CONDITION_TYPE = {"person_properties": False, "behavioral": False, "lifecycle": True, "cohorts": False}
 STALE_CONDITION_TYPE = {"person_properties": True, "behavioral": False, "lifecycle": False, "cohorts": False}
 STAMP = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -45,6 +53,7 @@ class TestBackfillCohortConditionType(TestMigrations):
             return Cohort.objects.create(team_id=team_id, cohort_type="realtime", **fields).id
 
         self.unclassified = create(filters=BEHAVIORAL_FILTERS, last_backfill_events_at=STAMP)
+        self.unclassified_lifecycle = create(filters=LIFECYCLE_FILTERS, last_realtime_cohort_calculation_at=STAMP)
         self.unclassified_deleted = create(filters=BEHAVIORAL_FILTERS, deleted=True)
         self.already_classified = create(filters=BEHAVIORAL_FILTERS, condition_type=STALE_CONDITION_TYPE)
         self.without_leaves = create(filters={"properties": {"type": "OR", "values": []}})
@@ -55,6 +64,8 @@ class TestBackfillCohortConditionType(TestMigrations):
         create(team_id=other_team.id, filters=BEHAVIORAL_FILTERS)
         create(team_id=other_team.id, filters=PERSON_FILTERS, last_backfill_person_properties_at=STAMP)
 
+        backfill = importlib.import_module("products.cohorts.backend.migrations.0024_backfill_cohort_condition_type")
+        mock.patch.object(backfill, "BATCH_SIZE", 1).start()
         self.celery = mock.patch("products.cohorts.backend.backfill.finalize.current_app").start()
         self.addCleanup(mock.patch.stopall)
         flags_cache = override_settings(FLAGS_REDIS_URL="redis://localhost:6379/1")
@@ -67,6 +78,7 @@ class TestBackfillCohortConditionType(TestMigrations):
 
         assert condition_types == {
             self.unclassified: BEHAVIORAL_CONDITION_TYPE,
+            self.unclassified_lifecycle: LIFECYCLE_CONDITION_TYPE,
             self.unclassified_deleted: BEHAVIORAL_CONDITION_TYPE,
             self.already_classified: STALE_CONDITION_TYPE,
             self.without_leaves: None,
@@ -75,4 +87,5 @@ class TestBackfillCohortConditionType(TestMigrations):
         }
 
     def test_refreshes_the_flags_cache_only_where_routing_can_change(self) -> None:
-        self.celery.send_task.assert_called_once_with(FLAGS_CACHE_TASK, args=(self.team.id,), queue="feature_flags")
+        refresh = mock.call(FLAGS_CACHE_TASK, args=(self.team.id,), queue="feature_flags")
+        assert self.celery.send_task.call_args_list == [refresh, refresh]
