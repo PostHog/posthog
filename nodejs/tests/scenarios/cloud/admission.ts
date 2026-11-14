@@ -2,7 +2,7 @@ import { durationMs } from '../duration'
 import { Aws } from './aws'
 import { CAP_USD, CloudProfile, TTL_HOURS } from './profile'
 
-export type Origin = { head(): string; published(commit: string): Promise<boolean> }
+export type Origin = { head(): string; onMaster(commit: string): Promise<boolean> }
 
 export type Controller = {
     aws: Aws
@@ -91,8 +91,10 @@ export async function admit(
     const problems: string[] = []
     const identity = (await aws.call(['sts', 'get-caller-identity'])) as { Arn: string }
     const commit = origin.head()
-    if (!(await origin.published(commit))) {
-        problems.push(`Commit ${commit} is not on PostHog/posthog, so the run host cannot check it out. Push it first.`)
+    if (!(await origin.onMaster(commit))) {
+        problems.push(
+            `Commit ${commit} is not on the master branch of PostHog/posthog, and the run host installs only merged code. Run from a merged commit.`
+        )
     }
     if (printEstimate(controller, profile) > CAP_USD) {
         problems.push(`The admitted estimate is over the $${CAP_USD} cap.`)
