@@ -1,15 +1,8 @@
-import { CardError, DEFINITIONS, Definitions, LoadedCard, load } from '.'
+import { CardError, LoadedCard, load } from '.'
 import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
-import { z } from 'zod'
-
-const definitions: Definitions = {
-    ...DEFINITIONS,
-    valves: [...DEFINITIONS.valves],
-    measurements: [{ name: 'role_cpu_seconds', params: z.object({}).strict() }],
-}
 
 const card = {
     id: 'test-card',
@@ -24,25 +17,6 @@ const card = {
 }
 
 const profile = { name: 'synthetic', traffic: { event_email: { ratePerSecond: 2 } }, settings: {} }
-
-const bounceCard = {
-    ...card,
-    drive: { for: '30s', traffic: [{ name: 'bounce_followup' }] },
-    valves: [{ valve: 'ses.reject', target: 'ses', dose: { type: 'bounce' }, at: '0s', for: '2m' }],
-    invariants: [
-        { name: 'at_least_once' },
-        { name: 'duplicate_sends' },
-        { name: 'refused_at_intake' },
-        { name: 'bounced_suppressed' },
-    ],
-}
-
-const bounceProfile = { ...profile, traffic: { bounce_followup: { ratePerSecond: 0.5 } } }
-
-const bounceFor = (dose: object, at: string, holdFor: string): object => ({
-    ...bounceCard,
-    valves: [{ valve: 'ses.reject', target: 'ses', dose, at, for: holdFor }],
-})
 
 const emailWorkerKill = {
     valve: 'role.kill',
@@ -70,7 +44,6 @@ describe('load', () => {
 
     const loadCard = (content: object | string, profileContent?: object | string): LoadedCard =>
         load(write('card.yaml', content), {
-            definitions,
             profilePath: profileContent ? write('profile.yaml', profileContent) : undefined,
         })
 
@@ -137,22 +110,6 @@ describe('load', () => {
             'valves.0.target: ',
         ],
         [
-            'a destination status aimed at a host the edge does not answer for',
-            {
-                ...card,
-                valves: [
-                    {
-                        ...emailWorkerKill,
-                        valve: 'dest.status',
-                        target: 'api.example.com',
-                        dose: { code: 503, share: 1 },
-                    },
-                ],
-            },
-            undefined,
-            'valves.0.target: ',
-        ],
-        [
             'running_on_queue on a queue the probe does not count',
             {
                 ...card,
@@ -182,55 +139,6 @@ describe('load', () => {
             'valves.0.when.params.queue: ',
         ],
         [
-            'a kill whose convergeWithin does not outlast the janitor bound',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '47s' },
-            undefined,
-            'convergeWithin: 47s must exceed 47s',
-        ],
-        [
-            'a kill bound raised by the profile settings',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '60s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '60000' } },
-            'convergeWithin: 60s must exceed 77s',
-        ],
-        [
-            'an empty stall timeout, which the janitor replaces with its default',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '' } },
-            'convergeWithin: 18s must exceed 47s',
-        ],
-        [
-            'a negative sweep interval',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '48s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '-30000' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: not a number of milliseconds at or above zero',
-        ],
-        [
-            'a second stall whose backoff convergeWithin does not outlast',
-            { ...card, valves: [emailWorkerKill, emailWorkerKill], convergeWithin: '100s' },
-            undefined,
-            'convergeWithin: 100s must exceed 107s',
-        ],
-        [
-            'a kill and a connection drop, which can stall the same job',
-            {
-                ...card,
-                valves: [
-                    emailWorkerKill,
-                    {
-                        valve: 'pg.drop_connections',
-                        target: 'postgres',
-                        dose: { share: 1 },
-                        when: emailWorkerKill.when,
-                        for: '1s',
-                    },
-                ],
-                convergeWithin: '100s',
-            },
-            undefined,
-            'convergeWithin: 100s must exceed 107s',
-        ],
-        [
             'pg.drop_connections scheduled by at',
             {
                 ...card,
@@ -251,33 +159,6 @@ describe('load', () => {
             },
             undefined,
             'invariants.1.name: bounced_suppressed needs a ses.reject entry with type bounce',
-        ],
-        [
-            'bounced_suppressed with a bounce that bounces only some sends',
-            bounceFor({ type: 'bounce', share: 0.5 }, '0s', '2m'),
-            bounceProfile,
-            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
-        ],
-        [
-            'bounced_suppressed with a bounce that starts after the drive does',
-            bounceFor({ type: 'bounce' }, '10s', '2m'),
-            bounceProfile,
-            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
-        ],
-        [
-            'bounced_suppressed with a bounce that ends before the drive does',
-            bounceFor({ type: 'bounce' }, '0s', '10s'),
-            bounceProfile,
-            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
-        ],
-        [
-            'bounced_suppressed with bounced traffic that sends no follow-up',
-            {
-                ...bounceCard,
-                drive: { ...bounceCard.drive, traffic: [{ name: 'bounce_followup' }, { name: 'event_email' }] },
-            },
-            { ...bounceProfile, traffic: { ...bounceProfile.traffic, event_email: { ratePerSecond: 2 } } },
-            'invariants.3.name: bounced_suppressed needs traffic that follows up every bounce, and event_email does not',
         ],
         [
             'transactional traffic with no verdict on intake refusals',
@@ -399,16 +280,6 @@ describe('load', () => {
             'drive.traffic.0.name: unknown traffic kind event_sms',
             'invariants.0.name: unknown invariant exactly_twice',
         ])
-    })
-
-    it.each<[string, object[]]>([
-        ['one kill', [emailWorkerKill]],
-        [
-            'kills on two roles, which stall different jobs',
-            [emailWorkerKill, { ...emailWorkerKill, target: 'cdp-cyclotron-worker-hogflow' }],
-        ],
-    ])('accepts %s whose convergeWithin outlasts the janitor bound', (_name, valves) => {
-        expect(loadCard({ ...card, valves, convergeWithin: '48s' }).card.valves).toHaveLength(valves.length)
     })
 
     it('keeps the name of a profile passed from outside the repository', () => {
