@@ -13,6 +13,7 @@ const ENTRIES: readonly ViewEntry[] = [
     'dashboard',
     'widget',
     'web_analytics',
+    'live_meanwhile',
 ]
 const MODES: readonly PinDisplayMode[] = ['row', 'number', 'chart']
 
@@ -57,6 +58,10 @@ export function webAnalyticsHref(open: ViewOpenParams = {}): Href {
 
 export function liveHref(open: ViewOpenParams = {}): Href {
     return { pathname: '/views/live', params: openParams(open) }
+}
+
+export function liveCountriesHref(): Href {
+    return { pathname: '/views/live-countries' }
 }
 
 export function webAnalyticsListHref(tile: WebTileId, breakdown: WebBreakdown): Href {

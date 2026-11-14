@@ -2,6 +2,7 @@ import dagster
 
 from products.signals.backend.facade.dags import (
     inbox_ranking_dataset,
+    inbox_ranking_feature_backfill,
     inbox_ranking_mirror,
     inbox_ranking_promote,
     inbox_ranking_served,
@@ -31,6 +32,7 @@ if is_inbox_ranking_registered():
             inbox_ranking_dataset.inbox_activity_summary_vectors,
             inbox_ranking_dataset.inbox_activity_summary_profile_vectors,
             inbox_ranking_dataset.inbox_report_scored_facts,
+            inbox_ranking_feature_backfill.inbox_report_feature_backfill,
             inbox_ranking_training.inbox_ranking_serving_manifest,
             inbox_ranking_served.inbox_ranking_served_scores,
             inbox_ranking_training.inbox_ranking_unseen_graded,
@@ -38,6 +40,7 @@ if is_inbox_ranking_registered():
         jobs=[
             inbox_ranking_dataset.inbox_ranking_dataset_job,
             inbox_ranking_dataset.inbox_ranking_labels_refresh_job,
+            inbox_ranking_feature_backfill.inbox_ranking_feature_backfill_job,
             inbox_ranking_training.inbox_ranking_training_job,
             inbox_ranking_promote.inbox_ranking_promote_job,
         ],

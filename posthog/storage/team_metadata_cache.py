@@ -30,7 +30,7 @@ Cache Invalidation:
 -------------------
 Caches are invalidated automatically when:
 - Team is saved (via Django signal → Celery task)
-- Team is deleted (via Django signal → retrying Celery task that clears the entry by token after commit)
+- Team is deleted, or its project API token is reset or set (retrying Celery task that clears the old token's entry after commit, and again an hour later)
 - Hourly refresh job detects expiring entries (TTL < 24h)
 
 Manual invalidation:

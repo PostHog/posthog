@@ -17,7 +17,7 @@ import { expect, userEvent } from 'storybook/test'
 import { modelLab } from './aiLabs'
 import { labMark } from './aiLabs'
 import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
-import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
+import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
 
 const KPI_RESULTS = [
     ['2026-05-25', 320, 4100, 120, 1900, false],
@@ -964,16 +964,9 @@ export const DashboardNarrow: Story = {
     parameters: { layout: 'padded' },
     render: () => (
         <div className="w-[520px]">
-            <MCPAnalyticsDashboardOverview />
+            <MCPAnalyticsLeaderboardHome />
         </div>
     ),
-}
-
-export const DashboardLeaderboardHome: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME],
-        testOptions: { viewportWidths: ['medium', 'wide'] },
-    },
 }
 
 export const DashboardWithMenuBar: Story = {

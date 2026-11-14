@@ -1,11 +1,13 @@
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from unittest.mock import patch
+import time_machine
+from unittest.mock import MagicMock, patch
 
 from requests import Response
 from requests.exceptions import HTTPError
@@ -13,6 +15,8 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.sources.sdk import UnknownResourceError
 from products.warehouse_sources.sources.trustradius.source import TrustradiusSource
 from products.warehouse_sources.sources.trustradius.trustradius import trustradius_source, validate_credentials
+
+TRANSPORT = "products.warehouse_sources.sources.trustradius.trustradius"
 
 
 def response(body: object, status: int = 200) -> Response:
@@ -117,7 +121,173 @@ def test_sync_auth_errors_match_terminal_messages(status: int) -> None:
     assert len([message for pattern, message in messages.items() if pattern in str(error.value)]) == 1
 
 
-@pytest.mark.parametrize("endpoint", ["products", "product_scores", "trustquotes", "tags"])
+def routed_send(routes: Callable[[str, dict[str, list[str]]], object], requests: list[tuple[str, dict]]):
+    def send(request: Any, **kwargs: Any) -> Response:
+        url = urlsplit(request.url)
+        params = parse_qs(url.query)
+        requests.append((url.path, params))
+        return response(routes(url.path, params))
+
+    return send
+
+
+def read_rows(endpoint: str, **kwargs: Any) -> list[dict[str, Any]]:
+    result = trustradius_source("example-secret", endpoint, 1, "test-job", **kwargs)
+    return [row for page in cast(Iterable[Any], result.items()) for row in page]
+
+
+@time_machine.travel("2026-03-10T12:00:00Z", tick=False)
+@patch(f"{TRANSPORT}.PRODUCT_IDS_PER_REQUEST", 2)
+@patch(f"{TRANSPORT}.REPORT_PAGE_SIZE", 2)
+def test_traffic_products_batches_product_ids_and_walks_pages() -> None:
+    def routes(path: str, params: dict[str, list[str]]) -> object:
+        if path == "/v1/product-ids":
+            return [{"_id": "p1"}, {"_id": "p2"}, {"_id": "p3"}]
+        skip = int(params["skip"][0])
+        if params["products"] == ["p1,p2"]:
+            return [{"date": "2026-03-01", "productId": "p1", "n": skip + i} for i in range(2 if skip == 0 else 1)]
+        return [{"date": "2026-03-01", "productId": "p3", "n": skip}] if skip == 0 else []
+
+    requests: list[tuple[str, dict]] = []
+    with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(routes, requests)):
+        rows = read_rows("traffic_products")
+
+    assert [(row["productId"], row["n"]) for row in rows] == [("p1", 0), ("p1", 1), ("p1", 2), ("p3", 0)]
+    report_params = {
+        "start-date": ["2025-03-10"],
+        "end-date": ["2026-03-10"],
+        "group": ["day"],
+        "sort": ["date,productId,categoryId"],
+        "format": ["json"],
+        "limit": ["2"],
+    }
+    assert requests == [
+        ("/v1/product-ids", {}),
+        ("/v1/reports/traffic/products", {**report_params, "products": ["p1,p2"], "skip": ["0"]}),
+        ("/v1/reports/traffic/products", {**report_params, "products": ["p1,p2"], "skip": ["2"]}),
+        # A short first page ends the batch without an extra request.
+        ("/v1/reports/traffic/products", {**report_params, "products": ["p3"], "skip": ["0"]}),
+    ]
+
+
+@time_machine.travel("2026-03-10T12:00:00Z", tick=False)
+def test_traffic_products_without_products_makes_no_report_request() -> None:
+    requests: list[tuple[str, dict]] = []
+    with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(lambda path, params: [], requests)):
+        assert read_rows("traffic_products") == []
+    assert [path for path, _ in requests] == ["/v1/product-ids"]
+
+
+@time_machine.travel("2026-03-10T12:00:00Z", tick=False)
+@pytest.mark.parametrize(
+    ("should_use_incremental_field", "last_value", "expected_start"),
+    [
+        (False, None, "2025-03-10"),
+        (False, "2026-03-01", "2025-03-10"),
+        (True, None, "2025-03-10"),
+        (True, "2026-03-01", "2026-03-01"),
+        (True, "2026-03-01T00:00:00.000Z", "2026-03-01"),
+        (True, datetime(2026, 3, 2, 5, 30), "2026-03-02"),
+        (True, date(2026, 3, 3), "2026-03-03"),
+        (True, "2020-01-01", "2025-03-10"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("endpoint", "path", "sort"),
+    [
+        ("visitor_insights_companies", "/v1/reports/visitor-insights/companies", "date,productId,companyName"),
+        ("visitor_insights_pages", "/v1/reports/visitor-insights/pages", "date,productId,companyName,url"),
+    ],
+)
+def test_visitor_insights_date_range_follows_sync_mode(
+    endpoint: str, path: str, sort: str, should_use_incremental_field: bool, last_value: Any, expected_start: str
+) -> None:
+    row = {"date": "2026-03-05T00:00:00.000Z", "productId": "p1", "companyName": "Example Co", "url": "/x"}
+    requests: list[tuple[str, dict]] = []
+    with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(lambda p, q: [row], requests)):
+        rows = read_rows(endpoint, should_use_incremental_field=should_use_incremental_field, last_value=last_value)
+
+    assert rows == [row]
+    assert requests == [
+        (
+            path,
+            {
+                "start-date": [expected_start],
+                "end-date": ["2026-03-10"],
+                "group": ["day"],
+                "sort": [sort],
+                "format": ["json"],
+                "skip": ["0"],
+                "limit": ["1000"],
+            },
+        )
+    ]
+
+
+def days(first: str, count: int) -> list[str]:
+    start = date.fromisoformat(first)
+    return [(start + timedelta(days=offset)).isoformat() for offset in range(count)]
+
+
+@time_machine.travel("2026-03-10T12:00:00Z", tick=False)
+@pytest.mark.parametrize(
+    ("should_use_incremental_field", "last_value", "expected_days"),
+    [
+        (True, "2026-03-07", days("2026-03-07", 3)),
+        (True, date(2026, 3, 9), days("2026-03-09", 1)),
+        (True, "2026-03-10", []),
+        # The API serves 45 days back at most, and today is not complete yet.
+        (True, "2025-12-01", days("2026-01-25", 44)),
+        (False, "2026-03-07", days("2026-01-25", 44)),
+    ],
+)
+def test_intent_requests_one_full_day_at_a_time(
+    should_use_incremental_field: bool, last_value: Any, expected_days: list[str]
+) -> None:
+    requests: list[tuple[str, dict]] = []
+    body = {"accounts": [], "more": False}
+    with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(lambda p, q: body, requests)):
+        rows = read_rows("intent", should_use_incremental_field=should_use_incremental_field, last_value=last_value)
+
+    assert rows == []
+    assert requests == [
+        ("/v1/intent", {"start-date": [day], "end-date": days(day, 2)[1:], "detailed": ["true"]})
+        for day in expected_days
+    ]
+
+
+@time_machine.travel("2026-03-10T12:00:00Z", tick=False)
+def test_intent_adds_the_day_to_each_account_and_warns_on_truncation() -> None:
+    def routes(path: str, params: dict[str, list[str]]) -> object:
+        if params["start-date"] == ["2026-03-08"]:
+            return {"start_date": "2026-03-08", "accounts": [{"id": "a1", "visitorCount": 2}], "more": True}
+        return {"start_date": params["start-date"][0], "accounts": [{"id": "a1", "visitorCount": 1}], "more": False}
+
+    logger = MagicMock()
+    requests: list[tuple[str, dict]] = []
+    with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(routes, requests)):
+        rows = read_rows("intent", should_use_incremental_field=True, last_value="2026-03-08", logger=logger)
+
+    assert rows == [
+        {"id": "a1", "visitorCount": 2, "date": "2026-03-08"},
+        {"id": "a1", "visitorCount": 1, "date": "2026-03-09"},
+    ]
+    logger.warning.assert_called_once_with("TrustRadius intent data for one day is incomplete", day="2026-03-08")
+
+
+@time_machine.travel("2026-03-10T12:00:00Z", tick=False)
+@pytest.mark.parametrize("body", [{"unexpected": []}, {"accounts": None}, []])
+def test_intent_unexpected_response_shape_fails(body: object) -> None:
+    with patch("requests.adapters.HTTPAdapter.send", return_value=response(body)) as send:
+        with pytest.raises(ValueError, match="no accounts list"):
+            read_rows("intent", should_use_incremental_field=True, last_value="2026-03-09")
+    send.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["products", "product_scores", "trustquotes", "tags", "visitor_insights_companies", "visitor_insights_pages"],
+)
 def test_unexpected_response_shape_fails_instead_of_erasing_table(endpoint: str) -> None:
     with patch("requests.adapters.HTTPAdapter.send", return_value=response({"unexpected": []})) as send:
         with pytest.raises(ValueError, match="Required"):

@@ -357,6 +357,19 @@ class TestGetRows:
 
         assert isinstance(result.raised, WordpressRetryableError)
 
+    def test_408_is_retried_then_succeeds(self):
+        # A 408 is the server timing out, not a bad request; it must be retried like 429/5xx
+        # rather than falling through to raise_for_status() as a non-retryable HTTPError.
+        result = _driver().run("posts", [_response(status_code=408), _response(json_data=[{"id": 1}])])
+
+        assert result.raised is None
+        assert _ids(result) == [1]
+
+    def test_persistent_408_reraises_as_retryable(self):
+        result = _driver().run("posts", always(_response(status_code=408)))
+
+        assert isinstance(result.raised, WordpressRetryableError)
+
     def test_does_not_follow_next_url_on_foreign_host(self):
         page1 = _response(
             json_data=[{"id": 1}],

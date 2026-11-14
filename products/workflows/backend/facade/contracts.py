@@ -263,6 +263,17 @@ class RealtimeCohortStatus:
 
 
 @frozen
+class RateLimitedAudienceAllowance:
+    """How far a sending rate limit can raise an email batch audience above its tier's cap."""
+
+    # The fastest rate that qualifies. A faster rate keeps the tier's cap.
+    max_emails_per_hour: int
+    max_days: int
+    # The audience a send at max_emails_per_hour reaches in max_days.
+    limit: int
+
+
+@frozen
 class AudienceSize:
     """How many recipients a batch audience matches, and the most a batch trigger may send to."""
 
@@ -274,6 +285,8 @@ class AudienceSize:
     realtime_cohort: RealtimeCohortStatus | None = None
     # Set when a realtime cohort shares the audience with other conditions, which a save rejects.
     realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
+    # Set when a sending rate limit can raise this audience's limit. None when no rate can.
+    rate_limited: RateLimitedAudienceAllowance | None = None
 
 
 @frozen
@@ -357,6 +370,8 @@ class EmailSendingAllowance:
     max_batch_audience: int
     emails_sent_last_day: int
     enforced: bool
+    # The largest batch a slow enough sending rate limit allows. None when no rate raises the cap.
+    rate_limited_max_batch_audience: int | None = None
 
 
 class StaffPausedError(Exception):
@@ -740,6 +755,12 @@ class TransactionalEmailContent:
 
 
 @frozen
+class SendingDomainSetup:
+    setup_url: str
+    unverified_sender_id: int | None
+
+
+@frozen
 class CodeEmailWorkflow:
     """The labels on the hidden workflow behind an email sent from code under a `template_key`."""
 
@@ -830,6 +851,7 @@ class WorkflowEditState:
     team_id: int
     name: str | None
     status: str
+    disabled_from_active: bool
     version: int
     origin_product: str | None
     created_by: "User | None"

@@ -1470,6 +1470,41 @@ database "posthog" {
     }
   }
 
+  table "error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "raw_error_tracking_issue_tags"
+    }
+  }
+
   table "events" {
     column "uuid" {
       type = "UUID"
@@ -2094,6 +2129,18 @@ database "posthog" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
     }
+    column "timestamp" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "first_exposure_time"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "exposure_event_uuid"
+    }
+    column "inserted_at" {
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
+    }
     engine "distributed" {
       cluster_name    = "posthog"
       remote_database = "posthog"
@@ -2143,6 +2190,14 @@ database "posthog" {
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "event_uuid"
+    }
+    column "inserted_at" {
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
     }
     engine "distributed" {
       cluster_name    = "aux"
@@ -3164,6 +3219,39 @@ database "posthog" {
       topic_list = "clickhouse_error_tracking_issue_fingerprint"
       group_name = "clickhouse-error-tracking-issue-fingerprint-overrides"
       format     = "JSONEachRow"
+    }
+  }
+
+  table "kafka_error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    engine "kafka" {
+      collection           = "warpstream_shared"
+      topic_list           = "clickhouse_error_tracking_issue_tags"
+      group_name           = "clickhouse_error_tracking_issue_tags"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      flush_interval_ms    = 7500
+      thread_per_consumer  = true
     }
   }
 
@@ -9979,6 +10067,50 @@ SQL
     }
   }
 
+  table "raw_error_tracking_issue_tags" {
+    order_by = ["team_id", "key", "issue_id"]
+    settings = {
+      index_granularity = "512"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    index "kafka_timestamp_minmax_raw_error_tracking_issue_tags" {
+      expr        = "_timestamp"
+      type        = "minmax"
+      granularity = 3
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.raw_error_tracking_issue_tags"
+      replica_name   = "{replica}-{shard}"
+      version_column = "version"
+    }
+  }
+
   table "raw_sessions" {
     column "team_id" {
       type = "Int64"
@@ -11999,6 +12131,18 @@ SQL
       type    = "Date"
       default = "today() + toIntervalDay(7)"
     }
+    column "timestamp" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "first_exposure_time"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "exposure_event_uuid"
+    }
+    column "inserted_at" {
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated"
       replica_name   = "{replica}"
@@ -12054,6 +12198,14 @@ SQL
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "event_uuid"
+    }
+    column "inserted_at" {
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.experiment_metric_events_preaggregated"
@@ -17400,6 +17552,41 @@ SQL
     }
   }
 
+  table "writable_error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "raw_error_tracking_issue_tags"
+    }
+  }
+
   table "writable_events" {
     column "uuid" {
       type = "UUID"
@@ -21072,6 +21259,51 @@ SQL
     }
     column "issue_id" {
       type = "UUID"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
+  materialized_view "error_tracking_issue_tags_mv" {
+    to_table = "posthog.writable_error_tracking_issue_tags"
+    query    = <<SQL
+SELECT
+  team_id,
+  issue_id,
+  key,
+  value,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_error_tracking_issue_tags
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
     }
     column "is_deleted" {
       type = "Int8"
@@ -26969,7 +27201,10 @@ SELECT
   instrumentation_scope
 FROM
   posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
-WHERE time_bucket >= toDateTime('2026-09-14 00:00:00')
+WHERE
+  (time_bucket >= toDateTime('2026-09-14 00:00:00'))
+AND
+  (reinterpretAsUInt64(point_value) != 9218868437227405314)
 SQL
 
   }

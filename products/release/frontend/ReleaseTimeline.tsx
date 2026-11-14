@@ -1,6 +1,6 @@
 import { CellContext, ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
-import { createContext, memo, useContext, useEffect, useMemo } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { DataTable, Text, cn } from '@posthog/quill'
@@ -10,25 +10,28 @@ import { urls } from 'scenes/urls'
 
 import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { releaseLogic } from './releaseLogic'
+import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { RolloutStep } from './releaseRollout'
-import { ReleaseRolloutChart } from './ReleaseRolloutChart'
+import { ReleaseRolloutBar } from './ReleaseRolloutBar'
 import { ReleaseStageDot } from './ReleaseStageDot'
 import { ReleaseTimelineAxis } from './ReleaseTimelineAxis'
+import { ReleaseTimelineSkeleton } from './ReleaseTimelineSkeleton'
 import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
 import { ReleaseTrackLane } from './ReleaseTrackLane'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
-import { CALENDAR_SCALE, LANE, SPAN_LOOK, Track, buildTrack, mergeOverlapping } from './releaseTracks'
+import { CALENDAR_SCALE, LANE, SPAN_LOOK, Track, TrackRelated, buildTrack, mergeOverlapping } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
 import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
+import { useInfiniteRows } from './useInfiniteRows'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
 import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
+import { useScrollToToday } from './useScrollToToday'
+import { useStickyColumnWidth } from './useStickyColumnWidth'
 
 const NAME = 300
 const SUMMARY = 60
 const SUMMARY_OPEN = 36
-const ACTIVITY_ROWS = 40
-const PAGE_SIZE = 50
 
 function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Element {
     const { row, lanes } = track
@@ -67,7 +70,15 @@ function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Elem
     )
 }
 
-function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JSX.Element {
+function TrackLanesContent({
+    track,
+    open,
+    stickyOffset,
+}: {
+    track: Track
+    open: boolean
+    stickyOffset: number
+}): JSX.Element {
     const scale = CALENDAR_SCALE()
     const { row, steps, lanes } = track
     const summarySpans = open ? [] : mergeOverlapping(row.spans.filter((span) => span.kind !== 'flag' || !steps.length))
@@ -77,26 +88,26 @@ function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JS
             <ReleaseTrackGrid scale={scale} />
             <div className="relative" style={{ height: open ? SUMMARY_OPEN : SUMMARY }}>
                 {steps.length > 0 && !open && (
-                    <ReleaseRolloutChart
-                        color={STAGE_COLOR[row.stage]}
+                    <ReleaseRolloutBar
                         steps={steps}
-                        start={scale.start}
-                        days={scale.days}
-                        dayWidth={scale.day}
-                        height={38}
-                        labelRoom={13}
-                        note={
-                            row.flags.length > 1
-                                ? `+${row.flags.length - 1} ${row.flags.length === 2 ? 'flag' : 'flags'}`
-                                : undefined
-                        }
-                        className="!absolute left-0"
-                        style={{ top: 20 }}
+                        scale={scale}
+                        color={STAGE_COLOR[row.stage]}
+                        top={26}
+                        height={20}
+                        stickyOffset={stickyOffset}
                     />
                 )}
                 {summarySpans.map((span) =>
                     span.kind === 'early_access' && hasExperiment ? (
-                        <ReleaseTrackSpan key={span.key} span={span} scale={scale} top={18} height={6} thin />
+                        <ReleaseTrackSpan
+                            key={span.key}
+                            span={span}
+                            scale={scale}
+                            top={18}
+                            height={6}
+                            thin
+                            stickyOffset={stickyOffset}
+                        />
                     ) : (
                         <ReleaseTrackSpan
                             key={span.key}
@@ -104,6 +115,7 @@ function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JS
                             scale={scale}
                             top={SPAN_LOOK[span.kind].top}
                             height={SPAN_LOOK[span.kind].height}
+                            stickyOffset={stickyOffset}
                         />
                     )
                 )}
@@ -119,12 +131,20 @@ function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JS
             </div>
             {open &&
                 lanes.map((lane) => (
-                    <ReleaseTrackLane key={lane.key} lane={lane} color={STAGE_COLOR[row.stage]} scale={scale} />
+                    <ReleaseTrackLane
+                        key={lane.key}
+                        lane={lane}
+                        color={STAGE_COLOR[row.stage]}
+                        scale={scale}
+                        stickyOffset={stickyOffset}
+                    />
                 ))}
             {open && !lanes.length && <div className="border-t border-border/60" style={{ height: LANE }} />}
         </div>
     )
 }
+
+const laneKeys = (track: Track): string => track.lanes.map((lane) => `${lane.key}:${lane.title}`).join('|')
 
 const laneSteps = (track: Track): (RolloutStep[] | undefined)[] =>
     track.lanes.map((lane) => (lane.kind === 'flag' ? lane.steps : undefined))
@@ -133,30 +153,67 @@ const TrackLanes = memo(
     TrackLanesContent,
     (previous, next) =>
         previous.open === next.open &&
+        previous.stickyOffset === next.stickyOffset &&
         previous.track.row === next.track.row &&
         previous.track.steps === next.track.steps &&
+        laneKeys(previous.track) === laneKeys(next.track) &&
         laneSteps(previous.track).every((steps, index) => steps === laneSteps(next.track)[index])
 )
 
 interface CalendarState {
+    stickyOffset: number
+    lastRowId: string | undefined
+    sentinel: (node: Element | null) => void
+    loadFlagActivity: (flagIds: number[]) => void
     expanded: Record<string, true>
     stepsByFlag: Map<number, RolloutStep[]>
+    related: Record<string, TrackRelated>
 }
 
-const CalendarStateContext = createContext<CalendarState>({ expanded: {}, stepsByFlag: new Map() })
+const CalendarStateContext = createContext<CalendarState>({
+    stickyOffset: NAME,
+    lastRowId: undefined,
+    sentinel: () => {},
+    loadFlagActivity: () => {},
+    expanded: {},
+    stepsByFlag: new Map(),
+    related: {},
+})
 
 function ReleaseCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
-    const { expanded, stepsByFlag } = useContext(CalendarStateContext)
-    return <TrackHeader track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
+    const { expanded, stepsByFlag, related } = useContext(CalendarStateContext)
+    return (
+        <TrackHeader
+            track={buildTrack(row.original, stepsByFlag, related[row.original.id])}
+            open={!!expanded[row.original.id]}
+        />
+    )
 }
 
 function TimelineCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
-    const { expanded, stepsByFlag } = useContext(CalendarStateContext)
-    return <TrackLanes track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
+    const { expanded, stepsByFlag, related, lastRowId, sentinel, loadFlagActivity, stickyOffset } =
+        useContext(CalendarStateContext)
+    const firstFlagId = row.original.flags[0]?.id
+    useEffect(() => {
+        if (firstFlagId !== undefined) {
+            loadFlagActivity([firstFlagId])
+        }
+    }, [firstFlagId, loadFlagActivity])
+    return (
+        <>
+            <TrackLanes
+                track={buildTrack(row.original, stepsByFlag, related[row.original.id])}
+                open={!!expanded[row.original.id]}
+                stickyOffset={stickyOffset}
+            />
+            {row.original.id === lastRowId && <div ref={sentinel} />}
+        </>
+    )
 }
 
 function TimelineHeader(): JSX.Element {
-    return <ReleaseTimelineAxis scale={CALENDAR_SCALE()} />
+    const { stickyOffset } = useContext(CalendarStateContext)
+    return <ReleaseTimelineAxis scale={CALENDAR_SCALE()} stickyOffset={stickyOffset} />
 }
 
 const COLUMNS: ColumnDef<ReleaseRow>[] = [
@@ -167,16 +224,8 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
 export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, releases, flags } = useValues(releaseLogic)
     const { expanded } = useValues(releaseCalendarLogic)
+    const { relatedByRelease } = useValues(releaseRelatedLogic)
     const { toggleExpanded, loadFlagActivity } = useActions(releaseCalendarLogic)
-
-    useEffect(() => {
-        const ids = [
-            ...new Set(filteredRows.slice(0, ACTIVITY_ROWS).flatMap((row) => (row.flags[0] ? [row.flags[0].id] : []))),
-        ]
-        if (ids.length) {
-            loadFlagActivity(ids)
-        }
-    }, [filteredRows, loadFlagActivity])
 
     useEffect(() => {
         const ids = filteredRows.filter((row) => expanded[row.id]).flatMap((row) => row.flags.map((flag) => flag.id))
@@ -189,36 +238,55 @@ export function ReleaseTimeline(): JSX.Element {
 
     useRefreshChangedFlagHistory(flags)
 
-    const state = useMemo(() => ({ expanded, stepsByFlag }), [expanded, stepsByFlag])
+    const { visible, sentinel } = useInfiniteRows(filteredRows.length)
+    const rows = useMemo(() => filteredRows.slice(0, visible), [filteredRows, visible])
+    const lastRowId = visible < filteredRows.length ? rows[rows.length - 1]?.id : undefined
+    const [container, setContainer] = useState<HTMLDivElement | null>(null)
+    useScrollToToday(container, CALENDAR_SCALE(), rows.length > 0)
+    const stickyOffset = useStickyColumnWidth(container, NAME)
+
+    const state = useMemo(
+        () => ({
+            stickyOffset,
+            lastRowId,
+            sentinel,
+            loadFlagActivity,
+            expanded,
+            stepsByFlag,
+            related: relatedByRelease,
+        }),
+        [stickyOffset, lastRowId, sentinel, loadFlagActivity, expanded, stepsByFlag, relatedByRelease]
+    )
 
     return (
         <div
+            ref={setContainer}
             className={`overflow-hidden rounded-lg border border-border bg-background ${STAGE_COLOR_VARS} [--quill-table-sticky-bg:var(--background)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0`}
             data-attr="release-timeline"
         >
-            <CalendarStateContext.Provider value={state}>
-                <DataTable
-                    key={filteredRows.length > PAGE_SIZE ? 'paged' : 'single'}
-                    columns={COLUMNS}
-                    data={filteredRows}
-                    size="sm"
-                    stickyHeader
-                    className="max-h-[75vh]"
-                    pageSize={filteredRows.length > PAGE_SIZE ? PAGE_SIZE : undefined}
-                    getRowId={(row) => row.id}
-                    onRowClick={(row) => toggleExpanded(row.id)}
-                    rowClassName={(row) => (expanded[row.id] ? 'bg-fill-hover/40' : undefined)}
-                    empty={
-                        <Text size="xs" variant="muted">
-                            {dataLoading
-                                ? 'Loading releases…'
-                                : releases.length
-                                  ? 'No release matches these filters.'
-                                  : 'No releases yet. Each new feature flag gets one, or create one yourself.'}
-                        </Text>
-                    }
-                />
-            </CalendarStateContext.Provider>
+            {dataLoading && !filteredRows.length ? (
+                <ReleaseTimelineSkeleton />
+            ) : (
+                <CalendarStateContext.Provider value={state}>
+                    <DataTable
+                        columns={COLUMNS}
+                        data={rows}
+                        size="sm"
+                        stickyHeader
+                        className="max-h-[75vh]"
+                        getRowId={(row) => row.id}
+                        onRowClick={(row) => toggleExpanded(row.id)}
+                        rowClassName={(row) => (expanded[row.id] ? 'bg-fill-hover/40' : undefined)}
+                        empty={
+                            <Text size="xs" variant="muted">
+                                {releases.length
+                                    ? 'No release matches these filters.'
+                                    : 'No releases yet. Each new feature flag gets one, or create one yourself.'}
+                            </Text>
+                        }
+                    />
+                </CalendarStateContext.Provider>
+            )}
         </div>
     )
 }
