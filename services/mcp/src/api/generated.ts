@@ -852,6 +852,16 @@ export namespace Schemas {
        * * `branded` - Branded
        * * `non_branded` - Non-branded */
       branded: BrandedSegmentEnum;
+      /**
+         * The answer engine every count covers, as requested. Null when every engine counts.
+         * @nullable
+         */
+      engine: string | null;
+      /**
+         * The prompt topic every count covers, as requested. Empty for prompts with no topic, null when every topic counts.
+         * @nullable
+         */
+      topic: string | null;
       /** Answered checks in the current window whose prompt named the brand, whatever 'branded' selects. The sample size behind the branded numbers. */
       branded_answers: number;
       /** Answered checks in the current window whose prompt did not name the brand, whatever 'branded' selects. The sample size behind the non-branded numbers. */
@@ -945,6 +955,16 @@ export namespace Schemas {
        * * `branded` - Branded
        * * `non_branded` - Non-branded */
       branded: BrandedSegmentEnum;
+      /**
+         * The answer engine every count covers, as requested. Null when every engine counts.
+         * @nullable
+         */
+      engine: string | null;
+      /**
+         * The prompt topic every count covers, as requested. Empty for prompts with no topic, null when every topic counts.
+         * @nullable
+         */
+      topic: string | null;
       /** Answered checks in the current window: the denominator of every share. */
       answers: number;
       /** Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains. */
@@ -3262,7 +3282,7 @@ export namespace Schemas {
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
-      /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+      /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
       personIdPushdown?: boolean | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
@@ -14168,14 +14188,6 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export interface AhrefsSearchOpportunitySignalExtra {
-      project_id: string | null;
-      issue_id: string | null;
-      issue_category: string | null;
-      issue_importance: string | null;
-      affected_urls: string | null;
-    }
-
     /**
      * * `used` - used
      * * `edited` - edited
@@ -15301,6 +15313,23 @@ export namespace Schemas {
       event_kinds: PlatformAlertDestinationEventKindEnum[];
       /** Whether this route sends. */
       enabled: boolean;
+    }
+
+    export interface AlertRouteMatch {
+      /** A route these labels match. */
+      route: AlertRoute;
+      /** The receiver the route sends to. */
+      receiver: AlertReceiver;
+    }
+
+    /**
+     * The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too.
+     */
+    export type AlertRouteMatchingRequestLabels = {[key: string]: string};
+
+    export interface AlertRouteMatchingRequest {
+      /** The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too. */
+      labels: AlertRouteMatchingRequestLabels;
     }
 
     export interface AlertRouteWrite {
@@ -18742,6 +18771,14 @@ export namespace Schemas {
       exploit_available: string | null;
       region: string | null;
       first_observed_at: string | null;
+    }
+
+    export interface AwsMacieScannerFindingSignalExtra {
+      type: string | null;
+      category: string | null;
+      severity_level: string | null;
+      region: string | null;
+      created_at: string | null;
     }
 
     export type AwsS3DestinationConfigType = typeof AwsS3DestinationConfigType[keyof typeof AwsS3DestinationConfigType];
@@ -22551,15 +22588,6 @@ export namespace Schemas {
       TeamRetention: 'team_retention',
       ByteBudget: 'byte_budget',
     } as const;
-
-    export interface BingWebmasterToolsSearchOpportunitySignalExtra {
-      site_url: string | null;
-      issue_flag: string | null;
-      issue: string | null;
-      affected_urls: string | null;
-      example_url: string | null;
-      inbound_links: string | null;
-    }
 
     /**
      * * `email` - email
@@ -27775,6 +27803,14 @@ export namespace Schemas {
       error_hash: string | null;
       first_seen: string | null;
       last_seen: string | null;
+    }
+
+    export interface CheckmarxScannerFindingSignalExtra {
+      result_type: string | null;
+      finding_severity: string | null;
+      finding_state: string | null;
+      first_seen: string | null;
+      scans: string | null;
     }
 
     /**
@@ -39465,6 +39501,13 @@ export namespace Schemas {
       affected_entities: string[];
     }
 
+    export interface DynatraceSecurityScannerFindingSignalExtra {
+      display_id: string | null;
+      vulnerability_type: string | null;
+      status: string | null;
+      first_seen_timestamp: string | null;
+    }
+
     /**
      * Feature flag payload for this early access feature
      */
@@ -43314,6 +43357,19 @@ export namespace Schemas {
        * * `disabled` - Disabled
        * * `ai_not_approved` - Ai Not Approved */
       reason: IssueSummaryUnavailableReasonEnum | null;
+    }
+
+    export interface ErrorTrackingIssueTagCorrection {
+      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** What the tag means, for a tooltip. */
+      description: string;
+      /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+      source: string;
+      /** Whether the tag is applied to the issue after the change. */
+      applied: boolean;
     }
 
     export interface ErrorTrackingIssueTagDefinition {
@@ -51821,6 +51877,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly access_method?: string;
+      readonly direct_query_enabled?: boolean;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
       readonly requires_exact_column_metadata?: boolean;
@@ -55723,6 +55780,15 @@ export namespace Schemas {
       html_url: string | null;
       number: string | null;
       created_at: string | null;
+    }
+
+    export interface GitguardianScannerFindingSignalExtra {
+      severity: string | null;
+      validity: string | null;
+      status: string | null;
+      occurrences_count: string | null;
+      gitguardian_url: string | null;
+      date: string | null;
     }
 
     export interface GithubCodeScanningScannerFindingSignalExtra {
@@ -63034,9 +63100,6 @@ export namespace Schemas {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
-     * * `bing_webmaster_tools` - Bing Webmaster Tools
-     * * `ahrefs` - Ahrefs
-     * * `semrush` - Semrush
      * * `pagerduty` - PagerDuty
      * * `opsgenie` - Opsgenie
      * * `incident_io` - incident.io
@@ -63119,6 +63182,17 @@ export namespace Schemas {
      * * `amazon_cloudwatch` - Amazon CloudWatch
      * * `logicmonitor` - LogicMonitor
      * * `mux` - Mux
+     * * `sonarcloud` - SonarCloud
+     * * `checkmarx` - Checkmarx
+     * * `veracode` - Veracode
+     * * `veracode_sca` - Veracode SCA
+     * * `semgrep_sca` - Semgrep Supply Chain
+     * * `gitguardian` - GitGuardian
+     * * `infisical` - Infisical
+     * * `aws_macie` - AWS Macie
+     * * `sentinelone` - SentinelOne
+     * * `jfrog_xray` - JFrog Xray
+     * * `dynatrace_security` - Dynatrace Application Security
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -63176,9 +63250,6 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
-      BingWebmasterTools: 'bing_webmaster_tools',
-      Ahrefs: 'ahrefs',
-      Semrush: 'semrush',
       Pagerduty: 'pagerduty',
       Opsgenie: 'opsgenie',
       IncidentIo: 'incident_io',
@@ -63261,6 +63332,17 @@ export namespace Schemas {
       AmazonCloudwatch: 'amazon_cloudwatch',
       Logicmonitor: 'logicmonitor',
       Mux: 'mux',
+      Sonarcloud: 'sonarcloud',
+      Checkmarx: 'checkmarx',
+      Veracode: 'veracode',
+      VeracodeSca: 'veracode_sca',
+      SemgrepSca: 'semgrep_sca',
+      Gitguardian: 'gitguardian',
+      Infisical: 'infisical',
+      AwsMacie: 'aws_macie',
+      Sentinelone: 'sentinelone',
+      JfrogXray: 'jfrog_xray',
+      DynatraceSecurity: 'dynatrace_security',
     } as const;
 
     /**
@@ -63368,9 +63450,6 @@ export namespace Schemas {
        * * `hubspot` - HubSpot
        * * `engineering_analytics` - Engineering analytics
        * * `google_search_console` - Google Search Console
-       * * `bing_webmaster_tools` - Bing Webmaster Tools
-       * * `ahrefs` - Ahrefs
-       * * `semrush` - Semrush
        * * `pagerduty` - PagerDuty
        * * `opsgenie` - Opsgenie
        * * `incident_io` - incident.io
@@ -63452,7 +63531,18 @@ export namespace Schemas {
        * * `airbrake` - Airbrake
        * * `amazon_cloudwatch` - Amazon CloudWatch
        * * `logicmonitor` - LogicMonitor
-       * * `mux` - Mux */
+       * * `mux` - Mux
+       * * `sonarcloud` - SonarCloud
+       * * `checkmarx` - Checkmarx
+       * * `veracode` - Veracode
+       * * `veracode_sca` - Veracode SCA
+       * * `semgrep_sca` - Semgrep Supply Chain
+       * * `gitguardian` - GitGuardian
+       * * `infisical` - Infisical
+       * * `aws_macie` - AWS Macie
+       * * `sentinelone` - SentinelOne
+       * * `jfrog_xray` - JFrog Xray
+       * * `dynatrace_security` - Dynatrace Application Security */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -63775,8 +63865,8 @@ export namespace Schemas {
 
     export interface IncrementalFieldRecommendationsRequest {
       /**
-         * Tables from database_schema to get a recommended incremental field for.
-         * @maxItems 128
+         * Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.
+         * @maxItems 8
          */
       tables: IncrementalFieldTable[];
     }
@@ -63784,6 +63874,16 @@ export namespace Schemas {
     export interface IncrementalFieldRecommendationsResponse {
       /** Only the tables where the decision model picked a field, with that field first and recommended. */
       tables: IncrementalFieldTable[];
+    }
+
+    export interface InfisicalScannerFindingSignalExtra {
+      rule: string | null;
+      resource_name: string | null;
+      resource_type: string | null;
+      data_source_type: string | null;
+      severity: string | null;
+      status: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -65408,6 +65508,14 @@ export namespace Schemas {
       model_spec: IterationTrailWithRecipeModelSpec;
       /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
       recipe_snapshot: IterationTrailWithRecipeRecipeSnapshot;
+    }
+
+    export interface JfrogXrayScannerFindingSignalExtra {
+      issue_id: string | null;
+      violation_severity: string | null;
+      violation_type: string | null;
+      violations: string | null;
+      first_seen: string | null;
     }
 
     export interface JiraIssueSignalExtra {
@@ -67373,6 +67481,18 @@ export namespace Schemas {
       id: string;
       name: string;
       status: string;
+    }
+
+    export interface LinkedInsightDTO {
+      /** True when the insight was deleted after it was linked. */
+      readonly deleted: boolean;
+      id: number;
+      short_id: string;
+      name: string;
+      /** @nullable */
+      created_at: string | null;
+      /** @nullable */
+      last_modified_at: string | null;
     }
 
     /**
@@ -69446,7 +69566,7 @@ export namespace Schemas {
       readonly calls_with_intent: number;
       /** Tool calls flagged as errors ($mcp_is_error) in the window. */
       readonly error_calls: number;
-      /** $mcp_missing_capability events captured in the window. */
+      /** Missing-capability reports captured in the window: $mcp_missing_capability events and $mcp_feedback events of type missing_capability. */
       readonly missing_capability_reports: number;
     }
 
@@ -78924,6 +79044,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, short ID, name and dates of each linked insight the caller can see, including deleted ones. */
+      readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
       readonly broadcasts: readonly LinkedBroadcastDTO[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
@@ -78934,6 +79056,8 @@ export namespace Schemas {
       owner: ReleaseOwnerDTO | null;
       feature_flag_ids: number[];
       broadcast_ids: string[];
+      survey_ids: string[];
+      insight_ids: number[];
       created_at: string;
     }
 
@@ -84997,7 +85121,7 @@ export namespace Schemas {
       refresh_interval_seconds: number;
       /** Query time materializing saves in a month, in seconds. */
       saves_seconds_per_month: number;
-      /** Bytes materializing saves from scanning in a month. */
+      /** Bytes materializing saves from scanning in a month. Negative when its refreshes scan more than its reads would. */
       saves_bytes_per_month: number;
       /**
          * How old the view's data can be today, in seconds. Null when its sources are live.
@@ -85032,6 +85156,8 @@ export namespace Schemas {
          * @nullable
          */
       read_seconds?: number | null;
+      /** True when measuring the view's cost hit the time limit. The cost and every saving are then lower bounds. */
+      measurement_capped?: boolean;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {
@@ -88497,6 +88623,16 @@ export namespace Schemas {
       assignee?: ErrorTrackingIssueAssigneeWrite | null;
     }
 
+    export interface PatchedErrorTrackingIssueTagWrite {
+      /**
+         * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
+         * @maxLength 64
+         */
+      key?: string;
+      /** True applies the tag. False removes it and stops automatic taggers from applying it again. */
+      applied?: boolean;
+    }
+
     export interface PatchedErrorTrackingIssueWrite {
       /** Issue status to set. Deprecated archived and pending_release values are rejected.
        *
@@ -89308,6 +89444,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly access_method?: string;
+      readonly direct_query_enabled?: boolean;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
       readonly requires_exact_column_metadata?: boolean;
@@ -96390,6 +96527,18 @@ export namespace Schemas {
          * @maxItems 100
          */
       broadcast_ids?: string[];
+      /**
+         * IDs of the surveys that collect feedback on the release, at most 100.
+         * @maxItems 100
+         */
+      survey_ids?: string[];
+      /**
+         * IDs of the saved insights that measure the release, at most 100.
+         * @maxItems 100
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      insight_ids?: number[];
     }
 
     /**
@@ -107448,9 +107597,6 @@ export namespace Schemas {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
-     * * `bing_webmaster_tools` - bing_webmaster_tools
-     * * `ahrefs` - ahrefs
-     * * `semrush` - semrush
      * * `pagerduty` - pagerduty
      * * `opsgenie` - opsgenie
      * * `incident_io` - incident_io
@@ -107533,6 +107679,17 @@ export namespace Schemas {
      * * `amazon_cloudwatch` - amazon_cloudwatch
      * * `logicmonitor` - logicmonitor
      * * `mux` - mux
+     * * `sonarcloud` - sonarcloud
+     * * `checkmarx` - checkmarx
+     * * `veracode` - veracode
+     * * `veracode_sca` - veracode_sca
+     * * `semgrep_sca` - semgrep_sca
+     * * `gitguardian` - gitguardian
+     * * `infisical` - infisical
+     * * `aws_macie` - aws_macie
+     * * `sentinelone` - sentinelone
+     * * `jfrog_xray` - jfrog_xray
+     * * `dynatrace_security` - dynatrace_security
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -107590,9 +107747,6 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
-      BingWebmasterTools: 'bing_webmaster_tools',
-      Ahrefs: 'ahrefs',
-      Semrush: 'semrush',
       Pagerduty: 'pagerduty',
       Opsgenie: 'opsgenie',
       IncidentIo: 'incident_io',
@@ -107675,6 +107829,17 @@ export namespace Schemas {
       AmazonCloudwatch: 'amazon_cloudwatch',
       Logicmonitor: 'logicmonitor',
       Mux: 'mux',
+      Sonarcloud: 'sonarcloud',
+      Checkmarx: 'checkmarx',
+      Veracode: 'veracode',
+      VeracodeSca: 'veracode_sca',
+      SemgrepSca: 'semgrep_sca',
+      Gitguardian: 'gitguardian',
+      Infisical: 'infisical',
+      AwsMacie: 'aws_macie',
+      Sentinelone: 'sentinelone',
+      JfrogXray: 'jfrog_xray',
+      DynatraceSecurity: 'dynatrace_security',
     } as const;
 
     /**
@@ -107914,14 +108079,6 @@ export namespace Schemas {
       created_time: string | null;
     }
 
-    export interface SemrushSearchOpportunitySignalExtra {
-      project_id: string | null;
-      issue_id: string | null;
-      affected_pages: string | null;
-      example_url: string | null;
-      audit_snapshot_id: string | null;
-    }
-
     export interface VitallyConversationSignalExtra {
       external_url: string | null;
       created_at: string | null;
@@ -107974,6 +108131,56 @@ export namespace Schemas {
       status: string | null;
       impact: string | null;
       shortlink: string | null;
+      created_at: string | null;
+    }
+
+    export interface SonarcloudScannerFindingSignalExtra {
+      severity: string | null;
+      type: string | null;
+      status: string | null;
+      component: string | null;
+      rule: string | null;
+      creation_date: string | null;
+    }
+
+    export interface VeracodeScannerFindingSignalExtra {
+      application_guid: string | null;
+      scan_type: string | null;
+      finding_severity: string | null;
+      violates_policy: string | null;
+      cwe_id: string | null;
+      finding_category: string | null;
+      finding_state: string | null;
+      resolution_status: string | null;
+      first_found_date: string | null;
+    }
+
+    export interface VeracodeScaScannerFindingSignalExtra {
+      cve_name: string | null;
+      component_filename: string | null;
+      component_version: string | null;
+      max_severity: string | null;
+      affected_applications: string | null;
+      first_seen: string | null;
+    }
+
+    export interface SemgrepScaScannerFindingSignalExtra {
+      vulnerability_identifier: string | null;
+      package_name: string | null;
+      ecosystem: string | null;
+      finding_severity: string | null;
+      reachability_state: string | null;
+      affected_findings: string | null;
+      first_seen: string | null;
+    }
+
+    export interface SentineloneScannerFindingSignalExtra {
+      classification: string | null;
+      confidence_level: string | null;
+      analyst_verdict: string | null;
+      incident_status: string | null;
+      threat_mitigation_status: string | null;
+      detection_type: string | null;
       created_at: string | null;
     }
 
@@ -108047,7 +108254,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | BingWebmasterToolsSearchOpportunitySignalExtra | AhrefsSearchOpportunitySignalExtra | SemrushSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -108117,9 +108324,6 @@ export namespace Schemas {
        * * `hubspot` - hubspot
        * * `engineering_analytics` - engineering_analytics
        * * `google_search_console` - google_search_console
-       * * `bing_webmaster_tools` - bing_webmaster_tools
-       * * `ahrefs` - ahrefs
-       * * `semrush` - semrush
        * * `pagerduty` - pagerduty
        * * `opsgenie` - opsgenie
        * * `incident_io` - incident_io
@@ -108201,7 +108405,18 @@ export namespace Schemas {
        * * `airbrake` - airbrake
        * * `amazon_cloudwatch` - amazon_cloudwatch
        * * `logicmonitor` - logicmonitor
-       * * `mux` - mux */
+       * * `mux` - mux
+       * * `sonarcloud` - sonarcloud
+       * * `checkmarx` - checkmarx
+       * * `veracode` - veracode
+       * * `veracode_sca` - veracode_sca
+       * * `semgrep_sca` - semgrep_sca
+       * * `gitguardian` - gitguardian
+       * * `infisical` - infisical
+       * * `aws_macie` - aws_macie
+       * * `sentinelone` - sentinelone
+       * * `jfrog_xray` - jfrog_xray
+       * * `dynatrace_security` - dynatrace_security */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -113769,9 +113984,9 @@ export namespace Schemas {
       new_work_paused: boolean;
       /** Enabled scouts across this project's environments. */
       enabled_scouts: number;
-      /** Maximum enabled scouts during the trial. */
+      /** Maximum enabled scouts allowed for the project. */
       scout_limit: number;
-      /** On activation, all but the three oldest enabled scouts pause. */
+      /** Number of scouts paused when the trial starts. */
       scouts_to_pause: number;
       /** What happens to new work after the trial.
        *
@@ -127142,6 +127357,18 @@ export namespace Schemas {
          * @maxItems 100
          */
       broadcast_ids?: string[];
+      /**
+         * IDs of the surveys that collect feedback on the release, at most 100.
+         * @maxItems 100
+         */
+      survey_ids?: string[];
+      /**
+         * IDs of the saved insights that measure the release, at most 100.
+         * @maxItems 100
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      insight_ids?: number[];
     }
 
     export interface ZendeskImportError {
@@ -132281,27 +132508,87 @@ export namespace Schemas {
 
     export type AeoKeywordsModifiersParams = {
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoKeywordsModifiersBranded;
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
      * @minimum 1
-     * @maximum 30
+     * @maximum 90
      */
     days?: number;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
     /**
      * Only count answers whose web searches contain this phrase, case ignored. Usually one of the project's keywords.
      * @minLength 1
      * @maxLength 100
      */
     keyword?: string;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     };
+
+    export type AeoKeywordsModifiersBranded = typeof AeoKeywordsModifiersBranded[keyof typeof AeoKeywordsModifiersBranded];
+
+
+    export const AeoKeywordsModifiersBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
 
     export type AeoKeywordsReportParams = {
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoKeywordsReportBranded;
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
      * @minimum 1
-     * @maximum 30
+     * @maximum 90
      */
     days?: number;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     };
+
+    export type AeoKeywordsReportBranded = typeof AeoKeywordsReportBranded[keyof typeof AeoKeywordsReportBranded];
+
+
+    export const AeoKeywordsReportBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
 
     export type AeoPromptsListParams = {
     /**
@@ -132315,6 +132602,18 @@ export namespace Schemas {
      */
     branded?: boolean | null;
     /**
+     * The window needs_improvement reads, in days ending now. Default 30, at most 90. Ignored unless needs_improvement is true.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    /**
+     * With needs_improvement, only read the answers of this engine, for example 'claude-web-search'. Ignored unless needs_improvement is true.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
      * Also list archived prompts. Archived prompts are left out by default.
      */
     include_archived?: boolean;
@@ -132324,7 +132623,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.
+     * Only list prompts that the engines answered in the last 'days' days without citing a target domain. Prompts with no answered check in that window are left out.
      */
     needs_improvement?: boolean;
     /**
@@ -132385,6 +132684,18 @@ export namespace Schemas {
      * @maximum 90
      */
     days?: number;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     };
 
     export type AeoPromptsOverviewBranded = typeof AeoPromptsOverviewBranded[keyof typeof AeoPromptsOverviewBranded];
@@ -132412,6 +132723,18 @@ export namespace Schemas {
      * @maximum 90
      */
     days?: number;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     };
 
     export type AeoPromptsRankingsBranded = typeof AeoPromptsRankingsBranded[keyof typeof AeoPromptsRankingsBranded];

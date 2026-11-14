@@ -86,29 +86,26 @@ class GroupedWarehouseRecordFetcher:
         group_by_sql: str,
         order_by_sql: str,
         source_id_for: Callable[[dict[str, Any]], str],
-        window_days: int | None,
-        from_sql: Callable[[str], str] | None = None,
+        window_days: int,
+        having_sql: str | None = None,
     ) -> None:
         self._select_sql = select_sql
+        self._having_sql = having_sql
         self._group_by_sql = group_by_sql
         self._order_by_sql = order_by_sql
         self._source_id_for = source_id_for
         self._window_days = window_days
-        self._from_sql = from_sql
 
     def __call__(self, team: Team, config: SignalSourceTableConfig, context: dict[str, Any]) -> list[dict[str, Any]]:
         if config.scope_field is not None:
             raise ValueError("The grouped warehouse fetcher does not support scope_field")
         table_name: str = context["table_name"]
         extra: dict[str, Any] = context.get("extra", {})
-        conditions = [
-            *([grouped_window_clause(config, self._window_days)] if self._window_days is not None else []),
-            *([config.where_clause] if config.where_clause else []),
-        ]
-        where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        from_sql = self._from_sql(table_name) if self._from_sql else escape_table_name(table_name)
+        window_sql = grouped_window_clause(config, self._window_days)
+        where_sql = f"{window_sql} AND {config.where_clause}" if config.where_clause else window_sql
         # The group columns break ties, so the scan limit cuts the same groups on every sync.
         order_sql = f"{self._order_by_sql}, {self._group_by_sql}"
+        having_sql = f"HAVING {self._having_sql}" if self._having_sql else ""
         logger.info(
             "Querying grouped records for signal emission",
             table_name=table_name,
@@ -121,9 +118,10 @@ class GroupedWarehouseRecordFetcher:
         )
         query = f"""
             SELECT {self._select_sql}
-            FROM {from_sql}
-            {where_sql}
+            FROM {escape_table_name(table_name)}
+            WHERE {where_sql}
             GROUP BY {self._group_by_sql}
+            {having_sql}
             ORDER BY {order_sql}
             LIMIT {GROUP_SCAN_LIMIT}
         """
@@ -162,8 +160,8 @@ def grouped_warehouse_record_fetcher(
     group_by_sql: str,
     order_by_sql: str,
     source_id_for: Callable[[dict[str, Any]], str],
-    window_days: int | None = GROUPED_WINDOW_DAYS,
-    from_sql: Callable[[str], str] | None = None,
+    window_days: int = GROUPED_WINDOW_DAYS,
+    having_sql: str | None = None,
 ) -> GroupedWarehouseRecordFetcher:
     """Build a fetcher that collapses the recent rows of a warehouse table into one record per group.
 
@@ -180,15 +178,10 @@ def grouped_warehouse_record_fetcher(
 
     `select_sql` aliases must match `config.fields`, because the pipeline builds records from them.
     Ordering comes from `order_by_sql`, not from `config.order_by`.
+    `having_sql` filters whole groups, for a rule that depends on the latest row of a group rather than on each row.
+    Drop unusable groups in the query rather than in the emitter: a group the emitter skips writes no ledger
+    row, so it comes back on every sync and takes one of the `max_records` places.
     The config must not set `scope_field`, because a group has no single scope value.
-
-    `window_days=None` reads the whole table. Use it for a full-refresh snapshot table, such as a site
-    audit, that holds only the current state and has no event time. Each sync replaces the table, so
-    the ledger and a period in the fingerprint are the only things that keep a group from emitting
-    on every sync.
-
-    `from_sql` builds the FROM clause from the table name, for a source whose readable text lives in a
-    sibling table that it must join. It gets the raw table name and must escape every name it uses.
     """
     return GroupedWarehouseRecordFetcher(
         select_sql=select_sql,
@@ -196,5 +189,5 @@ def grouped_warehouse_record_fetcher(
         order_by_sql=order_by_sql,
         source_id_for=source_id_for,
         window_days=window_days,
-        from_sql=from_sql,
+        having_sql=having_sql,
     )
