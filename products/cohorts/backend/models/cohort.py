@@ -1234,13 +1234,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         person_uuids = [person_uuid for _, person_uuid in deduped_pairs]
 
         if insert_in_clickhouse:
-            existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
             replace_in_flight = self._replace_in_flight()
             # A replace in flight removes every member without a row at or after its marker, so a re-add
-            # during it writes a fresh row even for an existing member. Readers use DISTINCT, so the
-            # duplicate row is harmless.
-            if replace_in_flight:
-                existing_uuids = set()
+            # during it writes a fresh row even for an existing member, and the existing rows needn't be read.
+            # Readers use DISTINCT, so the duplicate row is harmless.
+            existing_uuids = (
+                set()
+                if replace_in_flight
+                else self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
+            )
             new_uuids = [UUID(u) for u in person_uuids if u not in existing_uuids]
             if new_uuids:
                 # During a replace the row is a quorum write, so the prune's sequentially consistent read sees it
