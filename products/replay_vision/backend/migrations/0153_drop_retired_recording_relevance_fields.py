@@ -19,14 +19,19 @@ def _clean_rows(manager, alias: str, field: str, retired: Q, query_of) -> None:
             # Stored queries are free-form JSON, so a non-object value is left alone rather than failing the deploy.
             if not isinstance(query, dict):
                 continue
-            setattr(
-                row,
-                field,
-                _without_retired_fields(query)
-                if field == "query"
-                else {**row.scanner_snapshot, "query": _without_retired_fields(query)},
-            )
-            row.save(update_fields=[field])
+            update_fields = [field]
+            if field == "query":
+                row.query = _without_retired_fields(query)
+                if query.get("recommended_only"):
+                    # Dropping an active filter widens the candidates, which a model save marks as a new version with
+                    # a stale estimate, so the historical model has to do the same here.
+                    row.scanner_version += 1
+                    row.estimated_at = None
+                    row.estimate_attempted_at = None
+                    update_fields += ["scanner_version", "estimated_at", "estimate_attempted_at"]
+            else:
+                row.scanner_snapshot = {**row.scanner_snapshot, "query": _without_retired_fields(query)}
+            row.save(update_fields=update_fields)
 
 
 # Stored scanner queries are validated against the recordings query schema, which no longer has the relevance sort or
