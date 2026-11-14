@@ -371,7 +371,7 @@ class TestActiveSessionCapReservation(SandboxUsageBase):
             created_by=self.user,
         )
         open_sandbox_session(run_id=task.create_run(mode="interactive").id, sandbox_id="sb-first", config=_config())
-        second = task.create_run(mode="interactive")
+        second = TaskRun.objects.create(task=task, team=self.team, state={"mode": "interactive"})
 
         with self.assertRaises(ActiveSessionCapError) as error_context:
             open_sandbox_session(run_id=second.id, sandbox_id="sb-second", config=_config())

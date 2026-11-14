@@ -1833,6 +1833,9 @@ def _resume_task_with_new_run(
             text=exc.detail,
         )
         return True
+    except tasks_facade.TaskRunAlreadyLiveError as error:
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=str(error))
+        return True
     except Exception:
         logger.exception(
             "posthog_code_resume_create_run_failed",

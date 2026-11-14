@@ -304,6 +304,8 @@ def _authoring_task_rejection(outcome: str) -> Response | None:
         )
     if outcome == "task_done":
         return Response({"detail": str(tasks_facade.TaskDoneError())}, status=status.HTTP_409_CONFLICT)
+    if outcome == "run_in_progress":
+        return Response({"detail": str(tasks_facade.TaskRunAlreadyLiveError())}, status=status.HTTP_409_CONFLICT)
     return None
 
 
