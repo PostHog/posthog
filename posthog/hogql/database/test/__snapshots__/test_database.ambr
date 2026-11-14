@@ -3212,6 +3212,17 @@
                   "table": null,
                   "type": "boolean"
               },
+              "names_brand": {
+                  "chain": null,
+                  "description": "The answer text names one of the project's own brands. An answer with `cited` true also counts as a mention. Null when the check failed, and on older checks not yet filled in.",
+                  "fields": null,
+                  "hogql_value": "names_brand",
+                  "id": null,
+                  "name": "names_brand",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
               "num_citations": {
                   "chain": null,
                   "description": "How many URLs the answer cited.",
@@ -20018,6 +20029,17 @@
                   "hogql_value": "cited",
                   "id": null,
                   "name": "cited",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "names_brand": {
+                  "chain": null,
+                  "description": "The answer text names one of the project's own brands. An answer with `cited` true also counts as a mention. Null when the check failed, and on older checks not yet filled in.",
+                  "fields": null,
+                  "hogql_value": "names_brand",
+                  "id": null,
+                  "name": "names_brand",
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
