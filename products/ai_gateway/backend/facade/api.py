@@ -21,8 +21,10 @@ def eligibility_refusal(user: User) -> contracts.DevTokenRefused | None:
     return logic.eligibility_refusal(user)
 
 
-def mint_dev_token(user: User, client: DevTokenClient) -> contracts.MintedDevToken:
-    return logic.mint(user, client)
+def mint_dev_token(
+    user: User, client: DevTokenClient, request: contracts.DevTokenRequest | None = None
+) -> contracts.MintedDevToken:
+    return logic.mint(user, client, request)
 
 
 def dev_token_usage(user: User) -> contracts.DevTokenUsage:
@@ -41,8 +43,8 @@ def revoke_dev_tokens(user: User, token_id: str | None) -> int:
     return logic.revoke(user, token_id)
 
 
-def authorize_cli(user: User, code_challenge: str) -> str:
-    return logic.authorize_cli(user, code_challenge)
+def authorize_cli(user: User, code_challenge: str, request: contracts.DevTokenRequest | None = None) -> str:
+    return logic.authorize_cli(user, code_challenge, request)
 
 
 def exchange_cli_code(code: str, code_verifier: str) -> contracts.MintedDevToken:

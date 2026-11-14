@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { DevTokenApi } from '../generated/api.schemas'
-import { devModeLogic } from '../logics/devModeLogic'
+import { DURATION_PRESETS, devModeLogic, formatDuration } from '../logics/devModeLogic'
 
 const STATUS_TAG: Record<DevTokenApi['status'], { label: string; type: 'success' | 'muted' | 'danger' }> = {
     live: { label: 'Live', type: 'success' },
@@ -26,12 +26,32 @@ export function DevModeSetting(): JSX.Element {
         cliRequest,
         liveTokenCount,
         revoking,
+        capUsd,
+        ttlSeconds,
+        pickError,
     } = useValues(devModeLogic)
-    const { mint, revokeToken, authorizeCli, dismissCliRequest } = useActions(devModeLogic)
+    const { mint, revokeToken, authorizeCli, dismissCliRequest, setCapUsd, setTtlSeconds } = useActions(devModeLogic)
 
     if (refusal && !usage) {
         return <LemonBanner type="warning">{refusal}</LemonBanner>
     }
+
+    const durationOptions = DURATION_PRESETS.filter(
+        (preset) => !usage || (preset.seconds >= usage.ttl_min_seconds && preset.seconds <= usage.ttl_max_seconds)
+    ).map((preset) => ({ value: preset.seconds, label: preset.label }))
+    if (ttlSeconds !== null && !durationOptions.some((option) => option.value === ttlSeconds)) {
+        durationOptions.push({ value: ttlSeconds, label: formatDuration(ttlSeconds) })
+    }
+    const pickedSummary =
+        capUsd !== null && ttlSeconds !== null ? `$${capUsd.toFixed(2)} for ${formatDuration(ttlSeconds)}` : null
+    const disabledReason =
+        usageLoading && !usage
+            ? 'Loading'
+            : pickError
+              ? pickError
+              : !canMint
+                ? `This token needs $${capUsd?.toFixed(2)} of your $${usage?.daily_cap_usd} limit, and $${remainingUsd?.toFixed(2)} is left.${liveTokenCount > 0 ? " Revoke a live token to get back what it hasn't spent." : ''}`
+                : undefined
 
     return (
         <div className="flex flex-col gap-4">
@@ -39,11 +59,17 @@ export function DevModeSetting(): JSX.Element {
                 <LemonBanner type="info" data-attr="ai-gateway-dev-mode-cli-request">
                     <div className="flex flex-col gap-2">
                         <span>
-                            <code>hogli gateway:token</code> is asking for a token. Approve only if you just ran that
-                            command.
+                            <code>hogli gateway:token</code> is asking for a token
+                            {pickedSummary ? ` (${pickedSummary}, change it below)` : ''}. Approve only if you just ran
+                            that command.
                         </span>
                         <div className="flex flex-wrap gap-2">
-                            <LemonButton type="primary" size="small" onClick={authorizeCli}>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={authorizeCli}
+                                disabledReason={disabledReason}
+                            >
                                 Approve
                             </LemonButton>
                             <LemonButton type="secondary" size="small" onClick={dismissCliRequest}>
@@ -55,22 +81,45 @@ export function DevModeSetting(): JSX.Element {
             ) : null}
 
             <p className="mb-0">
-                Each token can spend up to ${usage?.token_cap_usd ?? '…'} and expires after{' '}
-                {usage ? Math.round(usage.ttl_seconds / 3600) : '…'} hours.
+                Pick how much a token can spend (${usage?.token_cap_min_usd ?? '…'} to ${usage?.token_cap_usd ?? '…'})
+                and how long it lasts (up to {usage ? formatDuration(usage.ttl_max_seconds) : '…'}).
             </p>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-end gap-2">
+                <div className="flex flex-col gap-1">
+                    <label className="font-semibold" htmlFor="ai-gateway-dev-mode-cap">
+                        Spend limit
+                    </label>
+                    <LemonInput
+                        id="ai-gateway-dev-mode-cap"
+                        type="number"
+                        prefix={<span>$</span>}
+                        min={usage ? Number(usage.token_cap_min_usd) : undefined}
+                        max={usage ? Number(usage.token_cap_usd) : undefined}
+                        step={1}
+                        value={capUsd ?? undefined}
+                        onChange={(value) => setCapUsd(value ?? null)}
+                        className="w-32"
+                        data-attr="ai-gateway-dev-mode-cap"
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <label className="font-semibold" htmlFor="ai-gateway-dev-mode-ttl">
+                        Expires after
+                    </label>
+                    <LemonSelect
+                        id="ai-gateway-dev-mode-ttl"
+                        value={ttlSeconds}
+                        options={durationOptions}
+                        onChange={(value) => value !== null && setTtlSeconds(value)}
+                        data-attr="ai-gateway-dev-mode-ttl"
+                    />
+                </div>
                 <LemonButton
                     type="primary"
                     onClick={mint}
                     loading={mintedLoading}
-                    disabledReason={
-                        usageLoading && !usage
-                            ? 'Loading'
-                            : !canMint
-                              ? `A new token needs $${usage?.token_cap_min_usd} of your $${usage?.daily_cap_usd} limit left.${liveTokenCount > 0 ? " Revoke a live token to get back what it hasn't spent." : ''}`
-                              : undefined
-                    }
+                    disabledReason={disabledReason}
                     data-attr="ai-gateway-dev-mode-mint"
                 >
                     Create token
@@ -80,7 +129,7 @@ export function DevModeSetting(): JSX.Element {
                         <span translate="no">
                             ${remainingUsd?.toFixed(2)} of ${usage.daily_cap_usd}
                         </span>{' '}
-                        left in the last 24 hours
+                        left. Live tokens and tokens from the last 24 hours count against it.
                     </span>
                 ) : null}
             </div>
@@ -97,7 +146,7 @@ export function DevModeSetting(): JSX.Element {
             <LemonTable<DevTokenApi>
                 dataSource={usage?.tokens ?? []}
                 loading={usageLoading}
-                emptyState="No tokens created in the last 24 hours"
+                emptyState="No live tokens, and none created in the last 24 hours"
                 columns={[
                     {
                         title: 'Created',

@@ -1495,11 +1495,15 @@ DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 
 DEV_GATEWAY_URL = get_from_env("DEV_GATEWAY_URL", "")
 DEV_GATEWAY_MINT_KEY = get_from_env("DEV_GATEWAY_MINT_KEY", "")
 DEV_GATEWAY_TEAM_ID = get_from_env("DEV_GATEWAY_TEAM_ID", 0, type_cast=int)
+# Defaults for a mint that names no cap or lifetime, such as an older hogli.
 DEV_GATEWAY_TOKEN_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_CAP_USD", "25")
 DEV_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_TTL_SECONDS", 8 * 60 * 60, type_cast=int)
-# Caps minted in the trailing 24 hours count against this until revoked, then only what the token
-# spent. The limit is approximate, because cost that settles after a revoke is not counted.
-DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "50")
+# Upper bounds on what staff can pick per token. The gateway refuses a TTL past 7 days.
+DEV_GATEWAY_TOKEN_MAX_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_MAX_CAP_USD", "1000")
+DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS", 7 * 24 * 60 * 60, type_cast=int)
+# Counts the cap of each token minted in the last 24 hours or still live, or what it spent once revoked.
+# Approximate: cost that settles after a revoke is not counted.
+DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "1000")
 DEV_GATEWAY_MINTS_PER_HOUR = get_from_env("DEV_GATEWAY_MINTS_PER_HOUR", 20, type_cast=int)
 
 # Users who joined PostHog at or after this ISO 8601 instant cannot use Desktop while the

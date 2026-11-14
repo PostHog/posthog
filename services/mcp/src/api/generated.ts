@@ -28110,6 +28110,17 @@ export namespace Schemas {
 
     export interface CliAuthorize {
       /**
+         * Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd?: string | null;
+      /**
+         * Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.
+         * @nullable
+         */
+      ttl_seconds?: number | null;
+      /**
          * base64url SHA-256 of the CLI's PKCE code_verifier, without padding.
          * @pattern ^[A-Za-z0-9_-]{43}$
          */
@@ -38310,7 +38321,7 @@ export namespace Schemas {
       /** Tokens minted in the last 30 days that were revoked. */
       revoked_30d: number;
       /**
-         * Budget counted for tokens minted in the last 24 hours, in USD.
+         * Budget counted against the user's limit, in USD: tokens minted in the last 24 hours and older live ones.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       reserved_usd_24h: string;
@@ -38444,6 +38455,20 @@ export namespace Schemas {
       remaining_usd: string | null;
     }
 
+    export interface DevTokenCreate {
+      /**
+         * Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd?: string | null;
+      /**
+         * Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.
+         * @nullable
+         */
+      ttl_seconds?: number | null;
+    }
+
     export interface DevTokenRefusal {
       /** Stable refusal code, for example daily_limit or not_staff. */
       code: string;
@@ -38474,12 +38499,12 @@ export namespace Schemas {
 
     export interface DevTokenUsage {
       /**
-         * Most budget one user can use in 24 hours, in USD.
+         * Most budget one user can hold, in USD, counting tokens minted in the last 24 hours and older live ones.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       daily_cap_usd: string;
       /**
-         * Budget used in the last 24 hours, in USD: spend for revoked tokens, the full cap otherwise.
+         * Budget used, in USD, by tokens minted in the last 24 hours and older tokens still live: spend for revoked tokens, the full cap otherwise.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       used_usd: string;
@@ -38489,13 +38514,22 @@ export namespace Schemas {
          */
       token_cap_usd: string;
       /**
-         * Budget that must be left to create a token, in USD.
+         * Smallest cap of a new token, and the budget that must be left to create one, in USD.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       token_cap_min_usd: string;
-      /** Lifetime of each new token, in seconds. */
+      /**
+         * Cap of a new token when the request names none, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      default_cap_usd: string;
+      /** Lifetime of a new token when the request names none, in seconds. */
       ttl_seconds: number;
-      /** Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones. */
+      /** Shortest lifetime of a new token, in seconds. */
+      ttl_min_seconds: number;
+      /** Longest lifetime of a new token, in seconds. */
+      ttl_max_seconds: number;
+      /** Tokens the user minted in the last 24 hours, including revoked and expired ones, plus older tokens still live, newest first. */
       tokens: DevToken[];
     }
 
