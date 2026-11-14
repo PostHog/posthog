@@ -8,6 +8,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import slack_files_to_placeholder_lines, slack_to_content_and_rich_content
+from posthog.event_usage import groups
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.integrations import IntegrationManager
 from posthog.models.comment import Comment, CommentSlackThread
@@ -15,6 +16,8 @@ from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_A
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.integration import SlackIntegration
 from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.slack.identity import resolve_posthog_user_for_slack, resolve_slack_user
 
@@ -36,33 +39,54 @@ BACKFILL_SLEEP_BUDGET_SECONDS = 60
 BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS = 60
 
 
-def _organization_id_for_team(team_id: int) -> str | None:
-    return Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+def evaluate_discussions_slack_sync_flag(user: User | None, team: Team) -> bool | None:
+    """The flag's raw value for this person, or None when evaluation fails.
+
+    The creation gate and the kill switch must evaluate the flag the same way, but they apply
+    opposite failure policies, so each caller decides what None means.
+    """
+    distinct_id = str(user.distinct_id) if user and user.distinct_id else str(team.uuid)
+    try:
+        return posthoganalytics.feature_enabled(
+            DISCUSSIONS_SLACK_SYNC_FLAG,
+            distinct_id,
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+        )
+    except Exception:
+        return None
 
 
-def _sync_killed(team_id: int) -> bool:
+def _sync_killed(mirror: CommentSlackThread, team: Team) -> bool:
     """Kill switch for syncing on existing mirrors: only an explicit flag *off* halts it.
 
     The fail-closed creation gate is send_to_slack; here a flag-evaluation error or missing
     flag (None) must not silently drop user replies, so only False stops the sync. Evaluated
     with the same org/project groups as the request path, so a project-targeted disable also
     stops sync on mirrors that already exist.
+
+    Keyed on the mirror's creator, the person the creation gate checked, so a person-targeted
+    rollout (e.g. early access enrollment) keeps syncing their threads and stops them if that
+    person opts out. A mirror whose creator was deleted falls back to the team uuid, which a
+    person-targeted flag reads as off, so its sync stops.
     """
+    return evaluate_discussions_slack_sync_flag(mirror.created_by, team) is False
+
+
+def _capture_sync_event(
+    event: str, mirror: CommentSlackThread, team: Team, actor: User | None, properties: dict[str, Any]
+) -> None:
+    # Slack authors without a PostHog account count against the team, not the mirror's creator.
+    distinct_id = str(actor.distinct_id) if actor and actor.distinct_id else str(team.uuid)
     try:
-        team_ref = Team.objects.filter(id=team_id).values_list("uuid", "organization_id").first()
-        if team_ref is None:
-            return False
-        team_uuid, organization_id = team_ref
-        return (
-            posthoganalytics.feature_enabled(
-                DISCUSSIONS_SLACK_SYNC_FLAG,
-                str(team_uuid),
-                groups={"organization": str(organization_id), "project": str(team_id)},
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=distinct_id,
+                event=event,
+                properties={"scope": mirror.scope, **properties},
+                groups=groups(team=team),
             )
-            is False
-        )
     except Exception:
-        return False
+        logger.exception("comment_slack_sync_capture_failed", event_name=event, comment_slack_thread_id=str(mirror.id))
 
 
 def _slack_retry_after(exc: Exception) -> int | None:
@@ -149,13 +173,14 @@ def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
     comment = Comment.objects.filter(id=comment_id).select_related("created_by").first()
     if comment is None or not comment.source_comment_id or _reply_skip_reason(comment):
         return
-    if _sync_killed(comment.team_id):
-        return
 
     mirror = (
-        CommentSlackThread.objects.for_team(comment.team_id).filter(source_comment_id=comment.source_comment_id).first()
+        CommentSlackThread.objects.for_team(comment.team_id)
+        .filter(source_comment_id=comment.source_comment_id)
+        .select_related("created_by", "team")
+        .first()
     )
-    if mirror is None:
+    if mirror is None or _sync_killed(mirror, mirror.team):
         return
     if not mirror.slack_thread_ts:
         # Reserved but the root post hasn't landed yet (send_to_slack mid-flight) — retry rather
@@ -176,11 +201,12 @@ def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
             author_email=author_email,
             workspace=mirror.slack_team_id,
             thread_ts=mirror.slack_thread_ts,
-            organization_id=_organization_id_for_team(comment.team_id),
+            organization_id=str(mirror.team.organization_id),
         )
     except Exception as exc:
         raise self.retry(exc=exc)
     _mark_reply_synced(comment, posted_ts)
+    _capture_sync_event("discussion reply sent to slack", mirror, mirror.team, comment.created_by, {})
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -201,7 +227,12 @@ def ingest_slack_discussion_reply(
     seconds and this path makes a ``users.info`` call. Idempotent per source Slack message
     ts, so task retries and duplicate event deliveries can't create duplicate comments.
     """
-    mirror = CommentSlackThread.objects.unscoped().filter(id=comment_slack_thread_id).select_related("team").first()
+    mirror = (
+        CommentSlackThread.objects.unscoped()
+        .filter(id=comment_slack_thread_id)
+        .select_related("team", "created_by")
+        .first()
+    )
     if mirror is None or mirror.scope in OBSERVATION_COMMENT_SCOPES:
         return
     # message_ts is the idempotency key; without it a redelivered event would duplicate the
@@ -209,7 +240,7 @@ def ingest_slack_discussion_reply(
     if not message_ts:
         return
     team = mirror.team
-    if _sync_killed(team.id):
+    if _sync_killed(mirror, team):
         return
 
     if Comment.objects.filter(
@@ -284,6 +315,13 @@ def ingest_slack_discussion_reply(
             "slack_author_avatar": user_info.get("avatar"),
         },
     )
+    _capture_sync_event(
+        "discussion reply received from slack",
+        mirror,
+        team,
+        posthog_user,
+        {"author_is_posthog_user": posthog_user is not None, "has_files": bool(file_placeholders)},
+    )
     logger.info(
         "slack_discussion_reply_ingested",
         team_id=team.id,
@@ -308,10 +346,15 @@ def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
     BACKFILL_SLEEP_BUDGET_SECONDS waiting out rate limits, then reschedules itself for the rest.
     That keeps one big discussion from occupying a shared worker for an unbounded stretch.
     """
-    mirror = CommentSlackThread.objects.unscoped().filter(id=comment_slack_thread_id).first()
+    mirror = (
+        CommentSlackThread.objects.unscoped()
+        .filter(id=comment_slack_thread_id)
+        .select_related("created_by", "team")
+        .first()
+    )
     if mirror is None or not mirror.source_comment_id or not mirror.slack_thread_ts:
         return
-    if _sync_killed(mirror.team_id):
+    if _sync_killed(mirror, mirror.team):
         return
 
     try:
@@ -321,7 +364,7 @@ def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
         logger.warning("comment_slack_backfill_client_failed", comment_slack_thread_id=comment_slack_thread_id)
         return
 
-    organization_id = _organization_id_for_team(mirror.team_id)
+    organization_id = str(mirror.team.organization_id)
 
     # source_comment_id matches the thread root, so this returns its replies (not the root itself).
     # Already-stamped replies are excluded in SQL rather than skipped in Python, so each run's
