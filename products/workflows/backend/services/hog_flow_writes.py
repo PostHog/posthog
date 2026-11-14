@@ -151,20 +151,27 @@ def _save_live(
     instance.save()
 
 
+TRANSACTIONAL_STEP_TYPES: dict[str, str] = {
+    HogFlow.OriginProduct.TRANSACTIONAL_EMAILS: "function_email",
+    HogFlow.OriginProduct.TRANSACTIONAL_PUSH: "function_push",
+}
+
+
 def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
-    # A transactional email's protection follows its template, and only the template sync writes it.
+    # A transactional message's protection follows its template, and only the template sync writes it.
     # Every other write, such as publishing a restored version, keeps the live setting.
-    if before.origin_product != HogFlow.OriginProduct.TRANSACTIONAL_EMAILS or "actions" not in validated_data:
+    step_type = TRANSACTIONAL_STEP_TYPES.get(before.origin_product or "")
+    if step_type is None or "actions" not in validated_data:
         return validated_data
     sensitive = any(
         isinstance(action, dict)
-        and action.get("type") == "function_email"
+        and action.get("type") == step_type
         and (action.get("config") or {}).get("sensitive") is True
         for action in before.actions or []
     )
     actions = [
         {**action, "config": {**(action.get("config") or {}), "sensitive": sensitive}}
-        if isinstance(action, dict) and action.get("type") == "function_email"
+        if isinstance(action, dict) and action.get("type") == step_type
         else action
         for action in validated_data["actions"] or []
     ]

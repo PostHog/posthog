@@ -57344,6 +57344,7 @@ export namespace Schemas {
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
      * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -57353,6 +57354,7 @@ export namespace Schemas {
       Broadcasts: 'broadcasts',
       TransactionalEmails: 'transactional_emails',
       TransactionalEmailKeys: 'transactional_email_keys',
+      TransactionalPush: 'transactional_push',
     } as const;
 
     export interface HogFlowMasking {
@@ -57655,7 +57657,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       origin_product?: HogFlowOriginProductEnum | null;
       /**
          * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -57810,7 +57813,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product: HogFlowOriginProductEnum;
     }
 
@@ -58282,7 +58286,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -70570,7 +70575,7 @@ export namespace Schemas {
 
     export interface MakeTransactional {
       /**
-         * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender.
+         * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender. Ignored for push templates.
          * @nullable
          */
       from_integration_id?: number | null;
@@ -72066,6 +72071,41 @@ export namespace Schemas {
       Liquid: 'liquid',
     } as const;
 
+    /**
+     * Custom key-value data delivered to the app. Values are strings and support Liquid templating.
+     */
+    export type PushTemplateData = {[key: string]: string};
+
+    export interface PushTemplate {
+      /**
+         * Notification title. Supports Liquid templating, such as {{ variables.name }}. Required in `content` for push-type templates.
+         * @maxLength 1000
+         */
+      title?: string;
+      /**
+         * Notification body text. Supports Liquid templating. Required in `content` for push-type templates.
+         * @maxLength 4000
+         */
+      body?: string;
+      /**
+         * URL of an image to show in the notification. Supports Liquid templating.
+         * @maxLength 2000
+         */
+      image?: string;
+      /**
+         * Where a tap should take the person, such as myapp://orders/123 or a web URL. Sent to the app as the "link" key in the custom data. Supports Liquid templating.
+         * @maxLength 2000
+         */
+      link?: string;
+      /**
+         * IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps.
+         * @maxItems 20
+         */
+      channels?: number[];
+      /** Custom key-value data delivered to the app. Values are strings and support Liquid templating. */
+      data?: PushTemplateData;
+    }
+
     export interface MessageTemplateContent {
       /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
        *
@@ -72073,6 +72113,8 @@ export namespace Schemas {
       templating?: MessageTemplateContentTemplatingEnum;
       /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
+      /** Push notification content, for push-type templates. Replaced as a whole on update — send the complete object. */
+      push?: PushTemplate | null;
     }
 
     export interface MessageTemplate {
@@ -72098,7 +72140,7 @@ export namespace Schemas {
       content?: MessageTemplateContent;
       readonly created_by: UserBasic;
       /**
-         * Message channel of the template. Currently 'email'.
+         * Message channel of the template: 'email' (the default) or 'push'.
          * @maxLength 24
          */
       type?: string;
@@ -72112,7 +72154,7 @@ export namespace Schemas {
       /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
       sensitive?: boolean;
       /**
-         * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+         * The workflow that sends this template over the transactional email or push API. Null until the template is made transactional. Each content save writes a new version of it.
          * @nullable
          */
       readonly transactional_hog_flow_id: string | null;
@@ -90272,7 +90314,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -91483,7 +91526,7 @@ export namespace Schemas {
       content?: MessageTemplateContent;
       readonly created_by?: UserBasic;
       /**
-         * Message channel of the template. Currently 'email'.
+         * Message channel of the template: 'email' (the default) or 'push'.
          * @maxLength 24
          */
       type?: string;
@@ -91497,7 +91540,7 @@ export namespace Schemas {
       /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
       sensitive?: boolean;
       /**
-         * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+         * The workflow that sends this template over the transactional email or push API. Null until the template is made transactional. Each content save writes a new version of it.
          * @nullable
          */
       readonly transactional_hog_flow_id?: string | null;
@@ -114030,7 +114073,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product: HogFlowOriginProductEnum | null;
       /** User who created the workflow. */
       readonly created_by: UserBasic | null;
@@ -139592,6 +139636,7 @@ export namespace Schemas {
       Broadcasts: 'broadcasts',
       Loops: 'loops',
       TransactionalEmails: 'transactional_emails',
+      TransactionalPush: 'transactional_push',
     } as const;
 
     export type HogFlowsListStatus = typeof HogFlowsListStatus[keyof typeof HogFlowsListStatus];

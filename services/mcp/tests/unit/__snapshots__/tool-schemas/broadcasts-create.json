@@ -545,15 +545,21 @@
         "origin_product": {
             "anyOf": [
                 {
-                    "description": "* `loops` - Loops\n* `broadcasts` - Broadcasts\n* `transactional_emails` - Transactional emails\n* `transactional_email_keys` - Transactional email keys",
-                    "enum": ["loops", "broadcasts", "transactional_emails", "transactional_email_keys"],
+                    "description": "* `loops` - Loops\n* `broadcasts` - Broadcasts\n* `transactional_emails` - Transactional emails\n* `transactional_email_keys` - Transactional email keys\n* `transactional_push` - Transactional push notifications",
+                    "enum": [
+                        "loops",
+                        "broadcasts",
+                        "transactional_emails",
+                        "transactional_email_keys",
+                        "transactional_push"
+                    ],
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n* `loops` - Loops\n* `broadcasts` - Broadcasts\n* `transactional_emails` - Transactional emails\n* `transactional_email_keys` - Transactional email keys"
+            "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n* `loops` - Loops\n* `broadcasts` - Broadcasts\n* `transactional_emails` - Transactional emails\n* `transactional_email_keys` - Transactional email keys\n* `transactional_push` - Transactional push notifications"
         },
         "source_record": {
             "anyOf": [
