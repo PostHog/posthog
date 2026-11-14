@@ -516,7 +516,7 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
 - **Killed roles come back.** After any exit the Environment restarts the role after 2 seconds, as Kubernetes would, and records the exit, marked as caused by a valve or not.
 - **Actuation.** Each action is observed within 10 seconds or not at all.
   - `kill` sends `SIGKILL` to the role's process group and is observed when the old process is gone.
-  - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`. Overlapping freezes of one role resume it only when the last of them releases.
+  - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`.
   - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It is observed when at least one backend was terminated.
   - `edge.fault` holds a fault rule on the edge with `ProviderEdge.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
