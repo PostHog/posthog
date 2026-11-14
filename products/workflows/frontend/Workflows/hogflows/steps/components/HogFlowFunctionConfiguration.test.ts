@@ -197,6 +197,12 @@ describe('HogFlowFunctionConfiguration', () => {
             expect(filtered.map((s) => s.key)).toEqual(expectedKeys)
         })
 
+        it('hides the event UUID input on the webhook trigger', () => {
+            const webhookSchema = [{ key: 'event' }, { key: 'distinct_id' }, { key: 'uuid' }]
+            const filtered = filterInputsSchemaForTrigger('template-source-webhook', { type: 'webhook' }, webhookSchema)
+            expect(filtered.map((s) => s.key)).toEqual(['event', 'distinct_id'])
+        })
+
         it('leaves other templates untouched', () => {
             expect(filterInputsSchemaForTrigger('template-email', { type: 'event' }, aiTaskSchema)).toEqual(
                 aiTaskSchema

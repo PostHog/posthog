@@ -52,6 +52,7 @@ export class CapturedEventsService {
             event: event.event,
             distinct_id: event.distinct_id,
             timestamp: event.timestamp,
+            uuid: event.uuid,
             properties: event.properties,
         })
         capturedEventsPending.set(this.queuedEvents.length)
@@ -78,6 +79,7 @@ export class CapturedEventsService {
                         event: event.event,
                         distinct_id: event.distinct_id,
                         timestamp: event.timestamp,
+                        uuid: event.uuid,
                         properties: event.properties,
                     })
                 }

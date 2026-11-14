@@ -62,6 +62,43 @@ describe('incoming webhook template', () => {
         `)
     })
 
+    const invokeWithEventUuid = (eventUuid: string): ReturnType<typeof tester.invoke> =>
+        tester.invoke(
+            {
+                event: '{request.body.eventName}',
+                distinct_id: 'hardcoded',
+                uuid: '{request.body.id}',
+            },
+            {
+                request: {
+                    method: 'POST',
+                    body: { eventName: 'contract signed', id: eventUuid },
+                    stringBody: '',
+                    headers: {},
+                    ip: '127.0.0.1',
+                    query: {},
+                },
+            }
+        )
+
+    it('should capture the event with the event UUID from the request', async () => {
+        const response = await invokeWithEventUuid('8a1f6c3e-2b7d-5e4a-9c10-3f2e1d0b9a87')
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents).toEqual([
+            expect.objectContaining({ event: 'contract signed', uuid: '8a1f6c3e-2b7d-5e4a-9c10-3f2e1d0b9a87' }),
+        ])
+    })
+
+    it('should return 400 and capture nothing when the event UUID is not a UUID', async () => {
+        const response = await invokeWithEventUuid('contract-42')
+
+        expect(response.execResult).toEqual({
+            httpResponse: { status: 400, body: { error: '"uuid" must be a UUID' } },
+        })
+        expect(response.capturedPostHogEvents).toEqual([])
+    })
+
     it('should return 401 if the auth header is incorrect', async () => {
         const response = await tester.invoke(
             {

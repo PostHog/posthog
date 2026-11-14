@@ -1,4 +1,7 @@
+import { mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import { parseJSON } from '~/common/utils/json-parse'
 import { TeamManager } from '~/common/utils/team-manager'
 
 import { Team } from '../../../types'
@@ -142,6 +145,24 @@ describe('CapturedEventsService', () => {
                 distinct_id: 'u3',
                 timestamp: 't3',
                 properties: { foo: 'bar' },
+            })
+        })
+
+        it('sends a captured uuid to capture', async () => {
+            teamManager.getTeam.mockResolvedValue(buildTeam(1, 'token-team-1'))
+            const realCapture = new InternalCaptureService({ CAPTURE_INTERNAL_URL: 'http://localhost:8010/capture' })
+            const serviceWithRealCapture = new CapturedEventsService(realCapture, teamManager)
+            mockInternalFetch.mockClear()
+
+            await serviceWithRealCapture.queueInvocationResults([
+                buildResult([buildCapturedEvent(1, { uuid: '8a1f6c3e-2b7d-5e4a-9c10-3f2e1d0b9a87' })]),
+            ])
+            await serviceWithRealCapture.flush()
+
+            expect(parseJSON(mockInternalFetch.mock.calls[0][1].body)).toMatchObject({
+                api_key: 'token-team-1',
+                event: 'event-name',
+                uuid: '8a1f6c3e-2b7d-5e4a-9c10-3f2e1d0b9a87',
             })
         })
 

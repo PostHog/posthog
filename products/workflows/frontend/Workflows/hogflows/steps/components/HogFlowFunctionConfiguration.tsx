@@ -188,6 +188,10 @@ export function filterInputsSchemaForTrigger<T extends { key: string }>(
     if (templateId === 'template-posthog-create-task' && !isSlackMessageTriggerConfig(trigger)) {
         return inputsSchema.filter((schema) => schema.key !== 'reply_in_slack_thread')
     }
+    // A webhook trigger never captures its event, and the run gives the trigger event a new UUID.
+    if (templateId === 'template-source-webhook') {
+        return inputsSchema.filter((schema) => schema.key !== 'uuid')
+    }
     return inputsSchema
 }
 

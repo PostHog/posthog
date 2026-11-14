@@ -5,6 +5,7 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
+import { UUID } from '~/common/utils/utils'
 
 import type {
     CyclotronJobInvocationHogFunction,
@@ -303,6 +304,13 @@ export class HogExecutorService {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
                             }
 
+                            const eventUuid = event.uuid || undefined
+                            if (eventUuid !== undefined && !UUID.validateString(eventUuid, false)) {
+                                throw new Error(
+                                    "[HogFunction] - postHogCapture call has an invalid 'uuid' property. 'uuid' must be a UUID, such as 0190b0a5-1c2d-7e3f-8a4b-5c6d7e8f9a0b"
+                                )
+                            }
+
                             if (result.capturedPostHogEvents.length > 0) {
                                 throw new Error(
                                     'postHogCapture was called more than once. Only one call is allowed per function'
@@ -331,6 +339,7 @@ export class HogExecutorService {
                                 timestamp: DateTime.utc().toISO(),
                                 distinct_id: distinctId,
                                 event: eventName,
+                                ...(eventUuid ? { uuid: eventUuid } : {}),
                                 properties: {
                                     ...eventProperties,
                                 },

@@ -56,9 +56,21 @@ if(empty(inputs.distinct_id)) {
   }
 }
 
+if(notEmpty(inputs.uuid) and not match(inputs.uuid, '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')) {
+  return {
+    'httpResponse': {
+      'status': 400,
+      'body': {
+        'error': '"uuid" must be a UUID',
+      }
+    }
+  }
+}
+
 postHogCapture({
   'event': inputs.event,
   'distinct_id': inputs.distinct_id,
+  'uuid': inputs.uuid,
   'properties': inputs.properties
 })
 `,
@@ -90,6 +102,15 @@ postHogCapture({
                 $lib: 'posthog-webhook',
                 $source_url: '{source.url}',
             },
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'uuid',
+            type: 'string',
+            label: 'Event UUID',
+            description:
+                'If the sender includes a UUID that stays the same when it retries a delivery, map it here, such as {request.body.id}. Other values fail the request with a 400 error. Leave empty to give each event a new UUID.',
             secret: false,
             required: false,
         },

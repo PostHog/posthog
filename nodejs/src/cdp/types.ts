@@ -809,6 +809,7 @@ export type HogFunctionCapturedEvent = {
     event: string
     distinct_id: string
     timestamp: string
+    uuid?: string
     properties: Record<string, any>
 }
 

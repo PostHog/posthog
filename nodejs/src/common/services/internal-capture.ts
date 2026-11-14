@@ -17,6 +17,7 @@ export type InternalCaptureEvent = {
     distinct_id: string
     properties?: Record<string, any>
     timestamp?: string
+    uuid?: string
 }
 
 type CapturePayloadFormat = {
@@ -26,6 +27,7 @@ type CapturePayloadFormat = {
     sent_at: string
     event: string
     properties: Record<string, any>
+    uuid?: string
 }
 
 /** An internal event carries the server's IP, not the user's. GeoIP would turn it into a wrong or
@@ -47,6 +49,7 @@ export class InternalCaptureService {
             sent_at: now,
             event: event.event,
             properties,
+            ...(event.uuid ? { uuid: event.uuid } : {}),
         }
     }
 
