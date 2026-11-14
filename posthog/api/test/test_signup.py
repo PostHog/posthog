@@ -942,6 +942,12 @@ class TestSignupAPI(APIBaseTest):
                 "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com&next=%2Fconnect%2Fvercel%2Flink%3Fsession%3Dabc",
                 "unsafe-none",
             ),
+            (
+                "with_next_to_another_project",
+                {"next": "/project/12345/dashboard/1"},
+                "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com",
+                "same-origin",
+            ),
         ]
     )
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -1687,22 +1693,33 @@ class TestSignupAPI(APIBaseTest):
         self.assertFalse(existing_user.has_usable_password())
         self.assertFalse(WebauthnCredential.objects.filter(user=existing_user).exists())
 
+    @parameterized.expand(
+        [
+            ("plain_path", "/next_path", "?next=%2Fnext_path"),
+            ("another_project_by_id", "/project/{team_id}/dashboard/1", ""),
+            ("another_project_by_token", "/project/{team_token}/surveys", ""),
+        ]
+    )
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
-    def test_api_sign_up_preserves_next_param(self, mock_email_verifier, mock_is_email_available):
+    def test_api_sign_up_next_param(
+        self, _name, next_url, expected_query, mock_email_verifier, mock_is_email_available
+    ):
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Someone else's org"))
 
-        response = self.client.post(
-            "/api/signup/",
-            {
-                "first_name": "John",
-                "email": "hedgehog@posthog.com",
-                "password": VALID_TEST_PASSWORD,
-                "organization_name": "Hedgehogs United, LLC",
-                "role_at_organization": "product",
-                "next_url": "/next_path",
-            },
-        )
+        with self.is_cloud(True):
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": "John",
+                    "email": "hedgehog@posthog.com",
+                    "password": VALID_TEST_PASSWORD,
+                    "organization_name": "Hedgehogs United, LLC",
+                    "role_at_organization": "product",
+                    "next_url": next_url.format(team_id=other_team.pk, team_token=other_team.api_token),
+                },
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         user = cast(User, User.objects.order_by("-pk")[0])
@@ -1710,7 +1727,7 @@ class TestSignupAPI(APIBaseTest):
 
         self.assertEqual(
             response_data["redirect_url"],
-            f"/verify_email/{user.uuid}?next=%2Fnext_path",
+            f"/verify_email/{user.uuid}{expected_query}",
         )
         mock_email_verifier.assert_called_once_with(user)
 

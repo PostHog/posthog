@@ -2,7 +2,7 @@ import json
 import uuid as uuid_module
 from datetime import timedelta
 from typing import Any, Optional, TypedDict, Union, cast
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 from django import forms
 from django.conf import settings
@@ -69,6 +69,12 @@ from posthog.rate_limit import (
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
+)
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
 from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 from products.security.backend.facade.api import (
@@ -113,6 +119,38 @@ def requested_next_url(request) -> str | None:
     """
     next_url = request.data.get("next_url") if request and request.data else None
     return next_url if next_url and is_relative_url(next_url) else None
+
+
+def next_url_unless_other_project(next_url: str | None, user: User | None) -> str | None:
+    """`next_url`, or None when it names a project the user cannot open.
+
+    A link to someone else's project would land a new user on the access denied screen
+    instead of their own project. Pass `user=None` when the person has no organization yet.
+    """
+    if not next_url:
+        return next_url
+    path_parts = urlparse(next_url).path.strip("/").split("/")
+    if len(path_parts) < 2 or path_parts[0] != "project":
+        return next_url
+    project_ref = path_parts[1]
+    if not (project_ref.isdigit() or project_ref.startswith("phc_")):
+        return next_url
+    if user is None:
+        return None
+    teams = (
+        Team.objects.filter(pk=int(project_ref))
+        if project_ref.isdigit()
+        else Team.objects.filter(api_token=project_ref)
+    )
+    team_id = teams.values_list("pk", flat=True).first()
+    if team_id is None:
+        return None
+    can_open = authorization.check(
+        resource=Resource(type=ResourceType.PROJECT, id=str(team_id)),
+        action=AuthorizationAction.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
+    return next_url if can_open else None
 
 
 def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = None) -> str:
@@ -430,7 +468,7 @@ class SignupSerializer(serializers.Serializer):
         return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
     def to_representation(self, instance) -> dict:
-        next_url = requested_next_url(self.context.get("request"))
+        next_url = next_url_unless_other_project(requested_next_url(self.context.get("request")), instance)
         data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
         return data
@@ -1298,7 +1336,8 @@ def social_create_user(
                     return redirect("/login?error_code=no_new_organizations")
             strategy.session_set("email", email)
             organization_name = strategy.session_get("organization_name")
-            next_url = strategy.session_get("next")
+            # The person creates a new organization next, so no existing project is theirs to open
+            next_url = next_url_unless_other_project(strategy.session_get("next"), None)
 
             query_params = {
                 "organization_name": organization_name or "",
