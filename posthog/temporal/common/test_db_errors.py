@@ -51,6 +51,13 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
             ),
             True,
         ),
+        (
+            OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
+            ),
+            True,
+        ),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
         (OperationalError("[Errno -3] Temporary failure in name resolution"), True),
