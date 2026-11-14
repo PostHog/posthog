@@ -99,11 +99,22 @@ describe('composeToolSchema', () => {
         expect(result.toolInputsImports).toEqual([])
     })
 
-    it('requires a PATCH field without removing its Orval description', () => {
+    it.each([
+        {
+            name: 'keeps the Orval description',
+            override: { required: true },
+            expected: "ThingsPartialUpdateBody.shape['destination'].nonoptional()",
+        },
+        {
+            name: 'with an input_schema',
+            override: { required: true, input_schema: 'DestinationSchema' },
+            expected: 'destination: DestinationSchema }',
+        },
+    ])('requires a PATCH field: $name', ({ override, expected }) => {
         const config: ToolConfig = {
             operation: 'things_partial_update',
             enabled: true,
-            param_overrides: { destination: { required: true } },
+            param_overrides: { destination: override },
         }
         const resolved = makeResolved({
             method: 'PATCH',
@@ -122,7 +133,7 @@ describe('composeToolSchema', () => {
 
         const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
 
-        expect(result.schemaExpr).toContain("ThingsPartialUpdateBody.shape['destination'].nonoptional()")
+        expect(result.schemaExpr).toContain(expected)
     })
 
     it('collects toolInputsImports from param_overrides with input_schema', () => {
