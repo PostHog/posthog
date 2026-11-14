@@ -9,6 +9,7 @@ from dns.rdtypes.ANY.CNAME import CNAME
 from dns.rdtypes.ANY.TXT import TXT
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.security.oob_domains import matched_oob_domain
 
 logger = logging.getLogger(__name__)
@@ -54,17 +55,34 @@ def _has_dkim_key(record: str) -> bool:
     return False
 
 
+@frozen
+class _ToolLookup:
+    tools: list[str]
+    every_lookup_answered: bool
+
+
 def lookup_existing_email_tools(root_domain: str) -> list[str]:
-    cache_key = f"existing_email_tools:{root_domain}"
+    return _lookup(root_domain).tools
+
+
+# A lookup without an answer cannot tell "no tool" from "unknown", so this answers None for it.
+def lookup_existing_email_tools_when_answered(root_domain: str) -> list[str] | None:
+    lookup = _lookup(root_domain)
+    return lookup.tools if lookup.every_lookup_answered else None
+
+
+def _lookup(root_domain: str) -> _ToolLookup:
+    # Versioned so that a change to the detection rules is not answered from an entry the old rules cached.
+    cache_key = f"existing_email_tools:v2:{root_domain}"
     cached = cache.get(cache_key)
     if cached is not None:
-        return cached
+        return _ToolLookup(tools=cached, every_lookup_answered=True)
 
     if is_cloud() and (oob_domain := matched_oob_domain(root_domain)) is not None:
         logger.info("security.oob_domain_seen domain=%s guard=existing_email_tools", oob_domain)
         # The lookup alone confirms the path to whoever runs the collaborator, so the name is
         # refused rather than resolved. No tool is reported for it.
-        return []
+        return _ToolLookup(tools=[], every_lookup_answered=False)
     resolver = dns.resolver.Resolver()
     resolver.lifetime = LOOKUP_TIMEOUT_SECONDS
     lookups = {
@@ -79,10 +97,11 @@ def lookup_existing_email_tools(root_domain: str) -> list[str]:
         dkim_targets=[target for selector in _DKIM_CNAME_SELECTORS for target in _cname_targets(answers[selector])],
         resend_dkim_records=_txt_values(answers[_RESEND_DKIM_SELECTOR]),
     )
+    every_lookup_answered = all(answer is not None for answer in answers.values())
     # A lookup without an answer says nothing about the domain, so the next check asks again.
-    if all(answer is not None for answer in answers.values()):
+    if every_lookup_answered:
         cache.set(cache_key, tools, CACHE_SECONDS)
-    return tools
+    return _ToolLookup(tools=tools, every_lookup_answered=every_lookup_answered)
 
 
 def _spf_include_targets(txt_records: list[str]) -> list[str]:
