@@ -1,23 +1,10 @@
-import { ProducerGlobalConfig } from 'node-rdkafka'
-
 import { BlackholeKafkaProducer } from '~/common/kafka/blackhole-producer'
+import { redactKafkaConfig } from '~/common/kafka/config'
 import { KafkaProducer, KafkaProducerWrapper } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 
 import { AllowedConfigKey, parseProducerConfig } from './kafka-producer-config'
 import { KafkaProducerRegistry } from './kafka-producer-registry'
-
-const SENSITIVE_KEYS = new Set([
-    'sasl.password',
-    'sasl.oauthbearer.client.secret',
-    'ssl.key.password',
-    'ssl.key.pem',
-    'ssl.certificate.pem',
-])
-
-function redactConfig(config: ProducerGlobalConfig): Record<string, unknown> {
-    return Object.fromEntries(Object.entries(config).map(([k, v]) => [k, SENSITIVE_KEYS.has(k) ? '***' : v]))
-}
 
 /**
  * Builder for `KafkaProducerRegistry` that validates config keys at compile time.
@@ -90,7 +77,7 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
                 }
 
                 const resolvedConfig = parseProducerConfig(values)
-                logger.info('📝', `Creating producer "${name}"`, { config: redactConfig(resolvedConfig) })
+                logger.info('📝', `Creating producer "${name}"`, { config: redactKafkaConfig(resolvedConfig) })
                 producers[name] = await KafkaProducerWrapper.createWithConfig(
                     this.kafkaClientRack,
                     resolvedConfig,

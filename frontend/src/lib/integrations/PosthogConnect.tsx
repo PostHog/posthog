@@ -10,6 +10,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import {
     API_SCOPES,
+    clampToKeyCreationScopes,
     type ScopeAccessLevel,
     scopeMatchesSearch,
     scopesArrayToObject,
@@ -33,8 +34,7 @@ const GRANTABLE_SCOPES = API_SCOPES.filter((scope) => !scope.unprivilegedExclude
 const readAllScopes = (): string[] =>
     GRANTABLE_SCOPES.filter((s) => !s.disabledActions?.includes('read')).map((s) => `${s.key}:read`)
 
-const fullAccessScopes = (): string[] =>
-    GRANTABLE_SCOPES.map((s) => (s.disabledActions?.includes('write') ? `${s.key}:read` : `${s.key}:write`))
+const fullAccessScopes = (): string[] => clampToKeyCreationScopes(GRANTABLE_SCOPES.map((s) => `${s.key}:write`))
 
 const SCOPE_PRESETS: { value: string; label: string; scopes: () => string[] }[] = [
     {

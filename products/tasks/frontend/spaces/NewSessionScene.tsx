@@ -22,7 +22,7 @@ export function NewSessionScene(): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
     const { space, spacesLoading, composerRepositoryConfig } = useValues(newSessionSceneLogic)
     const { sessionStarted } = useActions(newSessionSceneLogic)
-    const { suggestions, prefillRequest } = useValues(newSessionSuggestionsLogic)
+    const { suggestions, prefillRequest, selectedSuggestionId } = useValues(newSessionSuggestionsLogic)
     const { selectSuggestion } = useActions(newSessionSuggestionsLogic)
 
     if (!enabled) {
@@ -35,7 +35,7 @@ export function NewSessionScene(): JSX.Element {
             <div className="flex flex-1 flex-col" data-quill>
                 <div aria-hidden className="min-h-4 shrink-[66] basis-[34%]" />
                 <div className="mx-auto flex w-full max-w-150 shrink-0 flex-col">
-                    <h1 className="sr-only">Start a new session</h1>
+                    <h1 className="mb-6 text-center text-2xl font-semibold">What do you want to work on?</h1>
                     {!space && spacesLoading ? (
                         <QuillTaskComposerSkeleton />
                     ) : (
@@ -45,8 +45,9 @@ export function NewSessionScene(): JSX.Element {
                                 space={space}
                                 panelId={`new-session-${space?.id ?? 'personal'}`}
                                 repositoryConfig={composerRepositoryConfig}
-                                onTaskCreated={sessionStarted}
+                                onTaskCreated={(sessionId) => sessionStarted(sessionId, selectedSuggestionId)}
                                 prefillRequest={prefillRequest}
+                                autoFocus
                             />
                         </div>
                     )}

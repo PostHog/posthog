@@ -43,18 +43,25 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade import investigations as alerts
+from products.alerts.backend.facade.api import first_subscriber_id
 from products.alerts.backend.facade.contracts import InvestigationRelease
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts_platform.backend.facade import api as platform
-from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, HeldDeliveryAddress
+from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, HeldDeliveryAddress, SourceKind
 from products.alerts_platform.backend.facade.temporal import start_deliveries
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
 from products.notebooks.backend.facade.contracts import NotebookData
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.signals.backend.facade import api as signals
+from products.signals.backend.facade.source_configs import (
+    AlertFilterOutcome,
+    evaluate_alert_filter,
+    get_analytics_alert_name_patterns,
+    get_analytics_alert_scope,
+)
 
 if TYPE_CHECKING:
     from products.product_analytics.backend.facade.models import Insight
@@ -65,6 +72,7 @@ logger = structlog.get_logger(__name__)
 # contract, and inbox support for this pair are added in a separate PR; this module only emits.
 SIGNAL_SOURCE_PRODUCT = "analytics"
 SIGNAL_SOURCE_TYPE = "anomaly_investigation"
+_ALERT_SCOPE_OFF = "off"
 
 
 # Sized to cover a realistic worst-case sequential agent run: up to MAX_TOOL_CALLS + 2 LLM turns
@@ -156,8 +164,10 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     which the workflow starts. An insight stack check delivers from here and returns none."""
     team, alert = await asyncio.gather(
         Team.objects.aget(id=inputs.team_id),
-        AlertConfiguration.objects.select_related("insight").aget(id=inputs.alert_id),
+        sync_to_async(_investigated_alert, thread_sensitive=False)(inputs.team_id, inputs.alert_id),
     )
+    if alert is None:
+        raise AlertConfiguration.DoesNotExist(f"No insight alert {inputs.alert_id}")
     subject, evaluated = await _load_subject(inputs)
     if isinstance(subject, InsightAlertInvestigation) and subject.status == InvestigationStatus.DONE:
         # A retry after the verdict was recorded repeats only its release, not the agent.
@@ -286,6 +296,26 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         return deliveries
 
     try:
+        # Inside the try, so a failed read of the scope or the filter drops the signal instead of failing the activity.
+        if await sync_to_async(get_analytics_alert_scope, thread_sensitive=False)(team_id=team.id) == _ALERT_SCOPE_OFF:
+            logger.info(
+                "anomaly_investigation.signal_skipped",
+                alert_id=str(alert.id),
+                **_subject_ids(subject),
+                verdict=result.report.verdict,
+                reason="alert_scope_off",
+            )
+            return deliveries
+        filter_outcome = await sync_to_async(_alert_filter_outcome, thread_sensitive=False)(alert, insight)
+        if filter_outcome != AlertFilterOutcome.PASSED:
+            logger.info(
+                "anomaly_investigation.signal_skipped",
+                alert_id=str(alert.id),
+                **_subject_ids(subject),
+                verdict=result.report.verdict,
+                reason="filter_invalid" if filter_outcome == AlertFilterOutcome.INVALID else "filtered",
+            )
+            return deliveries
         await _emit_investigation_signal(
             team=team,
             alert=alert,
@@ -374,6 +404,24 @@ async def _finish_platform_investigation(
     )
 
 
+def _investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
+    """The alert's insight row, or, for an alert with no insight row, one built from the platform's
+    view of it. None when both are gone."""
+    alert = (
+        AlertConfiguration.objects.select_related("insight", "team", "threshold", "created_by")
+        .filter(team_id=team_id, id=alert_id)
+        .first()
+    )
+    if alert is not None:
+        return alert
+    view = platform.get_configuration(
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
+    )
+    if view is None or view.legacy_configuration_id is not None:
+        return None
+    return AlertConfiguration.from_platform_view(view, team_id=team_id)
+
+
 async def _load_subject(
     inputs: AnomalyInvestigationWorkflowInputs,
 ) -> tuple[AlertCheck | InsightAlertInvestigation, EvaluatedCheck]:
@@ -414,6 +462,14 @@ def _subject_ids(subject: AlertCheck | InsightAlertInvestigation) -> dict[str, s
     if isinstance(subject, InsightAlertInvestigation):
         return {"investigation_id": str(subject.id), "evaluation_key": subject.evaluation_key}
     return {"alert_check_id": str(subject.id)}
+
+
+def _alert_filter_outcome(alert: AlertConfiguration, insight: Insight) -> AlertFilterOutcome:
+    return evaluate_alert_filter(
+        get_analytics_alert_name_patterns(team_id=alert.team_id),
+        alert_name=alert.name,
+        insight_name=insight.name or insight.derived_name,
+    )
 
 
 def should_emit_investigation_signal(verdict: str | None, inconclusive_action: str | None) -> bool:
@@ -915,6 +971,7 @@ async def _pick_investigation_user(alert) -> User | None:
                 return User.objects.get(id=alert.created_by_id)
             except User.DoesNotExist:
                 pass
-        return alert.subscribed_users.first()
+        subscriber_id = first_subscriber_id(team_id=alert.team_id, alert_id=alert.id)
+        return User.objects.filter(id=subscriber_id).first() if subscriber_id is not None else None
 
     return await sync_to_async(_resolve, thread_sensitive=False)()

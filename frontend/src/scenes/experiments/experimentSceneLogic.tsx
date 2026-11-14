@@ -53,13 +53,13 @@ function reportExperimentTabViewed(experimentId: ExperimentIdType, tab: string):
 
 export const EXPERIMENT_TABS = [
     'metrics',
+    'health',
     'settings',
     'code',
     'variants',
     'recordings',
     'feedback',
     'history',
-    'health',
     'health-debug',
 ] as const
 export type ExperimentTab = (typeof EXPERIMENT_TABS)[number]

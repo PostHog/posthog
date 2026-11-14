@@ -92,6 +92,50 @@ class TestStats:
         assert result.requests[0].param("start_date") == "2024-03-10"
 
 
+class TestBreakdownStats:
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "expected_limit"),
+        [
+            ("geo_stats", "/v3/geo/stats", "500"),
+            # /clients/stats documents no `limit`/`offset`, so it gets none.
+            ("client_stats", "/v3/clients/stats", None),
+        ],
+    )
+    def test_flattens_one_row_per_breakdown_value_per_day(
+        self, endpoint: str, path: str, expected_limit: str | None
+    ) -> None:
+        body = [
+            {
+                "date": "2026-08-01",
+                "stats": [
+                    {"type": "country", "name": "US", "metrics": {"opens": 3, "unique_opens": 2}},
+                    {"type": "country", "name": "CA", "metrics": {"opens": 1, "unique_opens": 1}},
+                ],
+            },
+        ]
+
+        result = _run(
+            endpoint,
+            [_response(body)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-08-01",
+            incremental_field="date",
+        )
+
+        assert result.raised is None
+        # Without `name` every breakdown value of a day collides on the primary key.
+        assert result.rows == [
+            {"date": "2026-08-01", "type": "country", "name": "US", "opens": 3, "unique_opens": 2},
+            {"date": "2026-08-01", "type": "country", "name": "CA", "opens": 1, "unique_opens": 1},
+        ]
+        assert len(result.requests) == 1
+        request = result.requests[0]
+        assert request.path == path
+        assert request.param("limit") == expected_limit
+        assert request.param("start_date") == "2026-08-01"
+        assert request.param("aggregated_by") == "day"
+
+
 class TestOffsetPagination:
     def test_paginates_until_short_page_and_saves_state(self) -> None:
         page1 = [{"email": f"a{i}@x.com", "created": i} for i in range(500)]
@@ -140,6 +184,13 @@ class TestMetadataPagination:
         assert result.requests[0].param("page_size") == "100"
         assert result.urls[1] == next_url
         assert result.saved_states == [SendGridResumeConfig(next_url=next_url)]
+
+    def test_endpoint_without_a_page_size_param_gets_none(self) -> None:
+        result = _run("segments", [_response({"results": [{"id": "seg1"}], "_metadata": {}})])
+
+        assert result.raised is None
+        assert result.rows == [{"id": "seg1"}]
+        assert result.requests[0].param("page_size") is None
 
     def test_missing_result_key_raises_loudly(self) -> None:
         result = _run("marketing_lists", [_response({"_metadata": {}})])
@@ -365,6 +416,65 @@ class TestCategoryStatsFanOut:
         assert [r.param("offset") for r in result.requests if r.path == "/v3/categories"] == ["0", "50"]
 
 
+def _subuser_stats_bucket(day: str, username: str, delivered: int) -> dict[str, Any]:
+    return {"date": day, "stats": [{"type": "subuser", "name": username, "metrics": {"delivered": delivered}}]}
+
+
+class TestSubuserFanOut:
+    @pytest.mark.parametrize(
+        ("endpoint", "child_path", "child_param", "child_bodies", "expected_rows"),
+        [
+            (
+                "subuser_stats",
+                "/v3/subusers/stats",
+                "subusers",
+                [[_subuser_stats_bucket("2026-08-01", "team+a", 3)], [_subuser_stats_bucket("2026-08-01", "b", 1)]],
+                [
+                    {"date": "2026-08-01", "username": "team+a", "delivered": 3},
+                    {"date": "2026-08-01", "username": "b", "delivered": 1},
+                ],
+            ),
+            (
+                "subuser_reputations",
+                "/v3/subusers/reputations",
+                "usernames",
+                [[{"username": "team+a", "reputation": 99}], [{"username": "b", "reputation": 95.2}]],
+                [{"username": "team+a", "reputation": 99}, {"username": "b", "reputation": 95.2}],
+            ),
+        ],
+    )
+    def test_requests_each_subuser_and_keys_rows_by_it(
+        self,
+        endpoint: str,
+        child_path: str,
+        child_param: str,
+        child_bodies: list[Any],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        subusers = [{"id": 1, "username": "team+a"}, {"id": 2, "username": "gone"}, {"id": 3, "username": "b"}]
+
+        result = _run(
+            endpoint,
+            route(
+                {
+                    "/v3/subusers": [_response(subusers)],
+                    child_path: [
+                        _response(child_bodies[0]),
+                        # A subuser deleted after the listing must not fail the table.
+                        ScriptedResponse(status=404, json={"errors": [{"message": "not found"}]}),
+                        _response(child_bodies[1]),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        child_requests = [r for r in result.requests if r.path == child_path]
+        # A `+` in a username must reach the API whole, not decoded to a space.
+        assert [r.param(child_param) for r in child_requests] == ["team+a", "gone", "b"]
+
+
 def _messages_page(count: int, last_event_time: str) -> list[dict[str, Any]]:
     return [{"msg_id": f"m{last_event_time}-{i}", "last_event_time": last_event_time} for i in range(count)]
 
@@ -525,6 +635,7 @@ class TestGetEndpointPermissions:
             # The category listing reads with `categories.read`, so it can't stand in for the
             # `categories.stats.read` this child needs.
             ("category_stats", "/v3/categories/stats"),
+            ("subuser_stats", "/v3/subusers/stats"),
         ],
     )
     def test_fanout_endpoint_probe_path(self, endpoint: str, expected_path: str) -> None:
@@ -553,6 +664,8 @@ class TestGetEndpointPermissions:
             ("marketing_lists", {"page_size": "1"}),
             ("templates", {"page_size": "1", "generations": "legacy,dynamic"}),
             ("unsubscribe_groups", {}),
+            # Segments v2 documents no `page_size` param.
+            ("segments", {}),
             # /categories/stats requires `categories` and `start_date`.
             ("category_stats", {"categories": "posthog", "start_date": "2026-08-07", "aggregated_by": "day"}),
             # /messages requires `query`, so a probe without one risks the same masking 400.

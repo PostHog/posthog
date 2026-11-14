@@ -51,30 +51,77 @@ class TestFormatModifiedAfter:
 
 
 class TestInitialRequest:
-    def test_incremental_first_request_carries_modified_after(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "inspections_modified_after",
+                "inspections",
+                "modified_at",
+                datetime(2024, 3, 1, tzinfo=UTC),
+                {"archived": "both", "completed": "both", "modified_after": "2024-03-01T00:00:00.000Z"},
+            ),
+            # The watermark is the latest due time, up to a month ahead of the last sync, so the
+            # filter rewinds to re-read occurrences whose status can still change.
+            (
+                "schedule_occurrences_rewinds_datetime_watermark",
+                "schedule_occurrences",
+                "due_time",
+                datetime(2024, 3, 1, 12, 30, tzinfo=UTC),
+                {"limit": "1000", "start_date": "2024-01-16T12:30:00.000Z"},
+            ),
+            (
+                "schedule_occurrences_rewinds_string_watermark",
+                "schedule_occurrences",
+                "due_time",
+                "2024-03-01T12:30:00Z",
+                {"limit": "1000", "start_date": "2024-01-16T12:30:00.000Z"},
+            ),
+            (
+                "schedule_occurrences_rewinds_naive_watermark_as_utc",
+                "schedule_occurrences",
+                "due_time",
+                datetime(2024, 3, 1, 12, 30),
+                {"limit": "1000", "start_date": "2024-01-16T12:30:00.000Z"},
+            ),
+        ]
+    )
+    def test_incremental_first_request_carries_the_watermark_filter(
+        self, _name: str, endpoint: str, incremental_field: str, watermark: Any, expected: dict[str, str]
+    ) -> None:
         result = _driver().run(
-            "inspections",
+            endpoint,
             [_response([{"id": "a"}])],
-            incremental_field="modified_at",
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert {name: values[0] for name, values in result.queries[0].items()} == expected
+
+    @parameterized.expand(
+        [
+            # The issues feed documents no modified_after — a stale watermark must never leak into it.
+            ("issues", "modified_at", {}),
+            ("action_timeline_items", "modified_at", {}),
+            ("training_course_progress", "modified_at", {"completionStatus": "COMPLETION_STATUS_ALL"}),
+        ]
+    )
+    def test_full_refresh_endpoint_never_sends_a_watermark(
+        self, endpoint: str, incremental_field: str, expected: dict[str, str]
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [_response([{"id": "a"}])],
+            incremental_field=incremental_field,
             db_incremental_field_last_value=datetime(2024, 3, 1, tzinfo=UTC),
         )
 
-        assert {name: values[0] for name, values in result.queries[0].items()} == {
-            "archived": "both",
-            "completed": "both",
-            "modified_after": "2024-03-01T00:00:00.000Z",
-        }
+        assert {name: values[0] for name, values in result.queries[0].items()} == expected
 
-    def test_full_refresh_endpoint_never_sends_modified_after(self) -> None:
-        # The issues feed documents no modified_after — a stale watermark must never leak into it.
-        result = _driver().run(
-            "issues",
-            [_response([{"id": "a"}])],
-            incremental_field="modified_at",
-            db_incremental_field_last_value=datetime(2024, 3, 1, tzinfo=UTC),
-        )
+    def test_schedule_occurrences_without_a_watermark_uses_the_default_window(self) -> None:
+        result = _driver().run("schedule_occurrences", [_response([{"id": "a", "target_id": "t"}])])
 
-        assert "modified_after" not in result.queries[0]
+        assert result.urls[0] == f"{BASE_URL}/scheduling/v1/feed/schedule_occurrences?limit=1000"
+        assert {name: values[0] for name, values in result.queries[0].items()} == {"limit": "1000"}
 
 
 class TestPagination:
@@ -303,7 +350,8 @@ class TestSafetyCultureSourceResponse:
         config = SAFETYCULTURE_ENDPOINTS[endpoint]
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
+        # The scheduling feed documents no row order, so a resumed run must not skip below its cursor.
+        assert response.sort_mode == (None if endpoint == "schedule_occurrences" else "asc")
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_format == "month"
@@ -324,6 +372,15 @@ class TestSafetyCultureSourceResponse:
                 "issue_assignees",
                 {"id": "ia_1", "issue_id": "issue_1", "assignee_id": "user_1", "modified_at": "2024-03-01T00:00:00Z"},
             ),
+            (
+                "schedule_occurrences",
+                {
+                    "id": "scheduleitem_1_occurrence_1705338000000_user_1",
+                    "target_id": "location_1",
+                    "due_time": "2024-01-15T17:00:00Z",
+                },
+            ),
+            ("training_course_progress", {"courseId": "course_1", "userId": "user_1", "progressPercent": 50}),
         ]
     )
     def test_join_feed_primary_keys_exist_on_documented_rows(self, endpoint: str, row: dict[str, Any]) -> None:
@@ -335,9 +392,24 @@ class TestSafetyCultureSourceResponse:
         assert result.response.primary_keys
         assert all(row.get(key) for key in result.response.primary_keys)
 
+    @parameterized.expand(
+        [
+            ("missing", {"id": "occ_1"}),
+            ("null", {"id": "occ_1", "target_id": None}),
+            ("empty", {"id": "occ_1", "target_id": ""}),
+        ]
+    )
+    def test_schedule_occurrence_without_a_target_gets_a_mergeable_key(self, _name: str, row: dict[str, Any]) -> None:
+        # A null merge key never matches, so every incremental sync would add the row again.
+        result = _driver().run("schedule_occurrences", [_response([row])])
+
+        assert result.rows == [{"id": "occ_1", "target_id": ""}]
+
     def test_incremental_endpoints_match_documented_modified_after_support(self) -> None:
-        # Only these four feeds document a modified_after filter that keys off a `modified_at` column;
-        # action_assignees accepts the param but its rows carry no `modified_at` for the watermark.
+        # Only these feeds document a server-side filter on a column their rows carry: four
+        # `modified_after` feeds on `modified_at`, and schedule occurrences' `start_date` on `due_time`.
+        # action_assignees, action_timeline_items and training_course_progress accept a modified filter,
+        # but their rows carry no modified time for the watermark.
         # Flipping any other endpoint to incremental would ship a full-refresh-cost "incremental" sync.
         incremental = {name for name, config in SAFETYCULTURE_ENDPOINTS.items() if config.supports_incremental}
-        assert incremental == {"inspections", "inspection_items", "templates", "actions"}
+        assert incremental == {"inspections", "inspection_items", "templates", "actions", "schedule_occurrences"}

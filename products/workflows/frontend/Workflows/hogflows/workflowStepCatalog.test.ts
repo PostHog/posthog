@@ -87,6 +87,7 @@ describe('workflowStepCatalog', () => {
             { type: 'function', config: { template_id: 'template-posthog-replay-vision' } },
             'Replay Vision',
         ],
+        ['an email from the sandbox sender', { type: 'email_sandbox', config: { inputs: {} } }, 'Email'],
         [
             'a destination it does not list',
             { type: 'function', config: { template_id: 'template-hubspot' } },

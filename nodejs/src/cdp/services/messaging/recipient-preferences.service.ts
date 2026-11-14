@@ -63,42 +63,62 @@ export class RecipientPreferencesService {
         action: HogFlowAction
     ): Promise<FrequencyCapCheck> {
         const messageAction = this.asMessageAction(action)
+        const frequencyCap = this.frequencyCap
         if (
-            !this.frequencyCap ||
+            !frequencyCap ||
             !messageAction ||
             messageAction.config.message_category_type === 'transactional' ||
             (messageAction.type === 'function_email' && messageAction.config.skip_frequency_cap === true)
         ) {
             return { capped: false }
         }
+        return this.checkMarketingFrequencyCap({
+            teamId: invocation.teamId,
+            resolvePersonId: () => this.cappedPersonId(invocation, messageAction, frequencyCap.persons),
+            dispatchKey: workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`,
+        })
+    }
+
+    public async checkMarketingFrequencyCap({
+        teamId,
+        resolvePersonId,
+        dispatchKey,
+    }: {
+        teamId: number
+        resolvePersonId: () => Promise<string | undefined>
+        dispatchKey: string
+    }): Promise<FrequencyCapCheck> {
+        if (!this.frequencyCap) {
+            return { capped: false }
+        }
+        const { teamWorkflowsConfig, valkey } = this.frequencyCap
         try {
-            const { max_messages, window_days, hold_hours } =
-                await this.frequencyCap.teamWorkflowsConfig.getFrequencyCap(invocation.teamId)
+            const { max_messages, window_days, hold_hours } = await teamWorkflowsConfig.getFrequencyCap(teamId)
             if (!max_messages || !window_days) {
                 return { capped: false }
             }
-            const personId = await this.cappedPersonId(invocation, messageAction, this.frequencyCap.persons)
+            const personId = await resolvePersonId()
             if (!personId) {
                 return { capped: false }
             }
-            const nextSlotAt = await this.frequencyCap.valkey.useClient(
+            const nextSlotAt = await valkey.useClient(
                 { name: 'workflows-frequency-cap', failOpen: true },
                 (client) =>
                     client.eval(
                         FREQUENCY_CAP_SCRIPT,
                         1,
-                        `@posthog/workflows-frequency-cap/${invocation.teamId}/${personId}`,
+                        `@posthog/workflows-frequency-cap/${teamId}/${personId}`,
                         Date.now(),
                         window_days * 24 * 60 * 60 * 1000,
                         max_messages,
-                        workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`
+                        dispatchKey
                     ) as Promise<number>
             )
             return nextSlotAt ? { capped: true, nextSlotAt, holdHours: hold_hours } : { capped: false }
         } catch (error) {
             // Fail open: a config or Valkey pool error must never block a send. failOpen above only
             // covers errors inside the Valkey callback.
-            logger.error(`Failed to check the frequency cap for team ${invocation.teamId}:`, error)
+            logger.error(`Failed to check the frequency cap for team ${teamId}:`, error)
             return { capped: false }
         }
     }
@@ -160,24 +180,18 @@ export class RecipientPreferencesService {
             ...invocation.state.globals.inputs?.email,
             ...acceptedSendEmailFields(invocation.state.send),
         }
-        try {
-            const result = await removeSuppressedRecipients(
-                {
-                    to: { email: typeof emailInputs?.to?.email === 'string' ? emailInputs.to.email : undefined },
-                    cc: typeof emailInputs?.cc === 'string' ? emailInputs.cc : undefined,
-                    bcc: typeof emailInputs?.bcc === 'string' ? emailInputs.bcc : undefined,
-                },
-                (email) =>
-                    this.emailSuppressionService.isSuppressed(invocation.teamId, email, {
-                        transactional: action.config.message_category_type === 'transactional',
-                    })
-            )
-            return result.skip
-        } catch (error) {
-            // Fail open — never block a send on a suppression-lookup error.
-            logger.error(`Failed to check suppression list for team ${invocation.teamId}:`, error)
-            return false
-        }
+        const result = await removeSuppressedRecipients(
+            {
+                to: { email: typeof emailInputs?.to?.email === 'string' ? emailInputs.to.email : undefined },
+                cc: typeof emailInputs?.cc === 'string' ? emailInputs.cc : undefined,
+                bcc: typeof emailInputs?.bcc === 'string' ? emailInputs.bcc : undefined,
+            },
+            (email) =>
+                this.emailSuppressionService.isKnownSuppressed(invocation.teamId, email, {
+                    transactional: action.config.message_category_type === 'transactional',
+                })
+        )
+        return result.skip
     }
 
     // A generic function step saved through the API can run the push template, and it then sends like a push step.

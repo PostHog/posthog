@@ -32,7 +32,6 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -52,6 +51,7 @@ import {
     SchemaEditorAction,
     SourceEditorAction,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { WarehouseTableAccessControlModal } from 'products/data_warehouse/frontend/shared/components/WarehouseTableAccessControlModal'
 import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
@@ -434,11 +434,10 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
             )}
             {isFileUpload && <ReplaceFileModal sourceId={id} />}
             {accessControlSchema?.table && (
-                <AccessControlObjectModal
+                <WarehouseTableAccessControlModal
                     isOpen={!!accessControlSchema}
                     onClose={() => setAccessControlSchema(null)}
-                    resource={AccessControlResourceType.WarehouseTable}
-                    resource_id={accessControlSchema.table.id}
+                    tableId={accessControlSchema.table.id}
                     title={accessControlSchema.label ?? accessControlSchema.name}
                     description="Control who can query, sync, and manage this table. Members without editor access can't trigger syncs, change its settings, or delete it."
                 />
@@ -637,7 +636,18 @@ function ManagedSchemaTable({
                         if (isFileUpload) {
                             return syncMethod
                         }
-                        return (
+                        const webhookTag = schema.webhook_not_registered ? (
+                            <Tooltip title="This table uses webhook sync, but the source has no active webhook. Each sync reads the source API instead, which is slower and can read the whole table. Set up the webhook on the Webhook tab, or change the sync method.">
+                                <Link
+                                    to={urls.dataWarehouseSource(prefixedSourceId, 'webhook')}
+                                    subtle
+                                    data-attr="schemas-tab-webhook-not-registered"
+                                >
+                                    <LemonTag type="danger">No webhook</LemonTag>
+                                </Link>
+                            </Tooltip>
+                        ) : null
+                        const syncMethodLink = (
                             <Tooltip
                                 title={
                                     blockedReason
@@ -661,6 +671,15 @@ function ManagedSchemaTable({
                                     {syncMethod}
                                 </Link>
                             </Tooltip>
+                        )
+                        if (!webhookTag) {
+                            return syncMethodLink
+                        }
+                        return (
+                            <div className="flex flex-wrap items-center gap-1">
+                                {syncMethodLink}
+                                {webhookTag}
+                            </div>
                         )
                     },
                 },

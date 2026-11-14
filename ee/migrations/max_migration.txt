@@ -1,1 +1,1 @@
-0068_drop_dashboardprivilege_table
+0070_squash_2026_11_02_schema_addons

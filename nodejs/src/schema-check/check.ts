@@ -138,10 +138,17 @@ export function evaluateSqlxRows(requirement: SqlxRequirement, rows: SqlxMigrati
     if (failed.length > 0) {
         return { requirement, status: 'dirty', detail: `failed migrations recorded: ${failed.join(', ')}` }
     }
-    if (rows.some((row) => row.version === requirement.version)) {
-        return { requirement, status: 'satisfied', detail: `version ${requirement.version} is applied` }
+    const applied = new Set(rows.map((row) => row.version))
+    const missing = requirement.versions.filter((version) => !applied.has(version))
+    if (missing.length === 0) {
+        const latest = requirement.versions[requirement.versions.length - 1]
+        return {
+            requirement,
+            status: 'satisfied',
+            detail: `all ${requirement.versions.length} versions are applied, latest ${latest}`,
+        }
     }
-    return { requirement, status: 'missing', detail: `version ${requirement.version} is not applied` }
+    return { requirement, status: 'missing', detail: `versions not applied: ${missing.join(', ')}` }
 }
 
 export async function checkSqlxShadow(
@@ -153,7 +160,7 @@ export async function checkSqlxShadow(
         return { requirement, status: 'skipped', detail: 'no database URL in this environment' }
     }
     try {
-        return evaluateSqlxRows(requirement, await store.fetchRows([requirement.version]))
+        return evaluateSqlxRows(requirement, await store.fetchRows(requirement.versions))
     } catch (error) {
         return {
             requirement,

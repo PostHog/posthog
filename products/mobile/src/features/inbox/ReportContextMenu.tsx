@@ -1,5 +1,5 @@
 import { type ComponentType, type ReactElement, type ReactNode, useState } from 'react'
-import { ActivityIndicator, type LayoutChangeEvent, Text, View } from 'react-native'
+import { ActivityIndicator, type LayoutChangeEvent, ScrollView, Text, View } from 'react-native'
 import { useSafeAreaFrame } from 'react-native-safe-area-context'
 import type { InboxItem } from '@/model/types'
 import { FloatingCard } from '@/ui/FloatingCard'
@@ -17,13 +17,10 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, radii, type } from '@/ui/tokens'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
-import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
-import { placeContextMenu, type RowAnchor } from './contextMenuPlacement'
+import type { RowAnchor } from './contextMenuPlacement'
+import { useContextMenuLayout } from './useContextMenuLayout'
 
-/** The bottom bar's design inset, the same one the inbox list pads its content by. */
-const BOTTOM_BAR_ZONE = 120
 const CARD_BORDER = 1
 
 interface ReportContextMenuProps {
@@ -119,7 +116,6 @@ export function ReportContextMenu({
 }: ReportContextMenuProps): ReactElement {
     const styles = useStyles()
     const colors = useColors()
-    const insets = useScreenInsets()
     const { width: windowWidth } = useSceneDimensions()
     // The overlay covers the full screen, which on Android edge-to-edge includes the navigation bar that the window height leaves out.
     const { height: screenHeight } = useSafeAreaFrame()
@@ -137,13 +133,7 @@ export function ReportContextMenu({
     }
     // The handoff's 75% width is the content box; padding and border add 22pt.
     const width = Math.round(windowWidth * 0.75) + 22
-    const placement = placeContextMenu({
-        rowTop: anchor.y,
-        rowBottom: anchor.y + anchor.height,
-        menuHeight: height ?? 0,
-        topLimit: topOffset(insets, TABS_HEADER_BOTTOM),
-        bottomLimit: screenHeight - bottomOffset(insets, BOTTOM_BAR_ZONE),
-    })
+    const placement = useContextMenuLayout(anchor, visible, onClose, Math.min(400, width), height ?? 0)
     // Until the first layout the card sits off screen, so it never shows at a spot picked without its height.
     const top = height === null ? -screenHeight : placement.top
     const onLayout = (event: LayoutChangeEvent): void => {
@@ -156,94 +146,96 @@ export function ReportContextMenu({
             transformOrigin={placement.side === 'below' ? 'top left' : 'bottom left'}
             accessibilityLabel="Report actions"
             testID="inbox-row-menu"
-            style={[styles.card, { top, width }]}
+            style={[styles.card, { top, left: placement.left, width: placement.width, maxHeight: placement.maxHeight }]}
         >
-            <View key={opens} style={styles.content} onLayout={onLayout}>
-                <View style={styles.header}>
-                    <Text style={styles.title} numberOfLines={2}>
-                        {item.title}
-                    </Text>
-                    <Text style={styles.source} numberOfLines={1}>
-                        {item.sourceLabel}
-                    </Text>
+            <ScrollView bounces={false}>
+                <View key={opens} style={styles.content} onLayout={onLayout}>
+                    <View style={styles.header}>
+                        <Text style={styles.title} numberOfLines={2}>
+                            {item.title}
+                        </Text>
+                        <Text style={styles.source} numberOfLines={1}>
+                            {item.sourceLabel}
+                        </Text>
+                    </View>
+                    <View style={styles.divider} />
+                    {showPullRequest ? (
+                        <ContextMenuRow
+                            label="View PR"
+                            Icon={GitBranchIcon}
+                            disabled={pullRequestDisabled}
+                            trailing={
+                                <ExternalLinkIcon
+                                    size={16}
+                                    color={pullRequestDisabled ? colors.disabled : colors.tertiary}
+                                />
+                            }
+                            onPress={onViewPullRequest}
+                            testID="inbox-row-menu-view-pr"
+                        />
+                    ) : null}
+                    {showHandoff ? (
+                        <ContextMenuRow
+                            label={handoffLabel}
+                            Icon={PlayIcon}
+                            disabled={handoffDisabled || handoffPending}
+                            pending={handoffPending}
+                            onPress={onHandOff}
+                            testID="inbox-row-menu-handoff"
+                        />
+                    ) : null}
+                    {handoffError ? (
+                        <Text style={styles.error} accessibilityRole="alert" testID="inbox-row-menu-handoff-error">
+                            {handoffError}
+                        </Text>
+                    ) : null}
+                    <ContextMenuRow
+                        label="Reassign"
+                        Icon={ReassignIcon}
+                        disabled={reassignDisabled || handoffPending}
+                        onPress={onReassign}
+                        testID="inbox-row-menu-reassign"
+                    />
+                    <ContextMenuRow
+                        label="Resolve"
+                        disabled={handoffPending}
+                        Icon={CheckCircleIcon}
+                        onPress={onResolve}
+                        testID="inbox-row-menu-resolve"
+                    />
+                    <ContextMenuRow
+                        label="Dismiss"
+                        disabled={handoffPending}
+                        Icon={EyeOffIcon}
+                        onPress={onDismiss}
+                        testID="inbox-row-menu-dismiss"
+                    />
+                    <ContextMenuRow
+                        label="Chat"
+                        disabled={handoffPending}
+                        Icon={ChatBubbleIcon}
+                        onPress={onChat}
+                        testID="inbox-row-menu-chat"
+                    />
+                    {item.read ? (
+                        <ContextMenuRow
+                            label="Mark as unread"
+                            disabled={handoffPending}
+                            Icon={MailUnreadIcon}
+                            onPress={onMarkUnread}
+                            testID="inbox-row-menu-mark-unread"
+                        />
+                    ) : (
+                        <ContextMenuRow
+                            label="Mark as read"
+                            disabled={handoffPending}
+                            Icon={MailOpenIcon}
+                            onPress={onMarkRead}
+                            testID="inbox-row-menu-mark-read"
+                        />
+                    )}
                 </View>
-                <View style={styles.divider} />
-                {showPullRequest ? (
-                    <ContextMenuRow
-                        label="View PR"
-                        Icon={GitBranchIcon}
-                        disabled={pullRequestDisabled}
-                        trailing={
-                            <ExternalLinkIcon
-                                size={16}
-                                color={pullRequestDisabled ? colors.disabled : colors.tertiary}
-                            />
-                        }
-                        onPress={onViewPullRequest}
-                        testID="inbox-row-menu-view-pr"
-                    />
-                ) : null}
-                {showHandoff ? (
-                    <ContextMenuRow
-                        label={handoffLabel}
-                        Icon={PlayIcon}
-                        disabled={handoffDisabled || handoffPending}
-                        pending={handoffPending}
-                        onPress={onHandOff}
-                        testID="inbox-row-menu-handoff"
-                    />
-                ) : null}
-                {handoffError ? (
-                    <Text style={styles.error} accessibilityRole="alert" testID="inbox-row-menu-handoff-error">
-                        {handoffError}
-                    </Text>
-                ) : null}
-                <ContextMenuRow
-                    label="Reassign"
-                    Icon={ReassignIcon}
-                    disabled={reassignDisabled || handoffPending}
-                    onPress={onReassign}
-                    testID="inbox-row-menu-reassign"
-                />
-                <ContextMenuRow
-                    label="Resolve"
-                    disabled={handoffPending}
-                    Icon={CheckCircleIcon}
-                    onPress={onResolve}
-                    testID="inbox-row-menu-resolve"
-                />
-                <ContextMenuRow
-                    label="Dismiss"
-                    disabled={handoffPending}
-                    Icon={EyeOffIcon}
-                    onPress={onDismiss}
-                    testID="inbox-row-menu-dismiss"
-                />
-                <ContextMenuRow
-                    label="Chat"
-                    disabled={handoffPending}
-                    Icon={ChatBubbleIcon}
-                    onPress={onChat}
-                    testID="inbox-row-menu-chat"
-                />
-                {item.read ? (
-                    <ContextMenuRow
-                        label="Mark as unread"
-                        disabled={handoffPending}
-                        Icon={MailUnreadIcon}
-                        onPress={onMarkUnread}
-                        testID="inbox-row-menu-mark-unread"
-                    />
-                ) : (
-                    <ContextMenuRow
-                        label="Mark as read"
-                        disabled={handoffPending}
-                        Icon={MailOpenIcon}
-                        onPress={onMarkRead}
-                        testID="inbox-row-menu-mark-read"
-                    />
-                )}
-            </View>
+            </ScrollView>
         </FloatingCard>
     )
 }

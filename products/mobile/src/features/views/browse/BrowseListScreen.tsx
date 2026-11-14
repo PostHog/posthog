@@ -214,9 +214,9 @@ function BrowseList({
                         />
                     </View>
                 }
-                ListEmptyComponent={empty}
+                ListEmptyComponent={empty ?? undefined}
                 ListFooterComponent={
-                    search.active ? null : (
+                    search.active ? undefined : (
                         <LoadMoreFooter
                             noun={copy.noun}
                             loading={list.isLoadingMore}

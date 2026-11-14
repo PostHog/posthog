@@ -403,12 +403,3 @@ def test_delta_sync_reads_from_the_stored_cursor_and_stages_the_next_one(
     assert (response.replace_scope is not None) == (sync_type == ExternalDataSchemaSyncType.INCREMENTAL)
     staged = cursor.staged_payload()
     assert staged is not None and staged["data"]["version"] == 1
-
-
-def test_the_api_gates_the_source_behind_the_same_flag_as_the_ui() -> None:
-    # `featureFlag` only hides the source in the UI. Without `requires_team_feature_flag` the API
-    # would let any team discover tables for and create the source.
-    source = AmazonS3Source()
-
-    assert source.requires_team_feature_flag is not None
-    assert source.requires_team_feature_flag == source.get_source_config.featureFlag

@@ -5824,6 +5824,113 @@ describe('a flag in config version 2', () => {
         ])
         newLogic.unmount()
     })
+
+    it.each([
+        [
+            'splits prefilled variants evenly',
+            urls.featureFlagNew({
+                key: 'checkout-layout',
+                type: 'multivariate',
+                variants: ['control', 'compact', 'wide'],
+            }),
+            'checkout-layout',
+            [
+                { key: 'control', name: '', rollout_percentage: 34 },
+                { key: 'compact', name: '', rollout_percentage: 33 },
+                { key: 'wide', name: '', rollout_percentage: 33 },
+            ],
+        ],
+        [
+            'trims and dedupes hand-written variants',
+            '/feature-flags/new?type=multivariate&variants=control,%20wide,control',
+            '',
+            [
+                { key: 'control', name: '', rollout_percentage: 50 },
+                { key: 'wide', name: '', rollout_percentage: 50 },
+            ],
+        ],
+        [
+            'keeps only as many variants as a flag allows',
+            urls.featureFlagNew({
+                key: 'checkout-layout',
+                type: 'multivariate',
+                variants: Array.from({ length: 25 }, (_, i) => `v${i}`),
+            }),
+            'checkout-layout',
+            Array.from({ length: 20 }, (_, i) => ({ key: `v${i}`, name: '', rollout_percentage: 5 })),
+        ],
+        [
+            'ignores a key and variants the router decodes into objects',
+            '/feature-flags/new?type=multivariate&key={"toString":null}&variants=[{"toString":null},"wide"]',
+            '',
+            [{ key: 'wide', name: '', rollout_percentage: 100 }],
+        ],
+        [
+            'keeps the default variants without a variants param',
+            urls.featureFlagNew({ key: 'checkout-layout', type: 'multivariate' }),
+            'checkout-layout',
+            [
+                { key: 'control', name: '', rollout_percentage: 50 },
+                { key: 'test', name: '', rollout_percentage: 50 },
+            ],
+        ],
+        [
+            'ignores variants on a boolean flag',
+            urls.featureFlagNew({ key: 'checkout-layout', variants: ['control', 'compact'] }),
+            'checkout-layout',
+            null,
+        ],
+        [
+            'drops a key and variants that fail validation',
+            urls.featureFlagNew({
+                key: "x' + (globalThis.injected = true) + '",
+                type: 'multivariate',
+                variants: ['control', "a'b"],
+            }),
+            '',
+            [{ key: 'control', name: '', rollout_percentage: 100 }],
+        ],
+    ])('prefills from the link and %s', async (_label, link, expectedKey, expectedVariants) => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        router.actions.push(link)
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toFinishAllListeners()
+
+        expect(newLogic.values.featureFlag.key).toBe(expectedKey)
+        expect(newLogic.values.featureFlag.filters.multivariate?.variants ?? null).toEqual(expectedVariants)
+        newLogic.unmount()
+    })
+
+    it('warns on load when the prefilled key is already taken', async () => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [
+                    200,
+                    { results: [{ ...NEW_FLAG, id: 42, key: 'taken-key' }], count: 1 },
+                ],
+            },
+        })
+        router.actions.push(urls.featureFlagNew({ key: 'taken-key' }))
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toDispatchActions(['checkKeyConflictSuccess']).toFinishAllListeners()
+
+        expect(newLogic.values.currentKeyConflict).toEqual({
+            key: 'taken-key',
+            existingFlagId: 42,
+            existingFlagKey: 'taken-key',
+            exact: true,
+        })
+        newLogic.unmount()
+    })
 })
 
 describe('the editor a flag opens in', () => {
@@ -5897,6 +6004,22 @@ describe('the editor a flag opens in', () => {
 
     it.each([
         ['a string return type', { return_type: 'string', default_value: 'control' }],
+        [
+            'a number return type',
+            {
+                return_type: 'number',
+                default_value: 1,
+                rules: [
+                    {
+                        ...EXPERIMENT_RULE,
+                        variants: [
+                            { key: 'control', weight: 50, value: 1 },
+                            { key: 'test', weight: 50, value: 2 },
+                        ],
+                    },
+                ],
+            },
+        ],
         ['an experiment rule', { rules: [EXPERIMENT_RULE] }],
         [
             'an experiment rule with a holdout',
@@ -5909,7 +6032,7 @@ describe('the editor a flag opens in', () => {
 
     // The editor would drop, or rewrite on save, what it cannot represent.
     it.each([
-        ['a number return type', { return_type: 'number', default_value: 1 }],
+        ['an unknown return type', { return_type: 'date', default_value: null }],
         ['group assignment', { aggregation_group_type_index: 0 }],
     ])('a v2 flag with %s opens no editor, even with the editor on', async (_label, filters) => {
         useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })

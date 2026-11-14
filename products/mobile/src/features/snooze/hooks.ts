@@ -58,6 +58,9 @@ function cachedTitle(queryClient: QueryClient, scope: ProjectScope, reportId: st
 function currentOperation(scope: ProjectScope): () => boolean {
     const session = sessionGeneration()
     const cleanup = cleanupGeneration
+    // A report a link opened can belong to another project than the session's, so the check is that the session's
+    // project stayed the same during the operation, not that it is the scope's project.
+    const projectId = useAuthStore.getState().projectId
     return () => {
         const auth = useAuthStore.getState()
         return (
@@ -65,7 +68,7 @@ function currentOperation(scope: ProjectScope): () => boolean {
             cleanupGeneration === cleanup &&
             auth.signedIn &&
             auth.host?.replace(/\/$/, '') === scope.host &&
-            auth.projectId === scope.projectId
+            auth.projectId === projectId
         )
     }
 }
@@ -115,7 +118,7 @@ async function snoozeForSignals(scope: ProjectScope, reportId: string, count: nu
     if (!isCurrent()) {
         return false
     }
-    const report = await snoozeReportForSignals(reportId, count)
+    const report = await snoozeReportForSignals(scope, reportId, count)
     if (!isCurrent()) {
         return false
     }

@@ -7,7 +7,7 @@ import asyncio
 import logging
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -24,12 +24,14 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentStartupFailure, AgentTaskRunDTO, SessionFile
+from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource
 from products.tasks.backend.logic.services.startup_failure import (
     AgentStartupFailed,
     SandboxRunFailed as SandboxRunFailed,
     read_startup_failure,
 )
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.models import Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -91,6 +93,9 @@ _PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
 
 STRUCTURED_OUTPUT_TOOL_NAME = "StructuredOutput"
 _TOOL_CALL_UPDATES = frozenset({"tool_call", "tool_call_update"})
+
+# Pi reports the normal end of a turn as "stop". ACP adapters report the same state as "end_turn".
+_PI_END_TURN_STOP_REASON = "stop"
 
 
 @dataclass(frozen=True)
@@ -167,6 +172,7 @@ class CustomPromptSandboxContext:
     ``contents: read``, so a run that pins repositories still clones them and just cannot push.
     Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
     without a token."""
+    github_token_scope: Literal["read", "push"] | None = None
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
@@ -327,15 +333,14 @@ def _with_session_files(
 async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
+    *,
+    profile: TaskProfile,
     branch: str | None = None,
     step_name: str = "",
-    origin_product: Task.OriginProduct | None = None,
-    signal_report_id: str | None = None,
+    source: TaskSource | None = None,
     ai_stage: str | None = None,
     ai_agent_name: str | None = None,
-    internal: bool = False,
     workflow_id_prefix: str | None = None,
-    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
     mcp_tool_allowlist: list[str] | None = None,
@@ -348,10 +353,13 @@ async def _create_task_and_trigger(
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
-    # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
-    # None would clobber it. sandbox_environment_id already accepts None.
-    posthog_mcp_scopes: PosthogMcpScopes = (
-        context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
+    options = TaskRunOptions(
+        adapter=context.runtime_adapter,
+        model=context.model,
+        reasoning_effort=context.reasoning_effort,
+        output_schema=output_schema,
+        mcp_scopes=context.posthog_mcp_scopes,
+        permission_mode=context.initial_permission_mode,
     )
     extra_run_state: dict[str, Any] = {}
     if context.system_prompt is not None:
@@ -378,32 +386,24 @@ async def _create_task_and_trigger(
         team=team,
         title=title,
         description=description,
-        origin_product=origin_product or Task.OriginProduct.USER_CREATED,
         user_id=context.user_id,
         repository=context.repository,
         repositories=list(context.repositories) or None,
         create_pr=False,
         mode="background",
         branch=branch,
-        signal_report_id=signal_report_id,
         spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
-        posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
-        model=context.model,
-        runtime_adapter=context.runtime_adapter,
         runtime=context.runtime,
         pending_user_message=description if context.runtime == "pi" else None,
-        reasoning_effort=context.reasoning_effort,
         service_tier=context.service_tier,
-        initial_permission_mode=context.initial_permission_mode,
-        internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
-        mcp_builtin_agent_key=mcp_builtin_agent_key,
+        github_token_scope=context.github_token_scope,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         mcp_tool_allowlist=mcp_tool_allowlist,
@@ -411,7 +411,9 @@ async def _create_task_and_trigger(
         extra_run_state=extra_run_state,
         origin_key=origin_key,
         before_task_dispatch=before_task_dispatch,
-        output_schema=output_schema,
+        profile=profile,
+        source=source,
+        options=options,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
@@ -423,15 +425,14 @@ async def _create_task_and_trigger(
 async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
+    *,
+    profile: TaskProfile,
     branch: str | None = None,
     step_name: str = "",
-    origin_product: Task.OriginProduct | None = None,
-    signal_report_id: str | None = None,
+    source: TaskSource | None = None,
     ai_stage: str | None = None,
     ai_agent_name: str | None = None,
-    internal: bool = False,
     workflow_id_prefix: str | None = None,
-    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
     output_schema: dict[str, Any] | None = None,
@@ -441,16 +442,14 @@ async def create_task_and_trigger(
     task, task_run = await _create_task_and_trigger(
         description,
         context,
+        profile=profile,
         branch=branch,
         step_name=step_name,
-        origin_product=origin_product,
-        signal_report_id=signal_report_id,
+        source=source,
         spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
-        internal=internal,
         workflow_id_prefix=workflow_id_prefix,
-        mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         output_schema=output_schema,
@@ -1011,7 +1010,9 @@ def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentE
 
 
 def _update_task_run_error_message(run_id: str, message: str) -> None:
-    TaskRun.objects.filter(id=run_id).update(error_message=message)
+    runs = TaskRun.objects.filter(id=run_id)
+    runs.update(error_message=message)
+    sync_task_statuses_on_commit(runs.values_list("task_id", flat=True))
 
 
 async def _persist_task_run_error_message(run_id: str, message: str) -> None:
@@ -1089,10 +1090,57 @@ def _is_subagent_update(update: dict[str, object]) -> bool:
     return False
 
 
+def _pi_event(entry: dict) -> dict | None:
+    """The conversation event of a log entry that a Pi run wrote in its native format."""
+    event = entry.get("event") if entry.get("type") == "pi_event" else None
+    return event if isinstance(event, dict) else None
+
+
+def _pi_turn_text(lines: list[str]) -> str | None:
+    """The last assistant text of the Pi turn that ends `lines`.
+
+    Pi logs one line for each streamed text delta, so a turn's text can span several polls and
+    the lines of one poll can hold only its tail. This reads back through the whole log for that
+    reason. Each delta carries its own whitespace, so this joins them unstripped: `_extract_text`
+    strips each entry, which deletes the spaces between words.
+
+    Pi writes a compaction summary as one assistant chunk directly after the completed `compacting`
+    status, with the same timestamp. That chunk is context for the model and not the answer, so this
+    drops it. Text from before a compaction is the answer only when no text follows the compaction.
+    """
+    parts: list[str] = []
+    earliest_chunk_timestamp: object = None
+    turn_closed = False
+    for line in reversed(lines):
+        try:
+            event = _pi_event(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+        if event is None:
+            continue
+        event_type = event.get("type")
+        if event_type == "assistant_message_chunk":
+            content = event.get("content")
+            if isinstance(content, dict) and isinstance(content.get("text"), str):
+                parts.append(content["text"])
+                earliest_chunk_timestamp = event.get("timestamp")
+        elif event_type == "runtime_status" and event.get("status") == "compacting":
+            if parts and event.get("isComplete") and earliest_chunk_timestamp == event.get("timestamp"):
+                parts.pop()
+            if parts:
+                break
+        elif parts or event_type == "user_message" or (event_type == "turn_completed" and turn_closed):
+            break
+        elif event_type == "turn_completed":
+            turn_closed = True
+    return "".join(reversed(parts)).strip() or None
+
+
 def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     """
     Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
+    The end of a Pi turn is the exception: its text comes from the whole log (see `_pi_turn_text`).
     `refused` flags a provider refusal (stopReason "refusal") — a terminal turn
     state: without it the poll loop would wait out its whole budget on a turn that already died.
     """
@@ -1120,6 +1168,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         )
     lines_to_parse = all_lines[skip_lines:]
     agent_finished = False
+    pi_turn_ended = False
     refused = False
     # Collect all parsed session updates so we can walk backwards at the end.
     parsed_updates: list[dict] = []
@@ -1130,6 +1179,12 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        pi_event = _pi_event(entry)
+        if pi_event is not None:
+            if pi_event.get("type") == "turn_completed" and pi_event.get("stopReason") == _PI_END_TURN_STOP_REASON:
+                agent_finished = True
+                pi_turn_ended = True
             continue
         notification = entry.get("notification")
         if not isinstance(notification, dict):
@@ -1179,6 +1234,8 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
             trailing_parts.append(text)
     trailing_parts.reverse()
     latest_text = "".join(trailing_parts) if trailing_parts else _structured_output_text(parsed_updates)
+    if pi_turn_ended:
+        latest_text = _pi_turn_text(all_lines)
     # A refused turn must not surface its partial text — the caller would mistake it for the
     # turn's real response.
     if refused:

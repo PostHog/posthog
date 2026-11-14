@@ -15,6 +15,13 @@ export function hasSampleRatioMismatch(exposures: ExperimentExposureQueryRespons
 export const SAMPLE_RATIO_MATCH_DESCRIPTION =
     'No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.'
 
+/** When the server computed the exposure answer. The page's answer comes from the cache, but its type doesn't declare the cache fields. */
+export function exposureAnswerComputedAt(exposures: ExperimentExposureQueryResponse | null | undefined): string | null {
+    return exposures && 'last_refresh' in exposures && typeof exposures.last_refresh === 'string'
+        ? exposures.last_refresh
+        : null
+}
+
 /** The server's sample ratio finding in the exposure answer, or undefined when the server reports none. */
 export function serverSampleRatioFinding(
     exposures: ExperimentExposureQueryResponse | null | undefined

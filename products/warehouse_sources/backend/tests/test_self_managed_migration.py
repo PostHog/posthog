@@ -141,7 +141,6 @@ class _MigrationTest(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         patches = [
-            patch(f"{MODULE}.source_feature_flag_missing", return_value=False),
             patch(f"{MODULE}.delete_external_data_schedule"),
             # The location check resolves the bucket host, and these example buckets don't exist.
             patch.object(source_base, "validate_warehouse_table_url_pattern", return_value=(True, "")),
@@ -149,7 +148,7 @@ class _MigrationTest(BaseTest):
         mocks = [p.start() for p in patches]
         for p in patches:
             self.addCleanup(p.stop)
-        self.flag_missing, self.delete_schedule, _ = mocks
+        self.delete_schedule, _ = mocks
         self.credential = self._credential("AKIAFIRST")
 
     def _credential(self, access_key: str, access_secret: str = "c2VjcmV0") -> DataWarehouseCredential:
@@ -234,8 +233,11 @@ class TestSelfManagedMigration(_MigrationTest):
         prefixes = [source_of(t).prefix or "" for t in (virtual_hosted, other_bucket, other_key)]
         assert prefixes.count("") == 1 and len(set(prefixes)) == 3
         assert set(prefixes) - {""} <= {"exports", "archive"}
-        assert source_of(other_bucket).job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/archive/"
-        assert source_of(other_key).job_inputs["access_key_id"] == "AKIASECOND"
+        assert (
+            SourceInputsStore.load(source_of(other_bucket))["url_pattern"]
+            == "https://s3.eu-west-1.amazonaws.com/archive/"
+        )
+        assert SourceInputsStore.load(source_of(other_key))["access_key_id"] == "AKIASECOND"
         marker = (source_of(virtual_hosted).connection_metadata or {})[MIGRATION_MARKER_KEY]
         assert marker["group_key"] == "s3/eu-west-1/exports"
         assert marker["credential_id"] == str(self.credential.pk)
@@ -366,7 +368,7 @@ class TestSelfManagedMigration(_MigrationTest):
         assert schema.source.source_type == "AmazonS3"
         assert schema.created_at == created_at
         assert schema.source.created_at == created_at
-        assert schema.source.job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/exports/"
+        assert SourceInputsStore.load(schema.source)["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/exports/"
         assert ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=schema.source).exists()
         assert not ExternalDataJob.objects.filter(team=self.team).exists()
         assert DataWarehouseTable.raw_objects.values().get(pk=table.pk) == before
@@ -487,16 +489,6 @@ class TestSelfManagedMigration(_MigrationTest):
         assert outcome.action == "none"
         assert not ExternalDataSchema.objects.filter(team=self.team).exists()
 
-    def test_teams_without_the_flag_are_skipped(self) -> None:
-        self.flag_missing.return_value = True
-        self._table()
-
-        [outcome] = self._migrate()
-
-        assert outcome.status.state == TableMigrationState.SKIPPED
-        assert "dwh-object-storage-sources" in (outcome.status.reason or "")
-        assert not ExternalDataSchema.objects.filter(team=self.team).exists()
-
     def test_status_reports_every_state(self) -> None:
         pending = self._table("pending_table")
         self._table("skipped_table", url="https://minio.example.com/exports/a.csv")
@@ -582,7 +574,7 @@ class TestSelfManagedMigration(_MigrationTest):
         assert [o.action for o in outcomes] == [expected_action] * 2
         resolver.assert_called_once()
         if region is not None:
-            job_inputs = ExternalDataSource.objects.get(team=self.team).job_inputs
+            job_inputs = SourceInputsStore.load(ExternalDataSource.objects.get(team=self.team))
             assert job_inputs["url_pattern"] == f"https://s3.{region}.amazonaws.com/exports/"
 
     def test_an_adopted_table_is_queried_by_its_bare_name_before_and_after(self) -> None:
@@ -1004,7 +996,6 @@ class TestDeletingAMigrationSchema(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         patches = [
-            patch(f"{MODULE}.source_feature_flag_missing", return_value=False),
             patch.object(source_base, "validate_warehouse_table_url_pattern", return_value=(True, "")),
             patch(f"{SOURCE_VIEWS}.base.bulk_delete_external_data_schedules", return_value=[]),
             patch(f"{SOURCE_VIEWS}.base.delete_external_data_schedule"),
@@ -1224,23 +1215,13 @@ class TestUploadedTableMigration(_MigrationTest):
         assert merge_duplicate_sources(team_id=self.team.pk, live_run=True) == []
         assert ExternalDataSource.objects.filter(team=self.team, deleted=False).count() == 2
 
-    def test_teams_without_the_flag_keep_their_uploaded_tables(self) -> None:
-        self.flag_missing.return_value = True
-        self._uploaded("orders", "file_uploads/team_{team}/{upload}/orders.csv")
-
-        [outcome] = self._migrate()
-
-        assert outcome.status.state == TableMigrationState.SKIPPED
-        assert "dwh-object-storage-sources" in (outcome.status.reason or "")
-        assert not ExternalDataSource.objects.filter(team=self.team).exists()
-
     def test_selection_takes_only_the_teams_own_uploaded_tables(self) -> None:
         self._uploaded("uploaded", "file_uploads/team_{team}/{upload}/orders.csv")
         self._uploaded("legacy", "managed/team_{team}/orders.csv")
         self._uploaded("materialized_view", "dlt/team_{team}_model_abc/modeling/orders")
         self._uploaded("another_teams_file", "managed/team_999999/orders.csv")
         self._uploaded("nested_key", "managed/team_{team}/sub/orders.csv")
-        # A table made with the flag on links to its own file upload source and waits for its first sync.
+        # A table made from an upload links to its own file upload source and waits for its first sync.
         waiting = self._uploaded("waiting", "file_uploads/team_{team}/{upload}/waiting.csv")
         upload_source = ExternalDataSource.objects.create(team=self.team, source_type="FileUpload", job_inputs={})
         ExternalDataSchema.objects.create(name="waiting", team=self.team, source=upload_source, table=waiting)

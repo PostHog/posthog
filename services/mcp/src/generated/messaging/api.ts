@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -259,4 +259,40 @@ export const MessagingSupabaseAuthEmailsStarterTemplatesCreateParams = () => zod
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * @summary Add multiple email addresses to the suppression list
+ */
+export const MessagingSuppressionsBulkAddSuppressionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax = 512
+
+export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemReasonDefault = `manual`
+
+export const MessagingSuppressionsBulkAddSuppressionsCreateBody = () => zod.object({
+    suppressions: zod
+        .array(
+            zod.object({
+                identifier: zod
+                    .string()
+                    .max(messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax)
+                    .describe('The email address to suppress. Matched case-insensitively.'),
+                reason: zod
+                    .enum(['bounce', 'complaint', 'manual'])
+                    .describe('\* `bounce` - Bounce\n\* `complaint` - Complaint\n\* `manual` - Manual')
+                    .default(messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemReasonDefault)
+                    .describe(
+                        "Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.\n\n\* `bounce` - Bounce\n\* `complaint` - Complaint\n\* `manual` - Manual"
+                    ),
+            })
+        )
+        .describe('Addresses to suppress, at most 1000 per request.'),
 })

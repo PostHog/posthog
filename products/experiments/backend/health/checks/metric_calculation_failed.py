@@ -10,6 +10,7 @@ reader's warehouse access, or the text of other exceptions, which is written for
 
 import re
 from dataclasses import replace
+from datetime import UTC
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
@@ -21,6 +22,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.checks.events_received import joined
@@ -36,6 +38,7 @@ from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
+    CheckValues,
     no_calculated_metric,
     not_applicable,
     not_checked,
@@ -163,6 +166,21 @@ _EXPOSURE_QUERY = _Wording(
     "query, so no metric can be calculated. Check them, or contact support if they look right.",
     every_metric=True,
 )
+
+
+def metric_calculation_values(ctx: HealthContext) -> CheckValues:
+    calculation = ctx.latest_calculation
+    if calculation is None or calculation.metric_count == 0:
+        return {}
+    finished_at = calculation.finished_at
+    return {
+        ExperimentHealthValueKey.METRIC_COUNT: calculation.metric_count,
+        ExperimentHealthValueKey.COMPLETED_METRIC_COUNT: calculation.completed_count,
+        ExperimentHealthValueKey.FAILED_METRIC_COUNT: len(calculation.failures),
+        ExperimentHealthValueKey.CALCULATED_AT: None
+        if finished_at is None
+        else finished_at.astimezone(UTC).isoformat(),
+    }
 
 
 def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:

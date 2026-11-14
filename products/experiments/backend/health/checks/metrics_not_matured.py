@@ -12,6 +12,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.context import HealthContext, MetricWindow
 from products.experiments.backend.health.skips import (
@@ -20,6 +21,7 @@ from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
+    CheckValues,
     not_applicable,
     not_checked,
 )
@@ -27,6 +29,21 @@ from products.experiments.backend.health.split_changes import format_change_time
 
 _SETTING_LABEL = '"Require completed conversion or retention window"'
 _SECONDS_PER_HOUR = 3600
+
+
+def metrics_not_matured_values(ctx: HealthContext) -> CheckValues:
+    values: dict[ExperimentHealthValueKey, bool | int] = {
+        ExperimentHealthValueKey.ONLY_COUNT_MATURED_USERS: ctx.only_count_matured_users
+    }
+    windows = ctx.primary_metric_windows
+    hours_since_launch = ctx.hours_since_launch
+    # The windows load only while the setting is on, so with it off the setting is all the check knows.
+    if windows is not None and hours_since_launch is not None:
+        values[ExperimentHealthValueKey.PRIMARY_METRIC_COUNT] = len(windows)
+        values[ExperimentHealthValueKey.WAITING_METRIC_COUNT] = sum(
+            1 for window in windows if _holds_back_every_user(window, hours_since_launch)
+        )
+    return values
 
 
 def metrics_not_matured(ctx: HealthContext) -> CheckOutcome:

@@ -1,4 +1,6 @@
 import uuid
+import asyncio
+from threading import Barrier
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -22,6 +24,7 @@ from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 @pytest.fixture
 def team_stub(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     monkeypatch.setattr("products.signals.backend.facade.api.finalized_signal_ids", MagicMock(return_value=set()))
+    monkeypatch.setattr("products.signals.backend.facade.api.admit_signal", MagicMock())
     org = MagicMock()
     org.is_ai_data_processing_approved = True
     team = MagicMock()
@@ -29,6 +32,37 @@ def team_stub(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
     team.organization = org
     return team
+
+
+@pytest.mark.asyncio
+async def test_slow_admission_does_not_block_other_emissions(team_stub: MagicMock) -> None:
+    admissions = Barrier(2, timeout=10)
+    client = AsyncMock()
+
+    def admit(**kwargs: object) -> None:
+        admissions.wait()
+
+    with (
+        patch("products.signals.backend.facade.api.admit_signal", side_effect=admit),
+        patch("products.signals.backend.facade.api.async_connect", return_value=client),
+        patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+    ):
+        results = await asyncio.gather(
+            *(
+                emit_signal(
+                    team=team_stub,
+                    source_product="github",
+                    source_type="issue",
+                    source_id=source_id,
+                    description="A valid signal",
+                    extra=GITHUB_ISSUE_EXTRA,
+                )
+                for source_id in ("first", "second")
+            )
+        )
+
+    assert results == [True, True]
+    assert client.start_workflow.await_count == 4
 
 
 SESSION_PROBLEM_EXTRA = {

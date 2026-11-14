@@ -56,8 +56,9 @@ import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
-import { UNRUNNABLE_DETAIL, limitReachedTooltip } from './scannerCopy'
+import { disabledReasonDetail, limitReachedTooltip } from './scannerCopy'
 import { scannerStatus } from './scannerStatus'
+import { ScannerTagsFilter } from './ScannerTagsFilter'
 import { ENABLED_OPTIONS, EnabledFilter, scannerTypeOptions, ScannerType, ReplayScanner } from './types'
 
 const HedgehogExplorer = pngHoggie(explorerPng)
@@ -186,7 +187,6 @@ export function ReplayScannersScene(): JSX.Element {
         createdByFilter,
         createdByOptions,
         tagsFilter,
-        tagOptions,
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
@@ -228,8 +228,8 @@ export function ReplayScannersScene(): JSX.Element {
                         ? limitReachedTooltip(scanner)
                         : status.kind === 'quota_exhausted'
                           ? "Your organization's Replay Vision credits are used up for this billing period."
-                          : status.kind === 'no_ai_consent' || status.kind === 'creator_lost_access'
-                            ? UNRUNNABLE_DETAIL[status.kind]
+                          : status.kind === 'off' && status.reason && status.reason !== 'manual'
+                            ? disabledReasonDetail(status.reason)
                             : status.kind === 'replay_off'
                               ? `${RECORDINGS_BLOCK_CAUSE['replay-off']}.`
                               : status.kind === 'no_recordings'
@@ -396,11 +396,7 @@ export function ReplayScannersScene(): JSX.Element {
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
                                 />
-                                <FilterPill<string>
-                                    label="Tags"
-                                    dataAttr="vision-scanners-tags-filter"
-                                    searchable
-                                    options={tagOptions}
+                                <ScannerTagsFilter
                                     value={tagsFilter}
                                     onChange={(v) => setScannersFilters({ tagsFilter: v })}
                                 />

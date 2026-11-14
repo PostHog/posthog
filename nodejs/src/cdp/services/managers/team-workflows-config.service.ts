@@ -18,7 +18,7 @@ export type TeamWorkflowsConfig = {
     email_tracking_consent_mode: EmailTrackingConsentMode
     email_sending_suspended: boolean
     ses_tenant_provider_suspended: boolean
-    /** Trust tier that picks the team's hourly and daily workflow email caps. */
+    /** Trust tier that picks the team's daily workflow email cap. */
     email_sending_tier: number
     /** Max marketing messages one person gets per window. Null on either field means no cap. */
     marketing_frequency_cap_max_messages: number | null
@@ -49,7 +49,7 @@ export class TeamWorkflowsConfigService {
     private lazyLoader: LazyLoader<TeamWorkflowsConfig>
 
     constructor(
-        private postgres: PostgresRouter,
+        private postgres: Pick<PostgresRouter, 'query'>,
         pubSub: PubSub
     ) {
         this.lazyLoader = new LazyLoader({
@@ -103,7 +103,7 @@ export class TeamWorkflowsConfigService {
     }
 
     /**
-     * Trust tier for the team's workflow email, which the send path turns into an hourly and a
+     * Trust tier for the team's workflow email, which the send path turns into a
      * daily cap. Fails open with `null`: a lookup error must let the send through rather than
      * throttle a legitimate customer, same stance as `isEmailSendingSuspended`.
      */

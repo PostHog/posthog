@@ -22,7 +22,6 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models.team import Team
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.facade.api import sync_external_data_job_workflow
@@ -55,9 +54,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
-    source_feature_flag_missing,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import CsvOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
     CsvColumnType,
@@ -139,10 +135,6 @@ def read_upload_in_place(team_id: int, table_name: str, upload: UploadedFile) ->
 
 def file_upload_source() -> FileUploadSource:
     return FileUploadSource()
-
-
-def file_upload_sources_enabled(team: Team) -> bool:
-    return not source_feature_flag_missing(file_upload_source(), team)
 
 
 def upload_job_inputs(upload: UploadedFile, schema_name: str) -> dict[str, str]:

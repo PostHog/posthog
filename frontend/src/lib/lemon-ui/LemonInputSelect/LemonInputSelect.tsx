@@ -6,17 +6,18 @@ import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
 import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { List } from 'react-window'
+import { List, useListRef } from 'react-window'
 
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils/arrays'
 import { createFuse } from 'lib/utils/fuseSearch'
 
@@ -232,6 +233,7 @@ export function LemonInputSelect<T = string>({
     const blurringForSelectionRef = useRef<boolean>(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
+    const listRef = useListRef(null)
     const [frozenOptions, setFrozenOptions] = useState<LemonInputSelectOption<T>[] | null>(null)
     const values = value ? value.slice() : []
     if (itemBeingEditedIndex !== null) {
@@ -409,6 +411,13 @@ export function LemonInputSelect<T = string>({
             setFrozenOptions(null)
         }
     }, [showPopover])
+
+    // A virtualized list renders only the rows in view, so arrow keys must scroll the highlight into it.
+    useEffect(() => {
+        if (virtualized && showPopover && selectedIndex < displayOptions.length) {
+            listRef.current?.scrollToRow({ index: selectedIndex, align: 'smart' })
+        }
+    }, [virtualized, showPopover, selectedIndex, displayOptions.length, listRef])
 
     // Close the popover when the control becomes disabled mid-interaction (e.g. a save kicked off
     // by selecting an option) — an open popover's options would otherwise stay clickable.
@@ -595,6 +604,23 @@ export function LemonInputSelect<T = string>({
         }
     }
 
+    const _onBackspace = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+        if (!inputValue) {
+            e.preventDefault()
+            const newValues = [...values]
+            newValues.pop()
+            onChange?.(newValues)
+        } else if (mode === 'single') {
+            // In single mode, "selected all + backspace" should clear the selection
+            const input = e.currentTarget
+            if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
+                e.preventDefault()
+                setInputValue('')
+                onChange?.([])
+            }
+        }
+    }
+
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
         if (e.key === 'Enter') {
             e.preventDefault()
@@ -605,26 +631,17 @@ export function LemonInputSelect<T = string>({
             }
             e.currentTarget.blur()
         } else if (e.key === 'Backspace') {
-            if (!inputValue) {
-                e.preventDefault()
-                const newValues = [...values]
-                newValues.pop()
-                onChange?.(newValues)
-            } else if (mode === 'single') {
-                // In single mode, "selected all + backspace" should clear the selection
-                const input = e.currentTarget
-                if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
-                    e.preventDefault()
-                    setInputValue('')
-                    onChange?.([])
-                }
-            }
+            _onBackspace(e)
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
             setSelectedIndex(Math.min(selectedIndex + 1, displayOptions.length - 1))
         } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setSelectedIndex(Math.max(selectedIndex - 1, 0))
+        } else if (e.key === 'Escape' && showPopover) {
+            e.stopPropagation()
+            popoverFocusRef.current = false
+            setShowPopover(false)
         }
     }
 
@@ -956,6 +973,7 @@ export function LemonInputSelect<T = string>({
                                     renderProp={({ width }) =>
                                         width ? (
                                             <List<VirtualizedOptionRowProps<T>>
+                                                listRef={listRef}
                                                 style={{ width, height: virtualizedListHeight }}
                                                 rowCount={displayOptions.length}
                                                 overscanCount={100}

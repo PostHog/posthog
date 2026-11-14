@@ -5,13 +5,13 @@ import { Button, Skeleton } from '@posthog/quill'
 import { LazyRichContentPreview, LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
 import { CommentType } from '~/types'
 
 import { sessionRecordingCommentsLogic } from '../sessionRecordingCommentsLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { QuillUserAvatar } from './QuillUserAvatar'
 
 export function RecordingCommentsList({ sessionId }: { sessionId: string }): JSX.Element | null {
     const { sessionComments, sessionCommentsLoading } = useValues(
@@ -43,7 +43,7 @@ export function RecordingCommentsList({ sessionId }: { sessionId: string }): JSX
                     const atMs = timeInRecordingMs(comment)
                     return (
                         <div key={comment.id} className="flex items-start gap-2 text-sm">
-                            <ProfilePicture user={comment.created_by} size="sm" className="mt-0.5" />
+                            <QuillUserAvatar user={comment.created_by} size="sm" className="mt-0.5" />
                             <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                     <span className="font-medium text-foreground">

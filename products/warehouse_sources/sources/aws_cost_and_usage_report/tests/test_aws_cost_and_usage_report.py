@@ -133,37 +133,36 @@ def requested_keys(requests: list[RecordedRequest]) -> list[str]:
 
 
 class TestSync:
-    def test_reads_the_files_each_manifest_lists_for_every_period_from_the_first_one(self) -> None:
+    @pytest.mark.parametrize("partition", ["BILLING_PERIOD", "billing_period"])
+    def test_reads_the_files_each_manifest_lists_for_every_period_from_the_first_one(self, partition: str) -> None:
         manifest = {
             "dataFiles": [
-                f"s3://{BUCKET}/{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet",
+                f"s3://{BUCKET}/{BASE}/data/{partition}=2024-03/my-export-00001.snappy.parquet",
                 "s3://another-bucket/elsewhere/my-export-00001.snappy.parquet",
             ],
-            "additionalOutputFiles": [{"path": f"{BASE}/metadata/BILLING_PERIOD=2024-03/my-export-create-table.sql"}],
+            "additionalOutputFiles": [{"path": f"{BASE}/metadata/{partition}=2024-03/my-export-create-table.sql"}],
         }
         result = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
             "cost_and_usage",
             s3(
                 {
                     f"{BASE}/data/": [
-                        listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-02/"], next_token="t2"),
-                        listing(
-                            prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-04/", f"{BASE}/data/BILLING_PERIOD=2024-03/"]
-                        ),
+                        listing(prefixes=[f"{BASE}/data/{partition}=2024-02/"], next_token="t2"),
+                        listing(prefixes=[f"{BASE}/data/{partition}=2024-04/", f"{BASE}/data/{partition}=2024-03/"]),
                     ],
                 },
                 {
-                    f"{BASE}/metadata/BILLING_PERIOD=2024-03/my-export-Manifest.json": ScriptedResponse(json=manifest),
-                    f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet": parquet_file(
+                    f"{BASE}/metadata/{partition}=2024-03/my-export-Manifest.json": ScriptedResponse(json=manifest),
+                    f"{BASE}/data/{partition}=2024-03/my-export-00001.snappy.parquet": parquet_file(
                         [
                             {"id": "a", "cost": 1.5, "tags": [("user:team", "web")]},
                             {"id": "b", "cost": 2.0, "tags": None},
                         ]
                     ),
-                    f"{BASE}/metadata/BILLING_PERIOD=2024-04/Manifest.json": ScriptedResponse(
-                        json={"dataFiles": [f"{BASE}/data/BILLING_PERIOD=2024-04/my-export-00001.snappy.parquet"]}
+                    f"{BASE}/metadata/{partition}=2024-04/Manifest.json": ScriptedResponse(
+                        json={"dataFiles": [f"{BASE}/data/{partition}=2024-04/my-export-00001.snappy.parquet"]}
                     ),
-                    f"{BASE}/data/BILLING_PERIOD=2024-04/my-export-00001.snappy.parquet": parquet_file(
+                    f"{BASE}/data/{partition}=2024-04/my-export-00001.snappy.parquet": parquet_file(
                         [{"id": "c", "cost": 0.25, "tags": []}]
                     ),
                 },
@@ -176,12 +175,12 @@ class TestSync:
         assert result.requests[1].param("continuation-token") == "t2"
         # February predates the first billing period; April's manifest uses the bare name.
         assert requested_keys(result.requests) == [
-            f"{BASE}/metadata/BILLING_PERIOD=2024-03/my-export-Manifest.json",
-            f"{BASE}/metadata/BILLING_PERIOD=2024-03/Manifest.json",
-            f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet",
-            f"{BASE}/metadata/BILLING_PERIOD=2024-04/my-export-Manifest.json",
-            f"{BASE}/metadata/BILLING_PERIOD=2024-04/Manifest.json",
-            f"{BASE}/data/BILLING_PERIOD=2024-04/my-export-00001.snappy.parquet",
+            f"{BASE}/metadata/{partition}=2024-03/my-export-Manifest.json",
+            f"{BASE}/metadata/{partition}=2024-03/Manifest.json",
+            f"{BASE}/data/{partition}=2024-03/my-export-00001.snappy.parquet",
+            f"{BASE}/metadata/{partition}=2024-04/my-export-Manifest.json",
+            f"{BASE}/metadata/{partition}=2024-04/Manifest.json",
+            f"{BASE}/data/{partition}=2024-04/my-export-00001.snappy.parquet",
         ]
         assert table_rows(result.items) == [
             {
@@ -206,7 +205,7 @@ class TestSync:
         assert "authorization" in first_list.headers
         assert result.response is not None and result.response.partition_keys == ["billing_period"]
 
-    def test_a_period_still_being_delivered_is_skipped_and_one_with_no_manifest_anywhere_fails(self) -> None:
+    def test_a_period_still_being_delivered_is_skipped_and_an_export_with_nothing_to_read_fails(self) -> None:
         march_file = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet"
         periods = listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/", f"{BASE}/data/BILLING_PERIOD=2024-04/"])
 
@@ -234,6 +233,15 @@ class TestSync:
         )
 
         assert str(nothing.raised).startswith("AWS Cost and Usage Report request failed: NoManifest")
+
+        before_first = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
+            "cost_and_usage", s3({f"{BASE}/data/": [listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-02/"])]}, {})
+        )
+
+        assert str(before_first.raised).startswith(
+            f"AWS Cost and Usage Report request failed: NoBillingPeriods - no billing period from 2024-03 on under s3://{BUCKET}/{BASE}/data/"
+        )
+        assert before_first.items == []
 
     def test_gzip_csv_cells_take_the_names_and_types_a_parquet_file_would_have(self) -> None:
         # A FOCUS export names columns in PascalCase. The pipeline snake-cases Parquet columns, so CSV
