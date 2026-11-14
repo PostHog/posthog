@@ -177,6 +177,7 @@ const REVIEW_TOTAL = 61
 
 function finding(overrides: Partial<ReviewFindingApi>): ReviewFindingApi {
     return {
+        issue_key: '1-retry-loop',
         title: 'Retry loop never gives up on a permanent error',
         file: 'posthog/tasks/exports.py',
         lines: [{ start: 42, end: 58 }],
@@ -187,6 +188,7 @@ function finding(overrides: Partial<ReviewFindingApi>): ReviewFindingApi {
         source_perspective: 'review-hog-perspective-logic-correctness',
         validator_category: 'bug',
         validator_note: 'The handler catches every `HTTPError`, including 4xx, so the retry path is reachable.',
+        outcome: null,
         ...overrides,
     }
 }

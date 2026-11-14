@@ -109575,7 +109575,101 @@ export namespace Schemas {
       Compatibility: 'compatibility',
     } as const;
 
+    /**
+     * * `addressed` - Addressed
+     * * `reacted` - Reacted
+     * * `ignored` - Ignored
+     */
+    export type ReviewFindingOutcomeKindEnum = typeof ReviewFindingOutcomeKindEnum[keyof typeof ReviewFindingOutcomeKindEnum];
+
+
+    export const ReviewFindingOutcomeKindEnum = {
+      Addressed: 'addressed',
+      Reacted: 'reacted',
+      Ignored: 'ignored',
+    } as const;
+
+    /**
+     * * `judge_confirmed` - A judge confirmed the fix
+     * * `judge_rejected` - A judge found no fix
+     * * `comment_reply` - A person replied
+     * * `comment_reply_agent` - An agent replied
+     * * `comment_reaction` - A person reacted
+     * * `no_signal` - No signal
+     * * `judge_budget_exhausted` - Not judged
+     * * `judge_failed` - The judge failed
+     */
+    export type ReviewFindingOutcomeMethodEnum = typeof ReviewFindingOutcomeMethodEnum[keyof typeof ReviewFindingOutcomeMethodEnum];
+
+
+    export const ReviewFindingOutcomeMethodEnum = {
+      JudgeConfirmed: 'judge_confirmed',
+      JudgeRejected: 'judge_rejected',
+      CommentReply: 'comment_reply',
+      CommentReplyAgent: 'comment_reply_agent',
+      CommentReaction: 'comment_reaction',
+      NoSignal: 'no_signal',
+      JudgeBudgetExhausted: 'judge_budget_exhausted',
+      JudgeFailed: 'judge_failed',
+    } as const;
+
+    /**
+     * * `positive` - Positive
+     * * `negative` - Negative
+     * * `mixed` - Mixed
+     */
+    export type ReviewFindingReactionSentimentEnum = typeof ReviewFindingReactionSentimentEnum[keyof typeof ReviewFindingReactionSentimentEnum];
+
+
+    export const ReviewFindingReactionSentimentEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+      Mixed: 'mixed',
+    } as const;
+
+    export interface ReviewFindingOutcome {
+      /** What happened to the published finding by the time its pull request merged. `reacted`: a person or another agent replied to or reacted on its comment. `addressed`: a later commit changed the finding's lines and a judge confirmed that the change fixes it. `ignored`: neither.
+       *
+       * * `addressed` - Addressed
+       * * `reacted` - Reacted
+       * * `ignored` - Ignored */
+      outcome: ReviewFindingOutcomeKindEnum;
+      /** The signal that decided `outcome`. `judge_confirmed` gives `addressed`. `comment_reply`, `comment_reply_agent` and `comment_reaction` give `reacted`. `judge_rejected` (the lines changed but the judge found no fix), `no_signal` (nothing touched the lines), `judge_budget_exhausted` and `judge_failed` (the judge did not rule) give `ignored`.
+       *
+       * * `judge_confirmed` - A judge confirmed the fix
+       * * `judge_rejected` - A judge found no fix
+       * * `comment_reply` - A person replied
+       * * `comment_reply_agent` - An agent replied
+       * * `comment_reaction` - A person reacted
+       * * `no_signal` - No signal
+       * * `judge_budget_exhausted` - Not judged
+       * * `judge_failed` - The judge failed */
+      method: ReviewFindingOutcomeMethodEnum;
+      /** The commit the finding was published at, the base of the diff the outcome was judged on. */
+      reviewed_head: string;
+      /** The pull request's head commit when it merged. */
+      final_head: string;
+      /** The tone of the reactions on the finding's comment, without PostHog Review's own. `positive`: 👍, ❤️, 🎉 or 🚀. `negative`: 👎 or 😕. `mixed`: both. Null when no reaction carries a tone.
+       *
+       * * `positive` - Positive
+       * * `negative` - Negative
+       * * `mixed` - Mixed */
+      reaction_sentiment: ReviewFindingReactionSentimentEnum | null;
+      /**
+         * The start of the first reply to the finding's comment that PostHog Review did not write, such as 'Fixed in <sha>' or 'Leaving this as is'. Null without a reply.
+         * @nullable
+         */
+      reply_excerpt: string | null;
+      /**
+         * Whether GitHub showed the finding's comment as outdated at merge, because a push changed the code under it. Null when the comment was not found on the pull request.
+         * @nullable
+         */
+      comment_outdated: boolean | null;
+    }
+
     export interface ReviewFinding {
+      /** The finding's id, unique within the review: it starts with the turn that raised it. */
+      issue_key: string;
       /** One-line summary of the finding. */
       title: string;
       /** Repository-relative path of the affected file. */
@@ -109617,6 +109711,8 @@ export namespace Schemas {
       validator_category: ValidatorCategoryEnum | null;
       /** The validator's argumentation for keeping or dismissing the finding. */
       validator_note: string;
+      /** What the pull request did about the finding, decided once after it merged. Null while the pull request is open, when it closed without merging, for a dismissed finding, and until the hourly outcome sweep reaches it. The sweep finds merges through the project's GitHub data warehouse source, so a project without one gets no outcomes. */
+      outcome: ReviewFindingOutcome | null;
     }
 
     /**

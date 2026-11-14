@@ -198,6 +198,23 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-11-13 — changed lines in follow-up prompts, outcomes and author responses on the reviews API
+
+- **What.**
+  - On a follow-up turn that reviews the whole PR, every session's prompt lists the lines changed since the last reviewed head and the levels the `old_code` drop discards elsewhere (P2 and P3 on an automatic turn, P3 on a requested one).
+  - The reviews detail returns each finding's `issue_key` and its `outcome` (the `finding_outcome` artefact the merge sweep writes).
+  - The merge sweep also records what GitHub shows on the finding's comment, whichever signal decided the outcome: the tone of the reactions (`positive`, `negative`, `mixed`), the start of the first reply ReviewHog did not write, and whether the comment was outdated. They come from the comments and reactions the sweep already reads. The event carries the tone and the outdated flag, never the reply text.
+- **Why the prompt section.** An `old_code` drop happens only on a follow-up turn: the sessions saw the whole PR diff, but dedup keeps a finding below must-fix only near the lines changed since the last review.
+  `lens_priority.md` already limits the lenses to issues the PR causes, and `core.md` excludes bugs the PR did not introduce, so neither covers a PR-caused finding on lines an earlier turn already reviewed.
+  The prompt template is part of the single-agent fingerprint, so these turns form a new cohort.
+- **Why record the reply and the reaction tone.** `reacted` wins over `addressed`, so a 👍, a 👎, "Fixed in <sha>" and "Leaving this as is" all read as `reacted`. The tone and the reply separate an accepted finding from a rejected one with signals people already leave, without a new classifier.
+- **`resolution` and `latest_resolution` are not outcomes.** They describe the Resolve stage's runs, and they are null wherever no Resolve run queued threads, because `resolve_comments` is off by default.
+- **Rejected: a path gate on the performance lens.** A rule that ran the lens only on parts with hot-path or infrastructure files (queries, ClickHouse, migrations, caches, tasks, ingestion, CDP, warehouse syncs, Rust, Go, with UI files ignored) was replayed against recorded `reviewhog_finding_outcome` events for Standard reviews of this repository.
+  It would have skipped most performance-lens findings, must-fix findings among them, and the skipped findings drew replies, confirmed fixes and no response at the same rates as the kept ones.
+  The gate cut findings people engage with, not noise. The lens decision waits for the reaction tone, reply and outdated signals above to accumulate.
+- **Known gaps.** Outcomes need the project's GitHub data warehouse source to see merges, and a PR closed without merging gets no outcome.
+  Dropped findings carry no outcome. Replies are recorded, not classified as accepted or rejected.
+
 ### 🧪 BUILT 2026-11-10 — devex lens: a Standard session routed by `owners.yaml` (flag off, pilot failed three bars)
 
 - **What.** A Standard turn adds one lens session, `DEVEX_LENS` (`lens_devex.md`, pass 2003), when the PR changes a file the devex team owns and `reviewhog-devex-lens` is on for the PR.
