@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, Union, cast
 
 from posthog.test.base import APIBaseTest
@@ -1219,9 +1220,13 @@ class TestPropertyUsageMetricsAPI(APIBaseTest):
         super().setUp()
         cache.clear()
 
-    @patch("posthog.taxonomy.property_definition_api.sync_execute")
+    @patch("posthog.taxonomy.property_usage.sync_execute")
     def test_returns_counts_zero_fills_and_caches(self, mock_sync_execute) -> None:
-        mock_sync_execute.return_value = [("property:event:$browser", 42), ("property:group:1:industry", 7)]
+        first_seen = datetime.now(UTC) - timedelta(days=3)
+        mock_sync_execute.return_value = [
+            ("property:event:$browser", 42, first_seen),
+            ("property:group:1:industry", 7, first_seen),
+        ]
         payload = {
             "properties": [
                 {"type": "event", "name": "$browser"},
@@ -1242,7 +1247,9 @@ class TestPropertyUsageMetricsAPI(APIBaseTest):
                 {"type": "event", "name": "$os", "group_type_index": None, "query_usage_30_day": 0},
                 {"type": "group", "name": "industry", "group_type_index": 0, "query_usage_30_day": 0},
                 {"type": "group", "name": "industry", "group_type_index": 1, "query_usage_30_day": 7},
-            ]
+            ],
+            "computed_at": ANY,
+            "tracking_since": first_seen.isoformat().replace("+00:00", "Z"),
         }
         assert mock_sync_execute.call_args.kwargs["team_id"] == self.team.pk
 
@@ -1257,4 +1264,105 @@ class TestPropertyUsageMetricsAPI(APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", {"properties": []}, format="json"
         )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestPropertyDefinitionUsageOrdering(APIBaseTest):
+    USAGE = [
+        ("property:event:$browser", 10),
+        ("property:event:plan", 10),
+        ("property:event:revenue", 2),
+        ("property:event:no_definition", 50),
+        ("property:person:zeta", 99),
+    ]
+
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        for name in ("$browser", "plan", "revenue", "app_rating", "email_domain", "zeta"):
+            PropertyDefinition.objects.create(team=self.team, name=name)
+        PropertyDefinition.objects.create(team=self.team, name="zeta", type=PropertyDefinition.Type.PERSON)
+
+    def _page_through(self, params: str) -> list[tuple[str, int]]:
+        rows: list[tuple[str, int]] = []
+        for offset in range(0, 10, 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/property_definitions/?{params}&limit=2&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            body = response.json()
+            assert set(body["query_usage"]) == {"computed_at", "tracking_since"}
+            rows += [(r["name"], r["query_usage_30_day"]) for r in exclude_virtual_properties(body["results"])]
+        return rows
+
+    @parameterized.expand(
+        [
+            (
+                "most_queried",
+                "ordering=-query_usage",
+                [
+                    ("$browser", 10),
+                    ("plan", 10),
+                    ("revenue", 2),
+                    ("app_rating", 0),
+                    ("email_domain", 0),
+                    ("zeta", 0),
+                ],
+            ),
+            (
+                "least_queried",
+                "ordering=query_usage",
+                [
+                    ("app_rating", 0),
+                    ("email_domain", 0),
+                    ("zeta", 0),
+                    ("revenue", 2),
+                    ("$browser", 10),
+                    ("plan", 10),
+                ],
+            ),
+            (
+                "most_queried_with_search",
+                "ordering=-query_usage&search=a",
+                [("plan", 10), ("app_rating", 0), ("email_domain", 0), ("zeta", 0)],
+            ),
+            (
+                "least_queried_with_search",
+                "ordering=query_usage&search=a",
+                [("app_rating", 0), ("email_domain", 0), ("zeta", 0), ("plan", 10)],
+            ),
+            (
+                "default_order_with_counts",
+                "include_query_usage=true&search=a",
+                [("plan", 10), ("zeta", 0), ("app_rating", 0), ("email_domain", 0)],
+            ),
+        ]
+    )
+    @patch("posthog.taxonomy.property_usage.sync_execute")
+    def test_pages_through_used_then_unused_properties(
+        self, _name: str, params: str, expected: list[tuple[str, int]], mock_sync_execute
+    ) -> None:
+        first_seen = datetime.now(UTC) - timedelta(days=40)
+        mock_sync_execute.return_value = [(instance_id, count, first_seen) for instance_id, count in self.USAGE]
+
+        rows = self._page_through(params)
+
+        assert rows == expected
+        assert mock_sync_execute.call_count == 1
+
+    @patch("posthog.taxonomy.property_usage.sync_execute", return_value=[])
+    def test_refuses_usage_ordering_above_the_definition_cap(self, _mock_sync_execute) -> None:
+        with patch("posthog.taxonomy.property_definition_api.MAX_DEFINITIONS_FOR_USAGE_ORDERING", 5):
+            refused = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?ordering=-query_usage")
+            narrowed = self.client.get(
+                f"/api/projects/{self.team.pk}/property_definitions/?ordering=-query_usage&search=a"
+            )
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        assert refused.json()["code"] == "too_many_properties_to_order_by_usage"
+        assert narrowed.status_code == status.HTTP_200_OK
+
+    def test_rejects_an_unknown_ordering(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?ordering=name;drop")
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST

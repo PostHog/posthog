@@ -111,12 +111,13 @@ export const FilteredUnverifiedOnly: Story = {
 
 const QUERY_COUNTS: Record<string, number> = { $browser: 1284, $os: 312, plan: 0, revenue: 57, $current_url: 9_431 }
 
-export const WithQueryCounts: Story = {
+export const WithQueryCountsSortedByMostQueried: Story = {
     parameters: {
-        pageUrl: urls.propertyDefinitions(),
+        pageUrl: urls.propertyDefinitions() + '?ordering=-query_usage',
         featureFlags: [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
+        mockDate: '2026-11-12T10:08:00Z',
         testOptions: {
-            waitForSelector: '[data-attr="property-definition-query-count"]',
+            waitForSelector: '[data-attr="property-definitions-query-usage-coverage"]',
             snapshotBrowsers: [],
         },
     },
@@ -127,27 +128,45 @@ export const WithQueryCounts: Story = {
                     200,
                     {
                         ...MOCK_PROPERTY_DEFINITIONS,
-                        results: MOCK_PROPERTY_DEFINITIONS.results.map((definition) => ({
-                            ...definition,
-                            type: 'event',
-                        })),
+                        results: MOCK_PROPERTY_DEFINITIONS.results
+                            .map((definition) => ({
+                                ...definition,
+                                type: 'event',
+                                query_usage_30_day: QUERY_COUNTS[definition.name] ?? 0,
+                            }))
+                            .sort((a, b) => b.query_usage_30_day - a.query_usage_30_day),
+                        query_usage: {
+                            computed_at: '2026-11-12T10:00:00Z',
+                            tracking_since: '2026-11-03T09:00:00Z',
+                        },
                     },
                 ],
             },
-            post: {
-                '/api/projects/:team_id/property_definitions/usage_metrics/': async ({ request }) => {
-                    const { properties } = (await request.json()) as { properties: { type: string; name: string }[] }
-                    return [
-                        200,
-                        {
-                            results: properties.map((entry) => ({
-                                ...entry,
-                                group_type_index: null,
-                                query_usage_30_day: QUERY_COUNTS[entry.name] ?? 0,
-                            })),
-                        },
-                    ]
-                },
+        }),
+    ],
+}
+
+export const UsageSortRefusedForLargeProject: Story = {
+    parameters: {
+        pageUrl: urls.propertyDefinitions() + '?ordering=query_usage',
+        featureFlags: [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
+        testOptions: {
+            waitForSelector: '[data-attr="property-definitions-clear-usage-sort"]',
+            snapshotBrowsers: [],
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/property_definitions/': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'too_many_properties_to_order_by_usage',
+                        detail: 'There are too many properties to sort by queries. Search or filter the list, then sort again.',
+                        attr: null,
+                    },
+                ],
             },
         }),
     ],

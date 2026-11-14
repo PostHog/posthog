@@ -6,7 +6,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
-from posthog.taxonomy.property_definition_api import PropertyDefinitionTypeSerializerMixin
+from posthog.taxonomy.property_definition_api import (
+    PropertyDefinitionTypeSerializerMixin,
+    PropertyQueryUsageSerializerMixin,
+)
 
 from products.event_definitions.backend.models import PropertyDefinition
 
@@ -14,7 +17,10 @@ from ee.models.property_definition import EnterprisePropertyDefinition
 
 
 class EnterprisePropertyDefinitionSerializer(
-    PropertyDefinitionTypeSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
+    PropertyDefinitionTypeSerializerMixin,
+    PropertyQueryUsageSerializerMixin,
+    TaggedItemSerializerMixin,
+    serializers.ModelSerializer,
 ):
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
@@ -46,6 +52,7 @@ class EnterprisePropertyDefinitionSerializer(
             "warehouse_origin",
             "type",
             "group_type_index",
+            "query_usage_30_day",
         )
         read_only_fields = [
             "id",

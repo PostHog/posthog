@@ -247,6 +247,24 @@ const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, 
     loadPrComments: 'scenes.inbox.logics.inboxReportDetailLogic',
 }
 
+/*
+Loads whose owning logic shows a 400 with code `too_many_properties_to_order_by_usage` as a banner
+with an action to clear the sort. The project has too many properties to sort by query count, so the
+400 is an expected refusal, not a defect. The backend raises the code in
+posthog/taxonomy/property_usage_ordering.py. Owned by propertyDefinitionsTableLogic's usageSortError reducer.
+*/
+const USAGE_SORT_REFUSAL_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    loadPropertyDefinitions: 'scenes.data-management.properties.propertyDefinitionsTableLogic',
+}
+
+function isSelfHandledUsageSortRefusal(error: any, actionKey: string, logicPath: string): boolean {
+    return (
+        error?.status === 400 &&
+        error?.code === 'too_many_properties_to_order_by_usage' &&
+        isOwnedByLogic(USAGE_SORT_REFUSAL_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    )
+}
+
 // projectLogic toasts a duplicate project name 409 from these actions.
 const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     createProject: 'scenes.projectLogic',
@@ -256,6 +274,9 @@ const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
 function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
     if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
         return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    if (isSelfHandledUsageSortRefusal(error, actionKey, logicPath)) {
+        return true
     }
     return error?.status === 409 && isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
 }
@@ -389,7 +410,8 @@ export function initKea({
                         isFeatureFlagDuplicateKey ||
                         isHasDependentsError ||
                         isSelfHandledFieldError ||
-                        isSelfHandledValidationError
+                        isSelfHandledValidationError ||
+                        isSelfHandledUsageSortRefusal(error, actionKey, logic.pathString)
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
