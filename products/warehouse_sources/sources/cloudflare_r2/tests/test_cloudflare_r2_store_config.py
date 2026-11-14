@@ -38,7 +38,7 @@ def _credential(access_key: str = "AKIAEXAMPLE", access_secret: str = "c2VjcmV0"
 def test_reads_from_its_own_endpoint(host: str) -> None:
     source = CloudflareR2Source()
     config = source.object_store_config(
-        source.parse_config({**VALUES, "url_pattern": f"https://{host}/customer-data/exports/"})
+        source.parse_config({**VALUES, "url_pattern": f"https://{host}/customer-data/exports/"}), team_id=1
     )
 
     store = open_store(config)
@@ -108,7 +108,7 @@ def test_discovery_options_read_the_csv_quote_option_from_the_file_format(
 def test_a_self_managed_table_maps_to_its_bucket_and_credential(host: str) -> None:
     location = parse_self_managed_url(f"https://{host}/exports/a.csv")
 
-    job_inputs = CloudflareR2Source().job_inputs_for_self_managed(location, _credential())
+    job_inputs = CloudflareR2Source().job_inputs_for_self_managed(location, _credential(), team_id=1)
 
     assert job_inputs["url_pattern"] == f"https://{host}/exports/"
     assert (job_inputs["access_key_id"], job_inputs["secret_access_key"]) == ("AKIAEXAMPLE", "c2VjcmV0")

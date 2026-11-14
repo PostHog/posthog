@@ -1,9 +1,19 @@
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import pytest
+from unittest.mock import patch
 
 from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
-from products.warehouse_sources.sources.sdk import SelfManagedCredential, SourceFieldSelectConfig, UnmappableTableError
+from products.warehouse_sources.sources.sdk import (
+    ROLE_NOT_FOUND_ERROR,
+    AwsAuthError,
+    ObjectStoreConfig,
+    RoleCredentials,
+    SelfManagedCredential,
+    SourceFieldSelectConfig,
+    UnmappableTableError,
+)
 from products.warehouse_sources.sources.sdk.testing import (
     INVALID_CONFIG_ERROR,
     open_store,
@@ -33,7 +43,7 @@ def _credential(access_key: str = "AKIAEXAMPLE", access_secret: str = "c2VjcmV0"
 
 def test_reads_from_its_own_endpoint() -> None:
     source = AmazonS3Source()
-    config = source.object_store_config(source.parse_config(VALUES))
+    config = source.object_store_config(source.parse_config(VALUES), team_id=1)
 
     store = open_store(config)
 
@@ -97,7 +107,7 @@ def test_discovery_options_read_the_csv_quote_option_from_the_file_format(
 def test_a_self_managed_table_maps_to_its_bucket_and_credential() -> None:
     location = parse_self_managed_url("https://exports.s3.eu-west-1.amazonaws.com/a.csv")
 
-    job_inputs = AmazonS3Source().job_inputs_for_self_managed(location, _credential())
+    job_inputs = AmazonS3Source().job_inputs_for_self_managed(location, _credential(), team_id=1)
 
     assert job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/exports/"
     assert (job_inputs["access_key_id"], job_inputs["secret_access_key"]) == ("AKIAEXAMPLE", "c2VjcmV0")
@@ -115,4 +125,44 @@ def test_a_self_managed_table_maps_to_its_bucket_and_credential() -> None:
 )
 def test_a_self_managed_table_the_source_would_refuse_is_refused(url: str, credential: SelfManagedCredential) -> None:
     with pytest.raises(UnmappableTableError):
-        AmazonS3Source().job_inputs_for_self_managed(parse_self_managed_url(url), credential)
+        AmazonS3Source().job_inputs_for_self_managed(parse_self_managed_url(url), credential, team_id=1)
+
+
+ROLE_CONFIG = {"url_pattern": VALUES["url_pattern"], "aws_auth": {"selection": "role", "aws_integration_id": "7"}}
+
+
+def test_a_role_builds_a_store_without_keys() -> None:
+    source = AmazonS3Source()
+    role_credentials = RoleCredentials.create_from_metadata(
+        {
+            "access_key": "ASIAROLE",
+            "secret_key": "secret-ROLE",
+            "token": "token-ROLE",
+            "expiry_time": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+        },
+        refresh_using=lambda: {},
+        method="sts-assume-role",
+    )
+
+    with patch(
+        "products.warehouse_sources.sources.amazon_s3.source.resolve_aws_credentials", return_value=role_credentials
+    ) as resolve:
+        store_config = cast(ObjectStoreConfig, source.object_store_config(source.parse_config(ROLE_CONFIG), team_id=1))
+
+    auth, team_id, _session_actions = resolve.call_args.args
+    assert (auth.selection, auth.aws_integration_id, team_id) == ("role", 7, 1)
+    assert store_config.role_credentials is role_credentials
+    assert (store_config.access_key_id, store_config.secret_access_key) == ("", "")
+
+
+def test_a_role_that_cannot_be_resolved_fails_the_check_with_its_message() -> None:
+    source = AmazonS3Source()
+
+    with patch(
+        "products.warehouse_sources.sources.amazon_s3.source.resolve_aws_credentials",
+        side_effect=AwsAuthError(ROLE_NOT_FOUND_ERROR),
+    ):
+        valid, message = source.validate_credentials(source.parse_config(ROLE_CONFIG), team_id=1)
+
+    assert not valid
+    assert message is not None and ROLE_NOT_FOUND_ERROR in message
