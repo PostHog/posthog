@@ -46,7 +46,6 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 0
                   sparse-checkout: |
                       rust/
                       proto/
@@ -54,6 +53,9 @@ jobs:
                       .github/actions/rust-compute-affected/
                   sparse-checkout-cone-mode: false
                   clean: false
+
+            - name: Fetch the current commit's history
+              run: git fetch --no-tags --filter=blob:none --unshallow origin "$GITHUB_SHA"
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
