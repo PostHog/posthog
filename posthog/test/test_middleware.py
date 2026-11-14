@@ -831,13 +831,16 @@ class TestUnversionedStaticPathMiddleware(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("us_cloud", "US", False),
-            ("eu_cloud", "EU", False),
-            ("cloud_dev", "DEV", False),
-            ("local_development", None, True),
+            ("us_cloud", "US", False, "/static/1.438.12/array.js"),
+            ("eu_cloud", "EU", False, "/static/1.438.12/array.js"),
+            ("cloud_dev", "DEV", False, "/static/1.438.12/array.js"),
+            ("hobby", None, False, "/static/array.js"),
+            ("local_development", None, True, "/static/array.js"),
         ]
     )
-    def test_never_rewrites_outside_hobby(self, _name: str, cloud_deployment: str | None, debug: bool) -> None:
+    def test_rewrites_only_where_one_posthog_js_build_is_served(
+        self, _name: str, cloud_deployment: str | None, debug: bool, expected_path: str
+    ) -> None:
         seen_paths: list[str] = []
 
         def get_response(request: HttpRequest) -> HttpResponse:
@@ -847,12 +850,14 @@ class TestUnversionedStaticPathMiddleware(SimpleTestCase):
         with override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug):
             UnversionedStaticPathMiddleware(get_response)(RequestFactory().get("/static/1.438.12/array.js"))
 
-        assert seen_paths == ["/static/1.438.12/array.js"]
+        assert seen_paths == [expected_path]
 
-    def test_registered_only_in_hobby_and_before_whitenoise(self) -> None:
+    def test_registered_only_without_a_versioned_bucket_and_before_whitenoise(self) -> None:
         middleware = list(settings.MIDDLEWARE)
         name = "posthog.middleware.UnversionedStaticPathMiddleware"
-        registered_expected = derive_run_mode(base_variables.CLOUD_DEPLOYMENT, base_variables.DEBUG).is_hobby
+        registered_expected = derive_run_mode(
+            base_variables.CLOUD_DEPLOYMENT, base_variables.DEBUG
+        ).serves_one_posthog_js_build
 
         assert (name in middleware) == registered_expected
         if registered_expected:
