@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { getExportColumns, logsExportLogic } from './logsExportLogic'
@@ -126,6 +127,51 @@ describe('logsExportLogic', () => {
                         columns: ['timestamp', 'severity_text', 'body', 'attributes', 'resource_attributes'],
                     })
                 )
+            })
+        })
+
+        describe('exportSelectedAsCsv', () => {
+            it('prefixes cells starting with a formula character so spreadsheets read them as text', async () => {
+                const createObjectURL = jest.fn((_blob: Blob) => 'blob:logs-export')
+                const originalCreateObjectURL = URL.createObjectURL
+                const originalRevokeObjectURL = URL.revokeObjectURL
+                URL.createObjectURL = createObjectURL
+                URL.revokeObjectURL = jest.fn()
+                const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+                try {
+                    const log: LogMessage = {
+                        uuid: 'log-1',
+                        trace_id: 'trace-1',
+                        span_id: 'span-1',
+                        body: '=1+1',
+                        attributes: {},
+                        timestamp: '2024-01-01T00:00:00Z',
+                        observed_timestamp: '2024-01-01T00:00:00Z',
+                        severity_text: 'info',
+                        severity_number: 9,
+                        level: 'info',
+                        resource_attributes: {},
+                        instrumentation_scope: 'test',
+                        event_name: 'log',
+                    }
+                    viewerLogic.actions.setLogs([log])
+                    viewerLogic.actions.setSelectedLogIds({ 'log-1': true })
+
+                    await expectLogic(exportLogic, () => {
+                        exportLogic.actions.exportSelectedAsCsv()
+                    }).toFinishAllListeners()
+
+                    expect(anchorClick).toHaveBeenCalledTimes(1)
+                    const csv = await createObjectURL.mock.calls[0][0].text()
+                    expect(csv.split('\r\n')).toEqual([
+                        'timestamp,severity_text,body,attributes,resource_attributes',
+                        `2024-01-01T00:00:00Z,info,"'=1+1",{},{}`,
+                    ])
+                } finally {
+                    URL.createObjectURL = originalCreateObjectURL
+                    URL.revokeObjectURL = originalRevokeObjectURL
+                    anchorClick.mockRestore()
+                }
             })
         })
     })
