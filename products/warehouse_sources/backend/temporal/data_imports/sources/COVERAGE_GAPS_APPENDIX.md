@@ -13181,10 +13181,10 @@ Today (6): `genres`, `networks`, `regions`, `releases`, `sources`, `titles`
 
 Diffed against: <https://api.watchmode.com/openapi.json>
 
-- [ ] `GET /v1/title/{title_id}/sources` — per-title streaming availability — Watchmode's entire reason to exist, and a fan-out of the titles we already sync (high)
-- [ ] `GET /v1/title/{title_id}/details` — full title metadata (ratings, runtime, plot, network, genre ids); list-titles only returns a stub row (high)
-- [ ] `GET /v1/title/{title_id}/cast-crew` — title-to-person membership table linking titles we sync to people (high)
-- [ ] `GET /v1/person/{person_id}` — lookup resolving the person ids returned by cast-crew (high)
+- [x] `GET /v1/title/{title_id}/sources` — per-title streaming availability — Watchmode's entire reason to exist, and a fan-out of the titles we already sync (high). Added as `title_sources` (fan-out over `titles`).
+- [x] `GET /v1/title/{title_id}/details` — full title metadata (ratings, runtime, plot, network, genre ids); list-titles only returns a stub row (high). Added as `title_details` (fan-out over `titles`).
+- [x] `GET /v1/title/{title_id}/cast-crew` — title-to-person membership table linking titles we sync to people (high). Added as `title_cast_crew` (fan-out over `titles`).
+- [ ] `GET /v1/person/{person_id}` — lookup resolving the person ids returned by cast-crew (high); skipped: there is no person list, so a full table needs a second fan-out over every title's cast and crew that cannot resume, and removing duplicate people needs state that grows with the catalog. `title_cast_crew` already carries `person_id`, `full_name`, `type` and `role`.
 - [ ] `GET /v1/title/{title_id}/episodes` — per-episode rows for TV titles, the finest analytical grain available (medium)
 - [ ] `GET /v1/title/{title_id}/seasons` — season-level rollup between titles and episodes (medium)
 - [ ] `GET /v1/title-release-dates` — advanced release-date feed with source and region dimensions that the simple /releases table lacks (medium)
