@@ -68,6 +68,31 @@ GENERIC_WORDS = frozenset(
         "website",
     }
 )
+WORD = re.compile(r"[a-z0-9]+")
+# Words almost every ad and search contain, so sharing one says nothing about whether a search fits the ads.
+STOP_WORDS = frozenset(
+    {
+        "and",
+        "are",
+        "but",
+        "can",
+        "for",
+        "from",
+        "get",
+        "how",
+        "not",
+        "our",
+        "the",
+        "this",
+        "that",
+        "what",
+        "with",
+        "you",
+        "your",
+    }
+)
+# Below this, a search has too few clicks to call it unrelated to the ads that showed on it.
+OFF_TOPIC_MIN_CLICKS = 5
 # Share of the searches mentioning a name that must be comparisons for it to count as a competitor.
 COMPETITOR_COMPARISON_SHARE = 0.07
 COMPARISON = re.compile(r"(alternatives?|competitors?|(^| )vs\.?( |$))")
@@ -146,6 +171,7 @@ class SearchTermStats:
     conversions: float
     status: str
     absolute_top_percentage: float | None = None
+    ad_group_ids: tuple[str, ...] = ()
 
 
 @frozen
@@ -181,6 +207,12 @@ class KeywordTracking:
 
 
 @frozen
+class Ad:
+    ad_group_id: str
+    texts: tuple[str, ...]
+
+
+@frozen
 class RecommendationInputs:
     campaigns: tuple[CampaignStats, ...]
     search_terms: tuple[SearchTermStats, ...]
@@ -192,6 +224,7 @@ class RecommendationInputs:
     ranking_pages: tuple[RankingPage, ...] = ()
     customer_id: str | None = None
     keyword_tracking: KeywordTracking | None = None
+    ads: tuple[Ad, ...] = ()
 
 
 @frozen
@@ -203,6 +236,7 @@ class _Term:
     conversions: float
     status: str
     top_campaign_id: str
+    ad_group_ids: frozenset[str]
     organic: OrganicQueryStats | None
     absolute_top: float | None
 
@@ -252,6 +286,29 @@ def _site_brand(site_url: str) -> str | None:
     # A URL-prefix property can be app.example.com or blog.example.com, so the brand is the registrable label.
     brand = DOMAIN_PARTS(match.group(1).strip(".")).domain
     return brand if len(brand) >= MIN_BRAND_LENGTH else None
+
+
+def _is_meaningful(word: str) -> bool:
+    return len(word) >= 3 and word not in GENERIC_WORDS
+
+
+def _singular(word: str) -> str:
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if word.endswith(("sses", "shes", "ches", "xes")):
+        return word[:-2]
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _word_stems(text: str) -> frozenset[str]:
+    # Plurals fold into one stem, so "funnels" in a search still matches "funnel" in an ad.
+    return frozenset(
+        stem
+        for word in WORD.findall(text.lower())
+        if _is_meaningful(word) and word not in STOP_WORDS and _is_meaningful(stem := _singular(word))
+    )
 
 
 def _similarity(brand: str, compact_term: str) -> float:
@@ -367,10 +424,19 @@ class _Recommender:
         self.terms = self._aggregate_terms()
         self.brand_terms = {term.term for term in self.terms.values() if self._is_brand(term)}
         self.top_keyword: dict[str, TermKeywordStats] = {}
+        self.keyword_stems: dict[str, set[str]] = defaultdict(set)
         for keyword_row in inputs.term_keywords:
             current = self.top_keyword.get(keyword_row.term)
             if current is None or keyword_row.cost > current.cost:
                 self.top_keyword[keyword_row.term] = keyword_row
+            self.keyword_stems[keyword_row.term] |= _word_stems(keyword_row.keyword)
+        self.copy_stems: dict[str, set[str]] = defaultdict(set)
+        self.keyword_insertion_groups: set[str] = set()
+        for ad in inputs.ads:
+            for text in ad.texts:
+                self.copy_stems[ad.ad_group_id] |= _word_stems(text)
+                if "{keyword:" in text.lower():
+                    self.keyword_insertion_groups.add(ad.ad_group_id)
         top_pages: dict[str, RankingPage] = {}
         for page_row in inputs.ranking_pages:
             current_page = top_pages.get(page_row.query)
@@ -873,6 +939,9 @@ class _Recommender:
             and (not term.organic or term.organic.position > 10)
             and not self._in_striking_distance(term, competitors)
         ]
+        off_topic = {
+            term.term for term in terms if self._is_off_topic(term) and not self._mentions(term.term, competitors)
+        }
         rules[MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS] = [
             self._term_recommendation(
                 MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS,
@@ -880,7 +949,8 @@ class _Recommender:
                 benchmark,
                 advice.action,
                 f"Spent {self._money(term.cost)} ({term.cost / benchmark.cpa:.1f}x {benchmark.label}) "
-                f"on {term.clicks:,.0f} clicks with no conversions",
+                f"on {term.clicks:,.0f} clicks with no conversions"
+                + (self._off_topic_reason(term) if term.term in off_topic else ""),
                 term.cost,
                 "save",
                 "measured",
@@ -925,8 +995,37 @@ class _Recommender:
             MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS,
             MarketingAnalyticsRecommendationRule.STRIKING_DISTANCE,
         ):
-            ordered.extend(sorted(rules.get(rule, []), key=lambda rec: -(rec.impact or 0))[:CANDIDATES_PER_RULE])
+            top = sorted(rules.get(rule, []), key=lambda rec: -(rec.impact or 0))[:CANDIDATES_PER_RULE]
+            # Searches unrelated to the ads that showed on them are the safest negatives, so they come first among the
+            # costliest ones that show, without pushing a bigger waste out of the list.
+            if rule == MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS:
+                top[:PER_RULE_LIMIT] = sorted(top[:PER_RULE_LIMIT], key=lambda rec: rec.subject not in off_topic)
+            ordered.extend(top)
         return ordered
+
+    def _is_off_topic(self, term: _Term) -> bool:
+        # An ad group without synced copy could be the one that mentions the search, so it is not judged.
+        if not term.ad_group_ids or any(group not in self.copy_stems for group in term.ad_group_ids):
+            return False
+        # Keyword insertion puts the matched keyword in the ad, so without the keyword the ad text is unknown.
+        if term.ad_group_ids & self.keyword_insertion_groups and term.term not in self.keyword_stems:
+            return False
+        stems = _word_stems(term.term)
+        copy = set().union(*(self.copy_stems[group] for group in term.ad_group_ids))
+        return bool(
+            stems
+            and term.clicks >= OFF_TOPIC_MIN_CLICKS
+            and not stems & (copy | self.keyword_stems.get(term.term, set()))
+        )
+
+    def _off_topic_reason(self, term: _Term) -> str:
+        keyword = self.top_keyword.get(term.term)
+        if keyword:
+            return (
+                ". None of the main words in this search appear in the ads that showed on it "
+                f'or in the keyword "{keyword.keyword}".'
+            )
+        return ". None of the main words in this search appear in the ads that showed on it."
 
     def _no_conversion_advice(self, term: _Term, competitors: set[str]) -> _Advice:
         keyword = self.top_keyword.get(term.term)
@@ -1067,7 +1166,7 @@ class _Recommender:
                 continue
             if self._is_brand_query(query.query, query, 0) or self._mentions(query.query, competitors):
                 continue
-            words = [word for word in query.query.split() if len(word) >= 3 and word not in GENERIC_WORDS]
+            words = [word for word in query.query.split() if _is_meaningful(word)]
             matched = [word for word in words if word in vocabulary]
             if not words or len(matched) < len(words):
                 continue
@@ -1139,6 +1238,7 @@ class _Recommender:
         totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         statuses: dict[str, str] = {}
         cost_by_campaign: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+        ad_groups: dict[str, set[str]] = defaultdict(set)
         top_impressions: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
         for row in self.inputs.search_terms:
             total = totals[row.term]
@@ -1148,6 +1248,7 @@ class _Recommender:
             total[3] += row.impressions
             statuses.setdefault(row.term, row.status)
             cost_by_campaign[row.term][row.campaign_id] += row.cost
+            ad_groups[row.term].update(row.ad_group_ids)
             if row.absolute_top_percentage is not None and row.impressions:
                 top_impressions[row.term][0] += row.absolute_top_percentage * row.impressions
                 top_impressions[row.term][1] += row.impressions
@@ -1160,6 +1261,7 @@ class _Recommender:
                 conversions=conversions,
                 status=statuses[term],
                 top_campaign_id=max(cost_by_campaign[term], key=lambda campaign: cost_by_campaign[term][campaign]),
+                ad_group_ids=frozenset(ad_groups[term]),
                 organic=self.organic.get(term),
                 absolute_top=top[0] / top[1] if (top := top_impressions.get(term)) and top[1] else None,
             )
@@ -1248,7 +1350,7 @@ class _Recommender:
             ):
                 continue
             for word in term.term.split():
-                if len(word) >= 3 and word not in GENERIC_WORDS:
+                if _is_meaningful(word):
                     vocabulary[word][term.top_campaign_id] += term.conversions
         return vocabulary
 
