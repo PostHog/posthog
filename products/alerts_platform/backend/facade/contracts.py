@@ -7,6 +7,7 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+import re
 import hashlib
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, field
@@ -1488,6 +1489,7 @@ class DestinationType(LabeledStrEnum):
     WEBHOOK = "webhook", "Webhook"
     TEAMS = "teams", "Microsoft Teams"
     PAGERDUTY = "pagerduty", "PagerDuty"
+    INCIDENT_IO = "incident_io", "incident.io"
     EMAIL = "email", "Email"
     IN_APP = "in_app", "In-app notification"
 
@@ -1516,6 +1518,11 @@ class IncidentAction(StrEnum):
     RESOLVE = "resolve"
 
 
+# The ID goes into the URL path of every send, so delivery checks it again rather than trust the stored value.
+# Anchored because DRF's RegexField searches rather than matches the whole value.
+INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE: Final = re.compile(r"\A[0-9A-Za-z]{26}\Z")
+
+
 class AlertDestinationData(TypedDict):
     type: DestinationType
     slack_workspace_id: NotRequired[int]
@@ -1528,6 +1535,9 @@ class AlertDestinationData(TypedDict):
     pagerduty_routing_key: NotRequired[str]
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
+    incident_io_alert_source_config_id: NotRequired[str]
+    # Secret-bearing: reads show only its last four characters.
+    incident_io_secret: NotRequired[str]
     email_addresses: NotRequired[list[str]]
     # Users rather than addresses, so a send reaches each one's current address, and only while they have access.
     email_user_ids: NotRequired[list[int]]
@@ -1553,6 +1563,7 @@ ROUTABLE_DESTINATION_TYPES: Final = (
     DestinationType.TEAMS,
     DestinationType.DISCORD,
     DestinationType.PAGERDUTY,
+    DestinationType.INCIDENT_IO,
 )
 
 

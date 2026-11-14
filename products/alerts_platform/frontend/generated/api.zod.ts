@@ -14,6 +14,8 @@ import * as zod from 'zod'
  */
 export const platformAlertReceiversCreateBodyNameMax = 255
 
+export const platformAlertReceiversCreateBodyIncidentIoAlertSourceConfigIdRegExp = new RegExp('^[0-9A-Za-z]{26}$')
+
 export const PlatformAlertReceiversCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -21,12 +23,12 @@ export const PlatformAlertReceiversCreateBody = /* @__PURE__ */ zod.object({
         .describe('Name of the receiver, unique in the project.'),
     enabled: zod.boolean().optional().describe('Whether routes send to this receiver. Defaults to true.'),
     type: zod
-        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty'])
+        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty', 'incident_io'])
         .describe(
-            '\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty'
+            '\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty\n\* `incident_io` - incident.io'
         )
         .describe(
-            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty'
+            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty\n\* `incident_io` - incident.io'
         ),
     slack_workspace_id: zod
         .number()
@@ -60,12 +62,27 @@ export const PlatformAlertReceiversCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.\n\n\* `us` - us\n\* `eu` - eu'
         ),
+    incident_io_alert_source_config_id: zod
+        .string()
+        .regex(platformAlertReceiversCreateBodyIncidentIoAlertSourceConfigIdRegExp)
+        .optional()
+        .describe('ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.'),
+    incident_io_secret: zod
+        .string()
+        .optional()
+        .describe(
+            'Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted.'
+        ),
 })
 
 /**
  * Change a receiver. Destination fields replace the stored destination and need the type.
  */
 export const platformAlertReceiversPartialUpdateBodyNameMax = 255
+
+export const platformAlertReceiversPartialUpdateBodyIncidentIoAlertSourceConfigIdRegExp = new RegExp(
+    '^[0-9A-Za-z]{26}$'
+)
 
 export const PlatformAlertReceiversPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -75,13 +92,13 @@ export const PlatformAlertReceiversPartialUpdateBody = /* @__PURE__ */ zod.objec
         .describe('Name of the receiver, unique in the project.'),
     enabled: zod.boolean().optional().describe('Whether routes send to this receiver. Defaults to true.'),
     type: zod
-        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty'])
+        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty', 'incident_io'])
         .describe(
-            '\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty'
+            '\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty\n\* `incident_io` - incident.io'
         )
         .optional()
         .describe(
-            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty'
+            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty\n\* `incident_io` - incident.io'
         ),
     slack_workspace_id: zod
         .number()
@@ -114,6 +131,17 @@ export const PlatformAlertReceiversPartialUpdateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe(
             'PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.\n\n\* `us` - us\n\* `eu` - eu'
+        ),
+    incident_io_alert_source_config_id: zod
+        .string()
+        .regex(platformAlertReceiversPartialUpdateBodyIncidentIoAlertSourceConfigIdRegExp)
+        .optional()
+        .describe('ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.'),
+    incident_io_secret: zod
+        .string()
+        .optional()
+        .describe(
+            'Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted.'
         ),
 })
 

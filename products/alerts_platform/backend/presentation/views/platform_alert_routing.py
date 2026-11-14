@@ -6,7 +6,7 @@ matches. Both endpoints answer only while the routing flag is on for the team.
 
 from typing import Any, Literal, cast
 
-from django.db import transaction
+from django.db import models, transaction
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -27,6 +27,8 @@ from posthog.scopes import APIScopeObject
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.api import redact_destination_data
 from products.alerts_platform.backend.facade.contracts import (
+    INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE,
+    ROUTABLE_DESTINATION_TYPES,
     ROUTING_FLAG,
     AlertDestinationValidationError,
     AlertEventKind,
@@ -47,12 +49,18 @@ from products.alerts_platform.backend.presentation.views.platform_alert_destinat
     PagerDutyRegionChoices,
     PagerDutySeverityChoices,
     PlatformAlertDestinationEventKind,
-    PlatformAlertDestinationType,
     check_pagerduty_routing_key,
     check_slack_workspace,
     destination_data,
 )
 
+# TextChoices supports this functional API at runtime, but its type stubs only describe member
+# construction. The OpenAPI enum is named after this class. It must not list the same types as the
+# destinations' own choices class, or the two collide in the OpenAPI enum names.
+AlertReceiverType = cast(Any, models.TextChoices)(
+    "AlertReceiverType",
+    [(member.name, (member.value, member.label)) for member in ROUTABLE_DESTINATION_TYPES],
+)
 _DESTINATION_FIELDS = (
     "type",
     "slack_workspace_id",
@@ -62,6 +70,8 @@ _DESTINATION_FIELDS = (
     "pagerduty_routing_key",
     "pagerduty_severity",
     "pagerduty_region",
+    "incident_io_alert_source_config_id",
+    "incident_io_secret",
 )
 
 
@@ -104,11 +114,7 @@ class PlatformAlertRoutingSourceAccessPermission(BasePermission):
 class AlertReceiverSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the receiver. Routes name it in receiver_id.")
     name = serializers.CharField(help_text="Name of the receiver, unique in the project.")
-    # The destinations' own choices: a second class with the same set collides in the OpenAPI enum names.
-    # The write path refuses a type routing cannot send to.
-    type = serializers.ChoiceField(
-        choices=PlatformAlertDestinationType.choices, help_text="Notification destination type."
-    )
+    type = serializers.ChoiceField(choices=AlertReceiverType.choices, help_text="Notification destination type.")
     enabled = serializers.BooleanField(
         help_text="Whether routes send to this receiver. A disabled receiver gets nothing."
     )
@@ -139,6 +145,12 @@ class AlertReceiverSerializer(serializers.Serializer):
         required=False,
         help_text="PagerDuty service region the events go to. Unset means us.",
     )
+    incident_io_alert_source_config_id = serializers.CharField(
+        required=False, help_text="ID of the incident.io HTTP alert source the events go to."
+    )
+    incident_io_secret = serializers.CharField(
+        required=False, help_text="incident.io alert source secret reduced to its last four characters."
+    )
 
 
 class AlertReceiverWriteSerializer(serializers.Serializer):
@@ -146,11 +158,7 @@ class AlertReceiverWriteSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(
         required=False, help_text="Whether routes send to this receiver. Defaults to true."
     )
-    # The destinations' own choices: a second class with the same set collides in the OpenAPI enum names.
-    # The write path refuses a type routing cannot send to.
-    type = serializers.ChoiceField(
-        choices=PlatformAlertDestinationType.choices, help_text="Notification destination type."
-    )
+    type = serializers.ChoiceField(choices=AlertReceiverType.choices, help_text="Notification destination type.")
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )
@@ -179,6 +187,19 @@ class AlertReceiverWriteSerializer(serializers.Serializer):
         choices=PagerDutyRegionChoices.choices,
         required=False,
         help_text="PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.",
+    )
+    incident_io_alert_source_config_id = serializers.RegexField(
+        INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE,
+        required=False,
+        error_messages={"invalid": "Enter the 26-character ID of an incident.io HTTP alert source."},
+        help_text="ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.",
+    )
+    incident_io_secret = serializers.CharField(
+        required=False,
+        trim_whitespace=True,
+        help_text="Secret of the incident.io HTTP alert source, sent as a bearer token. Required when "
+        "type=incident_io. Send it again on every update that changes the destination, because reads return it "
+        "redacted.",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

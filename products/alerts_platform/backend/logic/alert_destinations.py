@@ -30,7 +30,7 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
 
 # The destination types that open and close incidents rather than post messages.
-INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY})
+INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY, DestinationType.INCIDENT_IO})
 
 _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
@@ -38,6 +38,7 @@ _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.TEAMS: ("webhook_url",),
     DestinationType.DISCORD: ("webhook_url",),
     DestinationType.PAGERDUTY: ("pagerduty_routing_key",),
+    DestinationType.INCIDENT_IO: ("incident_io_alert_source_config_id", "incident_io_secret"),
     DestinationType.EMAIL: ("email_addresses",),
     DestinationType.IN_APP: ("in_app_user_ids",),
 }
@@ -61,6 +62,8 @@ _FIELD_CHECKS: Final[dict[str, Callable[[object], bool]]] = {
     "slack_channel_id": _is_text,
     "webhook_url": _is_text,
     "pagerduty_routing_key": _is_text,
+    "incident_io_alert_source_config_id": _is_text,
+    "incident_io_secret": _is_text,
     "email_addresses": _is_list_of(_is_text),
     "email_user_ids": _is_list_of(_is_id),
     "in_app_user_ids": _is_list_of(_is_id),
@@ -506,10 +509,16 @@ def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
     redacted = cast(AlertDestinationData, {key: value for key, value in data.items() if key != "webhook_headers"})
     if (webhook_url := data.get("webhook_url")) is not None:
         redacted["webhook_url"] = _redact_url(webhook_url)
+    # Keep the tail a person needs to tell two credentials apart.
     if (routing_key := data.get("pagerduty_routing_key")) is not None:
-        # Keep the tail a person needs to tell two integration keys apart.
-        redacted["pagerduty_routing_key"] = f"••••{routing_key[-4:]}"
+        redacted["pagerduty_routing_key"] = _tail(routing_key)
+    if (secret := data.get("incident_io_secret")) is not None:
+        redacted["incident_io_secret"] = _tail(secret)
     return redacted
+
+
+def _tail(credential: str) -> str:
+    return f"••••{credential[-4:]}"
 
 
 def _redact_url(value: str) -> str:

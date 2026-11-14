@@ -56,6 +56,7 @@ _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.TEAMS: _WEBHOOK_FIELDS,
     DestinationType.DISCORD: _WEBHOOK_FIELDS,
     DestinationType.PAGERDUTY: ("pagerduty_routing_key",),
+    DestinationType.INCIDENT_IO: ("incident_io_alert_source_config_id", "incident_io_secret"),
 }
 # The fields each type stores. Redaction knows only its own type's credential, so a field of another
 # type would be stored and then shown in full.
@@ -65,6 +66,7 @@ _FIELDS_BY_TYPE: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.TEAMS: _WEBHOOK_FIELDS,
     DestinationType.DISCORD: _WEBHOOK_FIELDS,
     DestinationType.PAGERDUTY: ("pagerduty_routing_key", "pagerduty_severity", "pagerduty_region"),
+    DestinationType.INCIDENT_IO: ("incident_io_alert_source_config_id", "incident_io_secret"),
 }
 # Choices classes for the serializers below. TextChoices supports this functional API at runtime, but
 # its type stubs only describe member construction. The destination types carry their display labels,

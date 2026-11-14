@@ -48,6 +48,8 @@ const RECEIVER_FIELD_BY_ATTR: Record<string, keyof ReceiverForm> = {
     pagerduty_routing_key: 'pagerdutyRoutingKey',
     pagerduty_severity: 'pagerdutySeverity',
     pagerduty_region: 'pagerdutyRegion',
+    incident_io_alert_source_config_id: 'incidentIoAlertSourceConfigId',
+    incident_io_secret: 'incidentIoSecret',
     config: 'webhookUrl',
 }
 const ROUTE_FIELD_BY_ATTR: Record<string, keyof RouteForm> = {

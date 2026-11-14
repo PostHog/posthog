@@ -13,16 +13,17 @@
  * * `teams` - Microsoft Teams
  * * `discord` - Discord
  * * `pagerduty` - PagerDuty
+ * * `incident_io` - incident.io
  */
-export type PlatformAlertDestinationTypeEnumApi =
-    (typeof PlatformAlertDestinationTypeEnumApi)[keyof typeof PlatformAlertDestinationTypeEnumApi]
+export type AlertReceiverTypeEnumApi = (typeof AlertReceiverTypeEnumApi)[keyof typeof AlertReceiverTypeEnumApi]
 
-export const PlatformAlertDestinationTypeEnumApi = {
+export const AlertReceiverTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
     Teams: 'teams',
     Discord: 'discord',
     Pagerduty: 'pagerduty',
+    IncidentIo: 'incident_io',
 } as const
 
 /**
@@ -62,8 +63,9 @@ export interface AlertReceiverApi {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `discord` - Discord
-     * * `pagerduty` - PagerDuty */
-    type: PlatformAlertDestinationTypeEnumApi
+     * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io */
+    type: AlertReceiverTypeEnumApi
     /** Whether routes send to this receiver. A disabled receiver gets nothing. */
     enabled: boolean
     /** How many routes send to this receiver. Deleting the receiver deletes them. */
@@ -90,6 +92,10 @@ export interface AlertReceiverApi {
      * * `us` - us
      * * `eu` - eu */
     pagerduty_region?: PagerDutyRegionEnumApi
+    /** ID of the incident.io HTTP alert source the events go to. */
+    incident_io_alert_source_config_id?: string
+    /** incident.io alert source secret reduced to its last four characters. */
+    incident_io_secret?: string
 }
 
 export interface AlertReceiverWriteApi {
@@ -106,8 +112,9 @@ export interface AlertReceiverWriteApi {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `discord` - Discord
-     * * `pagerduty` - PagerDuty */
-    type: PlatformAlertDestinationTypeEnumApi
+     * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io */
+    type: AlertReceiverTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -130,6 +137,13 @@ export interface AlertReceiverWriteApi {
      * * `us` - us
      * * `eu` - eu */
     pagerduty_region?: PagerDutyRegionEnumApi
+    /**
+     * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
+     * @pattern ^[0-9A-Za-z]{26}$
+     */
+    incident_io_alert_source_config_id?: string
+    /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
+    incident_io_secret?: string
 }
 
 export interface PatchedAlertReceiverWriteApi {
@@ -146,8 +160,9 @@ export interface PatchedAlertReceiverWriteApi {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `discord` - Discord
-     * * `pagerduty` - PagerDuty */
-    type?: PlatformAlertDestinationTypeEnumApi
+     * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io */
+    type?: AlertReceiverTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -170,6 +185,13 @@ export interface PatchedAlertReceiverWriteApi {
      * * `us` - us
      * * `eu` - eu */
     pagerduty_region?: PagerDutyRegionEnumApi
+    /**
+     * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
+     * @pattern ^[0-9A-Za-z]{26}$
+     */
+    incident_io_alert_source_config_id?: string
+    /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
+    incident_io_secret?: string
 }
 
 export interface AlertRouteMatcherApi {
@@ -498,6 +520,7 @@ export interface PlatformAlertStateIntervalApi {
  * * `webhook` - Webhook
  * * `teams` - Microsoft Teams
  * * `pagerduty` - PagerDuty
+ * * `incident_io` - incident.io
  * * `email` - Email
  * * `in_app` - In-app notification
  */
@@ -509,6 +532,7 @@ export const DestinationTypeEnumApi = {
     Webhook: 'webhook',
     Teams: 'teams',
     Pagerduty: 'pagerduty',
+    IncidentIo: 'incident_io',
     Email: 'email',
     InApp: 'in_app',
 } as const
@@ -2379,6 +2403,24 @@ export type PatchedPlatformAlertConfigurationEditApi =
     | PatchedTracesPlatformAlertConfigurationEditApi
     | PatchedWarehouseDestinationPlatformAlertConfigurationEditApi
     | PatchedWarehouseSourcePlatformAlertConfigurationEditApi
+
+/**
+ * * `slack` - Slack
+ * * `webhook` - Webhook
+ * * `teams` - Microsoft Teams
+ * * `discord` - Discord
+ * * `pagerduty` - PagerDuty
+ */
+export type PlatformAlertDestinationTypeEnumApi =
+    (typeof PlatformAlertDestinationTypeEnumApi)[keyof typeof PlatformAlertDestinationTypeEnumApi]
+
+export const PlatformAlertDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Teams: 'teams',
+    Discord: 'discord',
+    Pagerduty: 'pagerduty',
+} as const
 
 export interface PlatformAlertDestinationApi {
     /** ID of the destination. Send it to the delete endpoint to remove it. */
