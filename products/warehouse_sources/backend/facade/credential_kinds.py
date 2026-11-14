@@ -447,6 +447,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Factorial": "factorial",
     "Faire": "faire",
     "FarosAi": "faros-ai",
+    "FastSpring": "fastspring",
     "Fastbill": "fastbill",
     "Fastly": "fastly",
     "Fathom": "fathom",
