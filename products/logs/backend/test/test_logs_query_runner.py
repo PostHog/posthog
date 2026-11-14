@@ -1667,6 +1667,8 @@ class TestLogsQueryExecutedEvent(APIBaseTest):
             ("plain", {"filterGroup": {"type": "AND", "values": []}}, "none", None, "unknown"),
             ("session_scoped", {"sessionId": "some-session"}, "session", None, "unknown"),
             ("person_scoped", {"personId": "some-person"}, "person", "initial_load", "initial_load"),
+            ("blank_session_id", {"sessionId": ""}, "session", None, "unknown"),
+            ("blank_person_id", {"personId": ""}, "person", None, "unknown"),
             ("unrecognised_trigger", {}, "none", "made_up", "unknown"),
         ]
     )
