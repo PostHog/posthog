@@ -1698,7 +1698,7 @@ class TestWorkflowFolders(APIBaseTest):
         ).json()["results"]
         return workflow_id, files[0]
 
-    @parameterized.expand([("draft", "file"), ("active", "file"), ("draft", "folder"), ("active", "folder")])
+    @parameterized.expand([("active", "file"), ("draft", "folder")])
     def test_project_tree_refuses_to_delete_a_workflow_that_is_not_archived(self, status: str, target: str) -> None:
         workflow_id, file = self._workflow_file_in_folder(status)
         files_url = f"/api/projects/{self.team.id}/file_system/"

@@ -148,41 +148,4 @@ describe('messageTemplatesLogic', () => {
         toast.mockRestore()
         projectTreeDataLogic.unmount()
     })
-
-    it('keeps a template when the lookup of its folder fails, and deletes it on retry once the lookup works', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        let lookupFails = true
-        let deleted = false
-        useMocks({
-            get: {
-                '/api/projects/:team_id/messaging_templates/:id/placement/': () =>
-                    lookupFails ? [500, { detail: 'Server error' }] : [200, { path: 'Campaigns/Welcome' }],
-            },
-            patch: {
-                '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
-                    deleted = ((await request.json()) as { deleted: boolean }).deleted
-                    return [200, template('a', 'Welcome', [])]
-                },
-            },
-        })
-        const error = jest.spyOn(lemonToast, 'error')
-
-        await expectLogic(logic, () => {
-            logic.actions.deleteTemplate(template('a', 'Welcome', []))
-        }).toFinishAllListeners()
-
-        expect(deleted).toBe(false)
-        expect(logic.values.templates.map((t) => t.id)).toEqual(['a', 'b', 'c'])
-        const retry = error.mock.calls[0][1]?.button
-        expect(retry?.label).toBe('Retry')
-
-        lookupFails = false
-        await expectLogic(logic, () => {
-            void retry?.action()
-        }).toFinishAllListeners()
-
-        expect(deleted).toBe(true)
-        expect(logic.values.templates.map((t) => t.id)).toEqual(['b', 'c'])
-        error.mockRestore()
-    })
 })
