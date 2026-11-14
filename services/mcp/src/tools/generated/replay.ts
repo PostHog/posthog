@@ -670,7 +670,7 @@ const AssistantRecordingsQuery = z.object({
         .nullable()
         .describe('End of the date range. Supports relative dates or ISO 8601 format. Default: now.')
         .optional(),
-    filter_test_accounts: z.coerce.boolean().describe('Exclude internal and test users. Default: false.').optional(),
+    filter_test_accounts: z.boolean().describe('Exclude internal and test users. Default: false.').optional(),
     kind: z.literal('RecordingsQuery').default('RecordingsQuery'),
     limit: integer.describe('Maximum number of recordings to return.').optional(),
     order: RecordingOrder.describe(

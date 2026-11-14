@@ -10,7 +10,7 @@ const integer = z.coerce.number().int()
 
 const AssistantGroupMultipleBreakdownFilter = z.object({
     group_type_index: z
-        .union([integer, z.null()])
+        .union([z.number().int(), z.null()])
         .describe('Index of the group type from the group mapping.')
         .optional(),
     property: z.string().describe('Property name from the plan to break down by.'),
@@ -42,7 +42,7 @@ const AssistantMultipleBreakdownFilter = z.union([
 
 const AssistantTrendsBreakdownFilter = z.object({
     breakdown_limit: integer.describe('How many distinct values to show.').default(25).optional(),
-    breakdown_path_cleaning: z.coerce
+    breakdown_path_cleaning: z
         .boolean()
         .describe(
             "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings."
@@ -52,7 +52,7 @@ const AssistantTrendsBreakdownFilter = z.object({
 })
 
 const CompareFilter = z.object({
-    compare: z.coerce
+    compare: z
         .boolean()
         .describe('Whether to compare the current date range to a previous date range.')
         .default(false)
@@ -460,7 +460,7 @@ const AssistantBehavioralPropertyFilter = z.object({
     explicit_datetime_to: z.string().optional(),
     key: z.string().describe("Event name, or action id when event_type is 'actions'"),
     label: z.string().optional(),
-    negation: z.coerce
+    negation: z
         .boolean()
         .describe(
             'Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators'
@@ -551,7 +551,7 @@ const AssistantTrendsEventsNode = z.object({
     math_property: z.string().optional(),
     math_property_type: z.string().optional(),
     name: z.string().optional(),
-    optionalInFunnel: z.coerce.boolean().optional(),
+    optionalInFunnel: z.boolean().optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
@@ -572,7 +572,7 @@ const AssistantTrendsActionsNode = z.object({
     math_property: z.string().optional(),
     math_property_type: z.string().optional(),
     name: z.string().describe('Action name from the plan.'),
-    optionalInFunnel: z.coerce.boolean().optional(),
+    optionalInFunnel: z.boolean().optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
@@ -680,7 +680,7 @@ const AssistantTrendsFilter = z.object({
             'Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when the metric went UP. Defaults to green (`#388600`). For a "lower is better" metric (latency, error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.'
         )
         .optional(),
-    metricColorByDirection: z.coerce
+    metricColorByDirection: z
         .boolean()
         .describe(
             'Only applies when `display` is `Metric`. Color the sparkline under the big number by whether the metric increased or decreased over the period (using the increase/decrease line colors).'
@@ -699,7 +699,7 @@ const AssistantTrendsFilter = z.object({
             'Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a "lower is better" metric.'
         )
         .optional(),
-    metricShowChange: z.coerce
+    metricShowChange: z
         .boolean()
         .describe(
             'Only applies when `display` is `Metric`. Show the change pill next to the big number. What it compares follows `metricSummary`: `total`/`average` compare against the previous period when "compare to previous" is on (otherwise first→last of the series), and `latest` is always first→last of the series.'
@@ -713,32 +713,28 @@ const AssistantTrendsFilter = z.object({
         )
         .default('total')
         .optional(),
-    showAlertThresholdLines: z.coerce
+    showAlertThresholdLines: z
         .boolean()
         .describe('Whether to show alert threshold lines on the chart.')
         .default(false)
         .optional(),
-    showLabelsOnSeries: z.coerce.boolean().describe('Whether to show labels on each series.').default(false).optional(),
-    showLegend: z.coerce
+    showLabelsOnSeries: z.boolean().describe('Whether to show labels on each series.').default(false).optional(),
+    showLegend: z
         .boolean()
         .describe('Whether to show the legend describing series and breakdowns.')
         .default(false)
         .optional(),
-    showMultipleYAxes: z.coerce
+    showMultipleYAxes: z
         .boolean()
         .describe('Whether to show multiple y-axes for different series.')
         .default(false)
         .optional(),
-    showPercentStackView: z.coerce
+    showPercentStackView: z
         .boolean()
         .describe('Whether to show a percentage of each series. Use only with')
         .default(false)
         .optional(),
-    showValuesOnSeries: z.coerce
-        .boolean()
-        .describe('Whether to show a value on each data point.')
-        .default(false)
-        .optional(),
+    showValuesOnSeries: z.boolean().describe('Whether to show a value on each data point.').default(false).optional(),
     smoothingIntervals: integer.describe('Smoothing intervals for the trend line.').default(1).optional(),
     xAxisLabel: z.string().describe('Custom label rendered under the X axis.').optional(),
     yAxisLabel: z.string().describe('Custom label rendered alongside the Y axis.').optional(),
@@ -746,13 +742,13 @@ const AssistantTrendsFilter = z.object({
 })
 
 const AssistantTrendsQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: z.union([z.number().int(), z.null()]).describe('Groups aggregation').optional(),
     breakdownFilter: AssistantTrendsBreakdownFilter.describe(
         'Breakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns **only when they are essential to directly answer the user’s question**. You must not add breakdowns if the question can be addressed without additional segmentation. Always use the minimum set of breakdowns needed to answer the question. When using breakdowns, you must:\n- **Identify the property group** and name for each breakdown.\n- **Provide the property name** for each breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using breakdowns:\n- page views trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- number of users who have completed onboarding by an organization: you need to find a property such as `organization name` and set it as a breakdown.'
     ).optional(),
     compareFilter: CompareFilter.describe('Compare to date range').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
-    filterTestAccounts: z.coerce
+    filterTestAccounts: z
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters')
         .default(false)
@@ -779,7 +775,7 @@ const AssistantFunnelsBreakdownType = z.enum(['person', 'event', 'group', 'sessi
 const AssistantFunnelsBreakdownFilter = z.object({
     breakdown: z.string().describe('The entity property to break down by.'),
     breakdown_group_type_index: z
-        .union([integer, z.null()])
+        .union([z.number().int(), z.null()])
         .describe(
             'If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping.'
         )
@@ -881,7 +877,7 @@ const AssistantFunnelsEventsNode = z.object({
     math: AssistantFunnelsMath.describe(
         'Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
-    optionalInFunnel: z.coerce
+    optionalInFunnel: z
         .boolean()
         .describe(
             "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required)."
@@ -899,7 +895,7 @@ const AssistantFunnelsActionsNode = z.object({
         'Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
     name: z.string().describe('Action name from the plan.'),
-    optionalInFunnel: z.coerce
+    optionalInFunnel: z
         .boolean()
         .describe(
             "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required)."
@@ -939,7 +935,7 @@ const AssistantFunnelsQuery = z.object({
         'A breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user’s question**. You must not add a breakdown if the question can be addressed without additional segmentation. When using breakdowns, you must:\n- **Identify the property group** and name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using a breakdown:\n- page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.'
     ).optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
-    filterTestAccounts: z.coerce
+    filterTestAccounts: z
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters')
         .default(false)
@@ -1015,7 +1011,7 @@ const AssistantRetentionFilter = z.object({
         .describe('The aggregation type to use for retention.')
         .default('count')
         .optional(),
-    cumulative: z.coerce
+    cumulative: z
         .boolean()
         .describe(
             'Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.'
@@ -1063,9 +1059,9 @@ const AssistantRetentionFilter = z.object({
 })
 
 const AssistantRetentionQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: z.union([z.number().int(), z.null()]).describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
-    filterTestAccounts: z.coerce
+    filterTestAccounts: z
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters')
         .default(false)
@@ -1143,12 +1139,8 @@ const AssistantStickinessFilter = z.object({
     )
         .default('ActionsLineGraph')
         .optional(),
-    showLegend: z.coerce.boolean().describe('Whether to show the legend describing series.').default(false).optional(),
-    showValuesOnSeries: z.coerce
-        .boolean()
-        .describe('Whether to show a value on each data point.')
-        .default(false)
-        .optional(),
+    showLegend: z.boolean().describe('Whether to show the legend describing series.').default(false).optional(),
+    showValuesOnSeries: z.boolean().describe('Whether to show a value on each data point.').default(false).optional(),
     stickinessCriteria: StickinessCriteria.describe(
         'Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times.'
     ).optional(),
@@ -1159,7 +1151,7 @@ const AssistantStickinessQuery = z.object({
         'Compare to date range. When enabled, shows the current and previous period side by side.'
     ).optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
-    filterTestAccounts: z.coerce
+    filterTestAccounts: z
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters')
         .default(false)
@@ -1290,9 +1282,9 @@ const AssistantPathsFilter = z.object({
 })
 
 const AssistantPathsQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: z.union([z.number().int(), z.null()]).describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
-    filterTestAccounts: z.coerce
+    filterTestAccounts: z
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters')
         .default(false)
@@ -1311,13 +1303,9 @@ const AssistantPathsQuery = z.object({
 const LifecycleToggle = z.enum(['new', 'resurrecting', 'returning', 'dormant'])
 
 const AssistantLifecycleFilter = z.object({
-    showLegend: z.coerce.boolean().describe('Whether to show the legend describing series.').default(false).optional(),
-    showValuesOnSeries: z.coerce
-        .boolean()
-        .describe('Whether to show a value on each data point.')
-        .default(false)
-        .optional(),
-    stacked: z.coerce.boolean().describe('Whether the lifecycle bars should be stacked.').default(true).optional(),
+    showLegend: z.boolean().describe('Whether to show the legend describing series.').default(false).optional(),
+    showValuesOnSeries: z.boolean().describe('Whether to show a value on each data point.').default(false).optional(),
+    stacked: z.boolean().describe('Whether the lifecycle bars should be stacked.').default(true).optional(),
     toggledLifecycles: z
         .array(LifecycleToggle)
         .describe(
@@ -1353,9 +1341,9 @@ const AssistantLifecycleActionsNode = z.object({
 const AssistantLifecycleSeriesNode = z.union([AssistantLifecycleEventsNode, AssistantLifecycleActionsNode])
 
 const AssistantLifecycleQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: z.union([z.number().int(), z.null()]).describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
-    filterTestAccounts: z.coerce
+    filterTestAccounts: z
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters')
         .default(false)
@@ -1390,7 +1378,7 @@ const AssistantTrendsActorsQuery = z.object({
     day: z
         .string()
         .describe("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
-    includeRecordings: z.coerce
+    includeRecordings: z
         .boolean()
         .describe('Whether to include matched session recordings for each actor.')
         .default(true)
@@ -1434,7 +1422,7 @@ const AssistantLifecycleActorsQuery = z.object({
 })
 
 const AssistantPathsActorsQuery = z.object({
-    includeRecordings: z.coerce
+    includeRecordings: z
         .boolean()
         .describe('Whether to include matched session recordings for each actor.')
         .default(true)
@@ -1510,7 +1498,7 @@ const AssistantFunnelsActorsQuery = z.object({
             'Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `["Chrome"]`). Omit for the baseline (non-breakdown) series.'
         )
         .optional(),
-    funnelTrendsDropOff: z.coerce
+    funnelTrendsDropOff: z
         .boolean()
         .describe(
             'Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`, list the actors who dropped off; when `false`, list those who converted. Use together with `funnelTrendsEntrancePeriodStart`.'
@@ -1522,7 +1510,7 @@ const AssistantFunnelsActorsQuery = z.object({
             "Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about. Use together with `funnelTrendsDropOff`."
         )
         .optional(),
-    includeRecordings: z.coerce
+    includeRecordings: z
         .boolean()
         .describe('Whether to include matched session recordings for each actor.')
         .default(true)

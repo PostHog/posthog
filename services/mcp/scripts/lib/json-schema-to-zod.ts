@@ -109,6 +109,17 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext, opts?: { strictPri
     // $ref
     if (schema.$ref) {
         const refName = schema.$ref.replace('#/definitions/', '')
+        // A union member that refs a bare primitive definition (e.g. `integer`) must
+        // not reuse the shared named const: that const is emitted once, for lone
+        // fields, so it coerces, and `z.union([integer, z.null()])` would turn
+        // `null` into 0. Inline the definition with the same strict rule as other
+        // union members.
+        if (opts?.strictPrimitives) {
+            const target = ctx.root.definitions[refName]
+            if (target && isBarePrimitive(target)) {
+                return applyNumericConstraints(schemaToZod(target, ctx, { strictPrimitives: true }), schema)
+            }
+        }
         // Field-level numeric constraints (e.g. `@maximum 200` on a property
         // typed as `positive_integer`) sit on the referencing schema, not the
         // ref target. Apply them on top of the named ref.
@@ -222,8 +233,25 @@ function applyNumericConstraints(expr: string, schema: JsonSchema): string {
     return out
 }
 
+/** A definition that is just a number, integer or boolean type, optionally with numeric bounds. */
+function isBarePrimitive(schema: JsonSchema): boolean {
+    return (
+        typeof schema.type === 'string' &&
+        ['integer', 'number', 'boolean'].includes(schema.type) &&
+        !schema.$ref &&
+        !schema.anyOf &&
+        !schema.oneOf &&
+        !schema.allOf &&
+        schema.enum === undefined &&
+        schema.const === undefined
+    )
+}
+
 /**
- * Use z.coerce for numbers/booleans — some MCP clients send primitives as strings.
+ * Lone number fields use z.coerce.number() because some MCP clients send numbers as strings.
+ * Booleans are never coerced: Boolean("false") is true, so a client that sends
+ * booleans as strings would get the opposite of what it asked for. A wrong type is a
+ * validation error that names the field instead.
  * `strict` disables coercion for primitives that sit inside a union, where a
  * coercing branch would greedily swallow inputs meant for later branches.
  */
@@ -236,7 +264,7 @@ function primitiveToZod(type: string, strict = false): string {
         case 'integer':
             return strict ? 'z.number().int()' : 'z.coerce.number().int()'
         case 'boolean':
-            return strict ? 'z.boolean()' : 'z.coerce.boolean()'
+            return 'z.boolean()'
         case 'null':
             return 'z.null()'
         default:

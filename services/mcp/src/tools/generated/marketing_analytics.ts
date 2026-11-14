@@ -389,7 +389,7 @@ const DateRange = z.object({
             'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
         )
         .optional(),
-    excludeIncompletePeriods: z.coerce
+    excludeIncompletePeriods: z
         .boolean()
         .nullable()
         .describe(
@@ -397,7 +397,7 @@ const DateRange = z.object({
         )
         .default(false)
         .optional(),
-    explicitDate: z.coerce
+    explicitDate: z
         .boolean()
         .nullable()
         .describe(

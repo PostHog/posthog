@@ -54,7 +54,7 @@ const AssistantBIVisualizationNode = z
     .catchall(z.unknown())
 
 const AssistantPieChartOptions = z.object({
-    hideAggregation: z.coerce.boolean().describe('Hide the total on a pie chart.').optional(),
+    hideAggregation: z.boolean().describe('Hide the total on a pie chart.').optional(),
 })
 
 const AssistantVizSpecificOptions = z.object({
@@ -72,7 +72,7 @@ const AssistantInsightVizNode = z.object({
 })
 
 const AssistantDataVisualizationBoxPlotSettings = z.object({
-    excludeOutliers: z.coerce
+    excludeOutliers: z
         .boolean()
         .describe('Clip whiskers to 1.5 times the interquartile range. Defaults to true.')
         .optional(),
@@ -104,18 +104,18 @@ const AssistantDataVisualizationGoalLine = z.object({
 const AssistantDataVisualizationYAxisSettings = z.object({
     label: z.string().describe('Label rendered beside this Y axis.').optional(),
     scale: z.enum(['linear', 'logarithmic']).describe('Scale used for this Y axis.').optional(),
-    showGridLines: z.coerce.boolean().describe('Show grid lines for this Y axis.').optional(),
-    showTicks: z.coerce.boolean().describe('Show tick labels on this Y axis.').optional(),
-    startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
+    showGridLines: z.boolean().describe('Show grid lines for this Y axis.').optional(),
+    showTicks: z.boolean().describe('Show tick labels on this Y axis.').optional(),
+    startAtZero: z.boolean().describe('Whether this Y axis should start at zero.').optional(),
 })
 
 const AssistantDataVisualizationMetricSettings = z.object({
-    showChange: z.coerce.boolean().optional(),
+    showChange: z.boolean().optional(),
     summary: z.enum(['total', 'average', 'latest']).optional(),
 })
 
 const PieChartSettings = z.object({
-    showTotal: z.coerce
+    showTotal: z
         .boolean()
         .describe('Whether to show the aggregation total. Defaults to on only when slices show values.')
         .optional(),
@@ -164,14 +164,14 @@ const AssistantDataVisualizationColumn = z.object({
 const AssistantDataVisualizationAxisDisplaySettings = z.object({
     color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
     displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
-    excludeFromTotal: z.coerce
+    excludeFromTotal: z
         .boolean()
         .describe(
             "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack."
         )
         .optional(),
     label: z.string().describe('Series label in legends and tooltips; replaces the column name.').optional(),
-    trendLine: z.coerce
+    trendLine: z
         .boolean()
         .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
         .optional(),
@@ -230,23 +230,23 @@ const AssistantDataVisualizationChartSettings = z.object({
             'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
         )
         .optional(),
-    showAnnotations: z.coerce
+    showAnnotations: z
         .boolean()
         .describe(
             'Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts whose X axis is a date or datetime column.'
         )
         .optional(),
-    showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
-    showNullsAsZero: z.coerce.boolean().describe('Replace null aggregation results with zero.').optional(),
-    showTotalRow: z.coerce
+    showLegend: z.boolean().describe('Show the chart legend.').optional(),
+    showNullsAsZero: z.boolean().describe('Replace null aggregation results with zero.').optional(),
+    showTotalRow: z
         .boolean()
         .describe('Show a total summing all Y series. Applies to line, bar, and area charts.')
         .optional(),
-    showValuesOnSeries: z.coerce
+    showValuesOnSeries: z
         .boolean()
         .describe("Render each data point's value as a label directly on the series.")
         .optional(),
-    stackBars100: z.coerce
+    stackBars100: z
         .boolean()
         .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
         .optional(),
@@ -283,7 +283,7 @@ const AssistantDataVisualizationTableSettings = z.object({
         .describe('Columns to display and their order. Omit to show every column returned by the query.')
         .optional(),
     pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
-    transpose: z.coerce.boolean().describe('Transpose rows and columns.').optional(),
+    transpose: z.boolean().describe('Transpose rows and columns.').optional(),
 })
 
 const AssistantDataVisualizationNode = z.object({
