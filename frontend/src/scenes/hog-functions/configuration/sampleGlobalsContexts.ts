@@ -1,9 +1,12 @@
-import { ApiConfig } from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
+import { hogql } from 'lib/utils/hogql'
 
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     CyclotronJobFiltersType,
     CyclotronJobInvocationGlobals,
     HogFunctionConfigurationContextId,
+    PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
@@ -11,6 +14,8 @@ import {
     errorTrackingFingerprintsList,
     errorTrackingIssuesRetrieve,
 } from 'products/error_tracking/frontend/generated/api'
+
+import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 
 export type SampleGlobalsLoader = (
     exampleGlobals: CyclotronJobInvocationGlobals,
@@ -33,6 +38,49 @@ function sampleHealthCheckKind(filters?: CyclotronJobFiltersType | null): string
     return typeof kind === 'string' && kind ? kind : 'test'
 }
 
+type SampleCandidate = { issueId: string; fingerprint: string }
+
+// The fingerprints API lists the oldest fingerprints first, and those rarely have a recent exception.
+async function loadRecentlyActiveIssues(): Promise<SampleCandidate[]> {
+    try {
+        const response = await api.queryHogQL<[string, string][]>(
+            hogql`SELECT toString(issue_id), argMax(properties.$exception_fingerprint, timestamp) FROM events
+                WHERE event = '$exception' AND timestamp > now() - INTERVAL 1 DAY AND issue_id IS NOT NULL
+                GROUP BY issue_id ORDER BY max(timestamp) DESC LIMIT 20`,
+            { productKey: ProductKey.ERROR_TRACKING, name: 'hog_function_error_tracking_sample_issues' }
+        )
+        return response.results
+            .filter(([, fingerprint]) => fingerprint)
+            .map(([issueId, fingerprint]) => ({ issueId, fingerprint }))
+    } catch {
+        return []
+    }
+}
+
+// Filters on fingerprint, not issue id: live delivery sends the properties of the exception with this fingerprint.
+async function loadLatestExceptionEvent(
+    fingerprint: string
+): Promise<{ properties: Record<string, any>; timestamp: string } | null> {
+    try {
+        const response = await performWideEventsQueryInTwoPhases({
+            kind: NodeKind.EventsQuery,
+            event: '$exception',
+            select: ['*'],
+            properties: [
+                { type: PropertyFilterType.HogQL, key: hogql`properties.$exception_fingerprint = ${fingerprint}` },
+            ],
+            after: '-30d',
+            orderBy: ['timestamp DESC'],
+            limit: 1,
+            tags: { productKey: ProductKey.ERROR_TRACKING, name: 'hog_function_error_tracking_sample_event' },
+        })
+        const event = response.results[0]?.[0]
+        return event ? { properties: event.properties, timestamp: event.timestamp } : null
+    } catch {
+        return null
+    }
+}
+
 /**
  * Per-context overrides for the "load sample globals" flow in the hog function test panel.
  * Contexts without an entry load the last event matching the configured filters.
@@ -40,25 +88,37 @@ function sampleHealthCheckKind(filters?: CyclotronJobFiltersType | null): string
 export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationContextId, SampleGlobalsLoader>> = {
     'error-tracking': async (exampleGlobals) => {
         const projectId = String(ApiConfig.getCurrentProjectId())
-        // The issues list API doesn't expose fingerprints, so start from a fingerprint
-        // record (which alert templates rely on) and resolve its issue.
-        const response = await errorTrackingFingerprintsList(projectId, { limit: 20 })
-        const fingerprintRecord = response.results[Math.floor(Math.random() * response.results.length)]
-        if (!fingerprintRecord) {
+        let candidates = await loadRecentlyActiveIssues()
+        if (!candidates.length) {
+            // The issues list API doesn't expose fingerprints, so start from fingerprint records.
+            const response = await errorTrackingFingerprintsList(projectId, { limit: 20 })
+            candidates = response.results.map((record) => ({
+                issueId: record.issue_id,
+                fingerprint: record.fingerprint,
+            }))
+        }
+        const candidate = candidates[Math.floor(Math.random() * candidates.length)]
+        if (!candidate) {
             return exampleGlobals
         }
-        const issue = await errorTrackingIssuesRetrieve(projectId, fingerprintRecord.issue_id)
+        const [issue, exceptionEvent] = await Promise.all([
+            errorTrackingIssuesRetrieve(projectId, candidate.issueId),
+            loadLatestExceptionEvent(candidate.fingerprint),
+        ])
         const properties: Record<string, any> = {
             name: issue.name ?? 'Unnamed issue',
             description: 'PostHog test alert',
             status: issue.status,
             severity: issue.severity,
-            fingerprint: fingerprintRecord.fingerprint,
+            fingerprint: candidate.fingerprint,
         }
         if (issue.assignee) {
             // Real issue lifecycle events stringify the assignee as {"type":...,"id":...},
             // and omit the property entirely when the issue is unassigned
             properties.assignee = JSON.stringify({ type: issue.assignee.type, id: issue.assignee.id })
+        }
+        if (exceptionEvent) {
+            properties.exception_timestamp = exceptionEvent.timestamp
         }
         return {
             ...exampleGlobals,
@@ -66,7 +126,8 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
                 ...exampleGlobals.event,
                 // Real issue lifecycle events use the issue id as the distinct_id
                 distinct_id: issue.id,
-                properties,
+                // Same order as live delivery in nodejs/src/cdp/utils.ts, so issue fields win.
+                properties: { ...exceptionEvent?.properties, ...properties },
             },
         }
     },
