@@ -82,6 +82,7 @@ import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/Fea
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { TaskTurnNotificationSettings } from 'products/posthog_ai/frontend/api/settings'
 import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
@@ -396,6 +397,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
                 component: <MaxChangelogSettings />,
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+            {
+                id: 'task-turn-notifications',
+                title: 'Task notifications',
+                description:
+                    'Play a sound or show a browser notification when an agent finishes its turn on a task and you are in another tab or window. These settings apply to this browser only.',
+                component: <TaskTurnNotificationSettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
         ],
