@@ -74,8 +74,9 @@ jobs:
     # actually import — prevents silent drift where a new import slips in
     # without a matching filter entry.
     validate-paths:
-        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
-        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
+        # Schedules run the full suite; pushes rely on merge-queue coverage.
+        # PRs, including the merge queue, validate coverage before changes land.
+        if: github.event_name == 'pull_request'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Validate dagster path filter coverage
