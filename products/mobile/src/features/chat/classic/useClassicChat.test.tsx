@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 import { randomUUID } from 'expo-crypto'
 import { type PropsWithChildren, type ReactElement, useState } from 'react'
+import { AppState, type AppStateStatus } from 'react-native'
 
 import { ApiError } from '@/api/client'
 import { cancelConversation, getConversation, streamConversation } from '@/api/conversations'
@@ -32,8 +33,14 @@ function wrapper({ children }: PropsWithChildren): ReactElement {
 }
 
 describe('classic chat transport', () => {
+    let changeAppState: (state: AppStateStatus) => void
     beforeEach(() => {
         jest.resetAllMocks()
+        AppState.currentState = 'active'
+        jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
+            changeAppState = listener
+            return { remove: jest.fn() }
+        })
         jest.mocked(useProjectScope).mockReturnValue(null)
         jest.mocked(currentAiIdentity).mockReturnValue('origin-project')
         const approval = { request: jest.fn(async () => true), pending: false, signal: new AbortController().signal }
@@ -124,7 +131,7 @@ describe('classic chat transport', () => {
         expect(result.current.state.messages).toEqual([])
     })
 
-    test('offers history recovery after an accepted stream disconnects', async () => {
+    test.each(['manual', 'foreground'] as const)('recovers a disconnected reply on %s', async (trigger) => {
         jest.mocked(readSse).mockRejectedValueOnce(new TypeError('Connection lost'))
         jest.mocked(getConversation).mockRejectedValueOnce(new TypeError('Connection lost'))
         const { result } = renderHook(() => useClassicChat(), { wrapper })
@@ -132,10 +139,146 @@ describe('classic chat transport', () => {
             expect(await result.current.send('Question')).toBe(true)
         })
         expect(result.current.historyError).toContain('Reconnect')
-        await act(async () => result.current.reload())
+        await act(async () => {
+            if (trigger === 'manual') await result.current.reload()
+            else {
+                changeAppState('background')
+                changeAppState('active')
+            }
+        })
         expect(result.current.historyError).toBeNull()
         expect(getConversation).toHaveBeenCalledWith(result.current.id, expect.any(AbortSignal))
     })
+
+    test('restarts interrupted history loading on return and ignores its late response', async () => {
+        let finish!: (value: Awaited<ReturnType<typeof getConversation>>) => void
+        jest.mocked(getConversation).mockReturnValueOnce(
+            new Promise((resolve) => {
+                finish = resolve
+            })
+        )
+        const { result } = renderHook(() => useClassicChat('saved-chat'), { wrapper })
+        const signal = jest.mocked(getConversation).mock.calls[0]?.[1]
+        await act(async () => {
+            changeAppState('inactive')
+            changeAppState('background')
+            changeAppState('active')
+        })
+        expect(signal?.aborted).toBe(true)
+        expect(getConversation).toHaveBeenCalledTimes(2)
+        expect(result.current.loading).toBe(false)
+        expect(result.current.state.title).toBe('A chat')
+        await act(async () =>
+            finish({ title: 'Stale', messages: [], pending_approvals: [] } as unknown as Awaited<
+                ReturnType<typeof getConversation>
+            >)
+        )
+        expect(result.current.state.title).toBe('A chat')
+    })
+
+    test.each(['reset', 'project', 'unmount'] as const)('does not reconnect a chat after %s', async (transition) => {
+        const { result, unmount } = renderHook(() => useClassicChat('saved-chat'), { wrapper })
+        await act(async () => undefined)
+        await act(async () => changeAppState('background'))
+        if (transition === 'reset') act(() => result.current.reset())
+        else if (transition === 'project') jest.mocked(currentAiIdentity).mockReturnValue('other-project')
+        else unmount()
+        await act(async () => changeAppState('active'))
+        expect(getConversation).toHaveBeenCalledTimes(1)
+        expect(streamConversation).not.toHaveBeenCalled()
+    })
+
+    test.each(['idle', 'in_progress', 'approval', 'form'] as const)(
+        'recovers a backgrounded reply with %s history without resending or canceling it',
+        async (status) => {
+            let finish!: () => void
+            jest.mocked(readSse).mockImplementationOnce(
+                (_response, onEvent) =>
+                    new Promise<void>((resolve) => {
+                        onEvent({
+                            event: 'message',
+                            data: JSON.stringify({ id: 'partial', type: 'ai', content: 'Checking.' }),
+                        })
+                        finish = () => {
+                            onEvent({
+                                event: 'message',
+                                data: JSON.stringify({ id: 'stale', type: 'ai', content: 'Stale reply' }),
+                            })
+                            resolve()
+                        }
+                    })
+            )
+            const { result } = renderHook(() => useClassicChat(), { wrapper })
+            let sending!: Promise<boolean>
+            await act(async () => {
+                sending = result.current.send('Question')
+            })
+            const conversation = result.current.id
+            const signal = jest.mocked(readSse).mock.calls[0]?.[2]
+            await act(async () => changeAppState('background'))
+            expect(signal?.aborted).toBe(true)
+            expect(result.current.state.messages.at(-1)?.data.content).toBe('Checking.')
+            expect(result.current.historyError).toBeNull()
+            expect(getConversation).not.toHaveBeenCalled()
+
+            const saved = {
+                id: conversation,
+                messages: [
+                    {
+                        id: 'reply',
+                        type: 'ai',
+                        content: 'Saved reply',
+                        ...(status === 'form'
+                            ? {
+                                  tool_calls: [
+                                      {
+                                          id: 'form-call',
+                                          name: 'create_form',
+                                          args: {
+                                              questions: [
+                                                  {
+                                                      id: 'q1',
+                                                      title: 'Scope',
+                                                      question: 'Which events?',
+                                                      options: [{ value: 'All' }],
+                                                  },
+                                              ],
+                                          },
+                                      },
+                                  ],
+                              }
+                            : {}),
+                    },
+                ],
+                title: 'A chat',
+                status: status === 'idle' ? 'idle' : 'in_progress',
+                pending_approvals:
+                    status === 'approval' ? [{ proposal_id: 'proposal-1', decision_status: 'pending' }] : [],
+            } as unknown as Awaited<ReturnType<typeof getConversation>>
+            jest.mocked(getConversation).mockResolvedValue(saved)
+            jest.mocked(readSse).mockReturnValueOnce(new Promise(() => undefined))
+            await act(async () => {
+                changeAppState('active')
+                changeAppState('active')
+            })
+            expect(getConversation).toHaveBeenCalledTimes(1)
+            expect(result.current.state.messages.at(-1)?.data.content).toBe('Saved reply')
+            expect(result.current.historyError).toBeNull()
+            expect(result.current.working).toBe(status === 'in_progress')
+            expect(streamConversation).toHaveBeenCalledTimes(status === 'in_progress' ? 2 : 1)
+            if (status === 'in_progress')
+                expect(jest.mocked(streamConversation).mock.lastCall?.[0]).toMatchObject({
+                    conversation,
+                    content: null,
+                })
+            expect(cancelConversation).not.toHaveBeenCalled()
+            await act(async () => {
+                finish()
+                await sending
+            })
+            expect(result.current.state.messages.at(-1)?.data.content).toBe('Saved reply')
+        }
+    )
 
     test('ignores recovered history after starting a new chat', async () => {
         let recover!: (saved: Awaited<ReturnType<typeof getConversation>>) => void

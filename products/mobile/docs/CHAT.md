@@ -83,6 +83,9 @@ Classic chat refreshes history whenever it opens, even while the cached response
 An accepted message leaves draft recovery as soon as the server accepts it, while the reply continues streaming.
 If its stream disconnects or times out, classic chat checks the saved conversation automatically without sending the message again.
 Completed replies and pending decisions load from that saved state. If recovery still needs a connection, received messages stay visible with Reconnect.
+Backgrounding classic chat detaches its stream without canceling the server's reply or clearing received messages.
+Returning to the app reloads saved messages and reattaches to a reply still in progress, without resending the prompt.
+Pending approvals and forms remain available for an answer instead of restarting the stream.
 Linked conversations stay visible when their task is absent from the list.
 Opening a linked chat checks its conversation runtime before continuing.
 If one chat history source fails, Chats keeps the loaded rows and offers a retry for the remaining history.

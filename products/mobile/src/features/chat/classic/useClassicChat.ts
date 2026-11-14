@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { randomUUID } from 'expo-crypto'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AppState } from 'react-native'
 
 import { ApiError } from '@/api/client'
 import { cancelConversation, getConversation, streamConversation } from '@/api/conversations'
@@ -68,6 +69,15 @@ export function useClassicChat(
     const epoch = useRef(0)
     const mounted = useRef(true)
     const controller = useRef<AbortController | null>(null)
+    const appState = useRef(AppState.currentState)
+    const canConnect = useCallback(
+        (): boolean =>
+            mounted.current &&
+            !approval.signal.aborted &&
+            currentAiIdentity() === openedIdentity.current &&
+            (appState.current === null || appState.current === 'active'),
+        [approval.signal]
+    )
 
     const stream = useCallback(
         async (
@@ -79,11 +89,7 @@ export function useClassicChat(
             onAccepted?: () => Promise<void>
         ): Promise<boolean> => {
             const generation = epoch.current
-            const active = (): boolean =>
-                mounted.current &&
-                generation === epoch.current &&
-                !approval.signal.aborted &&
-                currentAiIdentity() === openedIdentity.current
+            const active = (): boolean => generation === epoch.current && canConnect()
             if (busy.current || !active()) return false
             busy.current = true
             setWorking(true)
@@ -183,12 +189,12 @@ export function useClassicChat(
                 }
             }
         },
-        [client, scope, approval.request, approval.signal]
+        [client, scope, approval.request, canConnect]
     )
 
     const reload = useCallback(async (): Promise<void> => {
         const conversation = idRef.current
-        if (!conversation || busy.current || reloadBusy.current) return
+        if (!conversation || busy.current || reloadBusy.current || !canConnect()) return
         reloadBusy.current = true
         const generation = epoch.current
         const abort = new AbortController()
@@ -199,6 +205,7 @@ export function useClassicChat(
         try {
             const saved = await getConversation(conversation, abort.signal)
             if (generation !== epoch.current) return
+            setId(conversation)
             const history = classicHistory(saved.messages, saved.title, saved.pending_approvals)
             setState(history)
             if (
@@ -215,7 +222,7 @@ export function useClassicChat(
                 setLoading(false)
             }
         }
-    }, [stream])
+    }, [stream, canConnect])
 
     const stop = async (): Promise<void> => {
         if (!idRef.current || stopBusy.current) return
@@ -276,6 +283,21 @@ export function useClassicChat(
             invalidate()
         }
     }, [initialId, reload, reset, invalidate, stream])
+
+    useEffect(() => {
+        const subscription = AppState.addEventListener('change', (next) => {
+            const previous = appState.current
+            appState.current = next
+            if (next === previous) return
+            // Detach the transport only; the server keeps generating until an explicit cancellation.
+            invalidate()
+            setWorking(false)
+            setStopping(false)
+            setLoading(false)
+            if (next === 'active') void reload()
+        })
+        return () => subscription.remove()
+    }, [invalidate, reload])
 
     return {
         id,
