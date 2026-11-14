@@ -24,6 +24,7 @@ MIN_CONFIDENCE = 0.5
 MIN_CONFIDENCE_BY_STAGE: dict[str, float] = {"signup": 0.7, "onboarding": 0.7}
 MAX_CLASSIFIED_EVENTS = GATEWAY_MAX_QUESTIONS * 3
 _TIMEOUT_SECONDS = 15.0
+GATEWAY_BUSY_STATUS_CODES = frozenset({429, 529})
 
 STAGE_CRITERIA: dict[str, str] = {
     "signup": "A new account or user is created, or someone registers.",
@@ -82,7 +83,8 @@ def classify_event_stages(*, team_id: int, event_names: Sequence[str]) -> dict[s
                 team_id=team_id,
                 status_code=error.status_code,
             )
-            capture_exception(error, {"team_id": team_id, "chunk_size": len(chunk)})
+            if error.status_code not in GATEWAY_BUSY_STATUS_CODES:
+                capture_exception(error, {"team_id": team_id, "chunk_size": len(chunk)})
             raise StageClassificationFailed() from error
         for index, name in enumerate(chunk):
             answer = result.answers.get(f"e{index}")
