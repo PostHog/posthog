@@ -622,6 +622,26 @@ class TestSandboxRotation:
 
         assert (wf._sandbox_rotation_block_reason() is None) is expected
 
+    @pytest.mark.parametrize(
+        "rotation_enabled,agent_active,patched,expected",
+        [
+            (False, False, True, True),
+            (True, False, True, False),
+            (False, True, True, False),
+            (False, False, False, False),
+        ],
+    )
+    def test_only_an_idle_run_that_cannot_rotate_ends_at_the_sandbox_deadline(
+        self, monkeypatch: pytest.MonkeyPatch, rotation_enabled, agent_active, patched, expected
+    ) -> None:
+        wf = self._workflow(monkeypatch, rotation_enabled=rotation_enabled)
+        wf._sandbox_rotation_idle = True
+        wf._end_of_turn_received = True
+        wf._agent_active = agent_active
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=patched))
+
+        assert wf._ends_idle_run_at_sandbox_deadline() is expected
+
     async def test_background_heartbeats_block_rotation_without_reopening_the_user_turn(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -72,6 +72,7 @@ from products.tasks.backend.logic.services.store_skills import disabled_store_sk
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_generation
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
+from products.tasks.backend.run_per_wake import starts_new_run_per_wake
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.metrics import StepTimer, sandbox_runtime_label
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
@@ -1367,7 +1368,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # Hogland has no resume-snapshot support yet; every run cold-boots there.
         use_modal_resume_snapshots=sandbox_backend != "hogland",
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
-        sandbox_rotation_enabled=True,
+        sandbox_rotation_enabled=not starts_new_run_per_wake(task.profile, task.team_id),
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
