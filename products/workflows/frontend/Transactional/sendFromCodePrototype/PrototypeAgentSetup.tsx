@@ -10,7 +10,7 @@ export function PrototypeAgentSetup(): JSX.Element {
                     Run it in your app's folder. The setup agent finds your verified sender, adds the API key to your
                     env file and writes your first send.
                 </p>
-                <CodeSnippet language={Language.Bash} compact thing="Wizard command">
+                <CodeSnippet language={Language.Bash} compact wrap thing="Wizard command">
                     npx @posthog/wizard transactional-email
                 </CodeSnippet>
             </div>
@@ -19,7 +19,7 @@ export function PrototypeAgentSetup(): JSX.Element {
                 <p className="m-0 text-secondary text-sm">
                     The setup agent swaps your provider's send calls for PostHog's and keeps your templates in code.
                 </p>
-                <CodeSnippet language={Language.Bash} compact thing="Wizard command">
+                <CodeSnippet language={Language.Bash} compact wrap thing="Wizard command">
                     npx @posthog/wizard migrate-email
                 </CodeSnippet>
             </div>

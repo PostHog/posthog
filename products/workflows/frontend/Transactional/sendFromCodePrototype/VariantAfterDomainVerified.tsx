@@ -84,7 +84,7 @@ export function VariantAfterDomainVerified(): JSX.Element {
                 }
             >
                 <div className="@container">
-                    <div className="grid grid-cols-1 @min-[48rem]:grid-cols-[minmax(0,1fr)_16rem] gap-4">
+                    <div className="grid grid-cols-1 @min-[48rem]:grid-cols-[minmax(0,1fr)_18rem] gap-4">
                         <div className="flex flex-col gap-3 min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                                 <LemonButton

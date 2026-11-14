@@ -38,62 +38,66 @@ export function PrototypeSwitcher(): JSX.Element | null {
     const current = PROTOTYPE_VARIANTS[index]
 
     return (
-        <div
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[1000] flex flex-wrap items-center justify-center gap-3 rounded-lg border-2 border-black bg-black text-white px-3 py-2 shadow-lg max-w-[95vw]"
-            data-attr="prototype-switcher"
-        >
-            <div className="flex items-center gap-1">
-                <button type="button" className="text-white p-1 cursor-pointer" onClick={() => cycle(-1)}>
-                    <IconChevronLeft className="text-lg" />
-                </button>
-                <span className="font-semibold text-sm whitespace-nowrap">
-                    {current.key === 'today' ? 'Today' : current.key} ({current.name})
-                </span>
-                <button type="button" className="text-white p-1 cursor-pointer" onClick={() => cycle(1)}>
-                    <IconChevronRight className="text-lg" />
-                </button>
+        <>
+            {/* Room under the page, so the bar never covers its last lines. */}
+            <div className="h-28" />
+            <div
+                className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[1000] flex flex-wrap items-center justify-center gap-3 rounded-lg border-2 border-black bg-black text-white px-3 py-2 shadow-lg max-w-[95vw]"
+                data-attr="prototype-switcher"
+            >
+                <div className="flex items-center gap-1">
+                    <button type="button" className="text-white p-1 cursor-pointer" onClick={() => cycle(-1)}>
+                        <IconChevronLeft className="text-lg" />
+                    </button>
+                    <span className="font-semibold text-sm whitespace-nowrap">
+                        {current.key === 'today' ? 'Today' : current.key} ({current.name})
+                    </span>
+                    <button type="button" className="text-white p-1 cursor-pointer" onClick={() => cycle(1)}>
+                        <IconChevronRight className="text-lg" />
+                    </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs bg-white text-black rounded px-2 py-1">
+                    <span className="font-semibold">Simulate</span>
+                    <span>Domain</span>
+                    <LemonSegmentedButton
+                        size="xsmall"
+                        value={prototype.domain}
+                        onChange={(domain) => set({ domain })}
+                        options={[
+                            { value: 'none', label: 'None' },
+                            { value: 'pending', label: 'Pending' },
+                            { value: 'verified', label: 'Verified' },
+                        ]}
+                    />
+                    <span>Emails</span>
+                    <LemonSegmentedButton
+                        size="xsmall"
+                        value={prototype.emails}
+                        onChange={(emails) => set({ emails })}
+                        options={[
+                            { value: 'none', label: 'None yet' },
+                            { value: 'some', label: 'Some' },
+                        ]}
+                    />
+                    <span>First send</span>
+                    <LemonSegmentedButton
+                        size="xsmall"
+                        value={prototype.firstSend}
+                        onChange={(firstSend) => set({ firstSend })}
+                        options={[
+                            { value: 'waiting', label: 'Waiting' },
+                            { value: 'arrived', label: 'Arrived' },
+                        ]}
+                    />
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        onClick={() => set({ domain: null, emails: null, firstSend: null, view: null })}
+                    >
+                        Reset
+                    </LemonButton>
+                </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs bg-white text-black rounded px-2 py-1">
-                <span className="font-semibold">Simulate</span>
-                <span>Domain</span>
-                <LemonSegmentedButton
-                    size="xsmall"
-                    value={prototype.domain}
-                    onChange={(domain) => set({ domain })}
-                    options={[
-                        { value: 'none', label: 'None' },
-                        { value: 'pending', label: 'Pending' },
-                        { value: 'verified', label: 'Verified' },
-                    ]}
-                />
-                <span>Emails</span>
-                <LemonSegmentedButton
-                    size="xsmall"
-                    value={prototype.emails}
-                    onChange={(emails) => set({ emails })}
-                    options={[
-                        { value: 'none', label: 'None yet' },
-                        { value: 'some', label: 'Some' },
-                    ]}
-                />
-                <span>First send</span>
-                <LemonSegmentedButton
-                    size="xsmall"
-                    value={prototype.firstSend}
-                    onChange={(firstSend) => set({ firstSend })}
-                    options={[
-                        { value: 'waiting', label: 'Waiting' },
-                        { value: 'arrived', label: 'Arrived' },
-                    ]}
-                />
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    onClick={() => set({ domain: null, emails: null, firstSend: null, view: null })}
-                >
-                    Reset
-                </LemonButton>
-            </div>
-        </div>
+        </>
     )
 }

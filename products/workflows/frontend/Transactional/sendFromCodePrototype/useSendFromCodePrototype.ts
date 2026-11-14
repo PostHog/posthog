@@ -8,7 +8,7 @@ export const PROTOTYPE_ENABLED = process.env.PROTOTYPE === '1'
 
 export type PrototypeVariant = 'today' | 'A' | 'B' | 'C'
 export const PROTOTYPE_VARIANTS: { key: PrototypeVariant; name: string }[] = [
-    { key: 'today', name: 'Today, for comparison' },
+    { key: 'today', name: 'no change, for comparison' },
     { key: 'A', name: 'A page in the Transactional section' },
     { key: 'B', name: 'A code-first empty state' },
     { key: 'C', name: 'A step after domain verification' },

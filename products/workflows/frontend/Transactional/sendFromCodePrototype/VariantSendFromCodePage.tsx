@@ -48,7 +48,7 @@ export function VariantSendFromCodePage(): JSX.Element {
                     events.
                 </p>
             </div>
-            <div className="grid grid-cols-1 @min-[60rem]:grid-cols-[minmax(0,1fr)_20rem] gap-6">
+            <div className="grid grid-cols-1 @min-[60rem]:grid-cols-[minmax(0,1fr)_22rem] gap-6">
                 <ol className="m-0 p-0 list-none flex flex-col gap-5">
                     <Step number={1} title="Verify the domain you send from" done={domain === 'verified'}>
                         {domain === 'verified' ? (
