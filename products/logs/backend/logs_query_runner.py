@@ -215,6 +215,9 @@ def _generate_resource_attribute_filters(
     )
 
 
+PRESENCE_OPERATORS = (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET)
+
+
 def _get_property_type(value) -> str:
     try:
         float(value)
@@ -230,9 +233,15 @@ def _map_attribute_filter_type(property_filter: LogPropertyFilter) -> LogPropert
     right typed attributes map (attributes_map_str / attributes_map_float).
 
     Values that all convert cleanly to float use the __float map; anything else sticks to
-    __str. Datetime is left out until there's a decent UI for datetime filtering. Returns
-    a copy; filters without a value are returned unchanged.
+    __str. Datetime is left out until there's a decent UI for datetime filtering. Presence
+    operators target __str, which holds every attribute. Returns a copy; other filters
+    without a value are returned unchanged.
     """
+    if property_filter.operator in PRESENCE_OPERATORS:
+        mapped = property_filter.copy(deep=True)
+        mapped.key = f"{mapped.key}__str"
+        return mapped
+
     if not property_filter.value:
         return property_filter
 
@@ -338,7 +347,9 @@ class LogsFilterBuilder:
                 if property_filter.type != LogPropertyFilterType.LOG_ATTRIBUTE:
                     continue
 
-                if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
+                if isinstance(property_filter, LogPropertyFilter) and (
+                    property_filter.value or property_filter.operator in PRESENCE_OPERATORS
+                ):
                     self.attribute_filters.insert(0, _map_attribute_filter_type(property_filter))
 
         if self.exclude_resource_attribute is not None:
