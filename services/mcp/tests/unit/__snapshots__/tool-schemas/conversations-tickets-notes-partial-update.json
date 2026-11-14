@@ -15,7 +15,7 @@
             "type": "string"
         },
         "rich_content": {
-            "description": "Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message."
+            "description": "Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. Each image src must be the url of an image uploaded to this project."
         }
     },
     "required": ["id", "message_id"],

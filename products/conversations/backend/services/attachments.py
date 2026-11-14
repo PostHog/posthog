@@ -2,6 +2,7 @@
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -9,6 +10,7 @@ import structlog
 
 from posthog.models.team import Team
 from posthog.models.uploaded_media import (
+    PRIVATE_MEDIA_PURPOSES,
     UploadedMedia,
     is_inline_safe_content_type,
     save_content_to_object_storage,
@@ -30,6 +32,7 @@ _FILENAME_STRIP_RE = re.compile(r"[^\w\s\-.,()]+")
 _REHOSTED_MEDIA_URL_RE = re.compile(
     r"/uploaded_media/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
 )
+_UPLOADED_MEDIA_ID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
 class AttachmentStorageError(Exception):
@@ -234,3 +237,66 @@ def discard_rehosted_attachments(team: Team, attachments: list[dict[str, Any]]) 
                 logger.warning("conversations_attachment_discard_failed", team_id=team.id, media_id=str(media.id))
                 continue
         media.delete()
+
+
+def _uploaded_media_id(src: str, media_bases: list[str]) -> str | None:
+    """The media ID when src is exactly `<base>/uploaded_media/<uuid>` for one of the bases, else None."""
+    try:
+        parsed = urlparse(src)
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.params or parsed.query or parsed.fragment:
+        return None
+    for base in media_bases:
+        prefix = f"{base.rstrip('/')}/uploaded_media/"
+        if src.lower().startswith(prefix.lower()):
+            media_id = src[len(prefix) :]
+            if _UPLOADED_MEDIA_ID_RE.fullmatch(media_id):
+                return media_id.lower()
+    return None
+
+
+def _rich_content_image_sources(node: Any) -> list[str]:
+    if isinstance(node, list):
+        return [src for child in node for src in _rich_content_image_sources(child)]
+    if not isinstance(node, dict):
+        return []
+    sources: list[str] = []
+    if node.get("type") == "image":
+        attrs = node.get("attrs")
+        src = attrs.get("src") if isinstance(attrs, dict) else None
+        # A missing src renders nothing, but any other value must pass the check.
+        if src is not None:
+            sources.append(src if isinstance(src, str) else repr(src))
+    sources.extend(_rich_content_image_sources(node.get("content")))
+    return sources
+
+
+def find_disallowed_image_sources(team_id: int, rich_content: Any) -> list[str]:
+    """Image sources in rich_content that are not live, public media of this team.
+
+    Channels send these images to the customer, so an external URL would put any content into a
+    support email. Media URLs use UPLOADED_MEDIA_PUBLIC_URL, or SITE_URL for images saved before it
+    was set.
+    """
+    media_bases = [base for base in (settings.UPLOADED_MEDIA_PUBLIC_URL, settings.SITE_URL) if base]
+    media_ids: dict[str, str] = {}
+    disallowed: list[str] = []
+    for src in _rich_content_image_sources(rich_content):
+        media_id = _uploaded_media_id(src, media_bases)
+        if media_id is None:
+            disallowed.append(src)
+        else:
+            media_ids[src] = media_id
+
+    if media_ids:
+        live_ids = {
+            str(media_id)
+            for media_id in UploadedMedia.objects.filter(
+                team_id=team_id, id__in=set(media_ids.values()), pending=False, serving_disabled_at__isnull=True
+            )
+            .exclude(purpose__in=PRIVATE_MEDIA_PURPOSES)
+            .values_list("id", flat=True)
+        }
+        disallowed.extend(src for src, media_id in media_ids.items() if media_id not in live_ids)
+    return list(dict.fromkeys(disallowed))

@@ -27,6 +27,7 @@ from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import (
     MEDIA_PURPOSES,
     PRIVATE_MEDIA_PURPOSES,
+    UPLOAD_MEDIA_PURPOSES,
     ObjectStorageUnavailable,
     is_inline_safe_content_type,
     sniff_image,
@@ -215,12 +216,12 @@ UPLOAD_URL_EXPIRATION_SECONDS = 900
 
 
 def _validate_purpose(value: str) -> None:
-    if value not in MEDIA_PURPOSES:
-        raise serializers.ValidationError(f"Unknown purpose. Valid values: {', '.join(MEDIA_PURPOSES)}.")
+    if value not in UPLOAD_MEDIA_PURPOSES:
+        raise serializers.ValidationError(f"Unknown purpose. Valid values: {', '.join(UPLOAD_MEDIA_PURPOSES)}.")
 
 
 def _purpose_field(**kwargs) -> serializers.CharField:
-    """A library tag, checked against MEDIA_PURPOSES.
+    """A purpose tag for an upload, checked against UPLOAD_MEDIA_PURPOSES.
 
     Not a ChoiceField: a single-value choice set hashes by its values, so `["email"]` here
     would share one generated enum name with every unrelated `["email"]` field in the schema
@@ -232,7 +233,10 @@ def _purpose_field(**kwargs) -> serializers.CharField:
 
 class UploadedMediaStartUploadSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=1000, help_text="The file's display name, e.g. 'logo.png'.")
-    purpose = _purpose_field(help_text="Library to add this image to once uploaded, e.g. 'email'.")
+    purpose = _purpose_field(
+        help_text="Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support "
+        "ticket reply image. No library lists those."
+    )
 
 
 class UploadedMediaUploadStartedSerializer(serializers.Serializer):
@@ -383,8 +387,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         description="Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its "
-        "real content type, and activates it — after this it appears in the library and is publicly "
-        "servable.",
+        "real content type, and activates it — after this it is publicly servable, and it appears in its "
+        "library unless its purpose is upload-only (`conversations`).",
         request=None,
         responses={
             200: UploadedMediaSerializer,
@@ -473,9 +477,10 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     },
                     "purpose": {
                         "type": "string",
-                        "enum": MEDIA_PURPOSES,
+                        "enum": UPLOAD_MEDIA_PURPOSES,
                         "description": "Library to add this image to. Omit to upload without "
-                        "joining a library (as dashboard text cards and notebooks do).",
+                        "joining a library (as dashboard text cards and notebooks do). "
+                        "`conversations` marks a support reply image, which no library lists.",
                     },
                 },
                 "required": ["image"],

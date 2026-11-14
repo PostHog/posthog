@@ -3273,6 +3273,48 @@ class TestTicketReplyAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("own_team_upload", "personal_api_key", "own", status.HTTP_201_CREATED),
+            ("other_team_upload", "personal_api_key", "other_team", status.HTTP_400_BAD_REQUEST),
+            ("external_url", "personal_api_key", "https://attacker.example.com/pixel.png", status.HTTP_400_BAD_REQUEST),
+            ("relative_path", "personal_api_key", "own_relative", status.HTTP_400_BAD_REQUEST),
+            ("trailing_slash", "personal_api_key", "own_trailing_slash", status.HTTP_400_BAD_REQUEST),
+            ("malformed_url", "personal_api_key", "https://[invalid/image.png", status.HTTP_400_BAD_REQUEST),
+            ("in_app_external_url", "session", "https://example.com/pasted.png", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_reply_rich_content_image_must_be_own_team_upload(
+        self, mock_on_commit, _name, auth, source, expected_status
+    ):
+        if auth == "personal_api_key":
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="ticket-write",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["ticket:write"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        own_media = UploadedMedia.objects.create(team=self.team, file_name="own.png", content_type="image/png")
+        other_media = UploadedMedia.objects.create(team=other_team, file_name="other.png", content_type="image/png")
+        src = {
+            "own": own_media.get_absolute_url(),
+            "other_team": other_media.get_absolute_url(),
+            "own_relative": f"/uploaded_media/{own_media.id}",
+            "own_trailing_slash": f"{own_media.get_absolute_url()}/",
+        }.get(source, source)
+        rich = {"type": "doc", "content": [{"type": "image", "attrs": {"src": src, "alt": "screenshot"}}]}
+
+        response = self.client.post(self.url, {"message": "See image", "rich_content": rich}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "rich_content"
+            assert not Comment.objects.filter(item_id=str(self.ticket.id)).exists()
+
+    @parameterized.expand(
+        [
             ("blank", {"message": "   "}),
             ("missing", {}),
             ("rich_content_too_large", {"message": "hi", "rich_content": {"x": "y" * 200_000}}),

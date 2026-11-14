@@ -49,6 +49,7 @@ from posthog.api.tagged_item import (
     normalize_tag_names,
     set_tags_on_object,
 )
+from posthog.auth import SessionAuthentication
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -107,6 +108,7 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.person_lookup import _get_persons_by_email
 from products.conversations.backend.services.attachments import (
     CONVERSATIONS_MAX_IMAGE_BYTES,
+    find_disallowed_image_sources,
     resolve_attachment_content_type,
     sanitize_attachment_filename,
     save_uploaded_media,
@@ -195,7 +197,8 @@ class TicketNoteUpdateRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Optional TipTap rich content JSON. Omit or pass null to clear previous rich content "
-            "so the thread falls back to the markdown message."
+            "so the thread falls back to the markdown message. Each image src must be the url of an image "
+            "uploaded to this project."
         ),
     )
 
@@ -226,7 +229,10 @@ class TicketNoteCreateRequestSerializer(TicketNoteUpdateRequestSerializer):
     rich_content = serializers.JSONField(
         required=False,
         allow_null=True,
-        help_text="Optional TipTap rich content JSON for the note. Omit it to show the markdown message.",
+        help_text=(
+            "Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image "
+            "src must be the url of an image uploaded to this project."
+        ),
     )
 
 
@@ -247,7 +253,12 @@ class TicketReplyRequestSerializer(serializers.Serializer):
     rich_content = serializers.JSONField(
         required=False,
         allow_null=True,
-        help_text="Optional TipTap rich content JSON for formatted messages.",
+        help_text=(
+            "Optional TipTap rich content JSON for formatted messages. When set, channels deliver this "
+            'instead of message. Images need it: add a node {"type": "image", "attrs": {"src": <url>, '
+            '"alt": <text>}} to the "doc" content. Each src must be the url of an image uploaded to '
+            "this project, or the request fails with a 400."
+        ),
     )
 
     def validate_message(self, value: str) -> str:
@@ -334,7 +345,10 @@ class ComposeTicketSerializer(serializers.Serializer):
     rich_content = serializers.JSONField(
         required=False,
         allow_null=True,
-        help_text="TipTap rich content JSON for formatted messages.",
+        help_text=(
+            "TipTap rich content JSON for formatted messages. Each image src must be the url of an image "
+            "uploaded to this project."
+        ),
     )
     tags = serializers.ListField(
         child=serializers.CharField(max_length=255),
@@ -1777,8 +1791,24 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             is_private=data["is_private"],
         )
 
+    def _validate_rich_content_images(self, rich_content: object) -> None:
+        # The in-app editor can paste external images, as it always could. The check covers API and MCP callers.
+        if isinstance(self.request.successful_authenticator, SessionAuthentication):
+            return
+        disallowed = find_disallowed_image_sources(self.team_id, rich_content)
+        if disallowed:
+            raise ValidationError(
+                {
+                    "rich_content": [
+                        "Each image must be uploaded to this project first. Upload it and use the url the upload "
+                        f"returns. Not accepted: {', '.join(disallowed[:5])}"
+                    ]
+                }
+            )
+
     def _create_message(self, ticket: Ticket, *, message: str, rich_content: object, is_private: bool) -> Response:
         request = self.request
+        self._validate_rich_content_images(rich_content)
         if is_scout_sandbox_request(request) and not is_private:
             raise PermissionDenied("Scouts can only add private notes. Set is_private to true.")
 
@@ -1979,6 +2009,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer = TicketNoteUpdateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        self._validate_rich_content_images(data.get("rich_content"))
 
         with transaction.atomic():
             locked = Comment.objects.select_for_update().get(pk=comment.pk)
@@ -2171,6 +2202,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer = ComposeTicketSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        self._validate_rich_content_images(data.get("rich_content"))
         team = self.team
 
         if not team.conversations_enabled:

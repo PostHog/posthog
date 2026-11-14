@@ -34,6 +34,12 @@ MEDIA_PURPOSE_CANVAS = "canvas"
 MEDIA_PURPOSE_EXPERIMENT = "experiment"
 MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL, MEDIA_PURPOSE_CANVAS, MEDIA_PURPOSE_EXPERIMENT]
 
+# Upload-only purposes: an upload can carry one, but no library lists it. A support reply image
+# can show a customer's data, and the library list does not check access to the ticket.
+MEDIA_PURPOSE_CONVERSATIONS = "conversations"
+UPLOAD_ONLY_MEDIA_PURPOSES = [MEDIA_PURPOSE_CONVERSATIONS]
+UPLOAD_MEDIA_PURPOSES = [*MEDIA_PURPOSES, *UPLOAD_ONLY_MEDIA_PURPOSES]
+
 # These uploads must never be served through the unauthenticated /uploaded_media route.
 # Their owning product provides an authenticated download endpoint instead.
 MEDIA_PURPOSE_DESKTOP_FEEDBACK = "desktop_feedback"
