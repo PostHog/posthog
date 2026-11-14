@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -169,6 +170,25 @@ class TestTaskRunSync(TestCase):
         self.assertEqual(
             collect_status_mismatches(), [StatusMismatch(stored_status="running", derived_status="idle", count=1)]
         )
+
+    @parameterized.expand(
+        [
+            ("run_started_before_its_first_sync", "idle", TaskRun.Status.IN_PROGRESS, "running", 0),
+            ("run_went_back_to_queued", "running", TaskRun.Status.QUEUED, "queued", 1),
+        ]
+    )
+    def test_counts_only_the_moves_the_table_forbids(
+        self, _name: str, stored: str, run_status: str, derived: str, counted: int
+    ) -> None:
+        sample = {"from_status": stored, "to_status": derived}
+        before = REGISTRY.get_sample_value("posthog_tasks_status_outside_transitions_total", sample) or 0
+        self._lose_sync(self.task, run_status=run_status, stored=stored)
+
+        sync_task_status(self.task.id)
+
+        after = REGISTRY.get_sample_value("posthog_tasks_status_outside_transitions_total", sample) or 0
+        self.task.refresh_from_db()
+        self.assertEqual((after - before, self.task.status), (counted, derived))
 
     def _lose_sync(self, task: Task, *, run_status: str | None, stored: str | None) -> None:
         if run_status is not None:

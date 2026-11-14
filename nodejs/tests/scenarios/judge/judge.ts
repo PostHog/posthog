@@ -3,22 +3,28 @@ import { setTimeout as sleep } from 'timers/promises'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
+import type { ResidentBacklog } from '../backlog/backlog'
 import type { Named } from '../cards'
 import type { SeedState } from '../generator/generator'
 import type { CyclotronProbe } from '../probe/cyclotron-probe'
 import type { TruthHead, TruthPage, TruthRecord } from '../provider-edge'
-import { INVARIANTS, deliveryKey } from './invariants'
+import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
+
+export type IntakeAnswer =
+    | { accepted: true }
+    | { accepted: false; transportError: string }
+    | { accepted: false; status: number; outcome?: string }
+
+export type FollowUpAnswer = IntakeAnswer | { notSent: string }
 
 export type JournalEntry = {
     unitId: string
     kind: 'event' | 'transactional'
     teamId: number
     offeredAt: number
-    answer:
-        | { accepted: true }
-        | { accepted: false; transportError: string }
-        | { accepted: false; status: number; outcome?: string }
+    answer: IntakeAnswer
     expect: { deliveries: string[] }
+    followUp?: FollowUpAnswer
 }
 
 export type Convergence = { converged: boolean; unfinishedJobs: number; unrecorded: string[]; tookMs: number }
@@ -44,11 +50,19 @@ export type JudgeOptions = {
     edgeUrl: string
     probe: Pick<CyclotronProbe, 'unfinishedJobs'>
     fetchRetries: number
+    residentBacklog?: () => Promise<ResidentBacklog>
     pollMs?: number
     now?: () => number
 }
 
-export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000, now = Date.now }: JudgeOptions): Judge {
+export function createJudge({
+    edgeUrl,
+    probe,
+    fetchRetries,
+    residentBacklog,
+    pollMs = 1000,
+    now = Date.now,
+}: JudgeOptions): Judge {
     let journal: JournalEntry[] = []
     let truth: TruthRecord[] = []
     let cursor = 0
@@ -121,12 +135,16 @@ export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000, now =
 
         async check(invariants, gates) {
             await pullTruth()
+            const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
+                ? await residentBacklog?.()
+                : undefined
             return invariants.map(({ name }) => {
                 const definition = INVARIANTS.find((invariant) => invariant.name === name)
                 if (!definition) {
                     throw new Error(`No invariant ${name}`)
                 }
-                return { name, gate: gates[name], ...definition.check({ journal, truth, fetchRetries }, gates[name]) }
+                const evidence = { journal, truth, fetchRetries, resident }
+                return { name, gate: gates[name], ...definition.check(evidence, gates[name]) }
             })
         },
 

@@ -1,7 +1,10 @@
 import pytest
 from unittest.mock import Mock, patch
 
+import httpx
+
 from products.web_analytics.dags.cache_favicons import (
+    download_favicon,
     get_authorized_domains,
     get_last_cached_domains,
     upload_if_missing,
@@ -97,6 +100,46 @@ class TestGetAuthorizedDomains:
             result = get_authorized_domains(context)
 
         assert result == expected
+
+
+class TestDownloadFavicon:
+    @pytest.mark.parametrize(
+        "statuses,expected_data,expected_hosts",
+        [
+            ({"icons.duckduckgo.com": 200}, b"icons.duckduckgo.com", ["icons.duckduckgo.com"]),
+            (
+                {"icons.duckduckgo.com": 404, "t0.gstatic.com": 200},
+                b"t0.gstatic.com",
+                ["icons.duckduckgo.com", "t0.gstatic.com"],
+            ),
+            (
+                {"icons.duckduckgo.com": 404, "t0.gstatic.com": 404},
+                None,
+                ["icons.duckduckgo.com", "t0.gstatic.com"],
+            ),
+        ],
+    )
+    def test_uses_first_source_that_has_the_favicon(self, statuses, expected_data, expected_hosts):
+        requested_hosts: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requested_hosts.append(request.url.host)
+            return httpx.Response(
+                statuses[request.url.host], content=request.url.host.encode(), headers={"content-type": "image/png"}
+            )
+
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            domain, data, content_type, source_url = download_favicon(Mock(), "example.com", client)
+
+        assert domain == "example.com"
+        assert data == expected_data
+        assert requested_hosts == expected_hosts
+        if expected_data is None:
+            assert (content_type, source_url) == (None, None)
+        else:
+            assert content_type == "image/png"
+            assert source_url is not None
+            assert httpx.URL(source_url).host == expected_data.decode()
 
 
 class TestUploadIfMissing:

@@ -9,7 +9,7 @@ from django.db.models import Field, Model, Q, QuerySet
 
 from posthog.paging import CursorPageRequest, Page, PageRequest
 
-_POSTGRES_BIGINT_MAX = 2**63 - 1
+_LARGEST_ROW_BOUND_POSTGRES_ACCEPTS = 2**63 - 1
 
 
 def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
@@ -48,20 +48,30 @@ def select_page[M: Model](queryset: QuerySet[M], page: PageRequest) -> Page[M]:
 
 
 def select_page_without_count[M: Model](queryset: QuerySet[M], page: PageRequest) -> Page[M]:
-    """Return one page of `queryset` without counting the whole list, for filters too costly to run twice.
-
-    It reads one row past the page to learn whether another page follows. `count` then holds the rows
-    through this page, plus one when another page follows, so that a limit/offset paginator sets `next`
-    exactly when more rows exist.
-    """
-    # PostgreSQL takes OFFSET and LIMIT as bigint and fails the query when a bound overflows it. No table
-    # holds that many rows, so such a page is empty, the same answer `select_page` gives past the last row.
-    if page.offset + page.limit + 1 > _POSTGRES_BIGINT_MAX:
+    if _starts_past_any_table(page):
         return Page(results=[], count=page.offset)
-    rows = list(stable_queryset_ordering(queryset)[page.offset : page.offset + page.limit + 1])
-    more = len(rows) > page.limit
-    results = rows[: page.limit]
-    return Page(results=results, count=page.offset + len(results) + (1 if more else 0))
+    page_and_one_row_past = list(
+        stable_queryset_ordering(queryset)[page.offset : page.offset + _rows_to_read_to_see_past(page)]
+    )
+    results = page_and_one_row_past[: page.limit]
+    another_page_follows = len(page_and_one_row_past) > page.limit
+    return Page(
+        results=results, count=_count_that_sets_next_only_when_another_page_follows(page, results, another_page_follows)
+    )
+
+
+def _rows_to_read_to_see_past(page: PageRequest) -> int:
+    return page.limit + 1
+
+
+def _count_that_sets_next_only_when_another_page_follows(
+    page: PageRequest, results: Sequence[object], another_page_follows: bool
+) -> int:
+    return page.offset + len(results) + (1 if another_page_follows else 0)
+
+
+def _starts_past_any_table(page: PageRequest) -> bool:
+    return page.offset + _rows_to_read_to_see_past(page) > _LARGEST_ROW_BOUND_POSTGRES_ACCEPTS
 
 
 def _model_field(model: type[Model], field: str) -> Field | None:
