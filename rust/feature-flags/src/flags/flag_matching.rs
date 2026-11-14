@@ -66,10 +66,16 @@ const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
 pub struct FlagEvaluationOverrides {
     pub person_property_overrides: Option<HashMap<String, Value>>,
     pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-    pub hash_key_overrides: Option<HashMap<String, String>>,
-    pub hash_key_override_error: bool,
     /// The request's anon_distinct_id, used as a fallback for EEC flags when no DB override exists
     pub request_hash_key_override: Option<String>,
+}
+
+/// What the hash key override lookup found.
+#[derive(Debug, Default)]
+pub struct HashKeyOverrideLookupResult {
+    pub overrides: Option<HashMap<String, String>>,
+    /// True when a persons DB call in the lookup failed.
+    pub failed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -575,6 +581,243 @@ fn failed_flag_details(flag: &FeatureFlag, error: &FlagError) -> FlagDetails {
     FlagDetails::create_error(flag, error, None)
 }
 
+/// Runs the hash key override lookup. It owns copies of the matcher fields it reads, so it can
+/// run while the property fetch borrows the matcher mutably.
+struct HashKeyOverrideLookup {
+    router: PostgresRouter,
+    team_id: TeamId,
+    distinct_id: String,
+    skip_writes: bool,
+    persons_db_deadline: Option<Instant>,
+}
+
+impl HashKeyOverrideLookup {
+    /// If experience continuity is enabled, we need to process the hash key override.
+    /// See [`HashKeyOverrideLookup::process_hash_key_override`] for more details.
+    async fn run(
+        self,
+        flags_have_experience_continuity_enabled: bool,
+        hash_key_override: Option<String>,
+    ) -> HashKeyOverrideLookupResult {
+        let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
+        let (hash_key_overrides, flag_hash_key_override_error) =
+            if flags_have_experience_continuity_enabled {
+                common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
+                with_canonical_log(|log| log.outcome_marks.mark_needs_persons());
+                match hash_key_override {
+                    Some(hash_key) => {
+                        let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
+                        self.process_hash_key_override(hash_key, target_distinct_ids)
+                            .await
+                    }
+                    // If no hash key override is provided, we need to look up existing overrides.
+                    // Most of the time this is fine because our client side sdks usually include $anon_distinct_id in their requests,
+                    // but if a customer is using hash key overrides across a client sdk and a server sdk then the experience
+                    // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
+                    // In addition, this behavior is consistent with /decide.
+                    None => {
+                        match before_persons_db_deadline(
+                            self.persons_db_deadline,
+                            db_operations::GET_HASH_KEY_OVERRIDES,
+                            get_feature_flag_hash_key_overrides(
+                                self.router.get_persons_reader().clone(),
+                                pool_names::PERSONS_READER,
+                                self.router.get_persons_writer().clone(),
+                                self.team_id,
+                                vec![self.distinct_id.clone()],
+                            ),
+                        )
+                        .await
+                        {
+                            Ok(overrides) => (Some(overrides), false),
+                            Err(e) => {
+                                error!(
+                                    "Failed to get feature flag hash key overrides for team {} distinct_id {}: {:?}",
+                                    self.team_id, self.distinct_id, e
+                                );
+                                (None, true)
+                            }
+                        }
+                    }
+                }
+            } else {
+                // if experience continuity is not enabled, we don't need to worry about hash key overrides
+                (None, false)
+            };
+
+        // If there was an error in processing hash key overrides, increment the error counter
+        if flag_hash_key_override_error {
+            let reason = "hash_key_override_error";
+            common_metrics::inc(
+                FLAG_EVALUATION_ERROR_COUNTER,
+                &[("reason".to_string(), reason.to_string())],
+                1,
+            );
+        }
+
+        hash_key_timer
+            .label(
+                "outcome",
+                if flag_hash_key_override_error {
+                    "error"
+                } else {
+                    "success"
+                },
+            )
+            .fin();
+
+        // Track hash key override status in canonical log
+        if flag_hash_key_override_error {
+            with_canonical_log(|log| log.hash_key_override_status = Some("error"));
+        } else if let Some(ref overrides) = hash_key_overrides {
+            let status = if overrides.is_empty() {
+                "empty"
+            } else {
+                "found"
+            };
+            with_canonical_log(|log| log.hash_key_override_status = Some(status));
+        }
+
+        HashKeyOverrideLookupResult {
+            overrides: hash_key_overrides,
+            failed: flag_hash_key_override_error,
+        }
+    }
+
+    /// Processes hash key overrides for feature flags with experience continuity enabled.
+    ///
+    /// This method handles the logic for managing hash key overrides, which are used to ensure
+    /// consistent feature flag experiences across different distinct IDs (e.g., when a user logs in).
+    /// It performs the following steps:
+    ///
+    /// 1. Checks if a hash key override needs to be written by comparing the current distinct ID
+    ///    with the provided hash key
+    /// 2. If needed, writes the hash key override to the database using the writer connection
+    /// 3. Increments metrics to track successful/failed hash key override writes
+    /// 4. Retrieves and returns the current hash key overrides for the target distinct IDs
+    ///
+    /// Returns a tuple containing:
+    /// - Option<HashMap<String, String>>: The hash key overrides if successfully retrieved, None if there was an error
+    /// - bool: Whether there was an error during processing (true = error occurred)
+    #[instrument(skip_all, fields(team_id = %self.team_id, distinct_id = %self.distinct_id))]
+    async fn process_hash_key_override(
+        &self,
+        hash_key: String,
+        target_distinct_ids: Vec<String>,
+    ) -> (Option<HashMap<String, String>>, bool) {
+        let should_write = match before_persons_db_deadline(
+            self.persons_db_deadline,
+            db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE,
+            should_write_hash_key_override(
+                &self.router,
+                self.team_id,
+                self.distinct_id.clone(),
+                hash_key.clone(),
+            ),
+        )
+        .await
+        {
+            Ok(should_write) => should_write,
+            Err(e) => {
+                error!(
+                    "Failed to check if hash key override should be written for team {} distinct_id {}: {:?}",
+                    self.team_id, self.distinct_id, e
+                );
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), e.evaluation_error_code())],
+                    1,
+                );
+                return (None, true);
+            }
+        };
+
+        let mut writing_hash_key_override = false;
+
+        if should_write {
+            if self.skip_writes {
+                tracing::debug!(
+                    team_id = self.team_id,
+                    distinct_id = %self.distinct_id,
+                    "SKIP_WRITES: skipping hash key override write to PostgreSQL"
+                );
+            } else {
+                // NB: this is the only method that writes to the database
+                if let Err(e) = before_persons_db_deadline(
+                    self.persons_db_deadline,
+                    db_operations::SET_HASH_KEY_OVERRIDES,
+                    set_feature_flag_hash_key_overrides(
+                        &self.router,
+                        self.team_id,
+                        target_distinct_ids.clone(),
+                        hash_key.clone(),
+                    ),
+                )
+                .await
+                {
+                    error!("Failed to set feature flag hash key overrides for team {} distinct_id {} hash_key {}: {:?}", self.team_id, self.distinct_id, hash_key, e);
+                    inc(
+                        FLAG_EVALUATION_ERROR_COUNTER,
+                        &[("reason".to_string(), e.evaluation_error_code())],
+                        1,
+                    );
+                    return (None, true);
+                }
+                writing_hash_key_override = true;
+            }
+        }
+
+        inc(
+            FLAG_HASH_KEY_WRITES_COUNTER,
+            &[(
+                "successful_write".to_string(),
+                writing_hash_key_override.to_string(),
+            )],
+            1,
+        );
+
+        // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
+        // This is because we need to make sure the write is successful before we read it back
+        // to avoid read-after-write consistency issues with database replication lag
+        let (database_for_reading, pool_name) = if writing_hash_key_override {
+            (
+                self.router.get_persons_writer().clone(),
+                pool_names::PERSONS_WRITER,
+            )
+        } else {
+            (
+                self.router.get_persons_reader().clone(),
+                pool_names::PERSONS_READER,
+            )
+        };
+
+        match before_persons_db_deadline(
+            self.persons_db_deadline,
+            db_operations::GET_HASH_KEY_OVERRIDES,
+            get_feature_flag_hash_key_overrides(
+                database_for_reading,
+                pool_name,
+                self.router.get_persons_writer().clone(),
+                self.team_id,
+                target_distinct_ids,
+            ),
+        )
+        .await
+        {
+            Ok(overrides) => (Some(overrides), false),
+            Err(e) => {
+                error!("Failed to get feature flag hash key overrides for team {} distinct_id {}: {:?}", self.team_id, self.distinct_id, e);
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), e.evaluation_error_code())],
+                    1,
+                );
+                (None, true)
+            }
+        }
+    }
+}
+
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -794,35 +1037,36 @@ impl FeatureFlagMatcher {
             with_canonical_log(|log| log.hash_key_override_status = Some("skipped"));
         }
 
-        // Clone the request's hash_key_override before passing it to process_hash_key_override_if_needed
-        // since we also need it for the FlagEvaluationOverrides struct
-        let request_hash_key_override = hash_key_override.clone();
-
-        // Process any hash key overrides
-        let (hash_key_overrides, flag_hash_key_override_error) = self
-            .process_hash_key_override_if_needed(do_hash_key_lookup, hash_key_override)
-            .await;
+        // Boxed so that this future, and the futures that hold it, grow by a pointer rather than
+        // by the lookup's state. See `before_persons_db_deadline` for why their size matters.
+        let hash_key_lookup = Box::pin(
+            HashKeyOverrideLookup {
+                router: self.router.clone(),
+                team_id: self.team_id,
+                distinct_id: self.distinct_id.clone(),
+                skip_writes: self.skip_writes,
+                persons_db_deadline: self.persons_db_deadline,
+            }
+            .run(do_hash_key_lookup, hash_key_override.clone()),
+        );
 
         let overrides = FlagEvaluationOverrides {
             person_property_overrides,
             group_property_overrides,
-            hash_key_overrides,
-            hash_key_override_error: flag_hash_key_override_error,
-            request_hash_key_override,
+            request_hash_key_override: hash_key_override,
         };
 
         let flags_response = self
             .evaluate_flags_with_overrides(
                 overrides,
+                hash_key_lookup,
                 request_id,
                 evaluation_stages,
                 flags_with_missing_deps,
             )
             .await?;
 
-        let has_errors = flag_hash_key_override_error
-            || flags_response.errors_while_computing_flags
-            || has_cycle_errors;
+        let has_errors = flags_response.errors_while_computing_flags || has_cycle_errors;
 
         eval_timer
             .label("outcome", if has_errors { "error" } else { "success" })
@@ -834,139 +1078,6 @@ impl FeatureFlagMatcher {
             None,
             request_id,
         ))
-    }
-
-    /// Processes hash key overrides for feature flags with experience continuity enabled.
-    ///
-    /// This method handles the logic for managing hash key overrides, which are used to ensure
-    /// consistent feature flag experiences across different distinct IDs (e.g., when a user logs in).
-    /// It performs the following steps:
-    ///
-    /// 1. Checks if a hash key override needs to be written by comparing the current distinct ID
-    ///    with the provided hash key
-    /// 2. If needed, writes the hash key override to the database using the writer connection
-    /// 3. Increments metrics to track successful/failed hash key override writes
-    /// 4. Retrieves and returns the current hash key overrides for the target distinct IDs
-    ///
-    /// Returns a tuple containing:
-    /// - Option<HashMap<String, String>>: The hash key overrides if successfully retrieved, None if there was an error
-    /// - bool: Whether there was an error during processing (true = error occurred)
-    #[instrument(skip_all, fields(team_id = %self.team_id, distinct_id = %self.distinct_id))]
-    async fn process_hash_key_override(
-        &self,
-        hash_key: String,
-        target_distinct_ids: Vec<String>,
-    ) -> (Option<HashMap<String, String>>, bool) {
-        let should_write = match before_persons_db_deadline(
-            self.persons_db_deadline,
-            db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE,
-            should_write_hash_key_override(
-                &self.router,
-                self.team_id,
-                self.distinct_id.clone(),
-                hash_key.clone(),
-            ),
-        )
-        .await
-        {
-            Ok(should_write) => should_write,
-            Err(e) => {
-                error!(
-                    "Failed to check if hash key override should be written for team {} distinct_id {}: {:?}",
-                    self.team_id, self.distinct_id, e
-                );
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), e.evaluation_error_code())],
-                    1,
-                );
-                return (None, true);
-            }
-        };
-
-        let mut writing_hash_key_override = false;
-
-        if should_write {
-            if self.skip_writes {
-                tracing::debug!(
-                    team_id = self.team_id,
-                    distinct_id = %self.distinct_id,
-                    "SKIP_WRITES: skipping hash key override write to PostgreSQL"
-                );
-            } else {
-                // NB: this is the only method that writes to the database
-                if let Err(e) = before_persons_db_deadline(
-                    self.persons_db_deadline,
-                    db_operations::SET_HASH_KEY_OVERRIDES,
-                    set_feature_flag_hash_key_overrides(
-                        &self.router,
-                        self.team_id,
-                        target_distinct_ids.clone(),
-                        hash_key.clone(),
-                    ),
-                )
-                .await
-                {
-                    error!("Failed to set feature flag hash key overrides for team {} distinct_id {} hash_key {}: {:?}", self.team_id, self.distinct_id, hash_key, e);
-                    inc(
-                        FLAG_EVALUATION_ERROR_COUNTER,
-                        &[("reason".to_string(), e.evaluation_error_code())],
-                        1,
-                    );
-                    return (None, true);
-                }
-                writing_hash_key_override = true;
-            }
-        }
-
-        inc(
-            FLAG_HASH_KEY_WRITES_COUNTER,
-            &[(
-                "successful_write".to_string(),
-                writing_hash_key_override.to_string(),
-            )],
-            1,
-        );
-
-        // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
-        // This is because we need to make sure the write is successful before we read it back
-        // to avoid read-after-write consistency issues with database replication lag
-        let (database_for_reading, pool_name) = if writing_hash_key_override {
-            (
-                self.router.get_persons_writer().clone(),
-                pool_names::PERSONS_WRITER,
-            )
-        } else {
-            (
-                self.router.get_persons_reader().clone(),
-                pool_names::PERSONS_READER,
-            )
-        };
-
-        match before_persons_db_deadline(
-            self.persons_db_deadline,
-            db_operations::GET_HASH_KEY_OVERRIDES,
-            get_feature_flag_hash_key_overrides(
-                database_for_reading,
-                pool_name,
-                self.router.get_persons_writer().clone(),
-                self.team_id,
-                target_distinct_ids,
-            ),
-        )
-        .await
-        {
-            Ok(overrides) => (Some(overrides), false),
-            Err(e) => {
-                error!("Failed to get feature flag hash key overrides for team {} distinct_id {}: {:?}", self.team_id, self.distinct_id, e);
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), e.evaluation_error_code())],
-                    1,
-                );
-                (None, true)
-            }
-        }
     }
 
     /// Evaluates cohort filters using cached membership results (both static and realtime)
@@ -1122,14 +1233,18 @@ impl FeatureFlagMatcher {
     ///
     /// Takes pre-computed evaluation stages which should already be filtered by flag_keys if needed.
     /// The stages determine which flags are evaluated and in what order.
+    ///
+    /// `hash_key_lookup` resolves to the hash key overrides and whether looking them up failed.
+    /// It runs concurrently with the group type mapping and property fetch.
     pub async fn evaluate_flags_with_overrides(
         &mut self,
         overrides: FlagEvaluationOverrides,
+        hash_key_lookup: impl Future<Output = HashKeyOverrideLookupResult>,
         request_id: Uuid,
         evaluation_stages: Vec<Vec<FeatureFlag>>,
         flags_with_missing_deps: HashSet<i32>,
     ) -> Result<FlagsResponse, FlagError> {
-        let mut errors_while_computing_flags = overrides.hash_key_override_error;
+        let mut errors_while_computing_flags = false;
         let mut evaluated_flags_map = HashMap::new();
 
         // Joining `filtered_out_flag_ids` pre-seeds the flag false below, like an inactive
@@ -1156,8 +1271,30 @@ impl FeatureFlagMatcher {
             .filter(|flag| flag.filters.is_supported())
             .collect();
 
+        // `biased` polls the lookup first, so when both hit the persons DB deadline together, the
+        // canonical log records the lookup's operation, as it did when the lookup ran first.
+        let mut db_prep_flags_map = HashMap::new();
+        let (hash_key_lookup, db_prep_errors) = tokio::join!(
+            biased;
+            hash_key_lookup,
+            async {
+                let group_type_mapping_errors =
+                    self.initialize_group_type_mappings_if_needed(&flags).await;
+                let db_prep_errors = self
+                    .prepare_evaluation_state_if_needed(
+                        &flags,
+                        &overrides.person_property_overrides,
+                        &overrides.group_property_overrides,
+                        &mut db_prep_flags_map,
+                    )
+                    .await;
+                group_type_mapping_errors | db_prep_errors
+            },
+        );
+        errors_while_computing_flags |= hash_key_lookup.failed | db_prep_errors;
+
         // Handle hash key override errors by creating error responses for flags that need experience continuity
-        if overrides.hash_key_override_error && overrides.hash_key_overrides.is_none() {
+        if hash_key_lookup.failed && hash_key_lookup.overrides.is_none() {
             let hash_key_error = FlagError::HashKeyOverrideError;
             for flag in flags.iter().filter(|flag| {
                 !self.filtered_out_flag_ids.contains(&flag.id)
@@ -1168,20 +1305,8 @@ impl FeatureFlagMatcher {
                     .insert(flag.key.clone(), failed_flag_details(flag, &hash_key_error));
             }
         }
-
-        // Step 1: Initialize group type mappings if needed
-        errors_while_computing_flags |= self.initialize_group_type_mappings_if_needed(&flags).await;
-
-        // Step 2: Prepare evaluation state for flags requiring DB properties
-        let db_prep_errors = self
-            .prepare_evaluation_state_if_needed(
-                &flags,
-                &overrides.person_property_overrides,
-                &overrides.group_property_overrides,
-                &mut evaluated_flags_map,
-            )
-            .await;
-        errors_while_computing_flags |= db_prep_errors;
+        // A DB preparation error replaces a hash key override error for a flag that has both.
+        evaluated_flags_map.extend(db_prep_flags_map);
 
         // Pre-seed filtered-out flags as false so dependency conditions like
         // `flag_evaluates_to=false` can match against them.
@@ -1190,7 +1315,7 @@ impl FeatureFlagMatcher {
                 .add_flag_evaluation_result(flag_id, FlagValue::Boolean(false));
         }
 
-        // Step 3: Evaluate flags stage by stage in dependency order
+        // Evaluate flags stage by stage in dependency order
         self.flag_evaluation_state.failed_flag_ids =
             ids_of_failed_flags(evaluated_flags_map.values()).collect();
         for stage in evaluation_stages {
@@ -1200,7 +1325,7 @@ impl FeatureFlagMatcher {
                     &mut evaluated_flags_map,
                     &overrides.person_property_overrides,
                     &overrides.group_property_overrides,
-                    &overrides.hash_key_overrides,
+                    &hash_key_lookup.overrides,
                     &overrides.request_hash_key_override,
                     &flags_with_missing_deps,
                 )
@@ -3130,95 +3255,6 @@ impl FeatureFlagMatcher {
             // `is_condition_match` consults so a fetch miss can't be read as "unset".
             Ok(HashMap::new())
         }
-    }
-
-    /// If experience continuity is enabled, we need to process the hash key override.
-    /// See [`FeatureFlagMatcher::process_hash_key_override`] for more details.
-    async fn process_hash_key_override_if_needed(
-        &self,
-        flags_have_experience_continuity_enabled: bool,
-        hash_key_override: Option<String>,
-    ) -> (Option<HashMap<String, String>>, bool) {
-        let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
-        let (hash_key_overrides, flag_hash_key_override_error) =
-            if flags_have_experience_continuity_enabled {
-                common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
-                with_canonical_log(|log| log.outcome_marks.mark_needs_persons());
-                match hash_key_override {
-                    Some(hash_key) => {
-                        let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
-                        self.process_hash_key_override(hash_key, target_distinct_ids)
-                            .await
-                    }
-                    // If no hash key override is provided, we need to look up existing overrides.
-                    // Most of the time this is fine because our client side sdks usually include $anon_distinct_id in their requests,
-                    // but if a customer is using hash key overrides across a client sdk and a server sdk then the experience
-                    // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
-                    // In addition, this behavior is consistent with /decide.
-                    None => {
-                        match before_persons_db_deadline(
-                            self.persons_db_deadline,
-                            db_operations::GET_HASH_KEY_OVERRIDES,
-                            get_feature_flag_hash_key_overrides(
-                                self.router.get_persons_reader().clone(),
-                                pool_names::PERSONS_READER,
-                                self.router.get_persons_writer().clone(),
-                                self.team_id,
-                                vec![self.distinct_id.clone()],
-                            ),
-                        )
-                        .await
-                        {
-                            Ok(overrides) => (Some(overrides), false),
-                            Err(e) => {
-                                error!(
-                                    "Failed to get feature flag hash key overrides for team {} distinct_id {}: {:?}",
-                                    self.team_id, self.distinct_id, e
-                                );
-                                (None, true)
-                            }
-                        }
-                    }
-                }
-            } else {
-                // if experience continuity is not enabled, we don't need to worry about hash key overrides
-                (None, false)
-            };
-
-        // If there was an error in processing hash key overrides, increment the error counter
-        if flag_hash_key_override_error {
-            let reason = "hash_key_override_error";
-            common_metrics::inc(
-                FLAG_EVALUATION_ERROR_COUNTER,
-                &[("reason".to_string(), reason.to_string())],
-                1,
-            );
-        }
-
-        hash_key_timer
-            .label(
-                "outcome",
-                if flag_hash_key_override_error {
-                    "error"
-                } else {
-                    "success"
-                },
-            )
-            .fin();
-
-        // Track hash key override status in canonical log
-        if flag_hash_key_override_error {
-            with_canonical_log(|log| log.hash_key_override_status = Some("error"));
-        } else if let Some(ref overrides) = hash_key_overrides {
-            let status = if overrides.is_empty() {
-                "empty"
-            } else {
-                "found"
-            };
-            with_canonical_log(|log| log.hash_key_override_status = Some(status));
-        }
-
-        (hash_key_overrides, flag_hash_key_override_error)
     }
 
     /// Initializes the group type mapping cache if needed.
