@@ -50,6 +50,7 @@ import { GENERATED_TOOLS as platform_features } from './platform_features'
 import { GENERATED_TOOLS as posthog_ai } from './posthog_ai'
 import { GENERATED_TOOLS as product_analytics } from './product_analytics'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
+import { GENERATED_TOOLS as push_templates } from './push_templates'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
 import { GENERATED_TOOLS as reminders } from './reminders'
 import { GENERATED_TOOLS as replay } from './replay'
@@ -124,6 +125,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...posthog_ai,
     ...product_analytics,
     ...proxyRecords,
+    ...push_templates,
     ...queryWrappers,
     ...reminders,
     ...replay,

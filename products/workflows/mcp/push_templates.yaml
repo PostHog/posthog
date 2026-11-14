@@ -1,0 +1,98 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product workflows
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product workflows --file ../../products/workflows/mcp/push_templates.yaml
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Workflows
+feature: workflows
+url_prefix: /transactional/push
+ui_apps: {}
+tools:
+    workflows-create-push-template:
+        operation: messaging_templates_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create push notification template
+        description: >
+            Save a push notification template, to send from code with workflows-make-push-template-transactional and the
+            send API. Set type to push, and pass content.push with a title, a body and channels: the IDs of the
+            project's Firebase and APNs integrations to send through (list them with the integrations tools, kinds
+            firebase and apns). Optional fields are link (where a tap takes the person, sent to the app as the "link"
+            data key), image (an image URL) and data (string values the app's code reads). Use {{ variables.name }} for
+            values each send passes in message_data. The template can't read person properties. Then share the
+            template's _posthogUrl with the user.
+        exclude_params:
+            - content.email
+            - draft_content
+            - sensitive
+        param_overrides:
+            type:
+                description: Always push for this tool.
+                required: true
+        feature_flag: workflows-transactional-push-api
+        response:
+            exclude:
+                - content
+                - draft_content
+                - created_by
+    workflows-make-push-template-transactional:
+        operation: messaging_templates_make_transactional_create
+        enabled: true
+        scopes:
+            - transactional_email:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Make push template sendable from code
+        description: >
+            Make a push notification template sendable from code with one API call, for notifications a person triggers
+            such as order updates, sign-in alerts and messages. This is one-way: the template stays sendable.
+            Transactional sends ignore marketing opt-outs and frequency caps, so never use this for marketing. The
+            template needs a title, a body and at least one push channel. Requires human typed confirmation. The
+            response has transactional_hog_flow_id, the workflow that sends it. Then tell the user what is left: create
+            a project secret API key with Transactional push notifications set to Write, and POST
+            /api/projects/@current/messaging/send/push/ from their backend with template_id, distinct_id and
+            message_data. The push goes to every device that person registered for the template's channels.
+        exclude_params:
+            - from_integration_id
+        feature_flag: workflows-transactional-push-api
+        response:
+            exclude:
+                - content
+                - draft_content
+                - created_by
+        confirmed_action:
+            message: >
+                About to make push template '{id}' sendable from code. This can't be undone, and its sends will ignore
+                marketing opt-outs. Reply 'confirm' to proceed.
+    workflows-send-push:
+        operation: messaging_send_push_create
+        enabled: true
+        scopes:
+            - transactional_push:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Send transactional push notification
+        description: >
+            Send one push notification from a push template made sendable from code to every device of one person. Pass
+            the template's ID, the person's distinct_id, and message_data with a value for each {{ variables.* }} the
+            template uses. A person with no registered device gets nothing: the send still succeeds and shows as skipped
+            in the template's Sends tab. Sending takes two calls: prepare checks only the arguments and returns a
+            message for the user, and execute sends it only after the user replies with the literal word 'confirm'. Each
+            execute call sends a notification, so never repeat one that succeeded. A 503 means PostHog did not confirm
+            the send and it may still go out: do not try again on your own, tell the user.
+        feature_flag: workflows-transactional-push-api
+        confirmed_action:
+            message: >
+                About to send push template '{template_id}' to every device of '{distinct_id}'. Reply 'confirm' to send
+                it.
+            action_label: send push notification

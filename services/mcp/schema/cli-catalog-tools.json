@@ -55028,6 +55028,79 @@
             "validators": []
         }
     },
+    "workflows-create-push-template": {
+        "name": "workflows-create-push-template",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/messaging_templates/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "name",
+                    "key": "name"
+                },
+                {
+                    "param": "description",
+                    "key": "description"
+                },
+                {
+                    "param": "tags",
+                    "key": "tags"
+                },
+                {
+                    "param": "content",
+                    "key": "content"
+                },
+                {
+                    "param": "type",
+                    "key": "type"
+                },
+                {
+                    "param": "message_category",
+                    "key": "message_category"
+                },
+                {
+                    "param": "deleted",
+                    "key": "deleted"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": {
+                "kind": "omit",
+                "fields": ["content", "draft_content", "created_by"],
+                "expandable": []
+            },
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/transactional/push",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "result"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "workflows-data-suggestions-create": {
         "name": "workflows-data-suggestions-create",
         "kind": "http",
