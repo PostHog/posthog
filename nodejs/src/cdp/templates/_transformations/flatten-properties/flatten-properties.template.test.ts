@@ -78,14 +78,23 @@ describe('flatten-properties.template', () => {
     })
 
     it('leaves internal deny-listed properties nested', async () => {
-        const properties = await invoke({
+        const input = {
             $groups: { org: { id: 1 } },
+            $web_vitals_INP_event: {
+                name: 'INP',
+                value: 96,
+                attribution: {
+                    interactionTarget: 'button.save',
+                    interactionTargetElement: { jQuery0123456789: { events: { click: [{ guid: 3 }] } } },
+                },
+            },
+            $web_vitals_INP_value: 96,
             keep: { nested: 'value' },
-        })
+        }
 
-        expect(properties.$groups).toEqual({ org: { id: 1 } })
-        expect(properties.$groups__org__id).toBeUndefined()
-        expect(properties.keep__nested).toBe('value')
+        const properties = await invoke(input)
+
+        expect(properties).toEqual({ ...input, keep__nested: 'value' })
     })
 
     it('skips events on the event deny list', async () => {

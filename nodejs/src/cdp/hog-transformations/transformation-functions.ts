@@ -128,6 +128,13 @@ const FLATTEN_PROPERTY_DENYLIST = [
     '$web_vitals_data',
 ]
 
+// posthog-js sends one `$web_vitals_<METRIC>_event` object per metric. Before posthog-js 1.174.1,
+// the INP object also held the interaction target DOM element, which carries keys that change on
+// every page load, such as jQuery expando names. A flattened copy of it creates new property names
+// on each page load. The metric name is part of the key, so a pattern skips these objects instead
+// of an entry in the deny list above. The scalar `$web_vitals_<METRIC>_value` keys do not match.
+const isWebVitalsEventObject = (key: string): boolean => key.startsWith('$web_vitals_') && key.endsWith('_event')
+
 // Real separators join keys and run a few characters. Cap the configured one so a huge value
 // cannot be copied into every flattened key and blow up memory and CPU.
 const MAX_SEPARATOR_LENGTH = 100
@@ -152,7 +159,7 @@ function flattenPropertiesInternal(
         if (budget.keys <= 0 || budget.bytes <= 0) {
             break
         }
-        if (FLATTEN_PROPERTY_DENYLIST.includes(key)) {
+        if (FLATTEN_PROPERTY_DENYLIST.includes(key) || isWebVitalsEventObject(key)) {
             // Leave internal properties nested.
         } else if (key === '$set' || key === '$set_once' || key === '$group_set') {
             // A flattened key that collides with an existing one wins, matching the legacy plugin:
