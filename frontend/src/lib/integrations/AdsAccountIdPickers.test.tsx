@@ -1,12 +1,13 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { IntegrationType } from '~/types'
 
-import { GoogleAdsCustomerIdPicker } from './GoogleAdsIntegrationHelpers'
+import { GoogleAdsConversionActionPicker, GoogleAdsCustomerIdPicker } from './GoogleAdsIntegrationHelpers'
 import { LinkedInAdsAccountIdPicker } from './LinkedInIntegrationHelpers'
 
 const INTEGRATION: IntegrationType = {
@@ -42,5 +43,28 @@ describe('ads account ID pickers', () => {
         )
 
         expect(screen.getByText(label)).toBeInTheDocument()
+    })
+
+    test('Google Ads conversion action picker loads actions for a numeric saved customer ID', async () => {
+        const requestedCustomerIds: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/google_conversion_actions': ({ request }) => {
+                    requestedCustomerIds.push(new URL(request.url).searchParams.get('customerId'))
+                    return [200, { conversionActions: [] }]
+                },
+            },
+        })
+
+        render(
+            <Provider>
+                <GoogleAdsConversionActionPicker
+                    integration={INTEGRATION}
+                    requiresFieldValue={1234567890 as unknown as string}
+                />
+            </Provider>
+        )
+
+        await waitFor(() => expect(requestedCustomerIds).toEqual(['1234567890']))
     })
 })
