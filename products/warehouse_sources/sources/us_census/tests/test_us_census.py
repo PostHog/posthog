@@ -34,18 +34,30 @@ def _run_query(api_key: str, variables: str, script: Any) -> DriveResult:
 
 
 class TestUSCensus:
-    def test_build_query_url_keeps_census_syntax_literal(self):
+    @pytest.mark.parametrize(
+        ("geography", "geography_filter", "predicates", "expected_query"),
+        [
+            ("county:*", "state:06", (), "get=NAME,B01001_001E&for=county:*&in=state:06&key=secret"),
+            (
+                "zip code tabulation area:*",
+                None,
+                (),
+                "get=NAME,B01001_001E&for=zip%20code%20tabulation%20area:*&key=secret",
+            ),
+            ("county:*", None, (("NAICS2017", "00"),), "get=NAME,B01001_001E&for=county:*&NAICS2017=00&key=secret"),
+        ],
+    )
+    def test_build_query_url_keeps_census_syntax_literal(self, geography, geography_filter, predicates, expected_query):
         url = build_query_url(
             "2024/acs/acs5",
             ("NAME", "B01001_001E"),
-            "county:*",
-            geography_filter="state:06",
+            geography,
+            geography_filter=geography_filter,
+            predicates=predicates,
             api_key="secret",
         )
 
-        assert url == (
-            "https://api.census.gov/data/2024/acs/acs5?get=NAME,B01001_001E&for=county:*&in=state:06&key=secret"
-        )
+        assert url == f"https://api.census.gov/data/2024/acs/acs5?{expected_query}"
 
     @pytest.mark.parametrize("payload", [None, {}, [], "rows", [{"NAME": "x"}]])
     def test_rows_from_payload_rejects_unexpected_shapes(self, payload):

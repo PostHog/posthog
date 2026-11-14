@@ -49,6 +49,12 @@ _DECENNIAL_VARIABLES = (
     "H1_001N",  # total housing units
 )
 
+_CBP_DATASET = "2023/cbp"
+_CBP_VARIABLES = ("NAME", "NAICS2017", "NAICS2017_LABEL", "ESTAB", "EMP", "PAYANN")
+# NAICS2017 is a "default displayed" predicate; pin it to 00 (total for all
+# sectors) so the row grain stays one row per geography across API changes.
+_CBP_PREDICATES = (("NAICS2017", "00"),)
+
 ENDPOINTS: dict[str, CensusEndpoint] = {
     "AcsDemographicsByState": CensusEndpoint(
         dataset=_ACS5_DATASET,
@@ -75,13 +81,39 @@ ENDPOINTS: dict[str, CensusEndpoint] = {
         primary_keys=("state", "county"),
     ),
     "CountyBusinessPatternsByState": CensusEndpoint(
-        dataset="2023/cbp",
-        variables=("NAME", "NAICS2017", "NAICS2017_LABEL", "ESTAB", "EMP", "PAYANN"),
+        dataset=_CBP_DATASET,
+        variables=_CBP_VARIABLES,
         geography="state:*",
-        # NAICS2017 is a "default displayed" predicate; pin it to 00 (total for all
-        # sectors) so the row grain stays one row per state across API changes.
         primary_keys=("state", "NAICS2017"),
-        predicates=(("NAICS2017", "00"),),
+        predicates=_CBP_PREDICATES,
+    ),
+    "AcsDemographicsByZcta": CensusEndpoint(
+        dataset=_ACS5_DATASET,
+        variables=_ACS5_VARIABLES,
+        geography="zip code tabulation area:*",
+        primary_keys=("zip code tabulation area",),
+    ),
+    "CountyBusinessPatternsByCounty": CensusEndpoint(
+        dataset=_CBP_DATASET,
+        variables=_CBP_VARIABLES,
+        geography="county:*",
+        primary_keys=("state", "county", "NAICS2017"),
+        predicates=_CBP_PREDICATES,
+    ),
+    "GeographyInfoByCounty": CensusEndpoint(
+        dataset="2024/geoinfo",
+        variables=(
+            "NAME",
+            "GEO_ID",
+            "AREALAND",
+            "AREAWATR",
+            "AREALAND_SQMI",
+            "AREAWATR_SQMI",
+            "INTPTLAT",
+            "INTPTLON",
+        ),
+        geography="county:*",
+        primary_keys=("state", "county"),
     ),
     "PopulationEstimatesByState": CensusEndpoint(
         dataset="2021/pep/population",
@@ -97,6 +129,9 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "DecennialPopulationByState": "2020 Decennial Census (PL 94-171) population and housing unit counts for every US state.",
     "DecennialPopulationByCounty": "2020 Decennial Census (PL 94-171) population and housing unit counts for every US county.",
     "CountyBusinessPatternsByState": "County Business Patterns (2023) establishment, employment, and payroll totals for every US state.",
+    "AcsDemographicsByZcta": "American Community Survey 5-year estimates (2020-2024) of population, income, housing, employment, and education for every ZIP Code Tabulation Area (ZCTA).",
+    "CountyBusinessPatternsByCounty": "County Business Patterns (2023) establishment, employment, and payroll totals for every US county.",
+    "GeographyInfoByCounty": "Geography reference data (2024) for every US county: name, land and water area, and internal point coordinates.",
     "PopulationEstimatesByState": "Population Estimates Program (vintage 2021) population and density for every US state.",
     CUSTOM_QUERY_ENDPOINT: "Your own query against any Census dataset, built from the custom query fields on the source.",
 }

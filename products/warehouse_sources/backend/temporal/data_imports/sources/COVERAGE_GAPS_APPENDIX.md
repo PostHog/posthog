@@ -12969,10 +12969,10 @@ Today (6): `AcsDemographicsByCounty`, `AcsDemographicsByState`, `CountyBusinessP
 
 Diffed against: <https://api.census.gov/data.json>
 
-- [ ] `2024/acs/acs5 for=zip code tabulation area` — ZCTA-level demographics is the join key for customer postal codes — the single most requested Census cut (high)
-- [ ] `2024/geoinfo` — geography lookup table (names, land/water area, centroid) that resolves the bare state/county FIPS codes every other table returns (high)
-- [ ] `2023/cbp for=county` — county business patterns is only synced at state grain today; county is the useful market-sizing grain (high)
-- [ ] `2021/pep/population for=county` — population estimates are state-only today, so county-level denominators are missing (high)
+- [x] `2024/acs/acs5 for=zip code tabulation area` — ZCTA-level demographics is the join key for customer postal codes — the single most requested Census cut (high)
+- [x] `2024/geoinfo` — geography lookup table (names, land/water area, centroid) that resolves the bare state/county FIPS codes every other table returns (high)
+- [x] `2023/cbp for=county` — county business patterns is only synced at state grain today; county is the useful market-sizing grain (high)
+- [ ] `2021/pep/population for=county` — population estimates are state-only today, so county-level denominators are missing (high) — not available: `2021/pep/population` has no county geography (only us, region, division and state); the county-level `2023/pep/charv` cube needs undocumented total codes for its default-displayed AGE/SEX/HISP predicates
 - [ ] `2024/acs/acs5 for=tract and for=place` — tract/place demographics for catchment and store-level analysis (medium)
 - [ ] `2018/zbp (ZIP Code Business Patterns)` — establishment and payroll counts by ZIP, the business-side complement to ZCTA demographics (medium)
 - [ ] `2024/acs/acs1` — 1-year estimates are a year fresher than acs5 for states and large metros (medium)
