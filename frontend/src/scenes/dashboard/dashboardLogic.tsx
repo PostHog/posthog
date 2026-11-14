@@ -60,6 +60,7 @@ import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQue
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
+import { analyticsParentBreadcrumb } from 'scenes/analytics/analyticsBackLink'
 import {
     DashboardFilterChangeType,
     dashboardViewedProperties,
@@ -2093,7 +2094,8 @@ export interface dashboardLogicMeta {
             dashboard: DashboardType | null,
             error404: boolean,
             dashboardFailedToLoad: boolean,
-            searchParams: Record<string, any>
+            searchParams: Record<string, any>,
+            featureFlags: FeatureFlagsSet
         ) => Breadcrumb[]
         projectTreeRef: (arg: number) => ProjectTreeRef
         hasInvalidDashboardId: (arg: number) => boolean
@@ -4687,29 +4689,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, router.selectors.searchParams],
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, router.selectors.searchParams, s.featureFlags],
             (
                 dashboard: DashboardType | null,
                 error404: boolean,
                 dashboardFailedToLoad: boolean,
-                searchParams: Record<string, any>
+                searchParams: Record<string, any>,
+                featureFlags: FeatureFlagsSet
             ): Breadcrumb[] => {
                 const backUrl = searchParams.backUrl as string | undefined
                 const backName = searchParams.backName as string | undefined
+                const analyticsParent = analyticsParentBreadcrumb(searchParams, featureFlags, 'dashboard')
+                // A back link from another page, such as a flag's usage dashboard, wins over the Analytics list.
+                const otherBackUrl = backUrl && backUrl !== analyticsParent?.path ? backUrl : undefined
                 return [
-                    backUrl
+                    otherBackUrl
                         ? {
-                              key: backUrl,
+                              key: otherBackUrl,
                               name: backName || 'Back',
-                              path: backUrl,
+                              path: otherBackUrl,
                               iconType: 'dashboard',
                           }
-                        : {
+                        : (analyticsParent ?? {
                               key: Scene.Dashboards,
                               name: 'Dashboards',
                               path: urls.dashboards(),
                               iconType: 'dashboard',
-                          },
+                          }),
                     {
                         key: [Scene.Dashboard, dashboard?.id || 'new'],
                         name: dashboard?.id

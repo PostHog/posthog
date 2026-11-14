@@ -5,7 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { analyticsBackLink, withBackLink } from './analyticsBackLink'
+import { analyticsBackLink, analyticsParentBreadcrumb, withBackLink } from './analyticsBackLink'
 
 const FLAG_ON = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }
 
@@ -25,6 +25,28 @@ describe('analyticsBackLink', () => {
         ['no link at all', {}, FLAG_ON, null],
     ])('trusts %s: %s', (_, searchParams, featureFlags, expected) => {
         expect(analyticsBackLink(searchParams, featureFlags)?.url ?? null).toBe(expected)
+    })
+
+    test.each([
+        [
+            'the Analytics page that opened the item',
+            { backUrl: '/analytics/mine', backName: 'Analytics' },
+            FLAG_ON,
+            { name: 'Analytics', path: '/analytics/mine' },
+        ],
+        ['the Analytics list when opened from elsewhere', {}, FLAG_ON, { name: 'Analytics', path: '/analytics/all' }],
+        [
+            'the Analytics list over a link another page left',
+            { backUrl: '/feature_flags/12', backName: 'my-flag' },
+            FLAG_ON,
+            { name: 'Analytics', path: '/analytics/all' },
+        ],
+        ['nothing without the flag', {}, {}, null],
+        ['nothing without the flag, even with an Analytics link', { backUrl: '/analytics/all' }, {}, null],
+    ])('names %s as the parent breadcrumb', (_, searchParams, featureFlags, expected) => {
+        expect(analyticsParentBreadcrumb(searchParams, featureFlags)).toEqual(
+            expected ? expect.objectContaining(expected) : null
+        )
     })
 })
 
