@@ -397,6 +397,16 @@ describe('cloud controller', () => {
             'Missing permission logs:FilterLogEvents',
         ],
         [
+            'a missing permission that teardown needs to judge a volume',
+            { cloud: { denied: ['ec2:DescribeVolumes'] } },
+            'Missing permission ec2:DescribeVolumes',
+        ],
+        [
+            'a missing permission that teardown needs to judge a database instance',
+            { cloud: { denied: ['rds:DescribeDBInstances'] } },
+            'Missing permission rds:DescribeDBInstances',
+        ],
+        [
             'a cap other than the fixed one',
             { profile: (p) => ({ ...p, admission: { ...p.admission, capUsd: 300 } }) },
             'admission.capUsd',
@@ -588,22 +598,27 @@ describe('cloud controller', () => {
         expect(err.join('\n')).toContain('not-a-run')
     })
 
-    it.each<[string, string[], number]>([
-        ['run', [], 0],
-        ['cleanup', ['--expired'], 2],
-    ])('%s still releases the other expired leases when one manifest cannot be read', async (command, rest, code) => {
-        const { controller } = prepare({ cloud: { expiration: new Date(T.getTime() + 24 * HOUR_MS) } })
-        const broken = await leaseAt(T, controller)
-        const expired = await leaseAt(T, controller)
-        cloud.objects.set(`runs/${broken}/manifest.json`, 'not a manifest')
-        now = new Date(T.getTime() + 6.5 * HOUR_MS)
+    it.each<[string, string, string[], string]>([
+        ['run', 'manifest', [], 'manifest.json'],
+        ['cleanup', 'manifest', ['--expired'], 'manifest.json'],
+        ['run', 'receipt', [], 'receipts/earlier.json'],
+        ['cleanup', 'receipt', ['--expired'], 'receipts/earlier.json'],
+    ])(
+        "%s still releases the other expired leases when one run's %s cannot be read",
+        async (command, _, rest, name) => {
+            const { controller } = prepare({ cloud: { expiration: new Date(T.getTime() + 24 * HOUR_MS) } })
+            const broken = await leaseAt(T, controller)
+            const expired = await leaseAt(T, controller)
+            cloud.objects.set(`runs/${broken}/${name}`, 'not JSON')
+            now = new Date(T.getTime() + 6.5 * HOUR_MS)
 
-        await expect(main([command, profilePath(), ...rest], controller)).resolves.toBe(code)
+            await expect(main([command, profilePath(), ...rest], controller)).resolves.toBe(2)
 
-        expect(released(expired)).toBe(1)
-        expect(schedulesFor(expired)).toEqual([])
-        expect(err.join('\n')).toContain(broken)
-    })
+            expect(released(expired)).toBe(1)
+            expect(schedulesFor(expired)).toEqual([])
+            expect(err.join('\n')).toContain(broken)
+        }
+    )
 
     it.each<[string, (other: string) => Record<string, unknown>]>([
         ['schedules', (other) => ({ schedules: [`scn-${other}-expiry`, `scn-${other}-expiry-retry`] })],
@@ -636,7 +651,10 @@ describe('cloud controller', () => {
 
     it.each<[string, (fake: FakeCloud) => void]>([
         ['', () => undefined],
-        [', retrying a resource read that fails during teardown', (fake) => fake.failOnCall('describe-db-instances')],
+        [
+            ', retrying a resource read that fails during teardown',
+            (fake) => fake.failOnCall('describe-db-instances', 2),
+        ],
         [
             ', judging an untyped tagged resource gone once its tag listing drops it',
             (fake) => fake.untyped.push('arn:aws:rds:us-east-1:000000000000:cluster-auto-backup:cab-0'),
@@ -684,17 +702,26 @@ describe('cloud controller', () => {
         expect(released(leasedRunId())).toBe(1)
     })
 
-    it.each<[string, Partial<FakeCloudOptions>, string]>([
-        ['the host writes its failed marker', { host: 'failed' }, 'host/bootstrap.log'],
-        ['the host misses its bootstrap deadline', { host: 'silent' }, 'not ready within 30m'],
-        ['the stack rolls back its creation', { rollsBack: 'create' }, 'not CREATE_COMPLETE'],
-        ['the stack rolls back the reader', { rollsBack: 'update' }, 'not UPDATE_COMPLETE'],
-    ])('makes the run invalid and tears down when %s', async (_, options, reason) => {
-        const { controller } = prepare({ cloud: options })
+    it.each<[string, Setup, string]>([
+        ['the host writes its failed marker', { cloud: { host: 'failed' } }, 'host/bootstrap.log'],
+        ['the host misses its bootstrap deadline', { cloud: { host: 'silent' } }, 'not ready within 30m'],
+        [
+            'the host stays silent until the lease expires',
+            {
+                cloud: { host: 'silent' },
+                profile: (p) => ({ ...p, host: { ...p.host, bootstrapDeadline: '720m' } }),
+            },
+            'only its teardown allowance',
+        ],
+        ['the stack rolls back its creation', { cloud: { rollsBack: 'create' } }, 'not CREATE_COMPLETE'],
+        ['the stack rolls back the reader', { cloud: { rollsBack: 'update' } }, 'not UPDATE_COMPLETE'],
+    ])('makes the run invalid and tears down when %s', async (_, setup, reason) => {
+        const { controller } = prepare(setup)
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
         expect(err.join('\n')).toContain(reason)
+        expect(cloud.deleteStackRequests).toEqual([])
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
     })
@@ -903,7 +930,7 @@ describe('cloud controller', () => {
         [
             'AWS::RDS::DBClusterAutomatedBackup',
             ', even when the run cannot read the live cluster',
-            (fake) => fake.failWhen('describe-db-clusters', () => true),
+            (fake) => fake.failWhen('describe-db-clusters', () => fake.schedules.size > 0),
             (fake) => fake.heal(),
         ],
     ])('keeps the schedules and names a %s that outlives the stack%s', async (type, _, beforeRun, beforeCleanup) => {
@@ -924,38 +951,52 @@ describe('cloud controller', () => {
         expect(cloud.schedules.size).toBe(2)
     })
 
-    it.each([
-        ['could not look it up', ['describe-db-clusters', 'list-secrets']],
-        ['could list nothing', ['describe-stack-resources', 'get-resources', 'describe-db-clusters', 'list-secrets']],
-    ])('names a secret that outlives the stack in a later cleanup, when the run %s', async (_, failing) => {
-        const { controller } = prepare({
-            cloud: { outlives: ['AWS::SecretsManager::Secret'] },
-            profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
-        })
-        failing.forEach((operation) => cloud.failWhen(operation, () => true))
-        onSleep = () => {
-            if (cloud.resources.length > 0) {
-                interrupt?.()
+    it.each<[string, Partial<FakeCloudOptions>, string[], string]>([
+        [
+            'could not look it up',
+            {},
+            ['describe-db-clusters', 'list-secrets'],
+            'could not list the secret and backups of cluster',
+        ],
+        [
+            'could list nothing',
+            {},
+            ['describe-stack-resources', 'get-resources', 'describe-db-clusters', 'list-secrets'],
+            'could not list the secret and backups of cluster',
+        ],
+        ['found its stack already deleted', { rollsBack: 'create' }, [], 'until the tag listings catch up'],
+    ])(
+        'names a secret that outlives the stack in a later cleanup, when the run %s',
+        async (_, options, failing, says) => {
+            const { controller } = prepare({
+                cloud: { ...options, outlives: ['AWS::SecretsManager::Secret'] },
+                profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
+            })
+            failing.forEach((operation) => cloud.failWhen(operation, () => cloud.schedules.size > 0))
+            onSleep = () => {
+                if (failing.length > 0 && cloud.resources.length > 0) {
+                    interrupt?.()
+                }
             }
+
+            await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+            expect(err.join('\n')).toContain(says)
+
+            cloud.heal()
+            err.length = 0
+            await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
+            expect(err.join('\n')).toContain('until the tag listings catch up')
+            expect(cloud.schedules.size).toBe(2)
+
+            err.length = 0
+            now = new Date(now.getTime() + HOUR_MS / 3)
+            await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
+
+            const [secret] = cloud.billable().filter((resource) => resource.startsWith('AWS::SecretsManager::Secret'))
+            expect(err.join('\n')).toContain(`- ${secret}`)
+            expect(cloud.schedules.size).toBe(2)
         }
-
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
-        expect(err.join('\n')).toContain('could not list the secret and backups of cluster')
-
-        cloud.heal()
-        err.length = 0
-        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
-        expect(err.join('\n')).toContain('until the tag listings catch up')
-        expect(cloud.schedules.size).toBe(2)
-
-        err.length = 0
-        now = new Date(now.getTime() + HOUR_MS / 3)
-        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
-
-        const [secret] = cloud.billable().filter((resource) => resource.startsWith('AWS::SecretsManager::Secret'))
-        expect(err.join('\n')).toContain(`- ${secret}`)
-        expect(cloud.schedules.size).toBe(2)
-    })
+    )
 
     it.each([
         ['its receipt', false],

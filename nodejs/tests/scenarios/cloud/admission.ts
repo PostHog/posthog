@@ -197,6 +197,8 @@ function probesOf({ baseline, host }: CloudProfile, now: Date): [string, string[
             ],
         ],
         ['rds:DescribeDBClusters', ['rds', 'describe-db-clusters', '--db-cluster-identifier', PROBE_ID]],
+        ['rds:DescribeDBInstances', ['rds', 'describe-db-instances', '--db-instance-identifier', PROBE_ID]],
+        ['ec2:DescribeVolumes', ['ec2', 'describe-volumes', '--volume-ids', 'vol-00000000000000000']],
         [
             'rds:DescribeDBClusterSnapshots',
             ['rds', 'describe-db-cluster-snapshots', '--db-cluster-identifier', PROBE_ID],

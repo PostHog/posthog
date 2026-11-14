@@ -97,7 +97,8 @@ async function waitForHost(
     signal: AbortSignal
 ): Promise<void> {
     const evidence = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
-    const deadline = controller.now().getTime() + durationMs(profile.host.bootstrapDeadline)
+    const lastWork = Date.parse(manifest.expiresAt) - durationMs(profile.admission.teardownAllowance)
+    const deadline = Math.min(controller.now().getTime() + durationMs(profile.host.bootstrapDeadline), lastWork)
     for (;;) {
         const markers = await evidence.keys(keyOf(manifest.runId, 'host/'))
         if (markers.includes(keyOf(manifest.runId, 'host/failed'))) {
@@ -109,7 +110,11 @@ async function waitForHost(
             return
         }
         if (controller.now().getTime() >= deadline) {
-            throw new Error(`The run host was not ready within ${profile.host.bootstrapDeadline}.`)
+            throw new Error(
+                deadline === lastWork
+                    ? `The run host was not ready by ${new Date(lastWork).toISOString()}, which leaves the lease ending at ${manifest.expiresAt} only its teardown allowance.`
+                    : `The run host was not ready within ${profile.host.bootstrapDeadline}.`
+            )
         }
         signal.throwIfAborted()
         await controller.sleep(POLL_MS)
@@ -125,6 +130,10 @@ export async function createRunStack(
     const parameters = parametersOf(profile, manifest, await imageOf(controller, profile))
     refuseCreationNearExpiry(controller, profile, manifest, 'create the stack')
     signal.throwIfAborted()
+    await evidenceOf(controller.aws, profile.baseline.evidenceBucket).put(
+        keyOf(manifest.runId, 'stack-requested'),
+        manifest.stackName
+    )
     await controller.aws.call([
         'cloudformation',
         'create-stack',

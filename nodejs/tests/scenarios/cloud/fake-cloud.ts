@@ -68,6 +68,7 @@ export type FakeCloudOptions = {
 const ACTION_OF: Record<string, string> = {
     's3api list-objects-v2': 's3:ListBucket',
     'resourcegroupstaggingapi get-resources': 'tag:GetResources',
+    'rds describe-db-instances': 'rds:DescribeDBInstances',
 }
 
 const IAM_PREFIX: Record<string, string> = { s3api: 's3', sts: 'sts', configure: 'sts' }
@@ -343,7 +344,7 @@ export class FakeCloud implements Aws {
         }
         stack.settlesAt = Infinity
         if (stack.status === 'CREATE_IN_PROGRESS' && this.options.rollsBack === 'create') {
-            this.removeResources(stack, () => true)
+            this.removeResources(stack, ({ type }) => !(this.options.outlives ?? []).includes(type))
             this.stacks.delete(name)
         } else if (stack.status === 'CREATE_IN_PROGRESS') {
             stack.status = 'CREATE_COMPLETE'

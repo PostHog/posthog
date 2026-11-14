@@ -52,7 +52,7 @@ install_node_and_pnpm() {
 
 install_sqlx_cli() {
     curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
-    "$HOME/.cargo/bin/cargo" install sqlx-cli --version "$SQLX_CLI_VERSION" --features postgres --no-default-features --locked --root /usr/local
+    "$HOME/.cargo/bin/cargo" install sqlx-cli --version "$SQLX_CLI_VERSION" --features postgres,rustls --no-default-features --locked --root /usr/local
 }
 
 check_ready() {
