@@ -15,7 +15,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Team
 from posthog.storage import object_storage
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
@@ -109,7 +109,7 @@ async def assigned_signal_ids_activity(signals: list[EmitSignalInputs]) -> list[
         return []
     team_id = signals[0].team_id
     signal_ids = [signal.signal_id for signal in signals if signal.signal_id and signal.team_id == team_id]
-    return await database_sync_to_async(_assigned_signal_ids)(team_id, signal_ids)
+    return await database_sync_to_async_pool(_assigned_signal_ids)(team_id, signal_ids)
 
 
 def _assigned_signal_ids(team_id: int, signal_ids: list[str]) -> list[str]:
@@ -334,10 +334,10 @@ class TeamSignalGroupingV2Workflow:
             if key in exhausted_keys
         ]
         if workflow.patched("grouping-v2-retain-assigned-batches-v1"):
+            assigned_ids: set[str] = set()
             try:
-                assigned_ids = {
-                    str(signal_id)
-                    for signal_id in await workflow.execute_activity(
+                assigned_ids = set(
+                    await workflow.execute_activity(
                         assigned_signal_ids_activity,
                         [signal for signal, _ in dropped],
                         start_to_close_timeout=timedelta(minutes=1),
@@ -347,11 +347,10 @@ class TeamSignalGroupingV2Workflow:
                             maximum_attempts=5,
                         ),
                     )
-                }
+                )
             except temporalio.exceptions.ActivityError:
                 # Dropping every exhausted batch keeps the workflow moving; failing it loses the buffered keys.
                 workflow.logger.exception("signals_grouping_assigned_ids_failed", extra={"team_id": input.team_id})
-                assigned_ids = set()
             retained_keys = {
                 key
                 for signal, key in zip(collected.signals, collected.signal_object_keys, strict=True)

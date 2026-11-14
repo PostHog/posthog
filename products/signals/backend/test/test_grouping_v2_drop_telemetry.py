@@ -8,12 +8,13 @@ from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
-from asgiref.sync import sync_to_async
 from temporalio import activity
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalGroupingRecord
 from products.signals.backend.temporal.drop_telemetry import CaptureSignalDroppedInput
@@ -230,10 +231,10 @@ async def test_exhaustion_retains_assigned_batch_for_clickhouse_and_research_ret
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_assigned_signal_ids_activity_returns_only_recorded_signals(ateam) -> None:
     assigned = _signal("assigned", team_id=ateam.id)
-    await sync_to_async(SignalGroupingRecord.objects.for_team(ateam.id, canonical=True).create)(
+    await database_sync_to_async(SignalGroupingRecord.objects.for_team(ateam.id, canonical=True).create)(
         team_id=ateam.id, signal_id=assigned.signal_id, report_id=uuid.uuid4(), emitted_at=timezone.now()
     )
     signals = [assigned, _signal("unassigned", team_id=ateam.id), _signal("other-team", team_id=ateam.id + 1)]
