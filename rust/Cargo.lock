@@ -2333,6 +2333,7 @@ dependencies = [
  "health",
  "limiters",
  "metrics",
+ "metrics-util",
  "opentelemetry-proto 0.29.0",
  "prometheus-rw-proto",
  "prost 0.13.5",
