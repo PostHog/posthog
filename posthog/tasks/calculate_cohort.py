@@ -953,6 +953,38 @@ def _finalize_population_history(
     )
 
 
+def _replace_static_members(
+    cohort: Cohort, *, team_id: int, marker: datetime, rows_written: int, log_prefix: str
+) -> None:
+    """Sync a replace's new members into Postgres, then prune the members it no longer matches.
+
+    Runs after the ClickHouse insert, and raises ``PopulationSuperseded`` as soon as a newer attempt
+    stores its own marker on the cohort, so this one never writes after losing it.
+    """
+    from products.cohorts.backend.models.util import (
+        PopulationEmptyResult,
+        insert_cohort_people_into_pg,
+        prune_members_absent_from_replace,
+        prune_static_cohort_rows_before_marker,
+        require_current_population_marker,
+    )
+
+    # A replace never empties a cohort. A query that matches nobody is far likelier to be a mistake, such as a
+    # misspelled property, than a request to drop every member, and the flags and surveys built on the cohort
+    # would all change at once. Nothing is pruned yet, so both stores keep every member.
+    if not rows_written:
+        raise PopulationEmptyResult(f"Cohort {cohort.pk}: the replace query matched nobody")
+    insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written, replace_marker=marker)
+    require_current_population_marker(cohort.pk, marker)
+    # Postgres first: the flags service reads it, and it now holds every new member, so the prune
+    # never leaves it short of a member the query matches. Both prunes can be replayed by a retry.
+    removed = prune_members_absent_from_replace(cohort, team_id=team_id, marker=marker)
+    require_current_population_marker(cohort.pk, marker)
+    prune_static_cohort_rows_before_marker(cohort.pk, team_id=team_id, marker=marker)
+    require_current_population_marker(cohort.pk, marker)
+    logger.info(f"{log_prefix}_replace_pruned", cohort_id=cohort.pk, team_id=team_id, removed=removed)
+
+
 def _populate_static_cohort(
     task: Task,
     *,
@@ -982,8 +1014,7 @@ def _populate_static_cohort(
         insert_cohort_people_into_pg,
         mint_population_marker,
         population_marker_is_current,
-        prune_members_absent_from_replace,
-        prune_static_cohort_rows_before_marker,
+        require_current_population_marker,
     )
 
     # The cohort this attempt marked is_calculating. Only that attempt finalizes the flag, so a
@@ -1047,8 +1078,8 @@ def _populate_static_cohort(
                 raise PopulationSuperseded(cohort_id)
         # Checked again before the history row exists: a retry that a sweep redispatch overtook while
         # it started up must not open a row, because it would sort above the newer attempt's.
-        if marker is not None and not population_marker_is_current(cohort_id, marker):
-            raise PopulationSuperseded(cohort_id)
+        if marker is not None:
+            require_current_population_marker(cohort_id, marker)
 
         # A history record is the only way a population failure reaches the user: the cohort API
         # reads `last_error_message` from the newest finished history row. Without one,
@@ -1069,8 +1100,7 @@ def _populate_static_cohort(
         if not ch_insert_done:
             written_since = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if marker is not None:
-                if not population_marker_is_current(cohort_id, marker):
-                    raise PopulationSuperseded(cohort_id)
+                require_current_population_marker(cohort_id, marker)
                 rows_written = insert_actors_into_ch(cohort, team=team, replace_marker=marker)
             else:
                 rows_written = insert_actors_into_ch(cohort, team=team)
@@ -1085,23 +1115,9 @@ def _populate_static_cohort(
 
         # Re-running the sync is safe because InsertCohortMembers ignores existing membership.
         if marker is not None:
-            # A replace never empties a cohort. A query that matches nobody is far likelier to be a mistake, such as a
-            # misspelled property, than a request to drop every member, and the flags and surveys built on the cohort
-            # would all change at once. Nothing is pruned yet, so both stores keep every member.
-            if not rows_written:
-                raise PopulationEmptyResult(f"Cohort {cohort_id}: the replace query matched nobody")
-            insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written, replace_marker=marker)
-            if not population_marker_is_current(cohort_id, marker):
-                raise PopulationSuperseded(cohort_id)
-            # Postgres first: the flags service reads it, and it now holds every new member, so the prune
-            # never leaves it short of a member the query matches. Both prunes can be replayed by a retry.
-            removed = prune_members_absent_from_replace(cohort, team_id=team_id, marker=marker)
-            if not population_marker_is_current(cohort_id, marker):
-                raise PopulationSuperseded(cohort_id)
-            prune_static_cohort_rows_before_marker(cohort_id, team_id=team_id, marker=marker)
-            if not population_marker_is_current(cohort_id, marker):
-                raise PopulationSuperseded(cohort_id)
-            logger.info(f"{log_prefix}_replace_pruned", cohort_id=cohort_id, team_id=team_id, removed=removed)
+            _replace_static_members(
+                cohort, team_id=team_id, marker=marker, rows_written=rows_written, log_prefix=log_prefix
+            )
         else:
             # save_state=False is internal to insert_cohort_people_into_pg: releasing is_calculating inside the sync
             # would let a new claim land before this attempt finalizes, and the finalize would then release that claim.

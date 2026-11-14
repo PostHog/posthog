@@ -1493,8 +1493,8 @@ def _copy_static_cohort_rows_to_pg(
     # of LIMIT/OFFSET where later pages must scan and discard all preceding rows.
     def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
         nonlocal new_rows_read
-        if replace_marker is not None and not population_marker_is_current(cohort.pk, replace_marker):
-            raise PopulationSuperseded(cohort.pk)
+        if replace_marker is not None:
+            require_current_population_marker(cohort.pk, replace_marker)
         # Tagged per page, because the batch writer between pages may retag.
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_sync_page")
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
@@ -1583,6 +1583,12 @@ def _as_utc(value: datetime) -> datetime:
 def population_marker_is_current(cohort_id: int, marker: datetime) -> bool:
     """Whether ``marker`` is still the stored replace marker, read from the primary database."""
     return Cohort.objects.filter(pk=cohort_id, population_marker=marker).exists()
+
+
+def require_current_population_marker(cohort_id: int, marker: datetime) -> None:
+    """Raise ``PopulationSuperseded`` unless ``marker`` is still the stored replace marker."""
+    if not population_marker_is_current(cohort_id, marker):
+        raise PopulationSuperseded(cohort_id)
 
 
 def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
@@ -1762,8 +1768,7 @@ def _restore_members_whose_rows_arrived(
         arrived = _uuids_present_at_marker(cohort.pk, team_id, list(chunk.values()), marker)
         if not arrived:
             continue
-        if not population_marker_is_current(cohort.pk, marker):
-            raise PopulationSuperseded(cohort.pk)
+        require_current_population_marker(cohort.pk, marker)
         restored = [person_id for person_id, person_uuid in chunk.items() if person_uuid in arrived]
         insert_cohort_members(team_id, cohort.pk, restored, cohort.version)
         restored_total += len(restored)
@@ -1786,8 +1791,7 @@ def prune_members_absent_from_replace(cohort: Cohort, *, team_id: int, marker: d
     awaiting_recheck: dict[int, str] = {}
     last_delete_at = 0.0
     for page in _iter_cohort_member_id_pages(team_id, cohort.pk, PRUNE_PAGE_SIZE):
-        if not population_marker_is_current(cohort.pk, marker):
-            raise PopulationSuperseded(cohort.pk)
+        require_current_population_marker(cohort.pk, marker)
         uuids_by_id = _resolve_person_uuids(team_id, page)
         present = _uuids_present_at_marker(cohort.pk, team_id, list(uuids_by_id.values()), marker)
         stale = {person_id: person_uuid for person_id, person_uuid in uuids_by_id.items() if person_uuid not in present}
