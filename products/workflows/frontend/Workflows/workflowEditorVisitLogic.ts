@@ -44,6 +44,9 @@ export interface workflowEditorVisitLogicActions {
     leaveConfirmed: () => {
         value: true
     } // workflowLogic
+    resetWorkflow: (values?: HogFlow | undefined) => {
+        values?: HogFlow
+    } // workflowLogic
     setScheduleRepeating: (repeating: boolean) => {
         repeating: boolean
     } // workflowLogic
@@ -102,6 +105,7 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
             [
                 'setWorkflowValue',
                 'setWorkflowValues',
+                'resetWorkflow',
                 'workflowCreated',
                 'enableBlocked',
                 'leaveConfirmed',
@@ -122,6 +126,12 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
         const recordFormEdit = (previousState: any): void => {
             const editor = workflowLogic(props)
             const before = editor.selectors.workflow(previousState)
+            const formBeforeReset = cache.formBeforeReset as HogFlow | null
+            cache.formBeforeReset = null
+            // A save response resets the form, then puts back the edits made while it was in flight.
+            if (formBeforeReset && classifyEdit(formBeforeReset, editor.values.workflow) === null) {
+                return
+            }
             const edit = classifyEdit(before, editor.values.workflow)
             const visit = cache.visit as EditorVisit | null
             if (!visit || !edit) {
@@ -141,6 +151,13 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
         return {
             setWorkflowValue: (_, __, ___, previousState) => recordFormEdit(previousState),
             setWorkflowValues: (_, __, ___, previousState) => recordFormEdit(previousState),
+            resetWorkflow: (_, __, ___, previousState) => {
+                cache.formBeforeReset = workflowLogic(props).selectors.workflow(previousState)
+                // The save response replays in the same tick, so an edit after a discard or reload is never a replay.
+                queueMicrotask(() => {
+                    cache.formBeforeReset = null
+                })
+            },
             setScheduleState: recordScheduleEdit,
             setScheduleStartsAtFromPicker: recordScheduleEdit,
             setScheduleTimezone: recordScheduleEdit,
@@ -221,8 +238,17 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
                 cache.disposables.add(
                     () => {
                         const onPageHide = (): void => reportLeave({ transport: 'sendBeacon' })
+                        const onPageShow = (event: PageTransitionEvent): void => {
+                            if (event.persisted && !cache.visit) {
+                                startVisit()
+                            }
+                        }
                         window.addEventListener('pagehide', onPageHide)
-                        return () => window.removeEventListener('pagehide', onPageHide)
+                        window.addEventListener('pageshow', onPageShow)
+                        return () => {
+                            window.removeEventListener('pagehide', onPageHide)
+                            window.removeEventListener('pageshow', onPageShow)
+                        }
                     },
                     'pageLifecycle',
                     { pauseOnPageHidden: KEEP_LISTENING_WHILE_THE_PAGE_HIDES_ON_LEAVE }

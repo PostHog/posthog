@@ -219,15 +219,18 @@ describe('workflowEditorVisitLogic', () => {
         ])
     })
 
-    it('reports the leave by beacon when the tab closes', async () => {
+    it('reports the leave by beacon when the tab closes, and starts a new visit when the browser restores the page', async () => {
         const visit = await openEditor({ id: 'new' })
 
         window.dispatchEvent(new Event('pagehide'))
+        window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
         visit.unmount()
 
+        expect(captured('workflow editor opened')).toHaveLength(2)
         const leaves = captureSpy.mock.calls.filter(([name]) => name === 'workflow editor left')
         expect(leaves).toEqual([
             ['workflow editor left', expect.objectContaining({ start_path: 'blank' }), { transport: 'sendBeacon' }],
+            ['workflow editor left', expect.objectContaining({ start_path: 'blank' }), undefined],
         ])
     })
 
@@ -301,6 +304,35 @@ describe('workflowEditorVisitLogic', () => {
                 editor.actions.setWorkflowInfo({
                     variables: [{ key: 'plan', label: 'Plan', type: 'string', default: 'free' }],
                 }),
+        ],
+        [
+            'replaying edits made while a save was in flight',
+            'variables',
+            (editor: ReturnType<typeof workflowLogic.build>) => {
+                const saved = editor.values.workflow
+                editor.actions.setWorkflowValues({ actions: [...saved.actions, slackStep('notify')] })
+                editor.actions.setWorkflowInfo({
+                    variables: [{ key: 'plan', label: 'Plan', type: 'string', default: 'free' }],
+                })
+                const { actions, edges, variables } = editor.values.workflow
+                editor.actions.resetWorkflow(saved)
+                editor.actions.setWorkflowValues({ actions, edges, variables })
+            },
+        ],
+        [
+            'adding back a variable after discarding it',
+            'variables',
+            async (editor: ReturnType<typeof workflowLogic.build>) => {
+                const saved = editor.values.workflow
+                const variables: HogFlow['variables'] = [
+                    { key: 'plan', label: 'Plan', type: 'string', default: 'free' },
+                ]
+                editor.actions.setWorkflowInfo({ variables })
+                editor.actions.resetWorkflow(saved)
+                await Promise.resolve()
+                editor.actions.setScheduleRepeating(true)
+                editor.actions.setWorkflowInfo({ variables })
+            },
         ],
         [
             'adding a schedule',
