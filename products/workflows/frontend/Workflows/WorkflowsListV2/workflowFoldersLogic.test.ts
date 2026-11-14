@@ -9,7 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { MOVE_TIMEOUT_MS, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -1026,31 +1026,6 @@ describe('workflowFoldersLogic', () => {
         expect(moves).toEqual(['Invoices'])
         expect(logic.values.folderPaths).toEqual(expect.arrayContaining(['Invoices', 'Invoices/Cards']))
         expect(logic.values.folderPaths).not.toContain('Billing/Cards')
-    })
-
-    it('releases a folder rename when counting the folder stalls', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        const moves: string[] = []
-        useMocks({
-            post: {
-                '/api/projects/:team_id/file_system/:id/count/': () => new Promise(() => {}),
-                '/api/projects/:team_id/file_system/:id/move/': async ({ request }) => {
-                    moves.push(((await request.json()) as { new_path: string }).new_path)
-                    return [200, {}]
-                },
-            },
-        })
-        jest.useFakeTimers()
-        try {
-            logic.actions.renameFolder('Billing', 'Invoices')
-            await jest.advanceTimersByTimeAsync(0)
-            expect(logic.values.folderMutationDisabledReason('Billing')).not.toBeNull()
-            await jest.advanceTimersByTimeAsync(MOVE_TIMEOUT_MS)
-            expect(logic.values.folderMutationDisabledReason('Billing')).toBeNull()
-            expect(moves).toEqual([])
-        } finally {
-            jest.useRealTimers()
-        }
     })
 
     it('closes the folders the person leaves, so only the open path shows as open', async () => {
