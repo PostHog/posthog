@@ -1,6 +1,6 @@
 # Live
 
-Live defaults to All (globe icon), with Web and Mobile options beside More. Mobile adds screen views, DAU/WAU (24 hours/7 days), sessions, installs (24 hours/7 days), top screens and iOS/Android. All combines project activity with separate mobile metrics. Users online remains project-wide; daily and weekly metrics refresh hourly. Empty location results hide the map; pending or failed reads retain its loading or retry state.
+Live defaults to All (globe icon), with Web and Mobile options beside More. Mobile adds screen views, DAU/WAU (24 hours/7 days), sessions, installs (24 hours/7 days), top screens and iOS/Android. All combines project activity with separate mobile metrics. Users online follows the selected audience; daily and weekly metrics refresh hourly. Empty location results hide the map; pending or failed reads retain its loading or retry state.
 It reads the web's HogQL polling transport, not the event stream, so it needs no backend change.
 
 Live is the Home tab (`app/(tabs)/live/`, `/live`): the first slot of the bottom bar and the start page until the person picks another in Settings.
@@ -68,7 +68,7 @@ Two more reads, outside the query budget:
 - `GET api/projects/{id}/` once per project and session, for `live_events_token`, `path_cleaning_filters` and `ingested_event`. The server sends the token only when the grant covers `query:read`. While `ingested_event` is false, Live reads it again (see [No web traffic](#no-web-traffic)).
 - `GET {live host}/stats` with `Authorization: Bearer <live_events_token>`, every 10 seconds, on US Cloud (`live.us.posthog.com`) and EU Cloud (`live.eu.posthog.com`). It is a plain `fetch` with an 8-second timeout. It answers `users_on_product`.
 
-Users online comes from the HogQL `usersOnline` job instead when the host is not Cloud, the project has no token, or two stats reads in a row fail. It then changes every 30 seconds.
+Users online uses audience-filtered HogQL in Web and Mobile. In All, it uses the HogQL `usersOnline` job when the host is not Cloud, the project has no token, or two stats reads in a row fail. It then changes every 30 seconds.
 
 The Live chip on the Web analytics screen reads users online alone: the stats read every 30 seconds, or the `usersOnline` query alone every 30 seconds on the `live` budget when the stats read is off. It reads only while the Web analytics screen is focused and the app is in the foreground, and never runs the jobs above. After a failed read, the chip keeps its last count for 10 seconds, then retries once before showing “Reconnecting…”. It waits up to 5 more seconds for that check, joining a read already in progress. A successful check updates the count without showing a warning. The chip and Live screen pause their pulses and clocks when their screens are hidden or the app leaves the foreground.
 

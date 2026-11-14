@@ -251,7 +251,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                                       key: 'users-online',
                                       label: 'Users online',
                                       value: feed.usersOnline,
-                                      about: 'People active across this project right now.',
+                                      about: 'People active in your mobile app right now.',
                                   },
                                   {
                                       key: 'active-users',

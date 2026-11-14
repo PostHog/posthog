@@ -43,7 +43,10 @@ export function LiveStats({
         {
             key: 'users-online',
             label: 'Users online',
-            about: 'People active across this project right now.',
+            about:
+                audience === 'web'
+                    ? 'People active on your website right now.'
+                    : 'People active across this project right now.',
             value: usersOnline,
         },
         {

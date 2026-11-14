@@ -243,14 +243,15 @@ function useStatsUsersOnline(
     source: LiveSource | null,
     intervalMs: number,
     project: LiveProjectInfo | null | undefined,
-    enabled = true
+    enabled = true,
+    allowed = true
 ): StatsUsersOnline {
     const [failedFor, setFailedFor] = useState<LiveSource | null>(null)
     const host = source?.statsHost ?? null
     const token = project === undefined ? undefined : (project?.token ?? null)
     const failed = source !== null && failedFor === source
 
-    const active = host !== null && typeof token === 'string' && !failed
+    const active = allowed && host !== null && typeof token === 'string' && !failed
     const read = useCallback(
         async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {
             if (!host || !token) {
@@ -269,7 +270,7 @@ function useStatsUsersOnline(
     }, [poller.state.failures, source])
     return {
         active,
-        fallback: source !== null && (host === null || token === null || failed),
+        fallback: source !== null && (!allowed || host === null || token === null || failed),
         count: active ? poller.state.data : null,
         failed: failed || (active && poller.state.failures > 0),
         controller: poller.controller,
@@ -443,7 +444,8 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
                 profile,
                 run: mode === 'demo' ? (sourceFor(mode, scope, preference)?.run ?? source.run) : source.run,
                 previous: previous?.profile?.kind === profile.kind ? previous : EMPTY_LIVE_SNAPSHOT,
-                countUsersOnline: !(source.statsHost !== null && info?.token && statsActive.current),
+                countUsersOnline:
+                    preference !== 'all' || !(source.statsHost !== null && info?.token && statsActive.current),
                 pathCleaning: info?.pathCleaning ?? false,
                 now: Date.now(),
                 signal,
@@ -509,7 +511,13 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     const state = source && project.info !== undefined ? liveProjectState(snapshot, project.info) : null
     useLiveStateShown(state)
     // Quiet shows no users online, and the 30-second read ends Quiet, so the stats read waits until then.
-    const stats = useStatsUsersOnline(source, STATS_INTERVAL_MS, project.info, !notSetUp && state !== 'quiet')
+    const stats = useStatsUsersOnline(
+        source,
+        STATS_INTERVAL_MS,
+        project.info,
+        !notSetUp && state !== 'quiet',
+        preference === 'all'
+    )
     statsActive.current = stats.active
 
     const paused = main.state.paused
