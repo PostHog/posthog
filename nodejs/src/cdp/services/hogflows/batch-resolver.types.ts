@@ -72,6 +72,8 @@ export const BatchResolverStateSchema = z.object({
     attempts: z.number().int().nonnegative().default(0),
     startedAt: z.string(),
     pendingTerminal: z.enum(['completed', 'failed']).optional(),
+    // Failures the customer caused, so the failed-runs alert does not page on them.
+    failureCause: z.enum(['quota_limited', 'deleted']).optional(),
 })
 
 export type BatchResolverState = z.infer<typeof BatchResolverStateSchema>

@@ -82,7 +82,7 @@ const counterBatchHogFlowResolverSnapshotWait = new Counter({
 const counterBatchHogFlowResolverJobs = new Counter({
     name: 'cdp_batch_hog_flow_resolver_jobs',
     help: 'Batch hog flow resolver jobs by lifecycle outcome',
-    labelNames: ['outcome'], // started | completed | failed | canceled
+    labelNames: ['outcome'], // started | completed | failed | quota_limited | deleted | canceled
 })
 
 /**
@@ -283,7 +283,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const snapshot = state.audienceSnapshot!
         const team = await this.deps.teamManager.getTeam(state.teamId)
         if (!team) {
-            await this.transitionToFailedTerminal(job, state, 'Workflow or team was deleted mid-run')
+            await this.transitionToFailedTerminal(job, state, 'Workflow or team was deleted mid-run', 'deleted')
             return
         }
 
@@ -415,12 +415,12 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 batchJobId: state.batchJobId,
             })
             counterBatchHogFlowTriggerFailed.labels({ hog_flow_id: state.hogFlowId, reason: 'missing_entity' }).inc()
-            await this.transitionToFailedTerminal(job, state, 'Workflow or team was deleted mid-run')
+            await this.transitionToFailedTerminal(job, state, 'Workflow or team was deleted mid-run', 'deleted')
             return
         }
 
         if (state.pagesProcessed === 0 && (await this.isHogFlowQuotaLimited(hogFlow))) {
-            await this.transitionToFailedTerminal(job, state, HOG_FLOW_QUOTA_LIMITED_MESSAGE)
+            await this.transitionToFailedTerminal(job, state, HOG_FLOW_QUOTA_LIMITED_MESSAGE, 'quota_limited')
             return
         }
 
@@ -708,7 +708,8 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     private async transitionToFailedTerminal(
         job: CyclotronV2DequeuedJob,
         state: BatchResolverState,
-        reasonMessage: string
+        reasonMessage: string,
+        failureCause?: BatchResolverState['failureCause']
     ): Promise<void> {
         this.hogFunctionMonitoringService.queueLogs(
             [
@@ -726,6 +727,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'failed',
+            failureCause,
             attempts: 0, // give the terminal write a fresh retry budget
         }
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
@@ -771,7 +773,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         }
 
         counterBatchHogFlowResolverJobs
-            .labels({ outcome: state.pendingTerminal === 'completed' ? 'completed' : 'failed' })
+            .labels({ outcome: state.pendingTerminal === 'completed' ? 'completed' : (state.failureCause ?? 'failed') })
             .inc()
 
         // Monitoring flush happens in processResolverJob's finally block so every
