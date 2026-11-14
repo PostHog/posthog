@@ -43,8 +43,9 @@ class LinkAccountStep(OnboardingStep):
                 slack_mcp_user_scopes(ctx.integration.team_id, ctx.posthog_user.id if ctx.posthog_user else None)
             )
             if connects_slack_mcp:
-                # The link then asks for exactly the Slack MCP's scopes, so there is no private search to choose.
-                text += "I read public channels only, and your PostHog tasks can search them as you."
+                # The link then asks for exactly the Slack MCP's scopes. The server connects only when the person
+                # keeps every optional private search scope, so this text does not offer a choice.
+                text += "Your PostHog tasks can then search Slack as you, in the conversations you can access."
             else:
                 text += "Slack lets you choose which kinds of conversations I can search."
         return [

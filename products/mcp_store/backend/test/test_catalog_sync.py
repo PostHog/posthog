@@ -105,28 +105,11 @@ class TestSyncMCPCatalog(TestCase):
             counts = sync_mcp_catalog(entries=[entry])
             template = MCPServerTemplate.objects.get(url=entry.url)
             assert template.name == "Slack via PostHog (dev)"
-            assert template.description == (
-                "Search Slack channels, direct messages, and group messages, and read messages, user profiles, "
-                "and canvases you can access."
-            )
+            assert template.description == entry.description
             assert template.oauth_credentials_source == "slack_dev_app"
             assert template.oauth_credentials == {}
             assert entry.oauth_scope_allowlist is not None
-            extra_scopes = (
-                "canvases:read",
-                "search:read.private",
-                "search:read.im",
-                "search:read.mpim",
-                "groups:history",
-                "groups:read",
-                "im:history",
-                "im:read",
-                "mpim:history",
-                "mpim:read",
-            )
-            assert not set(extra_scopes) & set(entry.oauth_scope_allowlist)
-            expected_scopes = (*entry.oauth_scope_allowlist, *extra_scopes)
-            assert template.oauth_scope_allowlist == list(expected_scopes)
+            assert template.oauth_scope_allowlist == list(entry.oauth_scope_allowlist)
             assert counts.activated == 1
             assert MCPServerTemplate.available_for_team(42).filter(id=template.id).exists()
             assert not MCPServerTemplate.available_for_team(43).filter(id=template.id).exists()
@@ -134,7 +117,9 @@ class TestSyncMCPCatalog(TestCase):
         instance_settings.assert_called_with(
             ["SLACK_DEV_APP_CLIENT_ID", "SLACK_DEV_APP_CLIENT_SECRET"], CredentialsCaller.INTEGRATIONS
         )
-        probe.assert_called_once_with(entry.url, scope_allowlist=expected_scopes, shared_client_id="dev-client")
+        probe.assert_called_once_with(
+            entry.url, scope_allowlist=entry.oauth_scope_allowlist, shared_client_id="dev-client"
+        )
 
         with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
             sync_mcp_catalog(entries=[entry])
