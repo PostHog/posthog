@@ -17,6 +17,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -1510,6 +1511,14 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 return errors
             },
             submit: async (testInvocation: HogflowTestInvocation) => {
+                const trigger = values.triggerAction?.config
+                const captureProperties = {
+                    workflow_id: values.workflow.id,
+                    trigger_type: trigger?.type,
+                    trigger_event_ids:
+                        trigger?.type === 'internal-event' ? (trigger.filters?.events?.map(({ id }) => id) ?? []) : [],
+                }
+                posthog.capture('workflow test started', captureProperties)
                 try {
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
                         configuration: values.workflowSanitized,
@@ -1534,6 +1543,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         })),
                     }
 
+                    posthog.capture('workflow test completed', { ...captureProperties, status: result.status })
                     actions.setTestResult(result)
                     actions.setNextActionId(
                         result.nextActionId && result.nextActionId !== values.selectedNodeId
@@ -1543,6 +1553,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                     return values.testInvocation
                 } catch (error: any) {
+                    posthog.capture('workflow test failed', captureProperties)
                     console.error('Workflow test error:', error)
                     lemonToast.error('Error testing workflow')
                     throw error

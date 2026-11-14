@@ -4,6 +4,10 @@ import { uuid } from 'lib/utils/dom'
 import { CyclotronJobInvocationGlobals } from '~/types'
 
 import {
+    ERROR_TRACKING_ISSUE_CREATED_EVENT,
+    isErrorTrackingIssueCreatedTriggerConfig,
+} from './registry/triggers/errorTrackingIssueTrigger'
+import {
     SlackTriggerFilters,
     decodeSlackFilters,
     isSlackMessageTriggerConfig,
@@ -141,6 +145,34 @@ export const createExampleEventForTrigger = (
     teamId?: number,
     workflowName?: string | null
 ): CyclotronJobInvocationGlobals => {
+    if (isErrorTrackingIssueCreatedTriggerConfig(triggerConfig)) {
+        const { person: _person, ...globals } = createExampleEvent(
+            teamId,
+            workflowName,
+            ERROR_TRACKING_ISSUE_CREATED_EVENT
+        )
+        const issueId = uuid()
+        return {
+            ...globals,
+            event: {
+                ...globals.event,
+                distinct_id: issueId,
+                url: '',
+                properties: {
+                    name: 'TypeError: Cannot read properties of undefined',
+                    description: 'An example error in the checkout page.',
+                    issue_description: 'An example error in the checkout page.',
+                    first_seen: globals.event.timestamp,
+                    severity: 'high',
+                    status: 'Active',
+                    fingerprint: 'example-error-fingerprint',
+                    exception_timestamp: globals.event.timestamp,
+                    exception_props: {},
+                    this_is_an_example_event: true,
+                },
+            },
+        }
+    }
     if (isSlackMessageTriggerConfig(triggerConfig)) {
         const decoded = decodeSlackFilters(triggerConfig.filters.properties)
         return createExampleSlackMessageEvent(teamId, workflowName, decoded)
