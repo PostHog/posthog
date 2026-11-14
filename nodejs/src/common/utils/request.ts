@@ -475,6 +475,29 @@ const sharedSecureAgent = makeSecureDispatcher({ useProxy: false, allowH2: false
 const sharedSecureProxyAgent = proxyUrl ? makeSecureDispatcher({ useProxy: true, allowH2: false }) : null
 const sharedInsecureAgent = new InsecureAgent()
 
+let busiestOriginPeak = 0
+let busiestOriginSampler: NodeJS.Timeout | undefined
+
+// Reading the stats walks every origin and connection, so the sampler runs at a low rate. Destination hostnames are
+// customer-supplied and unbounded, so the origin is not a label.
+const BUSIEST_ORIGIN_SAMPLE_INTERVAL_MS = 1000
+
+function sampleBusiestOrigin(): void {
+    for (const { size } of Object.values((sharedSecureAgent as Agent).stats)) {
+        busiestOriginPeak = Math.max(busiestOriginPeak, size)
+    }
+}
+
+new Gauge({
+    name: 'node_external_request_busiest_origin_peak',
+    help: 'Highest number of requests, active or waiting for a connection, to one origin on the direct HTTP/1.1 agent since the last scrape',
+    collect() {
+        sampleBusiestOrigin()
+        this.set(busiestOriginPeak)
+        busiestOriginPeak = 0
+    },
+})
+
 // undici only reads the value when the first HTTP/2 request builds its pool, and treats 0 as unbounded, so a bad
 // value would surface late and as a retriable error. Failing here stops the process at startup instead.
 if (
@@ -603,6 +626,9 @@ function getSecureDispatcher(options: {
     if (options.http2ConnectionGroup !== undefined && !options.allowH2) {
         throw new InvalidRequestError('http2ConnectionGroup requires allowH2')
     }
+    if (!options.allowH2 && !useProxy) {
+        busiestOriginSampler ??= setInterval(sampleBusiestOrigin, BUSIEST_ORIGIN_SAMPLE_INTERVAL_MS).unref()
+    }
     // useProxyForTeam only returns true when a proxy URL was configured, so the agent exists whenever it is needed.
     const secure = options.allowH2
         ? options.http2ConnectionGroup !== undefined
@@ -632,6 +658,7 @@ function unrefDelay(ms: number): Promise<void> {
  */
 export async function closeSharedAgents(gracePeriodMs = 5000): Promise<void> {
     sharedAgentsClosed = true
+    clearInterval(busiestOriginSampler)
     const agents = [
         sharedSecureAgent,
         ...(sharedSecureProxyAgent ? [sharedSecureProxyAgent] : []),
