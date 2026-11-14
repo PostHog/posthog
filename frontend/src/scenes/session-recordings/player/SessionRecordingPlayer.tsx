@@ -102,12 +102,14 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         accessToken,
         onRecordingDeleted,
         playNextRecording,
+        keepFullScreenAcrossRecordings,
         skipToFirstMatchingEvent,
         exposureSkipExperimentId,
         watchLayout,
     } = props
 
-    const playerRef = useRef<HTMLDivElement>(null)
+    const ownPlayerRef = useRef<HTMLDivElement>(null)
+    const playerRef = props.playerRef ?? ownPlayerRef
 
     const logicProps: SessionRecordingPlayerLogicProps = {
         sessionRecordingId,
@@ -125,6 +127,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         accessToken,
         onRecordingDeleted,
         playNextRecording,
+        keepFullScreenAcrossRecordings,
         skipToFirstMatchingEvent,
         exposureSkipExperimentId,
         watchLayout,

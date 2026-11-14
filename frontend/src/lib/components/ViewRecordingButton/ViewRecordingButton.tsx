@@ -8,7 +8,10 @@ import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import {
+    SessionPlayerModalRecordingList,
+    sessionPlayerModalLogic,
+} from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/UnwatchedIndicator'
 import { urls } from 'scenes/urls'
 
@@ -38,6 +41,7 @@ type ViewRecordingProps = {
     hasRecording?: boolean
     /** If true, automatically check if a recording exists for this session via batched API call */
     checkRecordingExists?: boolean
+    recordingList?: SessionPlayerModalRecordingList
     /** When provided, short-circuits the kea fetch (e.g. parent list already has the outcome on each row). */
 }
 
@@ -65,6 +69,7 @@ export default function ViewRecordingButton({
     matchingEvents,
     hasRecording,
     checkRecordingExists = false,
+    recordingList,
     variant = ViewRecordingButtonVariant.Button,
     iconOnly = false,
     noPadding = false,
@@ -100,6 +105,7 @@ export default function ViewRecordingButton({
         matchingEvents,
         openPlayerIn,
         hasRecording,
+        recordingList,
     })
 
     const { recordingViewed, recordingViewedLoading } = useValues(
@@ -261,6 +267,7 @@ export function useRecordingButton({
     matchingEvents,
     openPlayerIn,
     hasRecording,
+    recordingList,
 }: ViewRecordingProps): {
     onClick: () => void
     disabledReason: JSX.Element | string | null
@@ -279,7 +286,9 @@ export function useRecordingButton({
 
             openSessionPlayer(
                 { id: isValidSessionId ? sessionId : '', matching_events: matchingEvents ?? undefined },
-                Math.max(fiveSecondsBeforeEvent, 0)
+                Math.max(fiveSecondsBeforeEvent, 0),
+                null,
+                recordingList ?? null
             )
         } else {
             const timestampMs = timestamp ? dayjs(timestamp).valueOf() - 5000 : undefined
