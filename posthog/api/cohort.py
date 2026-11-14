@@ -116,6 +116,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.cdp.backend.filters import build_behavioral_event_expr
 from products.cohorts.backend.cohort_enablement import (
     RealtimeTurnOnRefused,
+    flag_calls_table_refusal,
     turn_realtime_off,
     turn_realtime_on,
     turn_realtime_on_for_included_cohorts,
@@ -134,6 +135,7 @@ from products.cohorts.backend.models.dependencies import (
     extract_cohort_dependencies,
     get_flag_excluded_behavioral_cohort_ids,
 )
+from products.cohorts.backend.models.leaf_shape import FilterShapeHashes
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
     close_open_population_attempts,
@@ -532,6 +534,23 @@ def _canonical_criteria(node: Any) -> Any:
 def _criteria_key(filters: Any) -> str:
     # JSON keeps 1 and 1.0 apart, which Python equality does not, and they compile to different criteria.
     return json.dumps(_canonical_criteria(filters), sort_keys=True, default=str)
+
+
+def _criteria_edit_queues_behavioral_run(cohort: Cohort, previous_filters: Any) -> bool:
+    """Whether saving the cohort's edited filters queues a behavioral backfill.
+
+    `Cohort._maintain_filter_shape_hashes` decides this on save. It compares against the stored behavioral hash
+    when there is one, and against the old filters otherwise. A change against either one counts here. When the
+    two disagree, the caller's check still runs.
+    """
+    previous = FilterShapeHashes.from_filters(previous_filters)
+    current = FilterShapeHashes.from_filters(cohort.filters)
+    stored_behavioral = cohort.behavioral_filters_shape_hash
+    return (
+        current.behavioral != previous.behavioral
+        or (stored_behavioral is not None and current.behavioral != stored_behavioral)
+        or "behavioral" in current.composition_repair_kinds(previous, cohort.filters)
+    )
 
 
 def _coerce_stored_filter_values(filters: Any) -> Any:
@@ -1054,10 +1073,6 @@ _FLAG_CALL_KEY_REASON = (
     'Add an event property filter where "Feature flag" equals one or more flag keys, and filter only on event '
     "properties."
 )
-_FLAG_CALL_REALTIME_REASON = (
-    "Real-time cohorts can't use this event on your organization yet. "
-    "To see who called a flag, open the flag and check its Usage tab."
-)
 _FLAG_CALL_COMPILE_REASON = "PostHog can't calculate this criterion. Check its count and its event property filters."
 _FLAG_CALL_FILTER_REASON = "Use event property filters on this event instead of a SQL expression."
 _FLAG_CALL_SQL_EXPRESSION_REASON = (
@@ -1164,12 +1179,6 @@ def _another_criterions_sql_expression_blocks_swap(candidates: Sequence[Property
 
 def _criteria_counts(properties: Iterable[Property]) -> collections.Counter[str]:
     return collections.Counter(_criteria_key(prop.to_dict()) for prop in properties)
-
-
-def _flag_call_criterion_counts(properties: Iterable[Property]) -> collections.Counter[str]:
-    return _criteria_counts(
-        prop for event, prop in _hidden_event_references(properties) if event == FLAG_EVALUATIONS_SOURCE_EVENT
-    )
 
 
 def _added_unsupported_hidden_event_reference(
@@ -2081,48 +2090,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # legacy groups in place.
         existing_properties = _flat_properties(self._effective_filters_after_update({}))
         added = _added_unsupported_hidden_event_reference(new_properties, existing_properties, team)
-        if added is None and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
-            added = self._added_realtime_flag_call_criterion(attrs, new_properties, existing_properties, team)
         if added is not None:
             raise ValidationError(
                 {"filters": f"You can't save this criterion on {added.event}. {added.reason}"},
                 code="hidden_event",
             )
-
-    def _added_realtime_flag_call_criterion(
-        self, attrs: dict, new_properties: list[Property], existing_properties: list[Property], team: Team
-    ) -> HiddenEventRefusal | None:
-        """A flag-call criterion that a save puts on a realtime cohort, or None.
-
-        On FLAG_EVALUATIONS_ONLY, events holds no flag calls, and cohort-seeder backfills a realtime cohort from
-        events. A new or edited criterion starts a backfill, and so does a cohort that becomes realtime.
-        """
-        if not self._saves_realtime_cohort(attrs, team):
-            return None
-        instance = cast(Optional[Cohort], self.instance)
-        was_realtime = instance is not None and not instance.is_static and instance.cohort_type == CohortType.REALTIME
-        added = _flag_call_criterion_counts(new_properties)
-        if was_realtime:
-            added -= _flag_call_criterion_counts(existing_properties)
-        if not added:
-            return None
-        return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=_FLAG_CALL_REALTIME_REASON)
-
-    def _saves_realtime_cohort(self, attrs: dict, team: Team) -> bool:
-        # Mirrors how create() and update() set cohort_type.
-        instance = cast(Optional[Cohort], self.instance)
-        if attrs.get("is_static", instance.is_static if instance is not None else False):
-            return False
-        filters = attrs.get("filters")
-        if not filters:
-            return instance is not None and instance.cohort_type == CohortType.REALTIME
-        _, cohort_type, _ = validate_filters_and_compute_realtime_support(
-            filters,
-            team,
-            current_cohort_type=attrs.get("cohort_type", instance.cohort_type if instance is not None else None),
-            cohort_count=instance.count if instance is not None else None,
-        )
-        return cohort_type == CohortType.REALTIME
 
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:
@@ -2255,6 +2227,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
+        previous_filters = cohort.filters
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
         filters_changed = "filters" in validated_data and _criteria_key(validated_data.get("filters")) != _criteria_key(
             _coerce_stored_filter_values(cohort.filters)
@@ -2294,6 +2267,31 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 cohort.cohort_type = computed_cohort_type
             else:
                 cohort.filters = filters
+
+        # A criteria edit that moves a behavioral leaf of a cohort with realtime on queues a behavioral backfill.
+        # The backfill refuses a cohort whose flag calls it can't read. The cohort would then never be ready.
+        if (
+            filters_changed
+            and cohort.realtime_enabled
+            and not cohort.is_static
+            and cohort.cohort_type == CohortType.REALTIME
+            and _criteria_edit_queues_behavioral_run(cohort, previous_filters)
+        ):
+            refusal = flag_calls_table_refusal(cohort)
+            if refusal is not None:
+                logger.info(
+                    "cohort_realtime_criteria_edit_refused",
+                    cohort_id=cohort.pk,
+                    team_id=cohort.team_id,
+                    reason=refusal,
+                )
+                raise ValidationError(
+                    {
+                        "filters": "Realtime is on for this cohort, and PostHog can't prepare one of its criteria in "
+                        "realtime. Change that criterion, or turn realtime off first."
+                    },
+                    code="realtime_criteria_unsupported",
+                )
 
         # A cohort that stops being realtime stops emitting membership changes, so its workflows would
         # never trigger and their branches would read frozen membership, with no error anywhere.

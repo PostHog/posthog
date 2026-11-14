@@ -34,7 +34,9 @@ from posthog.api.cohort import (
     AddPersonsToStaticCohortRequestSerializer,
     CohortFilters,
     CohortViewSet,
+    _criteria_edit_queues_behavioral_run,
     flag_call_criterion_shape_problem,
+    generate_cohort_filter_bytecode,
 )
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
@@ -120,6 +122,7 @@ def _pageview_with_hogql_filter(expression: str) -> dict[str, Any]:
 
 
 _FLAG_CALLED_PAST_RETENTION_CRITERION = {**_FLAG_CALLED_CRITERION, "time_value": 180}
+_PERSON_EMAIL_CRITERION = {"key": "email", "type": "person", "value": "person@example.com", "operator": "exact"}
 _FLAG_CALLED_UNRESOLVABLE_CRITERION = {
     **_FLAG_CALLED_CRITERION,
     "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
@@ -144,7 +147,7 @@ _FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
 _FLAG_CALL_COMPILE_REFUSAL = "can't calculate this criterion"
 _FLAG_CALL_FILTER_REFUSAL = "instead of a SQL expression"
 _FLAG_CALL_SQL_EXPRESSION_REFUSAL = "on another criterion"
-_FLAG_CALL_REALTIME_REFUSAL = "Real-time cohorts can't use this event"
+_REALTIME_CRITERIA_REFUSAL = "Realtime is on for this cohort"
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -5244,14 +5247,14 @@ email@example.org,
 
     @parameterized.expand(
         [
-            ("realtime", None, None, False, [_FLAG_CALLED_CRITERION], _FLAG_CALL_REALTIME_REFUSAL),
+            ("realtime", None, None, False, [_FLAG_CALLED_CRITERION], None),
             ("batch", None, None, True, [_FLAG_CALLED_CRITERION], None),
-            ("becomes_realtime", True, None, False, [_FLAG_CALLED_CRITERION], _FLAG_CALL_REALTIME_REFUSAL),
-            ("stays_batch", True, None, True, [_FLAG_CALLED_CRITERION], None),
+            ("becomes_realtime", True, [_FLAG_CALLED_CRITERION], False, [_FLAG_CALLED_CRITERION], None),
+            ("stays_batch", True, [_FLAG_CALLED_CRITERION], True, [_FLAG_CALLED_CRITERION], None),
             (
                 "realtime_keeps_stored_criterion",
                 False,
-                CohortType.REALTIME,
+                [_FLAG_CALLED_CRITERION],
                 False,
                 [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
                 None,
@@ -5259,19 +5262,62 @@ email@example.org,
             (
                 "realtime_edits_stored_criterion",
                 False,
-                CohortType.REALTIME,
+                [_FLAG_CALLED_CRITERION],
                 False,
                 [{**_FLAG_CALLED_CRITERION, "time_value": 7}],
-                _FLAG_CALL_REALTIME_REFUSAL,
+                None,
+            ),
+            # Realtime stays off, so no backfill runs. Turning realtime on refuses the cohort.
+            (
+                "becomes_realtime_with_stored_criterion_past_retention",
+                True,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                None,
+            ),
+            # The editor sends unchanged filters on every save. An unchanged filter queues no backfill.
+            (
+                "realtime_resaves_stored_criterion_past_retention",
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                None,
+            ),
+            (
+                "realtime_keeps_stored_criterion_past_retention",
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION, _PAGEVIEW_CRITERION],
+                _REALTIME_CRITERIA_REFUSAL,
+            ),
+            # A person-only edit queues no behavioral backfill, so it never reads the stored flag calls.
+            (
+                "realtime_adds_person_criterion_beside_stored_criterion_past_retention",
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION, _PERSON_EMAIL_CRITERION],
+                None,
+            ),
+            (
+                "batch_keeps_stored_criterion_past_retention",
+                True,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                True,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION, _PAGEVIEW_CRITERION],
+                None,
             ),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
-    def test_flag_call_criterion_on_realtime_cohort_in_flag_evaluations_only_mode(
+    def test_flag_call_criterion_on_realtime_and_batch_cohorts_in_flag_evaluations_only_mode(
         self,
         _name,
         stored_filter_test_accounts,
-        stored_cohort_type,
+        stored_criteria,
         filter_test_accounts,
         criteria,
         expected_refusal,
@@ -5288,24 +5334,118 @@ email@example.org,
                 f"/api/projects/{self.team.id}/cohorts", data={"name": "flag callers", "filters": filters}
             )
         else:
+            # A cohort that filters test accounts can't be realtime.
+            stored_realtime = not stored_filter_test_accounts
             cohort = Cohort.objects.create(
                 team=self.team,
                 name="flag callers",
-                # A criterion stored without the validator has no negation key.
+                # A criterion stored without the validator has no negation key. It still needs the conditionHash
+                # that saved rows carry, because the behavioral leaf hash skips a leaf without one.
                 filters={
-                    "properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]},
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                **criterion,
+                                "conditionHash": generate_cohort_filter_bytecode(criterion, self.team).condition_hash,
+                            }
+                            for criterion in stored_criteria
+                        ],
+                    },
                     "filterTestAccounts": stored_filter_test_accounts,
                 },
-                cohort_type=stored_cohort_type,
+                cohort_type=CohortType.REALTIME if stored_realtime else None,
+                realtime_enabled_at=timezone.now() if stored_realtime else None,
             )
             response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"filters": filters})
 
         if expected_refusal is None:
             self.assertIn(response.status_code, (200, 201), response.json())
-            self.assertEqual(response.json()["cohort_type"] == "realtime", stored_cohort_type == CohortType.REALTIME)
+            self.assertEqual(response.json()["cohort_type"] == "realtime", not filter_test_accounts)
         else:
             self.assertEqual(response.status_code, 400, response.json())
+            self.assertEqual(response.json()["code"], "realtime_criteria_unsupported")
             self.assertIn(expected_refusal, response.json()["detail"])
+            stored_filters = cohort.filters
+            cohort.refresh_from_db()
+            self.assertEqual(cohort.filters, stored_filters)
+
+    def _hashed_filters(self, criteria: list[dict[str, Any]], group_type: str = "OR") -> dict[str, Any]:
+        return {
+            "properties": {
+                "type": group_type,
+                "values": [
+                    {**criterion, "conditionHash": generate_cohort_filter_bytecode(criterion, self.team).condition_hash}
+                    for criterion in criteria
+                ],
+            }
+        }
+
+    @parameterized.expand(
+        [
+            ("unchanged", [_FLAG_CALLED_CRITERION], "OR", [_FLAG_CALLED_CRITERION], "OR"),
+            (
+                "adds_person_criterion",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION, _PERSON_EMAIL_CRITERION],
+                "OR",
+            ),
+            (
+                "adds_behavioral_criterion",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "OR",
+            ),
+            (
+                "edits_behavioral_window",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+                [{**_FLAG_CALLED_CRITERION, "time_value": 7}],
+                "OR",
+            ),
+            (
+                "removes_behavioral_criterion",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+            ),
+            (
+                "changes_behavioral_composition",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "AND",
+            ),
+        ]
+    )
+    def test_criteria_edit_check_agrees_with_the_backfill_the_save_queues(
+        self, _name, stored_criteria, stored_group_type, criteria, group_type
+    ):
+        # The refusal check in update() runs only when this predicate says the save queues a behavioral backfill.
+        # A save that resets last_backfill_events_at queues one, so the two must agree on every edit.
+        with override_settings(
+            REALTIME_COHORT_TEAM_ALLOWLIST=str(self.team.pk), COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="none"
+        ):
+            created = Cohort.objects.create(
+                team=self.team,
+                name="flag callers",
+                filters=self._hashed_filters(stored_criteria, stored_group_type),
+                cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=timezone.now(),
+                last_backfill_events_at=timezone.now(),
+            )
+            cohort = Cohort.objects.get(pk=created.pk)
+            previous_filters = cohort.filters
+            cohort.filters = self._hashed_filters(criteria, group_type)
+
+            predicted = _criteria_edit_queues_behavioral_run(cohort, previous_filters)
+            cohort.save()
+
+        cohort.refresh_from_db()
+        self.assertEqual(predicted, cohort.last_backfill_events_at is None)
 
     @parameterized.expand([("farthest_east", "Pacific/Kiritimati"), ("farthest_west", "Pacific/Pago_Pago")])
     @patch("posthog.api.cohort.report_user_action")

@@ -13,6 +13,8 @@ from django.utils import timezone
 
 import structlog
 
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
+from products.cohorts.backend.backfill.pinning import pin_behavioral_run
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
 from products.cohorts.backend.backfill.runs import (
     behavioral_backfill_ineligibility_reason,
@@ -26,8 +28,25 @@ from products.cohorts.backend.realtime_teams import is_processing_team
 
 logger = structlog.get_logger(__name__)
 
+
+def flag_calls_table_refusal(cohort: Cohort) -> str | None:
+    """Why the cohort's behavioral backfill can't pick the table to read its flag calls from, or None.
+
+    The backfill run makes the same check when it pins its table, and it refuses a cohort that fails it.
+    """
+    try:
+        pin_behavioral_run([cohort], cohort.team)
+    except FlagCallsTableUnresolved as error:
+        return str(error)
+    return None
+
+
+def _behavioral_turn_on_ineligibility_reason(cohort: Cohort) -> str | None:
+    return behavioral_backfill_ineligibility_reason(cohort) or flag_calls_table_refusal(cohort)
+
+
 _INELIGIBILITY_REASON = {
-    CohortBackfillKind.BEHAVIORAL: behavioral_backfill_ineligibility_reason,
+    CohortBackfillKind.BEHAVIORAL: _behavioral_turn_on_ineligibility_reason,
     CohortBackfillKind.PERSON_PROPERTY: person_backfill_ineligibility_reason,
 }
 

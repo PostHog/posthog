@@ -23,6 +23,8 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortTeamAccess,
 )
 from products.cohorts.backend.realtime_state import CohortRealtimeState, resolve_realtime_readiness
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 _BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
 PAGEVIEW_LEAF = {
@@ -43,6 +45,17 @@ PERSON_LEAF = {
     "conditionHash": "email00000000000",
     "bytecode": _BYTECODE,
 }
+FLAG_CALL_LEAF = {
+    "type": "behavioral",
+    "key": "$feature_flag_called",
+    "event_type": "events",
+    "value": "performed_event",
+    "time_value": 30,
+    "time_interval": "day",
+    "event_filters": [{"key": "$feature_flag", "type": "event", "value": "beta-feature", "operator": "exact"}],
+    "conditionHash": "flagcall00000001",
+    "bytecode": _BYTECODE,
+}
 STAMPED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -57,12 +70,26 @@ class TestCohortEnablement(BaseTest):
             save_triggers_backfill=True,
         )
 
+    def _set_flag_evaluations_mode(self, mode: FlagEvaluationsMode) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+
     def _cohort(self, *leaves: dict, **kwargs) -> Cohort:
         return Cohort.objects.create(
             team=self.team,
             filters={"properties": {"type": "AND", "values": list(leaves)}},
             **{"cohort_type": CohortType.REALTIME, **kwargs},
         )
+
+    def test_turning_on_a_flag_call_cohort_in_flag_evaluations_only_mode(self) -> None:
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        cohort = self._cohort(FLAG_CALL_LEAF)
+
+        with mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async"):
+            turned_on = turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
+
+        assert turned_on == [cohort.id]
 
     def test_turning_on_a_cohort_turns_on_what_it_nests_and_queues_both_builds(self) -> None:
         nested = self._cohort(PAGEVIEW_LEAF)
@@ -87,6 +114,8 @@ class TestCohortEnablement(BaseTest):
             ("daily", {"cohort_type": None}, None),
             ("nested_leaf_the_catalog_drops", {}, {**PAGEVIEW_LEAF, "conditionHash": None}),
             ("team_not_processed", {}, None),
+            # cohort-seeder reads these flag calls only from flag_evaluations, which keeps no 120-day-old calls.
+            ("nested_flag_calls_past_the_ttl", {}, {**FLAG_CALL_LEAF, "time_value": 120}),
         ]
     )
     def test_turn_on_is_refused_before_anything_is_written(
@@ -98,6 +127,8 @@ class TestCohortEnablement(BaseTest):
         cohort = self._cohort(*leaves, **cohort_kwargs)
         if name == "team_not_processed":
             RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.OFF)
+        if name == "nested_flag_calls_past_the_ttl":
+            self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
 
         with self.assertRaises(RealtimeTurnOnRefused):
             turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
