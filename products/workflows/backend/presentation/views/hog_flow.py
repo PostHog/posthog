@@ -4070,9 +4070,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             live_flow = instance or self.context.get("instance")
             activating = live_flow is None or live_flow.status != HogFlowState.ACTIVE
             # Internal rewrites of a live workflow, such as the UTM defaults apply or the refresh command, touch
-            # steps nobody edited, so a sender that broke since activation must not fail them.
+            # steps nobody edited, so a sender that broke since activation must not fail them. An MCP edit that
+            # stages a draft isn't live yet: publishing it runs this check.
             user_save = getattr(self.context.get("view"), "action", None) in WORKFLOW_SAVE_ACTIONS
-            if activating or ("actions" in data and user_save):
+            if activating or ("actions" in data and user_save and not self.context.get("stages_draft")):
                 _refuse_unusable_email_senders(actions, team_id=get_team().id)
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
@@ -4440,16 +4441,20 @@ def _patched_sender_ids(email_patch: Any) -> list[Any]:
     return [_patched_sender_id(email_patch), *(rotation if isinstance(rotation, list) else [rotation])]
 
 
-def _sender_id(value: Any) -> Any:
+def _sender_id(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
     if isinstance(value, str) and value.isdigit():
         return int(value)
-    return value
+    # Any other shape names no sender the send path can load.
+    return None
 
 
-def _email_step_sender_ids(action: dict) -> list[Any]:
-    if action.get("type") != "function_email":
+def _email_step_sender_ids(action: dict) -> list[int | None]:
+    config = action.get("config") or {}
+    if action.get("type") != "function_email" and config.get("template_id") != "template-email":
         return []
-    email_input = ((action.get("config") or {}).get("inputs") or {}).get("email")
+    email_input = (config.get("inputs") or {}).get("email")
     value = email_input.get("value") if isinstance(email_input, dict) else None
     sender = value.get("from") if isinstance(value, dict) else None
     if not isinstance(sender, dict):
@@ -6204,7 +6209,7 @@ class HogFlowViewSet(
             )
 
     def _validate_locked_content(
-        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False
+        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False, stages_draft: bool = False
     ) -> dict:
         # Runs inside the write's row lock, against the locked row the service passes in.
         serializer = self.get_serializer(state, data=data, partial=True)
@@ -6212,9 +6217,16 @@ class HogFlowViewSet(
             # The surgical endpoints are the paths where structural corruption would be newly introduced,
             # so they enforce graph validation as a hard error (unlike the lenient full-save path).
             serializer.context["enforce_graph_structure"] = True
+        serializer.context["stages_draft"] = stages_draft
         serializer.is_valid(raise_exception=True)
         self._set_up_defaulted_sandbox_sender(serializer)
         return serializer.validated_data
+
+    def _stages_surgical_edit(self, state: WorkflowEditState) -> bool:
+        # Mirrors the routing in edit_workflow_content, which stages these edits with stage_if_protected.
+        return self._is_mcp_request(self.request) and (
+            state.status == HogFlowState.ACTIVE or state.disabled_from_active is True
+        )
 
     def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):
@@ -6236,7 +6248,10 @@ class HogFlowViewSet(
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
             new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
             return self._validate_locked_content(
-                state, {"actions": new_actions, "edges": new_edges}, enforce_graph_structure=True
+                state,
+                {"actions": new_actions, "edges": new_edges},
+                enforce_graph_structure=True,
+                stages_draft=self._stages_surgical_edit(state),
             )
 
         try:
@@ -6331,7 +6346,12 @@ class HogFlowViewSet(
             )
             if sender == "sandbox":
                 provision_sandbox_sender(self.team, cast(User, request.user))
-            return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
+            return self._validate_locked_content(
+                state,
+                {"actions": new_actions},
+                enforce_graph_structure=True,
+                stages_draft=self._stages_surgical_edit(state),
+            )
 
         # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
         # reschedule: an email edit can't delete steps or change timing config.
