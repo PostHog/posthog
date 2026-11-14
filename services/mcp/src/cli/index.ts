@@ -206,7 +206,13 @@ async function main(): Promise<void> {
     const args = process.argv.slice(2)
     const command = args.shift()
 
-    if (!command || command === 'help' || command === '--help' || command === '-h') {
+    if (
+        !command ||
+        command === 'help' ||
+        command === '--help' ||
+        command === '-h' ||
+        args.includes('--help')
+    ) {
         process.stdout.write(`${usage()}\n`)
         return
     }
