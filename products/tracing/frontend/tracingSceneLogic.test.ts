@@ -236,47 +236,27 @@ describe('tracingSceneLogic', () => {
         expect(logic.values.displayMode).toBe('spans')
     })
 
-    it.each([
-        ['already loaded', () => mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })],
-        [
-            'arriving after the URL parse',
-            () => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
-                mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
-                featureFlagLogic.actions.setFeatureFlags([], {})
-            },
-        ],
-    ])('drops a tab=sql deep link when the scene tabs flag is off, with flags %s', (_, mount) => {
-        mount()
-        expect(logic.values.sceneTab).toBe('viewer')
-        expect(router.values.searchParams).not.toHaveProperty('tab')
-        expect(router.values.searchParams.serviceNames).toEqual(['checkout'])
-    })
-
-    it.each([
-        ['sql', [FEATURE_FLAGS.TRACING_SCENE_TABS], [FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]],
+    it('opens a tab=alerts deep link only behind both alerts flags', () => {
         // The traces flag alone is not enough: the API also needs platform-alerts.
-        [
-            'alerts',
-            [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES],
-            [FEATURE_FLAGS.TRACING_SCENE_TABS, FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES],
-        ],
-    ])('opens a tab=%s deep link only behind its own flags', (tab, ownFlags, otherFlags) => {
-        const flagsOn = (flags: string[]): Record<string, boolean> =>
-            Object.fromEntries(flags.map((flag) => [flag, true]))
-        featureFlagLogic.actions.setFeatureFlags([], flagsOn(otherFlags))
-        mountAt({ tab })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]: true })
+        mountAt({ tab: 'alerts' })
         expect(logic.values.activeSceneTab).toBe('viewer')
         expect(router.values.searchParams).not.toHaveProperty('tab')
 
-        featureFlagLogic.actions.setFeatureFlags([], flagsOn(ownFlags))
-        router.actions.push('/tracing', { tab })
-        expect(logic.values.activeSceneTab).toBe(tab)
-        expect(logic.values.availableSceneTabs).toEqual(['viewer', tab])
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.PLATFORM_ALERTS]: true,
+            [FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]: true,
+        })
+        router.actions.push('/tracing', { tab: 'alerts' })
+        expect(logic.values.activeSceneTab).toBe('alerts')
+        expect(logic.values.availableSceneTabs).toEqual(['viewer', 'sql', 'alerts'])
+
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        expect(logic.values.activeSceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
     })
 
     it('restores the SQL tab from a deep link without dropping the filter params', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
         mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
         expect(logic.values.activeSceneTab).toBe('sql')
         expect(router.values.searchParams).toMatchObject({ tab: 'sql', serviceNames: ['checkout'] })
@@ -284,14 +264,6 @@ describe('tracingSceneLogic', () => {
         logic.actions.selectSceneTab('viewer')
         expect(router.values.searchParams).not.toHaveProperty('tab')
         expect(router.values.searchParams.serviceNames).toEqual(['checkout'])
-
-        logic.actions.selectSceneTab('sql')
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        expect(logic.values.activeSceneTab).toBe('viewer')
-        expect(router.values.searchParams).not.toHaveProperty('tab')
-
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
-        expect(logic.values.activeSceneTab).toBe('viewer')
     })
 
     // Guards the operations-tab rate denominator: on the operations tab the aggregate must always
