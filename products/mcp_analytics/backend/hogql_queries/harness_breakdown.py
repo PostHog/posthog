@@ -22,6 +22,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
     HarnessLabelQueryRunner,
     effective_tool_expr,
+    is_failure_expr,
     mcp_query_date_range,
     mcp_source_expr,
     shared_filter_exprs,
@@ -88,15 +89,15 @@ class MCPHarnessBreakdownQueryRunner(HarnessLabelQueryRunner[MCPHarnessBreakdown
                 SELECT
                     {label} AS harness,
                     countIf(is_tool) AS total_calls,
-                    countIf(is_tool AND is_error) AS errors,
-                    round(countIf(is_tool AND is_error) * 100.0 / countIf(is_tool), 1) AS error_rate_pct,
+                    countIf(is_tool AND is_failure) AS errors,
+                    round(countIf(is_tool AND is_failure) * 100.0 / countIf(is_tool), 1) AS error_rate_pct,
                     countDistinctIf(session_id, session_id != '' AND is_tool) AS sessions,
                     countDistinctIf(session_id, session_id != '') AS harness_sessions
                 FROM (
                     SELECT
                         {token} AS h,
                         {conversation_id} AS session_id,
-                        toBool(properties.$mcp_is_error) AS is_error,
+                        {is_failure} AS is_failure,
                         {is_tool} AS is_tool
                     FROM events
                     WHERE {where}
@@ -110,6 +111,7 @@ class MCPHarnessBreakdownQueryRunner(HarnessLabelQueryRunner[MCPHarnessBreakdown
                     "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                     "is_tool": effective_tool_expr(self.query.toolName),
                     "conversation_id": parse_expr(CONVERSATION_ID_SQL),
+                    "is_failure": is_failure_expr(),
                     "where": self._where_scoped_to_source(),
                 },
             )
@@ -118,14 +120,14 @@ class MCPHarnessBreakdownQueryRunner(HarnessLabelQueryRunner[MCPHarnessBreakdown
             SELECT
                 {label} AS harness,
                 count() AS total_calls,
-                countIf(is_error) AS errors,
-                round(countIf(is_error) * 100.0 / count(), 1) AS error_rate_pct,
+                countIf(is_failure) AS errors,
+                round(countIf(is_failure) * 100.0 / count(), 1) AS error_rate_pct,
                 countDistinctIf(session_id, session_id != '') AS sessions
             FROM (
                 SELECT
                     {token} AS h,
                     {conversation_id} AS session_id,
-                    toBool(properties.$mcp_is_error) AS is_error
+                    {is_failure} AS is_failure
                 FROM events
                 WHERE {where}
             )
@@ -136,6 +138,7 @@ class MCPHarnessBreakdownQueryRunner(HarnessLabelQueryRunner[MCPHarnessBreakdown
                 "label": parse_expr(mcp_harness.harness_label_sql("h", custom_harness_rules(self.team))),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "conversation_id": parse_expr(CONVERSATION_ID_SQL),
+                "is_failure": is_failure_expr(),
                 "where": self._where(),
             },
         )

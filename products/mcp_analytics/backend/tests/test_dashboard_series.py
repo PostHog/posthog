@@ -24,7 +24,7 @@ from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
     MCPToolCallBreakdownQueryRunner,
     MCPToolCallsAndErrorsQueryRunner,
 )
-from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests import EXPECTED_ERROR_CASES, _MCPAnalyticsTeamScopedTestMixin
 
 
 class TestMCPToolCallsAndErrorsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
@@ -160,6 +160,22 @@ class TestMCPToolCallsAndErrorsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cli
         )
 
         assert [(r.bucket, r.successes) for r in results] == [("2026-07-21 00:00:00", 1)]
+
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        self._emit(
+            timestamp=datetime(2026, 7, 21, 18, 0, tzinfo=UTC),
+            is_error=True,
+            extra=extra_properties,
+        )
+
+        results = self._run(
+            MCPToolCallsAndErrorsQuery(dateRange=DateRange(date_from="2026-07-19", date_to="2026-07-23"))
+        )
+
+        assert [(r.successes, r.errors) for r in results] == [(1 - int(is_failure), int(is_failure))]
 
 
 class TestMCPToolCallBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):

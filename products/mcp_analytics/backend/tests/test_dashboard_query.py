@@ -58,6 +58,7 @@ from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWa
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 
 from products.mcp_analytics.backend.facade.api import invalidate_custom_harness_rules
+from products.mcp_analytics.backend.hogql_queries.base import IS_FAILURE_SQL
 from products.mcp_analytics.backend.hogql_queries.dashboard_query import LEAN_DATABASE_FLAG, MCPDashboardQueryRunner
 from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -102,7 +103,7 @@ def bucketed_facet(label: str) -> str:
 
 
 def window_facet(label: str, only_errors: str = "") -> str:
-    return f"""SELECT {label} AS label, count() AS calls, uniq(distinct_id) AS users, countIf(toBool(properties.$mcp_is_error)) AS errors
+    return f"""SELECT {label} AS label, count() AS calls, uniq(distinct_id) AS users, countIf({IS_FAILURE_SQL}) AS errors
 FROM events WHERE {WHERE} {only_errors} GROUP BY label ORDER BY calls DESC LIMIT 1000"""
 
 
@@ -113,7 +114,7 @@ BROWSER_HOGQL: list[tuple[MCPDashboardSection, str, bool]] = [
     (
         MCPDashboardSection.KPIS,
         f"""SELECT {BUCKET} AS bucket, countDistinctIf($session_id, $session_id != '') AS sessions, count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors, round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
+    countIf({IS_FAILURE_SQL}) AS errors, round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
 FROM events WHERE {WHERE} GROUP BY bucket ORDER BY bucket""",
         True,
     ),
@@ -128,21 +129,21 @@ FROM events WHERE {WHERE}""",
     ),
     (
         MCPDashboardSection.TOOL_ROWS,
-        f"""SELECT toString(properties.$mcp_tool_name) AS tool, count() AS total_calls, countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+        f"""SELECT toString(properties.$mcp_tool_name) AS tool, count() AS total_calls, countIf({IS_FAILURE_SQL}) AS errors,
+    round(countIf({IS_FAILURE_SQL}) * 100.0 / count(), 1) AS error_rate_pct,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
 FROM events WHERE {WHERE} GROUP BY tool ORDER BY total_calls DESC LIMIT 50""",
         False,
     ),
     (
         MCPDashboardSection.SESSION_ROWS,
-        """SELECT $session_id AS session_id, count() AS tool_calls, countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+        f"""SELECT $session_id AS session_id, count() AS tool_calls, countIf({IS_FAILURE_SQL}) AS errors,
+    round(countIf({IS_FAILURE_SQL}) * 100.0 / count(), 1) AS error_rate_pct,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
     uniq(toString(properties.$mcp_tool_name)) AS distinct_tools, max(timestamp) AS last_seen
 FROM events
 WHERE event = '$mcp_tool_call' AND $session_id != '' AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != '' AND {filters}
+    AND properties.$mcp_tool_name != '' AND {{filters}}
 GROUP BY session_id HAVING tool_calls >= 1 ORDER BY tool_calls DESC LIMIT 500""",
         False,
     ),
@@ -155,7 +156,7 @@ GROUP BY session_id HAVING tool_calls >= 1 ORDER BY tool_calls DESC LIMIT 500"""
     (MCPDashboardSection.TOOL, window_facet(TOOL_LABEL), False),
     (
         MCPDashboardSection.ERROR_TYPE,
-        window_facet(label_of("toString(properties.$mcp_error_type)"), "AND toBool(properties.$mcp_is_error)"),
+        window_facet(label_of("toString(properties.$mcp_error_type)"), f"AND {IS_FAILURE_SQL}"),
         False,
     ),
     (
@@ -170,7 +171,7 @@ GROUP BY session_id HAVING tool_calls >= 1 ORDER BY tool_calls DESC LIMIT 500"""
     ),
     (
         MCPDashboardSection.RELIABILITY,
-        f"""SELECT {BUCKET} AS bucket, count() AS calls, countIf(toBool(properties.$mcp_is_error)) AS errors,
+        f"""SELECT {BUCKET} AS bucket, count() AS calls, countIf({IS_FAILURE_SQL}) AS errors,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50, round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
 FROM events WHERE {WHERE} GROUP BY bucket ORDER BY bucket LIMIT 10000""",
         False,
@@ -216,6 +217,14 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
             "insight_create",
             **claude,
             **{"$mcp_is_error": True, "$mcp_error_type": "invalid_params", "$mcp_duration_ms": 900},
+        )
+        self._emit(
+            1.2,
+            "d1",
+            "s1",
+            "query_run",
+            **claude,
+            **{"$mcp_is_error": True, "$mcp_error_expected": True, "$mcp_error_type": "rate_limited"},
         )
         self._emit(
             2,

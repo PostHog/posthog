@@ -4,11 +4,12 @@ import { hogql } from 'lib/utils/hogql'
 
 import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { DataTableNode, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
 import { LAB_ORDER, labSqlExpression } from '../aiLabs'
 import { labMark } from '../aiLabs'
 import { HARNESS_BY_LABEL, harnessMark } from '../dashboard/harnessRegistry'
+import { MCP_IS_FAILURE_HOGQL } from '../failurePredicate'
 
 export const MCP_ACTIVITY_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-activity')
 export const MCP_ACTIVITY_PAGE_SIZE = 100
@@ -93,12 +94,7 @@ export function withSharedFilters(
 }
 
 // Matches both encodings the backend counts as failures (see MCP_ERROR_VALUES in ToolCallFeed).
-const FAILED_CALLS_FILTER: AnyPropertyFilter = {
-    key: '$mcp_is_error',
-    value: ['true', '1'],
-    operator: PropertyOperator.Exact,
-    type: PropertyFilterType.Event,
-}
+const FAILED_CALLS_FILTER: AnyPropertyFilter = { key: MCP_IS_FAILURE_HOGQL, type: PropertyFilterType.HogQL }
 
 /** The feed narrowed to failed calls, keeping any other filter the user already applied. */
 export function withFailedCallsOnly(query: DataTableNode): DataTableNode {

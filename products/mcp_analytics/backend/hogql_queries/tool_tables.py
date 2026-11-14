@@ -64,6 +64,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     HarnessLabelQueryRunner,
     display_person_properties,
     effective_tool_expr,
+    is_failure_expr,
     mcp_query_date_range,
     mcp_source_expr,
     shared_filter_exprs,
@@ -173,15 +174,15 @@ class MCPToolTopUsersQueryRunner(HarnessLabelQueryRunner[MCPToolTopUsersQueryRes
                 argMax(person_email, timestamp) AS email,
                 argMax(person_name, timestamp) AS name,
                 count() AS calls,
-                countIf(is_error) AS errors,
-                round(countIf(is_error) * 100.0 / count(), 1) AS error_rate_pct,
+                countIf(is_failure) AS errors,
+                round(countIf(is_failure) * 100.0 / count(), 1) AS error_rate_pct,
                 {_HARNESS_LABELS_AGG} AS harnesses,
                 max(timestamp) AS last_seen
             FROM (
                 SELECT
                     distinct_id,
                     timestamp,
-                    toBool(properties.$mcp_is_error) AS is_error,
+                    {is_failure} AS is_failure,
                     toString(person.properties.email) AS person_email,
                     toString(person.properties.name) AS person_name,
                     {token} AS h
@@ -194,6 +195,7 @@ class MCPToolTopUsersQueryRunner(HarnessLabelQueryRunner[MCPToolTopUsersQueryRes
             """,
             placeholders={
                 "_HARNESS_LABELS_AGG": parse_expr(_harness_labels_agg(custom_harness_rules(self.team))),
+                "is_failure": is_failure_expr(),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
             },
@@ -258,7 +260,7 @@ class MCPToolFailuresQueryRunner(HarnessLabelQueryRunner[MCPToolFailuresQueryRes
             self.query,
             self.query_date_range,
             self.team,
-            extra=[parse_expr("toBool(properties.$mcp_is_error)")],
+            extra=[is_failure_expr()],
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -354,7 +356,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
         # from that table always round-trips to its own occurrences. Values are bound as
         # ast.Constant, never interpolated.
         extra: list[ast.Expr] = [
-            parse_expr("toBool(properties.$mcp_is_error)"),
+            is_failure_expr(),
             parse_expr(
                 "{raw_type} = {error_type}",
                 placeholders={
@@ -460,7 +462,6 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
         )
 
 
-_IS_ERROR = "countIf(toBool(properties.$mcp_is_error))"
 # One sample for both levels keeps p50 <= p95. quantiles() returns NaN, not NULL, when there are no
 # durations, so map NaN back to NULL.
 _P50_P95 = "arrayMap(q -> if(isNaN(q), NULL, round(q)), quantiles(0.5, 0.95)({duration_ms}))"
@@ -485,7 +486,7 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
             FROM (
                 SELECT
                     countIf(is_tool) AS calls,
-                    countIf(is_tool AND is_error) AS errors,
+                    countIf(is_tool AND is_failure) AS errors,
                     {_P50_P95} AS latency,
                     uniqIf(distinct_id, is_tool) AS users,
                     uniqIf(conversation_id, is_tool) AS conversations,
@@ -496,7 +497,7 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
                     SELECT
                         distinct_id,
                         nullIf({_CONVERSATION_ID}, '') AS conversation_id,
-                        toBool(properties.$mcp_is_error) AS is_error,
+                        {is_failure} AS is_failure,
                         toFloat(properties.$mcp_duration_ms) AS duration_ms,
                         notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}' AS has_intent,
                         {is_tool} AS is_tool
@@ -508,6 +509,7 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
             placeholders={
                 "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
                 "_P50_P95": parse_expr(_P50_P95, {"duration_ms": parse_expr("if(is_tool, duration_ms, NULL)")}),
+                "is_failure": is_failure_expr(),
                 "is_tool": effective_tool_expr(self.query.toolName),
                 "where": _tool_call_where(self.query, self.query_date_range, self.team, scope_to_tool=False),
             },
@@ -582,7 +584,7 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
                 SELECT
                     toString(dateTrunc({interval}, timestamp)) AS day,
                     count() AS calls,
-                    {_IS_ERROR} AS errors,
+                    countIf({is_failure}) AS errors,
                     {_P50_P95} AS latency,
                     uniq(distinct_id) AS users,
                     uniq(nullIf({_CONVERSATION_ID}, '')) AS sessions
@@ -596,7 +598,7 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
             placeholders={
                 "interval": ast.Constant(value=interval),
                 "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
-                "_IS_ERROR": parse_expr(_IS_ERROR),
+                "is_failure": is_failure_expr(),
                 "_P50_P95": parse_expr(_P50_P95, {"duration_ms": parse_expr("toFloat(properties.$mcp_duration_ms)")}),
                 "where": _tool_call_where(self.query, self.query_date_range, self.team),
             },

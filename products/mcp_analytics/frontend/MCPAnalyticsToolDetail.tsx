@@ -639,7 +639,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                 </div>
                 <ResultTable
                     title="Failures"
-                    description="Errored calls grouped by what went wrong. Numbers and IDs in error messages are masked so the same problem lands in one row. Click a row to see its calls."
+                    description="Errored calls grouped by what went wrong. Calls the server marked as expected errors, such as rate limits, are left out. Numbers and IDs in error messages are masked so the same problem lands in one row. Click a row to see its calls."
                     rows={failureBuckets.map((b) => [
                         b.sample_message,
                         b.message,

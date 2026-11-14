@@ -170,7 +170,7 @@ export const McpAnalyticsSessionsListQueryParams = () => zod.object({
         .boolean()
         .nullish()
         .describe(
-            'Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.'
+            'Filter by session outcome. true keeps sessions with at least one failed tool call ($mcp_is_error, unless $mcp_error_expected marks it expected), false keeps sessions with none. Omit to list both.'
         ),
     limit: zod
         .number()

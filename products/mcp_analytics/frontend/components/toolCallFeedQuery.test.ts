@@ -1,6 +1,7 @@
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { MCP_IS_FAILURE_HOGQL } from '../failurePredicate'
 import {
     DEFAULT_MCP_ACTIVITY_QUERY,
     MCP_ACTIVITY_COLUMNS,
@@ -56,7 +57,7 @@ describe('tool call feed queries', () => {
 
         expect(once.source.kind).toBe(NodeKind.EventsQuery)
         expect(twice.source).toMatchObject({
-            properties: [toolFilter, personFilter, { key: '$mcp_is_error', value: ['true', '1'] }],
+            properties: [toolFilter, personFilter, { key: MCP_IS_FAILURE_HOGQL, type: PropertyFilterType.HogQL }],
         })
     })
 

@@ -29,6 +29,7 @@ from products.mcp_analytics.backend.failure_classification import (
     classify_fingerprints,
     normalize_fingerprint,
 )
+from products.mcp_analytics.backend.hogql_queries.base import is_failure_expr
 
 EXAMPLE_MAX_CHARS = 80
 
@@ -53,7 +54,7 @@ SELECT
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
-    AND toBool(properties.$mcp_is_error)
+    AND {is_failure}
     AND isNotNull(properties.$mcp_error_message)
 GROUP BY tool, message
 ORDER BY events DESC
@@ -80,6 +81,7 @@ def fetch_failure_rows(team: Team, days: int) -> list[tuple[str, str, int, int]]
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "date_from": ast.Constant(value=timezone.now() - timedelta(days=days)),
+            "is_failure": is_failure_expr(),
         },
     )
     with tags_context(

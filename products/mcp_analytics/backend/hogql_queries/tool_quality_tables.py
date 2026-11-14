@@ -45,6 +45,7 @@ from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
     EFFECTIVE_TOOL_SQL,
+    is_failure_expr,
     mcp_query_date_range,
     shared_filter_exprs,
     validate_mcp_analytics_access,
@@ -64,7 +65,6 @@ _LATENCY_QUANTILES = (
     "arrayMap(q -> if(isNaN(q), NULL, round(q)), "
     "quantiles(0.25, 0.5, 0.75, 0.95, 0.99)(toFloat(properties.$mcp_duration_ms)))"
 )
-_IS_ERROR = "countIf(toBool(properties.$mcp_is_error))"
 _TOOL_ROW_DEFAULT_LIMIT = 50
 _TOOL_ROW_MAX_LIMIT = 100
 _TOOL_SORT_COLUMNS = {
@@ -260,7 +260,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                             timestamp >= {current_from} AS is_current,
                             is_current AND {matches_table_filters} AS in_current,
                             NOT is_current AND {matches_table_filters} AS in_previous,
-                            toBool(properties.$mcp_is_error) AS is_error,
+                            {is_failure} AS is_error,
                             toFloat(properties.$mcp_duration_ms) AS duration_ms,
                             nullIf({conversation_id}, '') AS session_id,
                             distinct_id,
@@ -278,6 +278,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             """,
             placeholders={
                 "_EFFECTIVE_TOOL": parse_expr(EFFECTIVE_TOOL_SQL),
+                "is_failure": is_failure_expr(),
                 "current_from": current_range.date_from_as_hogql(),
                 "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "_min_k": ast.Constant(value=_TREND_SCORE_MIN_K),
@@ -446,7 +447,7 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
                 SELECT
                     toString(dateTrunc({interval}, timestamp)) AS day,
                     count() AS calls,
-                    {_IS_ERROR} AS errors,
+                    countIf({is_failure}) AS errors,
                     {_LATENCY_QUANTILES} AS latency,
                     min(toFloat(properties.$mcp_duration_ms)) AS min,
                     round(avg(toFloat(properties.$mcp_duration_ms))) AS mean,
@@ -460,7 +461,7 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
             """,
             placeholders={
                 "interval": ast.Constant(value=interval),
-                "_IS_ERROR": parse_expr(_IS_ERROR),
+                "is_failure": is_failure_expr(),
                 "_LATENCY_QUANTILES": parse_expr(_LATENCY_QUANTILES),
                 "where": _named_tool_where(
                     _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),

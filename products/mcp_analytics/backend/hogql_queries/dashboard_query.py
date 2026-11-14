@@ -51,7 +51,9 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_TOOL_SQL,
+    IS_FAILURE_SQL,
     HarnessLabelQueryRunner,
+    is_failure_expr,
     validate_mcp_analytics_access,
 )
 from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
@@ -79,7 +81,7 @@ SELECT
     {bucket} AS bucket,
     countDistinctIf($session_id, $session_id != '') AS sessions,
     count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    countIf({is_failure}) AS errors,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
 FROM events
 WHERE event = '$mcp_tool_call'
@@ -110,8 +112,8 @@ SESSION_ROWS_SQL = """
 SELECT
     $session_id AS session_id,
     count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+    countIf({is_failure}) AS errors,
+    round(countIf({is_failure}) * 100.0 / count(), 1) AS error_rate_pct,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
     uniq(toString(properties.$mcp_tool_name)) AS distinct_tools,
     max(timestamp) AS last_seen
@@ -131,8 +133,8 @@ TOOL_ROWS_SQL = """
 SELECT
     toString(properties.$mcp_tool_name) AS tool,
     count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+    countIf({is_failure}) AS errors,
+    round(countIf({is_failure}) * 100.0 / count(), 1) AS error_rate_pct,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
 FROM events
 WHERE event = '$mcp_tool_call'
@@ -163,7 +165,7 @@ SELECT
     {{label}} AS label,
     count() AS calls,
     uniq(distinct_id) AS users,
-    countIf(toBool(properties.$mcp_is_error)) AS errors
+    countIf({{is_failure}}) AS errors
 FROM events
 WHERE {TOOL_CALL_WHERE}
     AND {{error_filter}}
@@ -189,7 +191,7 @@ RELIABILITY_SQL = f"""
 SELECT
     {{bucket}} AS bucket,
     count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    countIf({{is_failure}}) AS errors,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
 FROM events
@@ -256,7 +258,7 @@ HOGQL_SECTIONS: dict[MCPDashboardSection, HogQLSection] = {
     MCPDashboardSection.MODEL: _bucketed_facet(MODEL_LABEL_SQL),
     MCPDashboardSection.PROTOCOL_VERSION: _bucketed_facet(PROTOCOL_VERSION_LABEL_SQL),
     MCPDashboardSection.TOOL: _window_facet(TOOL_LABEL_SQL),
-    MCPDashboardSection.ERROR_TYPE: _window_facet(ERROR_TYPE_LABEL_SQL, "toBool(properties.$mcp_is_error)"),
+    MCPDashboardSection.ERROR_TYPE: _window_facet(ERROR_TYPE_LABEL_SQL, IS_FAILURE_SQL),
     MCPDashboardSection.LAB_USERS: HogQLSection(LAB_USERS_SQL, {"lab": lab_expr}),
     MCPDashboardSection.NAMED_MODEL_USERS: HogQLSection(
         NAMED_MODEL_USERS_SQL, {"model": partial(parse_expr, MODEL_LABEL_SQL)}
@@ -654,6 +656,7 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
                     ast.Constant(value=self.team.timezone),
                 ],
             ),
+            "is_failure": is_failure_expr(),
             **{name: build() for name, build in hogql.expressions.items()},
         }
         response = execute_hogql_query(
