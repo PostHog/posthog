@@ -9,7 +9,11 @@ An alert that fires on N of its last M checks reads those M checks as one range 
 interval, ending at the same instant. Each group's earlier breaches come from the earlier steps, so the
 alert fires once the condition has held for the window, as `for:` does in Prometheus. A step where a
 group has no breaching series counts as clear, because Prometheus resets a pending alert whose series
-stops matching.
+stops matching. A group missing now keeps its earlier breaches, so it is judged like a group that
+cleared now.
+
+Both queries send the check interval as the step. Snuffle sizes a MetricsQL rollup that names no window,
+such as `increase(x)`, from the step, so the same alert measures the same value whatever its window.
 
 A series the query no longer returns resolves its group, as in Prometheus, once the partition
 checkpoint shows every ingestion partition has passed the instant the check read. A team's samples
@@ -62,7 +66,6 @@ from products.alerts_platform.backend.facade.grouping import (
     decide_groups,
     delivery_parts,
     muted_value,
-    not_breaching,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
@@ -289,7 +292,8 @@ def _evaluate(
         return _failed(check, _UNEXPECTED_ERROR, transient=True, now=now, muted=muted)
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
-    observations, unknown = _observations(check, config.condition, steps[0], earlier=steps[1:])
+    prior = _breaching_keys(check, config.condition, steps[1:])
+    observations, unknown = _observations(check, config.condition, steps[0], prior=prior)
     decision = decide_groups(
         check,
         observations,
@@ -297,7 +301,7 @@ def _evaluate(
         policy=POLICY,
         now=now,
         muted=muted,
-        absent=lambda key: _absent(check, key, unknown=unknown, now=now, reach=reach),
+        absent=lambda key: _absent(check, key, unknown=unknown, now=now, reach=reach, prior=prior),
     )
     for verdict in decision.verdicts:
         safe_record(increment_checks, SOURCE.value, verdict.outcome.notification.value)
@@ -326,7 +330,12 @@ def _query(
     if periods <= 1:
         return [
             _instant_samples(
-                _snuffle(team, "/api/v1/query", {"query": expr, "time": str(at.timestamp())}, timeout_seconds)
+                _snuffle(
+                    team,
+                    "/api/v1/query",
+                    {"query": expr, "time": str(at.timestamp()), "step": f"{int(interval.total_seconds())}s"},
+                    timeout_seconds,
+                )
             )
         ]
     step_seconds = int(interval.total_seconds())
@@ -404,7 +413,13 @@ def _breached(condition: MetricsPlatformAlertCondition, value: float | None) -> 
 
 
 def _absent(
-    check: PlatformAlertCheckInput, key: str, *, unknown: frozenset[str], now: datetime, reach: IngestionReach
+    check: PlatformAlertCheckInput,
+    key: str,
+    *,
+    unknown: frozenset[str],
+    now: datetime,
+    reach: IngestionReach,
+    prior: Sequence[frozenset[str]] = (),
 ) -> GroupObservation | None:
     """A missing group's verdict, as the module docstring explains. None holds its state."""
     if key in unknown:
@@ -413,7 +428,11 @@ def _absent(
     held_long_enough = (
         reach.newest_point is not None and last_seen_at is not None and now - last_seen_at >= ABSENT_RESOLVE_AFTER
     )
-    return not_breaching(key) if reach.checkpoint is not None or held_long_enough else None
+    if reach.checkpoint is None and not held_long_enough:
+        return None
+    return GroupObservation(
+        grouping_key=key, current_breached=False, prior_breached=tuple(key in step for step in prior)
+    )
 
 
 def _observations(
@@ -421,14 +440,13 @@ def _observations(
     condition: MetricsPlatformAlertCondition,
     samples: Sequence[_Sample],
     *,
-    earlier: Sequence[Sequence[_Sample]] = (),
+    prior: Sequence[frozenset[str]] = (),
 ) -> tuple[list[GroupObservation], frozenset[str]]:
     """One observation per sample, leaving out the groups held without a verdict, and those groups' keys.
 
     A group with a sample that has no number is held, unless another of its samples breaches. A healthy
     sample beside it does not show that the unknown one recovered.
     """
-    prior = [{_group_of(check, sample)[0] for sample in step if _breached(condition, sample.value)} for step in earlier]
     observations: list[GroupObservation] = []
     unknown: set[str] = set()
     for sample in samples:
@@ -454,11 +472,21 @@ def _observations(
     # one is left out, because a breach would announce it on a value that reached no verdict.
     # A full window of breaches, so an alert that needs N of M breaches stays firing too.
     kept.extend(
-        GroupObservation(grouping_key=key, current_breached=True, prior_breached=(True,) * len(earlier))
+        GroupObservation(grouping_key=key, current_breached=True, prior_breached=(True,) * len(prior))
         for key in held
         if _announced(check, key)
     )
     return kept, held
+
+
+def _breaching_keys(
+    check: PlatformAlertCheckInput, condition: MetricsPlatformAlertCondition, steps: Sequence[Sequence[_Sample]]
+) -> list[frozenset[str]]:
+    """For each earlier step, newest first, the groups that had a breaching series."""
+    return [
+        frozenset(_group_of(check, sample)[0] for sample in step if _breached(condition, sample.value))
+        for step in steps
+    ]
 
 
 def _group_of(check: PlatformAlertCheckInput, sample: _Sample) -> tuple[str, dict[str, str]]:
