@@ -1089,7 +1089,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                         router.actions.push(values.listUrl)
                     }
                 },
-                retry: () => actions.deleteTemplate(),
             })
         },
     })),
