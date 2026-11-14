@@ -26,7 +26,9 @@ describe('canFinishWithoutReturn', () => {
         ],
         ['a try/catch that returns in both', `try { return event } catch (e) { return event }`],
         ['a throw', `if (a) { return event } else { throw Error('nope') }`],
-        ['an endless loop', `while (true) { return event }`],
+        ['an if on a constant true', `if (true) return event`],
+        ['an endless while loop', `while (true) { return event }`],
+        ['an endless for loop', `for (; true;) { return event }`],
         ['blank code', `  // nothing yet\n`],
         ['code that does not parse', `if (`],
     ])('is false for %s', async (_, code) => {
