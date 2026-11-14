@@ -530,6 +530,7 @@ export function createScales(
     return { x, y: primaryAxis.scale, yAxes }
 }
 
+/** A series' band in a stack, per label. Both ends are NaN where the series has no value. */
 export interface StackedBand {
     top: number[]
     bottom: number[]
