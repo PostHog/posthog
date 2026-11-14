@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useContext, useEffect, useState } from 'react'
 
-import { IconArrowRight } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -48,9 +48,9 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, currentStepProductKey, isCompleting } = useValues(onboardingLogic)
+    const { hasNextStep, hasPreviousStep, currentStepProductKey, isCompleting } = useValues(onboardingLogic)
 
-    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
+    const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
     const footerStart = useContext(OnboardingStepFooterStartContext)
 
@@ -86,6 +86,18 @@ export const OnboardingStep = ({
 
     return (
         <>
+            {hasPreviousStep && (
+                <div className="mb-2 px-4 sm:px-0">
+                    <LemonButton
+                        icon={<IconArrowLeft />}
+                        onClick={goToPreviousStep}
+                        disabledReason={pendingAdvance || isCompleting ? 'Completing…' : undefined}
+                        data-attr="onboarding-back"
+                        aria-label="Back"
+                        tooltip="Back"
+                    />
+                </div>
+            )}
             <div className="pb-2">
                 <div
                     className={clsx('text-secondary mx-auto', !fullWidth && 'max-w-screen-md', hideHeader && 'hidden')}
