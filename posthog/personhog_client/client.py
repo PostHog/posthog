@@ -109,6 +109,8 @@ from posthog.personhog_client.proto import (
     UpdateGroupResponse,
     UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse,
+    UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse,
     WriteDistinctIdsRequest,
     WriteDistinctIdsResponse,
 )
@@ -371,6 +373,17 @@ class PersonHogClient:
             raise PersonHogLifecycleUnavailable("personhog leader path not configured (PERSONHOG_LIFECYCLE_ADDR)")
         # The router routes leader calls by these headers, never by the request body.
         return self._leader_stub.RaisePersonVersion(
+            request,
+            timeout=timeout or self._timeout,
+            metadata=[("x-team-id", str(request.team_id)), ("x-person-id", str(request.person_id))],
+        )
+
+    def update_person_properties(
+        self, request: UpdatePersonPropertiesRequest, timeout: float | None = None
+    ) -> UpdatePersonPropertiesResponse:
+        if self._leader_stub is None:
+            raise PersonHogLifecycleUnavailable("personhog leader path not configured (PERSONHOG_LIFECYCLE_ADDR)")
+        return self._leader_stub.UpdatePersonProperties(
             request,
             timeout=timeout or self._timeout,
             metadata=[("x-team-id", str(request.team_id)), ("x-person-id", str(request.person_id))],
