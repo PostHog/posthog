@@ -20,7 +20,7 @@ MIN_TRACES_FOR_CLUSTERING = 1000
 # The shared llm_analytics ClickHouse budget (CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES) caps the
 # embedding scans of all AI observability workflows together, and the compute activity backs off when it
 # gets no slot. So this value does not protect ClickHouse. It sets how many teams one run can finish
-# before COORDINATOR_EXECUTION_TIMEOUT, and most of each team's time is the labeling LLM call.
+# before COORDINATOR_EXECUTION_TIMEOUT.
 DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel
 
 # Workflow timeouts
