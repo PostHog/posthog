@@ -103,7 +103,9 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 Intent-topic runs register before reading source events or writing derived data.
 `intent_topics.invalidation.freeze_writes` closes admission for the parent project and its environments under the same PostgreSQL row lock.
-Failed or interrupted registrations do not expire, and a successful Kafka enqueue remains pending because it does not confirm ClickHouse delivery.
+New sync runs use bounded ad-hoc inference followed by synchronous inserts into the model table on the main cluster.
+They stop scheduling work before the activity timeout and resume partially processed hours without advancing past missing vectors.
+Only an explicit confirmation of these inserts completes a sync registration. Failed or interrupted registrations do not expire, and legacy Kafka runs remain pending because enqueue success does not confirm ClickHouse delivery.
 `has_pending_registered_writers` checks only these registrations. Legacy session, snapshot and embedding-cache writers, queued embedding output, and physical derivative cleanup need separate coverage.
 The barrier has no reopening or deletion-completion operation. These primitives do not make event or person erasure complete for intent topics.
 

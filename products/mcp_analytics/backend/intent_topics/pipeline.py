@@ -10,6 +10,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from time import monotonic
 
 import numpy as np
 import structlog
@@ -56,6 +57,8 @@ DEFAULT_SYNC_LOOKBACK = timedelta(hours=1, minutes=15)
 SYNC_RESUME_OVERLAP = timedelta(minutes=15)
 MAX_SYNC_CATCH_UP = timedelta(days=3)
 SYNC_SLICE = timedelta(hours=1)
+# Leave time to join a full inference batch and acknowledge its insert before the activity's ten-minute limit.
+SYNC_WORK_BUDGET_SECONDS = 240.0
 
 
 def sync_window_start(team: Team, *, now: datetime) -> datetime:
@@ -71,13 +74,17 @@ def sync_window_start(team: Team, *, now: datetime) -> datetime:
             **{f"params__{persist.SOURCE_TEAM_PARAM}": team.pk},
         )
         .exclude(window_end=None)
-        .order_by("-window_end")
-        .values_list("window_end", flat=True)
+        .order_by("-window_end", "-started_at", "-id")
         .first()
     )
-    if last is None:
+    if last is None or last.window_end is None:
         return now - DEFAULT_SYNC_LOOKBACK
-    return max(last - SYNC_RESUME_OVERLAP, now - MAX_SYNC_CATCH_UP)
+    resume = (
+        datetime.fromisoformat(last.params[persist.SYNC_RESUME_PARAM])
+        if persist.SYNC_RESUME_PARAM in last.params
+        else last.window_end - SYNC_RESUME_OVERLAP
+    )
+    return max(resume, now - MAX_SYNC_CATCH_UP)
 
 
 def _run_id(kind: str, now: datetime) -> str:
@@ -113,22 +120,37 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budge
     n_intents = 0
     emitted = 0
     drained_until = window_start
-    # An intent called in two slices of one run is sent once; the worker has not stored the first vector yet.
+    deadline = monotonic() + SYNC_WORK_BUDGET_SECONDS
     handled: set[str] = set()
+    paused = False
     try:
         for sync_slice in _sync_slices(window_start, window_end):
-            if n_intents >= budget:
+            if n_intents >= budget or monotonic() >= deadline:
                 break
             for page in corpus.iter_distinct_intent_pages(
                 team, since=sync_slice.start, until=sync_slice.end, page_size=page_size
             ):
+                if monotonic() >= deadline:
+                    paused = True
+                    break
                 fresh = [intent for intent in page if intent.hash not in handled]
                 handled.update(intent.hash for intent in fresh)
                 seen = corpus.fetch_seen_hashes(team, [intent.hash for intent in fresh], now=window_end)
                 to_emit = embedding_sync.select_intents_to_emit(fresh, seen)
-                emitted += embedding_sync.emit_intent_embeddings(team, to_emit)
+                for start in range(0, len(to_emit), embedding_sync.EMBEDDING_BATCH_SIZE):
+                    if monotonic() >= deadline:
+                        paused = True
+                        break
+                    emitted += embedding_sync.write_intent_embeddings(
+                        team, to_emit[start : start + embedding_sync.EMBEDDING_BATCH_SIZE]
+                    )
                 n_intents += len(fresh)
-            drained_until = sync_slice.end
+                if paused:
+                    break
+            else:
+                drained_until = sync_slice.end
+                continue
+            break
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
         raise
@@ -137,6 +159,9 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budge
         run,
         status=Status.SUCCEEDED,
         window_end=drained_until,
+        # A partial first slice must resume at its start, not drift backwards by another overlap on each run.
+        sync_resume_from=window_start if drained_until == window_start else drained_until - SYNC_RESUME_OVERLAP,
+        synchronous_writes_completed=True,
         n_intents=n_intents,
         n_embeddings_requested=emitted,
     )

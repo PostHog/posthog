@@ -194,16 +194,19 @@ class TestApplyFit(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
 class TestRunBookkeeping(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     @parameterized.expand(
         [
-            ("assign_succeeded", "assign", "succeeded", 0, False),
-            ("refit_succeeded", "refit", "succeeded", 0, False),
-            ("assign_failed", "assign", "failed", 0, True),
-            ("sync_enqueued", "sync", "succeeded", 2, True),
-            ("sync_empty", "sync", "succeeded", 0, False),
-            ("no_consent", "sync", "skipped_no_consent", 0, False),
+            ("assign_succeeded", "assign", "succeeded", 0, False, False),
+            ("refit_succeeded", "refit", "succeeded", 0, False, False),
+            ("assign_failed", "assign", "failed", 0, False, True),
+            ("sync_enqueued", "sync", "succeeded", 2, False, True),
+            ("sync_confirmed", "sync", "succeeded", 2, True, False),
+            ("sync_failed", "sync", "failed", 2, True, True),
+            ("sync_empty_unconfirmed", "sync", "succeeded", 0, False, True),
+            ("sync_empty_confirmed", "sync", "succeeded", 0, True, False),
+            ("no_consent", "sync", "skipped_no_consent", 0, False, False),
         ]
     )
     def test_freeze_waits_for_confirmed_writes_not_run_status(
-        self, _name: str, kind: str, status: str, emitted: int, pending: bool
+        self, _name: str, kind: str, status: str, emitted: int, confirmed: bool, pending: bool
     ) -> None:
         run = start_run(self.team, kind=kind, run_id="writer", window_start=NOW - timedelta(days=1), window_end=NOW)
         MCPIntentClusteringRun.objects.filter(pk=run.pk).update(writer_registered_at=NOW - timedelta(days=90))
@@ -211,7 +214,7 @@ class TestRunBookkeeping(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         freeze_writes(self.team, invalidation_id=operation)
         assert has_pending_registered_writers(self.team, invalidation_id=operation)
 
-        finish_run(run, status=status, n_embeddings_requested=emitted)
+        finish_run(run, status=status, n_embeddings_requested=emitted, synchronous_writes_completed=confirmed)
 
         assert has_pending_registered_writers(self.team, invalidation_id=operation) is pending
 

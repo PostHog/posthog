@@ -1,25 +1,32 @@
 import os
+import json
+from uuid import uuid4
 
 os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")
 
 from datetime import timedelta  # noqa: E402
 from functools import partial  # noqa: E402
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events  # noqa: E402
 from unittest.mock import patch
 
 import numpy as np  # noqa: E402
+import responses
 
 from posthog.hogql.query import execute_hogql_query  # noqa: E402
 
+from posthog.api.embedding_worker import _EMBEDDING_URL
+from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team  # noqa: E402
 
 from products.mcp_analytics.backend.intent_hash import intent_hash  # noqa: E402
-from products.mcp_analytics.backend.intent_topics import persist, pipeline  # noqa: E402
+from products.mcp_analytics.backend.intent_topics import embedding_sync, persist, pipeline  # noqa: E402
+from products.mcp_analytics.backend.intent_topics.invalidation import freeze_writes, has_pending_registered_writers
 from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel  # noqa: E402
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic  # noqa: E402
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin  # noqa: E402
-from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding, recent_hour
+from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding, recent_hour, unit_vector
 from products.mcp_analytics.backend.tests.test_intent_topics_clustering import skip_without_umap  # noqa: E402
 
 NOW = recent_hour(days_ago=0)
@@ -37,9 +44,14 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
+        self.worker = responses.RequestsMock(assert_all_requests_are_fired=False)
+        self.worker.start()
+        self.addCleanup(self.worker.stop)
+        self.worker.add(
+            responses.POST, _EMBEDDING_URL, json={"embedding": unit_vector(0), "tokens_used": 3, "did_truncate": False}
+        )
 
-    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
-    def test_emits_only_intents_without_a_vector_and_records_the_run(self, mock_emit) -> None:
+    def test_emits_only_intents_without_a_vector_and_records_the_run(self) -> None:
         for text in ("new intent", "new intent", "already embedded"):
             _create_event(
                 team=self.team,
@@ -56,10 +68,15 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
         outcome = pipeline.run_sync(self.team, window_start=NOW - timedelta(hours=1), window_end=NOW)
 
         assert (outcome.status, outcome.n_intents, outcome.n_embeddings_requested) == ("succeeded", 2, 1)
-        assert mock_emit.call_args.kwargs["document_id"] == intent_hash("new intent")
-        assert mock_emit.call_args.kwargs["metadata"]["calls"] == 2
+        rows = execute_hogql_query(
+            query="SELECT document_id, metadata.calls FROM posthog.document_embeddings_text_embedding_3_small_256 WHERE content = 'new intent'",
+            team=self.team,
+        ).results
+        assert rows == [(intent_hash("new intent"), "2")]
+        assert len(self.worker.calls) == 1
         run = MCPIntentClusteringRun.objects.get(team=self.team, run_id=outcome.run_id)
         assert run.kind == "sync" and run.n_embeddings_requested == 1
+        assert run.writer_completed_at is not None
 
     def _call(self, text: str, at, team: Team | None = None) -> None:
         _create_event(
@@ -70,8 +87,7 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
             properties={"$mcp_tool_name": "query-trends", "$mcp_intent": text},
         )
 
-    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
-    def test_a_window_over_the_budget_is_drained_across_runs_without_losing_intents(self, mock_emit) -> None:
+    def test_a_window_over_the_budget_is_drained_across_runs_without_losing_intents(self) -> None:
         start = NOW - timedelta(hours=3)
         for text, hour in (("a", 0), ("b", 0), ("a", 1), ("c", 1), ("d", 2)):
             self._call(text, start + timedelta(hours=hour, minutes=20))
@@ -82,8 +98,6 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
         assert (first.status, first.n_intents) == ("succeeded", 2)
         first_end = start + pipeline.SYNC_RESUME_OVERLAP + pipeline.SYNC_SLICE
         assert MCPIntentClusteringRun.objects.get(run_id=first.run_id).window_end == first_end
-        for call in mock_emit.call_args_list:
-            insert_intent_embedding(self.team.pk, call.kwargs["document_id"], call.kwargs["content"], at=start)
         resume = pipeline.sync_window_start(self.team, now=NOW)
         # The replayed overlap does not eat into the hour a budget-stopped run advances.
         assert resume - start == pipeline.SYNC_SLICE
@@ -92,11 +106,10 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
 
         assert second.status == "succeeded"
         assert MCPIntentClusteringRun.objects.get(run_id=second.run_id).window_end == NOW
-        emitted = [call.kwargs["document_id"] for call in mock_emit.call_args_list]
-        assert sorted(emitted) == sorted(intent_hash(t) for t in ("a", "b", "c", "d"))
+        emitted = [json.loads(call.request.body)["content"] for call in self.worker.calls]
+        assert sorted(emitted) == ["a", "b", "c", "d"]
 
-    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
-    def test_one_hour_over_the_budget_is_still_drained_whole(self, mock_emit) -> None:
+    def test_one_hour_over_the_budget_is_still_drained_whole(self) -> None:
         start = NOW - timedelta(hours=1)
         for text in ("a", "b", "c"):
             self._call(text, start + timedelta(minutes=10))
@@ -107,8 +120,7 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
         assert (outcome.status, outcome.n_intents, outcome.n_embeddings_requested) == ("succeeded", 3, 3)
         assert MCPIntentClusteringRun.objects.get(run_id=outcome.run_id).window_end == NOW
 
-    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
-    def test_each_environment_resumes_from_its_own_syncs(self, _mock_emit) -> None:
+    def test_each_environment_resumes_from_its_own_syncs(self) -> None:
         sibling = Team.objects.create(
             organization=self.organization, project=self.team.project, parent_team=self.team, name="Sibling"
         )
@@ -120,15 +132,94 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
         assert pipeline.sync_window_start(sibling, now=NOW) == sibling_end - pipeline.SYNC_RESUME_OVERLAP
         assert pipeline.sync_window_start(self.team, now=NOW) == NOW - pipeline.SYNC_RESUME_OVERLAP
 
-    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
-    def test_skips_without_consent(self, mock_emit) -> None:
+    def test_skips_without_consent(self) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
 
         outcome = pipeline.run_sync(self.team, window_start=NOW - timedelta(hours=1), window_end=NOW)
 
         assert outcome.status == "skipped_no_consent"
-        mock_emit.assert_not_called()
+        assert not self.worker.calls
+
+    def test_partial_hour_resumes_without_losing_intents_or_moving_backwards(self) -> None:
+        start = NOW - timedelta(hours=1)
+        for text in ("a", "b", "c"):
+            self._call(text, start + timedelta(minutes=10))
+        flush_persons_and_events()
+
+        with (
+            patch.object(embedding_sync, "EMBEDDING_BATCH_SIZE", 1),
+            patch.object(pipeline, "monotonic", return_value=0.0) as clock,
+        ):
+
+            def respond(request):
+                clock.return_value = pipeline.SYNC_WORK_BUDGET_SECONDS + 1
+                return (200, {}, json.dumps({"embedding": unit_vector(0), "tokens_used": 3, "did_truncate": False}))
+
+            self.worker.reset()
+            self.worker.add_callback(responses.POST, _EMBEDDING_URL, callback=respond)
+            first = pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+            assert first.n_embeddings_requested == 1
+            assert MCPIntentClusteringRun.objects.get(run_id=first.run_id).window_end == start
+            assert pipeline.sync_window_start(self.team, now=NOW) == start
+
+            with patch.object(pipeline, "SYNC_WORK_BUDGET_SECONDS", 0):
+                pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+            assert pipeline.sync_window_start(self.team, now=NOW) == start
+
+        self.worker.reset()
+        self.worker.add(
+            responses.POST, _EMBEDDING_URL, json={"embedding": unit_vector(0), "tokens_used": 3, "did_truncate": False}
+        )
+        second = pipeline.run_sync(
+            self.team, window_start=pipeline.sync_window_start(self.team, now=NOW), window_end=NOW
+        )
+
+        assert second.n_embeddings_requested == 2
+        rows = execute_hogql_query(
+            query="SELECT content FROM posthog.document_embeddings_text_embedding_3_small_256 ORDER BY content",
+            team=self.team,
+        ).results
+        assert rows == [("a",), ("b",), ("c",)]
+        operation = uuid4()
+        freeze_writes(self.team, invalidation_id=operation)
+        assert not has_pending_registered_writers(self.team, invalidation_id=operation)
+
+    def test_lost_insert_acknowledgment_stays_pending_after_a_successful_retry(self) -> None:
+        start = NOW - timedelta(hours=1)
+        self._call("a", start + timedelta(minutes=10))
+        flush_persons_and_events()
+
+        def lose_ack(*args, **kwargs):
+            sync_execute(*args, **kwargs)
+            raise TimeoutError("Lost insert acknowledgment")
+
+        with patch.object(embedding_sync, "sync_execute", side_effect=lose_ack), pytest.raises(TimeoutError):
+            pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+        failed = MCPIntentClusteringRun.objects.get(status="failed")
+        assert failed.writer_completed_at is None
+
+        retried = pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+
+        assert retried.status == "succeeded" and retried.n_embeddings_requested == 0
+        assert len(self.worker.calls) == 1
+        operation = uuid4()
+        freeze_writes(self.team, invalidation_id=operation)
+        assert has_pending_registered_writers(self.team, invalidation_id=operation)
+
+    def test_cached_pages_also_obey_the_work_deadline(self) -> None:
+        start = NOW - timedelta(hours=1)
+        for text in ("a", "b", "c"):
+            self._call(text, start + timedelta(minutes=10))
+            insert_intent_embedding(self.team.pk, intent_hash(text), text, at=start)
+        flush_persons_and_events()
+
+        with patch.object(pipeline, "monotonic", side_effect=[0.0, 0.0, 0.0, 241.0]):
+            outcome = pipeline.run_sync(self.team, window_start=start, window_end=NOW, page_size=1)
+
+        assert (outcome.n_intents, outcome.n_embeddings_requested) == (1, 0)
+        assert pipeline.sync_window_start(self.team, now=NOW) == start
+        assert not self.worker.calls
 
 
 @skip_without_umap
@@ -282,3 +373,19 @@ class TestSyncWindow(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         start = pipeline.sync_window_start(self.team, now=NOW)
 
         assert start == NOW - pipeline.MAX_SYNC_CATCH_UP
+
+    def test_latest_partial_run_wins_when_checkpoint_times_tie(self) -> None:
+        self._succeeded_sync(NOW)
+        MCPIntentClusteringRun.objects.update(started_at=NOW - timedelta(hours=1))
+        run = MCPIntentClusteringRun.objects.create(
+            team=self.team,
+            run_id="partial",
+            kind="sync",
+            status="succeeded",
+            window_start=NOW,
+            window_end=NOW,
+            params={persist.SOURCE_TEAM_PARAM: self.team.pk, persist.SYNC_RESUME_PARAM: NOW.isoformat()},
+        )
+        MCPIntentClusteringRun.objects.filter(pk=run.pk).update(started_at=NOW)
+
+        assert pipeline.sync_window_start(self.team, now=NOW) == NOW
