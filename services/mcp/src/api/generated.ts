@@ -108151,6 +108151,12 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface SentryFeedbackSignalExtra {
+      project_slug: string | null;
+      event_id: string | null;
+      date_created: string | null;
+    }
+
     export interface SonarcloudScannerFindingSignalExtra {
       severity: string | null;
       type: string | null;
@@ -108199,12 +108205,6 @@ export namespace Schemas {
       threat_mitigation_status: string | null;
       detection_type: string | null;
       created_at: string | null;
-    }
-
-    export interface SentryFeedbackSignalExtra {
-      project_slug: string | null;
-      event_id: string | null;
-      date_created: string | null;
     }
 
     export interface TriggerDevErrorSignalExtra {
