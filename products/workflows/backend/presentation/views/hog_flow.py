@@ -6817,9 +6817,8 @@ class HogFlowViewSet(
             hog_flow = None
 
         run_globals = request.data.get("globals") if isinstance(request.data, dict) else None
-        variables_supplied = hog_flow is not None and supplies_variables(
-            run_globals.get("variables") if isinstance(run_globals, dict) else None, hog_flow.variables
-        )
+        run_variables = run_globals.get("variables") if isinstance(run_globals, dict) else None
+        variables_supplied = hog_flow is not None and supplies_variables(run_variables, hog_flow.variables)
         serializer = HogFlowInvocationSerializer(
             data=request.data,
             context={
@@ -6865,13 +6864,15 @@ class HogFlowViewSet(
             draft_secrets = merge_secret_maps(hog_flow.encrypted_inputs, hog_flow.draft_encrypted_inputs)
             # A restored version or an approved suggestion stages no secrets, so the live ones would run with the
             # draft's content. The run gets the check publish makes.
+            draft_content = draft_workflow_content(hog_flow)
             to_type_again = secrets_to_type_again(
-                draft_workflow_content(hog_flow),
+                draft_content,
                 hog_flow,
                 {},
                 live_secrets_only=False,
                 template_cache=template_cache,
-                supplies_variables=variables_supplied,
+                # The run executes the draft's variable defaults, not the live ones.
+                supplies_variables=supplies_variables(run_variables, draft_content["variables"]),
             )
             require_secret_reentry(self.get_serializer_context(), to_type_again)
             if isinstance(draft.get("actions"), list):

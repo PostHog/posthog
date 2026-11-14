@@ -8305,6 +8305,12 @@ class TestHogFlowSecretInputs(APIBaseTest):
         if surface == "test_run":
             return self.client.post(f"{base}/invocations/", {"globals": globals_}, format="json")
         content = self._masked_flow(flow_id)
+        if surface == "draft_test_run":
+            content["variables"] = [{"key": "target", "type": "string", "default": "https://draft.example.com"}]
+            self._step(content)["config"]["inputs"]["api_key"] = {"value": "DRAFT-SECRET"}
+            staged = self.client.patch(base, {**content, "stage_draft": True}, format="json")
+            assert staged.status_code == status.HTTP_200_OK, staged.json()
+            return self.client.post(f"{base}/invocations/", {"globals": globals_, "use_draft": True}, format="json")
         if surface == "test_run_typing_the_secret":
             self._step(content)["config"]["inputs"]["api_key"] = {"value": "SUPER-SECRET"}
         return self.client.post(f"{base}/invocations/", {"globals": globals_, "configuration": content}, format="json")
@@ -8323,6 +8329,12 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 "configuration__actions__action_1__inputs__api_key",
             ),
             ("test_run_typing_the_secret", "test_run_typing_the_secret", {"target": "https://evil.example.com"}, None),
+            (
+                "draft_test_run_with_the_live_default",
+                "draft_test_run",
+                {"target": "https://example.com"},
+                "actions__action_1__inputs__api_key",
+            ),
             ("run_with_the_defaults", "run", {"target": "https://example.com"}, None),
         ]
     )
