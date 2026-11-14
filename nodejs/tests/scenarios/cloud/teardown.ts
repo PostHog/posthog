@@ -18,6 +18,7 @@ export type Receipt = {
     clean: boolean
     unlisted: string[]
     resources: (Resource & { state: string })[]
+    clusterGoneListedBy?: string
 }
 
 const GONE = 'gone'
@@ -281,7 +282,7 @@ async function receiptOf(
     manifest: Manifest,
     inventory: Inventory,
     lost: string[],
-    { until, listedBy }: { until: number; listedBy: number }
+    { until, listedBy, clusterGoneListedBy }: { until: number; listedBy: number; clusterGoneListedBy?: number }
 ): Promise<Receipt> {
     for (;;) {
         const { failures, tagged } = await discover(controller, profile, manifest, inventory)
@@ -314,6 +315,9 @@ async function receiptOf(
                 clean: gone && unlisted.length === 0,
                 unlisted,
                 resources,
+                ...(clusterGoneListedBy === undefined
+                    ? {}
+                    : { clusterGoneListedBy: new Date(clusterGoneListedBy).toISOString() }),
             }
         }
         await controller.sleep(POLL_MS)
@@ -336,11 +340,14 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
         )
         const lost: string[] = []
         let listedBy = 0
+        let clusterGoneListedBy: number | undefined
         await listInto(inventory, lost, 'the earlier receipts', async () => {
             const receipts = await receiptsOf(evidence, manifest)
             if (receipts.some(({ unlisted }) => unlisted.length > 0)) {
                 listedBy = Date.parse(receipts[0].checkedAt) + TAG_LISTING_LAG_MS
             }
+            const stored = receipts.find((receipt) => receipt.clusterGoneListedBy)?.clusterGoneListedBy
+            clusterGoneListedBy = stored === undefined ? undefined : Date.parse(stored)
             return receipts.flatMap(({ resources }) => resources.map(({ type, id }) => ({ type, id })))
         })
         const { failures, blind } = await discover(controller, profile, manifest, inventory)
@@ -350,9 +357,14 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
         )
         const requested = await orGone(evidence.get(keyOf(manifest.runId, 'stack-requested')), () => true, 'NoSuchKey')
         if (blind && requested !== GONE) {
-            listedBy = Math.max(listedBy, controller.now().getTime() + TAG_LISTING_LAG_MS)
+            clusterGoneListedBy ??= controller.now().getTime() + TAG_LISTING_LAG_MS
+            listedBy = Math.max(listedBy, clusterGoneListedBy)
         }
-        receipt = await receiptOf(controller, profile, manifest, inventory, lost, { until, listedBy })
+        receipt = await receiptOf(controller, profile, manifest, inventory, lost, {
+            until,
+            listedBy,
+            clusterGoneListedBy,
+        })
         await evidence.put(
             keyOf(manifest.runId, `receipts/${receipt.checkedAt}-${randomUUID()}.json`),
             JSON.stringify(receipt, null, 2)

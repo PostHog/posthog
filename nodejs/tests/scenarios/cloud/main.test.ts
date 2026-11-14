@@ -998,6 +998,22 @@ describe('cloud controller', () => {
         }
     )
 
+    it('releases a run whose stack was already deleted once the tag listings caught up, with a short allowance', async () => {
+        const { controller } = prepare({
+            cloud: { rollsBack: 'create' },
+            profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
+        })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        expect(err.join('\n')).toContain('until the tag listings catch up')
+
+        now = new Date(now.getTime() + HOUR_MS / 3)
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(0)
+
+        expect(released(leasedRunId())).toBe(1)
+        expect(cloud.schedules.size).toBe(0)
+    })
+
     it.each([
         ['its receipt', false],
         ['no receipt', true],
