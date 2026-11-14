@@ -9,7 +9,6 @@ Shape:
             "team_id": 123,
             "organization_id": "0190...",
             "billing_period": {"start": "2026-10-01T00:00:00Z", "end": "2026-11-01T00:00:00Z"} | null,
-            "ai_monthly_spend_limit_usd": "250.00" | null,
             "ai_low_balance_threshold_usd": "5.00" | null,
             "ai_automatic_reload_enabled": true | false,
             "customer_trust_scores": {"ai_credits": 10}
@@ -64,7 +63,6 @@ def llm_gateway_org_values(organization: Organization) -> dict[str, Any]:
     return {
         "organization_id": str(organization.id),
         "billing_period": {"start": period[0], "end": period[1]} if period and len(period) == 2 else None,
-        "ai_monthly_spend_limit_usd": usage.get("ai_monthly_spend_limit_usd"),
         "ai_low_balance_threshold_usd": usage.get("ai_low_balance_threshold_usd"),
         "ai_automatic_reload_enabled": usage.get("ai_automatic_reload_enabled") is True,
         "customer_trust_scores": organization.customer_trust_scores or {},

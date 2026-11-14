@@ -28,7 +28,6 @@ class TestLLMGatewayOrgEntry(BaseTest):
         super().setUp()
         self.organization.usage = {
             "period": PERIOD,
-            "ai_monthly_spend_limit_usd": "250.00",
             "ai_low_balance_threshold_usd": "5.00",
             "ai_automatic_reload_enabled": True,
         }
@@ -41,7 +40,6 @@ class TestLLMGatewayOrgEntry(BaseTest):
             "team_id": team.id,
             "organization_id": str(self.organization.id),
             "billing_period": {"start": PERIOD[0], "end": PERIOD[1]},
-            "ai_monthly_spend_limit_usd": "250.00",
             "ai_low_balance_threshold_usd": "5.00",
             "ai_automatic_reload_enabled": True,
             "customer_trust_scores": {"ai_credits": 10},
@@ -67,7 +65,6 @@ class TestLLMGatewayOrgEntry(BaseTest):
             "team_id": self.team.id,
             "organization_id": str(self.organization.id),
             "billing_period": None,
-            "ai_monthly_spend_limit_usd": None,
             "ai_low_balance_threshold_usd": None,
             "ai_automatic_reload_enabled": False,
             "customer_trust_scores": {},

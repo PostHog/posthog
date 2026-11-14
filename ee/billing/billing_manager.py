@@ -128,10 +128,7 @@ def raise_if_billing_managed_by_partner(organization: Organization) -> None:
 
 
 # An unset AI credit setting has no key in the organization's usage.
-AI_CREDIT_SETTING_KEYS: tuple[Literal["ai_monthly_spend_limit_usd", "ai_low_balance_threshold_usd"], ...] = (
-    "ai_monthly_spend_limit_usd",
-    "ai_low_balance_threshold_usd",
-)
+AI_CREDIT_SETTING_KEYS: tuple[Literal["ai_low_balance_threshold_usd"], ...] = ("ai_low_balance_threshold_usd",)
 
 
 # Present, and true, only while automatic reload is on.

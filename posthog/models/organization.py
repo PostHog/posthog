@@ -75,7 +75,6 @@ class OrganizationUsageInfo(TypedDict):
     billing_status_computed_at: NotRequired[str]
     billing_latest_usage_report_date: NotRequired[str | None]
     # Billing's AI credit settings in USD, such as "250.00". The AI gateway reads them from llm_gateway_org.json.
-    ai_monthly_spend_limit_usd: NotRequired[str | None]
     ai_low_balance_threshold_usd: NotRequired[str | None]
     ai_automatic_reload_enabled: NotRequired[bool]
 

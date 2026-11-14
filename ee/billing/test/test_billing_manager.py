@@ -2270,11 +2270,8 @@ class TestAICreditSettingsFromBillingStatus(BaseTest):
     @override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6379/1")
     @patch("posthog.tasks.team_llm_gateway_org.update_organization_llm_gateway_org_cache_task.delay")
     def test_keeps_the_settings_and_rewrites_the_gateway_entries(self, project: MagicMock):
-        usage = self._apply(
-            ai_monthly_spend_limit_usd="250", ai_low_balance_threshold_usd="5.5", ai_automatic_reload_enabled=True
-        )
+        usage = self._apply(ai_low_balance_threshold_usd="5.5", ai_automatic_reload_enabled=True)
 
-        assert usage["ai_monthly_spend_limit_usd"] == "250.00"
         assert usage["ai_low_balance_threshold_usd"] == "5.50"
         assert usage["ai_automatic_reload_enabled"] is True
         project.assert_called_once_with(str(self.organization.id))
@@ -2293,38 +2290,31 @@ class TestAICreditSettingsFromBillingStatus(BaseTest):
     @override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6379/1")
     @patch("posthog.tasks.team_llm_gateway_org.update_organization_llm_gateway_org_cache_task.delay")
     def test_the_same_status_again_rewrites_nothing(self, project: MagicMock):
-        self._apply(ai_monthly_spend_limit_usd="250.00", ai_low_balance_threshold_usd="5.00")
+        self._apply(ai_low_balance_threshold_usd="5.00")
         project.reset_mock()
 
-        self._apply(ai_monthly_spend_limit_usd="250.00", ai_low_balance_threshold_usd="5.00")
+        self._apply(ai_low_balance_threshold_usd="5.00")
 
         project.assert_not_called()
 
     def test_a_status_without_the_settings_keeps_them(self):
-        self._apply(
-            ai_monthly_spend_limit_usd="250.00", ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=True
-        )
+        self._apply(ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=True)
 
         usage = self._apply()
 
-        assert usage["ai_monthly_spend_limit_usd"] == "250.00"
         assert usage["ai_low_balance_threshold_usd"] == "5.00"
         assert usage["ai_automatic_reload_enabled"] is True
 
     def test_a_null_setting_clears_it(self):
-        self._apply(ai_monthly_spend_limit_usd="250.00", ai_low_balance_threshold_usd="5.00")
+        self._apply(ai_low_balance_threshold_usd="5.00")
 
-        usage = self._apply(ai_monthly_spend_limit_usd=None, ai_low_balance_threshold_usd="5.00")
+        usage = self._apply(ai_low_balance_threshold_usd=None)
 
-        assert "ai_monthly_spend_limit_usd" not in usage
-        assert usage["ai_low_balance_threshold_usd"] == "5.00"
+        assert "ai_low_balance_threshold_usd" not in usage
 
     def test_an_organization_without_settings_gains_no_keys(self):
-        usage = self._apply(
-            ai_monthly_spend_limit_usd=None, ai_low_balance_threshold_usd=None, ai_automatic_reload_enabled=False
-        )
+        usage = self._apply(ai_low_balance_threshold_usd=None, ai_automatic_reload_enabled=False)
 
-        assert "ai_monthly_spend_limit_usd" not in usage
         assert "ai_low_balance_threshold_usd" not in usage
         assert "ai_automatic_reload_enabled" not in usage
 
