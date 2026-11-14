@@ -1193,24 +1193,18 @@ class TestHogFlowAPI(APIBaseTest):
             assert fragment in response.json()["detail"]
         assert HogFlow.objects.get(pk=draft.json()["id"]).status == HogFlow.State.DRAFT
 
-    def test_live_workflow_keeps_its_stored_sender_but_cannot_publish_a_new_one_that_cannot_send(self):
-        stored_sender = self._email_sender(verified=False)
-        new_sender = self._email_sender(verified=False)
-        hog_flow = self._email_flow({"integrationId": stored_sender.id})
+    def test_publishing_a_live_workflow_refuses_a_sender_that_cannot_send(self):
+        sender = self._email_sender(verified=False)
+        hog_flow = self._email_flow({"integrationId": sender.id})
         live = HogFlow.objects.create(
             team=self.team, name="Live flow", actions=hog_flow["actions"], status=HogFlow.State.ACTIVE
         )
-
-        resaved = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{live.id}", {"actions": hog_flow["actions"]}
-        )
-        assert resaved.status_code == 200, resaved.json()
-
-        hog_flow["actions"][1]["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": new_sender.id}
+        hog_flow["actions"][1]["config"]["inputs"]["email"]["value"]["subject"] = "New subject"
         staged = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{live.id}", {"actions": hog_flow["actions"], "stage_draft": True}
         )
         assert staged.status_code == 200, staged.json()
+
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
             side_effect=Exception("down"),
@@ -1224,6 +1218,9 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert published.status_code == 400, published.json()
         assert "isn't verified yet" in published.json()["detail"]
+        live.refresh_from_db()
+        assert live.actions[1]["config"]["inputs"]["email"]["value"]["subject"] == "Hello"
+        assert live.draft is not None
 
     def test_fixed_template_id_is_inferred_from_step_type(self):
         # template_id on fixed-template steps is a constant of the step type; omitting the

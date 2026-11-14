@@ -365,8 +365,10 @@ describe('workflowLogic email step "from" validation', () => {
         initKeaTests()
         logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadWorkflowSuccess',
+            integrationsLogic.actionTypes.loadIntegrationsSuccess,
+        ])
 
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
         expect(result?.valid).toBe(false)

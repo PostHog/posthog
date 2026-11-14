@@ -4067,11 +4067,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             data["actions"] = actions
 
         if status == HogFlowState.ACTIVE and not is_draft and get_team is not None:
-            activating = instance is None or instance.status != HogFlowState.ACTIVE
-            if activating or "actions" in data:
-                # Only the live steps' senders are kept: a draft saved by the lenient builder never passed this check.
-                kept = None if activating or instance is None else _live_email_sender_ids(instance)
-                _refuse_unusable_email_senders(actions, team_id=get_team().id, kept_sender_ids=kept)
+            live_flow = instance or self.context.get("instance")
+            activating = live_flow is None or live_flow.status != HogFlowState.ACTIVE
+            # Internal rewrites of a live workflow, such as the UTM defaults apply or the refresh command, touch
+            # steps nobody edited, so a sender that broke since activation must not fail them.
+            user_save = getattr(self.context.get("view"), "action", None) in WORKFLOW_SAVE_ACTIONS
+            if activating or ("actions" in data and user_save):
+                _refuse_unusable_email_senders(actions, team_id=get_team().id)
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
         trigger_actions = [action for action in actions if action.get("type") == "trigger"]
@@ -4452,31 +4454,16 @@ def _email_step_sender_ids(action: Any) -> list[Any]:
     return [_sender_id(sender_id) for sender_id in _patched_sender_ids(value) if sender_id not in (None, "")]
 
 
-def _live_email_sender_ids(instance: WorkflowEditState) -> dict[str, set[Any]]:
-    return {
-        stored_action["id"]: set(_email_step_sender_ids(stored_action))
-        for stored_action in instance.actions or []
-        if isinstance(stored_action, dict) and stored_action.get("id")
-    }
-
-
-def _refuse_unusable_email_senders(
-    actions: list[Any], *, team_id: int, kept_sender_ids: Optional[dict[str, set[Any]]] = None
-) -> None:
-    """Refuse email steps whose sender can't send, as the send path would fail on every run.
-
-    ``kept_sender_ids`` holds the senders each step of a live workflow already stores. Those stay accepted,
-    so a workflow with several broken steps can be fixed one step at a time.
-    """
+def _refuse_unusable_email_senders(actions: list[Any], *, team_id: int) -> None:
+    """Refuse email steps whose sender can't send, as the send path would fail on every run."""
     named = [(step_action, _email_step_sender_ids(step_action)) for step_action in actions]
     if not any(sender_ids for _, sender_ids in named):
         return
     verification = own_sender_verification(team_id)
     problems: list[str] = []
     for step_action, sender_ids in named:
-        kept = (kept_sender_ids or {}).get(step_action.get("id"), set())
         for sender_id in sender_ids:
-            if sender_id in kept or verification.get(sender_id):
+            if verification.get(sender_id):
                 continue
             step = step_action.get("name") or "Email"
             if sender_id in verification:
