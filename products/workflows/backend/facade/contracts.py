@@ -1310,3 +1310,35 @@ class SandboxSenderStatus:
     display_name: str
     organization_blocked: bool
     adoption_enabled: bool
+
+
+class WorkflowViewFilter(TypedDict):
+    facet: str
+    value: str
+    negated: bool
+
+
+class WorkflowViewState(TypedDict):
+    filters: list[WorkflowViewFilter]
+    text: str
+    columns: list[str]
+
+
+@frozen
+class WorkflowViewRecord:
+    id: UUID
+    name: str
+    state: WorkflowViewState
+    version: int
+    default_key: str | None
+    deleted: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowViewConflict(Exception):
+    pass
+
+
+class WorkflowViewNotFound(Exception):
+    pass

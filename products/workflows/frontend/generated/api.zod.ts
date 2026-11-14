@@ -3292,3 +3292,125 @@ export const WorkflowSendingRulesPartialUpdateBody = /* @__PURE__ */ zod.object(
             "Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage."
         ),
 })
+
+export const workflowViewsCreateBodyNameMax = 128
+
+export const workflowViewsCreateBodyStateOneFiltersItemValueMax = 4000
+
+export const workflowViewsCreateBodyStateOneFiltersItemNegatedDefault = false
+export const workflowViewsCreateBodyStateOneFiltersMax = 100
+
+export const workflowViewsCreateBodyStateOneTextMax = 1000
+
+export const workflowViewsCreateBodyStateOneColumnsMax = 6
+
+export const WorkflowViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(workflowViewsCreateBodyNameMax).describe('Shared workflow view name.'),
+    state: zod
+        .object({
+            filters: zod
+                .array(
+                    zod.object({
+                        facet: zod
+                            .enum(['status', 'kind', 'trigger', 'owner', 'health', 'createdBy', 'tag', 'in'])
+                            .describe(
+                                '\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag\n\* `in` - In'
+                            )
+                            .describe(
+                                'Supported workflow list facet. The in facet takes a folder path and must be negated.\n\n\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag\n\* `in` - In'
+                            ),
+                        value: zod
+                            .string()
+                            .max(workflowViewsCreateBodyStateOneFiltersItemValueMax)
+                            .describe(
+                                'Facet value, up to 256 characters; createdBy accepts me for the current viewer. An in value is a folder path and can be up to 4000 characters, like any folder path.'
+                            ),
+                        negated: zod
+                            .boolean()
+                            .default(workflowViewsCreateBodyStateOneFiltersItemNegatedDefault)
+                            .describe('Exclude workflows matching this facet value.'),
+                    })
+                )
+                .max(workflowViewsCreateBodyStateOneFiltersMax)
+                .describe('Saved workflow facet filters.'),
+            text: zod
+                .string()
+                .max(workflowViewsCreateBodyStateOneTextMax)
+                .describe('Saved workflow list free-text search.'),
+            columns: zod
+                .array(
+                    zod
+                        .enum(['type', 'trigger', 'owner', 'created_by', 'last_7_days', 'health'])
+                        .describe(
+                            '\* `type` - Type\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `created_by` - Created By\n\* `last_7_days` - Last 7 Days\n\* `health` - Health'
+                        )
+                )
+                .max(workflowViewsCreateBodyStateOneColumnsMax)
+                .describe('Visible optional workflow columns in display order.'),
+        })
+        .describe('Saved filters, text search, and visible columns.'),
+})
+
+export const workflowViewsPartialUpdateBodyNameMax = 128
+
+export const workflowViewsPartialUpdateBodyStateOneFiltersItemValueMax = 4000
+
+export const workflowViewsPartialUpdateBodyStateOneFiltersItemNegatedDefault = false
+export const workflowViewsPartialUpdateBodyStateOneFiltersMax = 100
+
+export const workflowViewsPartialUpdateBodyStateOneTextMax = 1000
+
+export const workflowViewsPartialUpdateBodyStateOneColumnsMax = 6
+
+export const WorkflowViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    version: zod.number().min(1).describe('Version last read; stale edits are rejected with 409.'),
+    name: zod
+        .string()
+        .max(workflowViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Replacement shared workflow view name.'),
+    state: zod
+        .object({
+            filters: zod
+                .array(
+                    zod.object({
+                        facet: zod
+                            .enum(['status', 'kind', 'trigger', 'owner', 'health', 'createdBy', 'tag', 'in'])
+                            .describe(
+                                '\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag\n\* `in` - In'
+                            )
+                            .describe(
+                                'Supported workflow list facet. The in facet takes a folder path and must be negated.\n\n\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag\n\* `in` - In'
+                            ),
+                        value: zod
+                            .string()
+                            .max(workflowViewsPartialUpdateBodyStateOneFiltersItemValueMax)
+                            .describe(
+                                'Facet value, up to 256 characters; createdBy accepts me for the current viewer. An in value is a folder path and can be up to 4000 characters, like any folder path.'
+                            ),
+                        negated: zod
+                            .boolean()
+                            .default(workflowViewsPartialUpdateBodyStateOneFiltersItemNegatedDefault)
+                            .describe('Exclude workflows matching this facet value.'),
+                    })
+                )
+                .max(workflowViewsPartialUpdateBodyStateOneFiltersMax)
+                .describe('Saved workflow facet filters.'),
+            text: zod
+                .string()
+                .max(workflowViewsPartialUpdateBodyStateOneTextMax)
+                .describe('Saved workflow list free-text search.'),
+            columns: zod
+                .array(
+                    zod
+                        .enum(['type', 'trigger', 'owner', 'created_by', 'last_7_days', 'health'])
+                        .describe(
+                            '\* `type` - Type\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `created_by` - Created By\n\* `last_7_days` - Last 7 Days\n\* `health` - Health'
+                        )
+                )
+                .max(workflowViewsPartialUpdateBodyStateOneColumnsMax)
+                .describe('Visible optional workflow columns in display order.'),
+        })
+        .optional()
+        .describe('Replacement filters, text search, and visible columns.'),
+})

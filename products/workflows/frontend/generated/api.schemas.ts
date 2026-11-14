@@ -3380,6 +3380,160 @@ export interface WorkflowSetupStatusApi {
     next_open_step: SetupStepKeyEnumApi | null
 }
 
+/**
+ * * `status` - Status
+ * * `kind` - Kind
+ * * `trigger` - Trigger
+ * * `owner` - Owner
+ * * `health` - Health
+ * * `createdBy` - Created By
+ * * `tag` - Tag
+ * * `in` - In
+ */
+export type WorkflowViewFacetEnumApi = (typeof WorkflowViewFacetEnumApi)[keyof typeof WorkflowViewFacetEnumApi]
+
+export const WorkflowViewFacetEnumApi = {
+    Status: 'status',
+    Kind: 'kind',
+    Trigger: 'trigger',
+    Owner: 'owner',
+    Health: 'health',
+    CreatedBy: 'createdBy',
+    Tag: 'tag',
+    In: 'in',
+} as const
+
+export interface WorkflowViewFilterApi {
+    /** Supported workflow list facet. The in facet takes a folder path and must be negated.
+     *
+     * * `status` - Status
+     * * `kind` - Kind
+     * * `trigger` - Trigger
+     * * `owner` - Owner
+     * * `health` - Health
+     * * `createdBy` - Created By
+     * * `tag` - Tag
+     * * `in` - In */
+    facet: WorkflowViewFacetEnumApi
+    /**
+     * Facet value, up to 256 characters; createdBy accepts me for the current viewer. An in value is a folder path and can be up to 4000 characters, like any folder path.
+     * @maxLength 4000
+     */
+    value: string
+    /** Exclude workflows matching this facet value. */
+    negated?: boolean
+}
+
+/**
+ * * `type` - Type
+ * * `trigger` - Trigger
+ * * `owner` - Owner
+ * * `created_by` - Created By
+ * * `last_7_days` - Last 7 Days
+ * * `health` - Health
+ */
+export type WorkflowViewColumnEnumApi = (typeof WorkflowViewColumnEnumApi)[keyof typeof WorkflowViewColumnEnumApi]
+
+export const WorkflowViewColumnEnumApi = {
+    Type: 'type',
+    Trigger: 'trigger',
+    Owner: 'owner',
+    CreatedBy: 'created_by',
+    Last7Days: 'last_7_days',
+    Health: 'health',
+} as const
+
+export interface WorkflowViewStateApi {
+    /**
+     * Saved workflow facet filters.
+     * @maxItems 100
+     */
+    filters: WorkflowViewFilterApi[]
+    /**
+     * Saved workflow list free-text search.
+     * @maxLength 1000
+     */
+    text: string
+    /**
+     * Visible optional workflow columns in display order.
+     * @maxItems 6
+     */
+    columns: WorkflowViewColumnEnumApi[]
+}
+
+export interface WorkflowViewApi {
+    /** Identifier of the shared workflow view. */
+    readonly id: string
+    /**
+     * Shared workflow view name.
+     * @maxLength 128
+     */
+    name: string
+    /** Saved filters, text search, and visible columns. */
+    state: WorkflowViewStateApi
+    /** Current version required for updates and deletion. */
+    readonly version: number
+    /**
+     * Shipped view identifier, or null.
+     * @nullable
+     */
+    readonly default_key: string | null
+    /** Whether the shipped view was deleted and can be restored. */
+    readonly deleted: boolean
+    /** When the shared view was created. */
+    readonly created_at: string
+    /** When the shared view was last changed. */
+    readonly updated_at: string
+}
+
+export interface PaginatedWorkflowViewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WorkflowViewApi[]
+}
+
+export interface WorkflowViewCreateApi {
+    /**
+     * Shared workflow view name.
+     * @maxLength 128
+     */
+    name: string
+    /** Saved filters, text search, and visible columns. */
+    state: WorkflowViewStateApi
+}
+
+export interface WorkflowViewUpdateApi {
+    /**
+     * Version last read; stale edits are rejected with 409.
+     * @minimum 1
+     */
+    version: number
+    /**
+     * Replacement shared workflow view name.
+     * @maxLength 128
+     */
+    name?: string
+    /** Replacement filters, text search, and visible columns. */
+    state?: WorkflowViewStateApi
+}
+
+export interface WorkflowViewConflictApi {
+    /** Error category. */
+    type: string
+    /** Machine-readable conflict code. */
+    code: string
+    /** Reason the view could not be changed. */
+    detail: string
+    /**
+     * Field associated with this error, if any.
+     * @nullable
+     */
+    attr: string | null
+}
+
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.
@@ -4031,4 +4185,24 @@ export type WorkflowImportsForWorkflowRetrieveParams = {
      * The workflow to read the import of.
      */
     hog_flow_id: string
+}
+
+export type WorkflowViewsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WorkflowViewsDestroyParams = {
+    /**
+     * Version last read; stale deletions are rejected with 409.
+     * @minimum 1
+     */
+    version: number
 }

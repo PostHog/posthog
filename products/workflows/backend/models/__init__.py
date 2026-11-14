@@ -11,6 +11,7 @@ from .team_workflows_config import TeamWorkflowsConfig
 from .workflow_idea import WorkflowIdea
 from .workflow_import import WorkflowImport
 from .workflow_proposal import WorkflowProposal
+from .workflow_view import WorkflowView
 
 __all__ = [
     "HogFlow",
@@ -27,4 +28,5 @@ __all__ = [
     "WorkflowIdea",
     "WorkflowImport",
     "WorkflowProposal",
+    "WorkflowView",
 ]
