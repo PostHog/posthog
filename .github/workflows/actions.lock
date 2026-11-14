@@ -264,7 +264,6 @@ workflows:
         - 'actions/create-github-app-token@v3.1.1'
         - 'planetscale/ghcommit-action@v0.2.20'
     '.github/workflows/update-sandbox-agent-version.yml':
-        - 'actions/cache@v5.0.3'
         - 'actions/checkout@v6.0.2'
         - 'actions/create-github-app-token@v3.1.1'
         - 'docker/login-action@v4.1.0'

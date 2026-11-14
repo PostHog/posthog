@@ -804,8 +804,6 @@ jobs:
                             com.posthog.sandbox.inputs-digest=${{ needs.changes.outputs.inputs_digest }}
                             com.posthog.sandbox.base-revision=${{ github.sha }}
 
-    # Posts in the release thread that update-sandbox-agent-version.yml cached under the pinned version.
-    # It runs on a GitHub-hosted runner because Depot runners read a separate cache backend.
     # hogli-lint: not-a-required-gate -- reads the build result only to report it in Slack
     notify_agent_bump:
         needs: [changes, wait_for_agent, build_skills, sandbox_base_build, sandbox_derived_build]
@@ -820,6 +818,7 @@ jobs:
         timeout-minutes: 5
         permissions:
             contents: read
+            pull-requests: read
         env:
             DOCKERFILE: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
             SLACK_CHANNEL: 'C0C3FBES5ST'
@@ -871,12 +870,20 @@ jobs:
                     echo "changed=false" >> "$GITHUB_OUTPUT"
                   fi
 
-            - name: Restore the release thread
+            - name: Find the release thread
               if: steps.pin.outputs.changed == 'true'
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .sandbox-agent-slack-thread
-                  key: sandbox-agent-slack-${{ steps.pin.outputs.version }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  VERSION: ${{ steps.pin.outputs.version }}
+              run: |
+                  body=$(gh pr list --repo PostHog/posthog --state merged --head "chore/bump-sandbox-agent-version-${VERSION}" \
+                    --json body,isCrossRepository --jq '[.[] | select(.isCrossRepository == false)][0].body // ""' || true)
+                  ts=$(sed -n 's/.*<!-- sandbox-agent-slack-thread: \([0-9]\{1,\}\.[0-9]\{1,\}\) -->.*/\1/p' <<< "$body" | head -n1)
+                  if [ -n "$ts" ]; then
+                    printf '%s' "$ts" > .sandbox-agent-slack-thread
+                  else
+                    echo "No release thread is recorded on the bump pull request for ${VERSION}"
+                  fi
 
             - name: Describe the merge for Slack
               id: message
@@ -921,7 +928,6 @@ jobs:
                       unfurl_links: false
                       text: "${{ steps.message.outputs.text }}"
 
-            # A hand-edited pin has no cached thread, so the merge post starts one.
             - name: Post the merge as a new thread
               if: steps.message.outputs.text != '' && steps.message.outputs.ts == ''
               continue-on-error: true
