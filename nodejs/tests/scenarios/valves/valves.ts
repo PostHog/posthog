@@ -25,6 +25,7 @@ export type ValveTimelineEntry = {
     valve: string
     target: string
     requestedAt: string
+    intentAt?: string
     appliedAt?: string
     observedAt?: string
     releasedAt?: string
@@ -164,6 +165,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         const definition = VALVES.find(({ name }) => name === entry.valve)!
         let actuation: Actuation | undefined
         try {
+            record.intentAt = now()
             actuation = await definition.apply(context, entry.target, entry.dose)
             record.appliedAt = now()
             const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
