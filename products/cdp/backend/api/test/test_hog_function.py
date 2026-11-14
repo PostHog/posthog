@@ -442,7 +442,6 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         report_filters = {"events": [{"id": "$signals_report_ready", "type": "events"}]}
         key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
-        auth = {"HTTP_AUTHORIZATION": f"Bearer {key}"}
 
         if mode == "create":
             response = self.client.post(
@@ -453,7 +452,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                     "type": "internal_destination",
                     "filters": report_filters,
                 },
-                **auth,
+                HTTP_AUTHORIZATION=f"Bearer {key}",
             )
         else:
             stored_filters = (
@@ -465,7 +464,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_functions/{destination.id}/",
                 data={"filters": report_filters, "inputs": {"channel": {"value": "#elsewhere"}}},
-                **auth,
+                HTTP_AUTHORIZATION=f"Bearer {key}",
             )
 
         self.assertEqual(response.status_code, expected_status, response.json())
