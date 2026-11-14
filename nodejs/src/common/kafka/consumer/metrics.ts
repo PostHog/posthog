@@ -39,6 +39,12 @@ export const consumerBatchUtilization = new Gauge({
     labelNames: ['groupId'],
 })
 
+export const consumerBatchUtilizationBytes = new Gauge({
+    name: 'consumer_batch_utilization_bytes',
+    help: 'Batch value bytes compared to the batch byte bound. Only set when the byte bound is enabled',
+    labelNames: ['groupId'],
+})
+
 export const consumerBatchSize = new Histogram({
     name: 'consumer_batch_size',
     help: 'The size of the batches we are receiving from Kafka',
