@@ -306,8 +306,12 @@ async fn ai_handler_inner(
     };
 
     // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
-    let parts =
-        retrieve_multipart_parts(&mut multipart, event_metadata, state.ai_max_event_bytes).await?;
+    let parts = retrieve_multipart_parts(
+        &mut multipart,
+        event_metadata,
+        state.ai_max_event_bytes.for_token(token),
+    )
+    .await?;
 
     // Step 6: Parse the parts
     let mut parsed = parse_multipart_data(parts)?;
