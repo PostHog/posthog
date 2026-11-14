@@ -15,6 +15,7 @@ import { pluralize } from 'lib/utils/strings'
 import {
     ReplayPlatform,
     replayTriggersLogic,
+    TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS,
     TRIGGER_GROUPS_MIN_SDK_VERSION,
 } from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
@@ -22,7 +23,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
-export { TRIGGER_GROUPS_MIN_SDK_VERSION }
+export { TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS, TRIGGER_GROUPS_MIN_SDK_VERSION }
 
 /** Convert the stored sample-rate string (decimal 0–1) to a display percentage (0–100). */
 function toDisplaySampleRate(rate: string | null | undefined): number {

@@ -3,6 +3,7 @@ import {
     legacyConditionsAreInactive,
     legacyUiShouldBeMinimized,
     outdatedWebTrafficShare,
+    TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS,
     TRIGGER_GROUPS_MIN_SDK_VERSION,
     WebRelease,
 } from './replayTriggersLogic'
@@ -152,5 +153,14 @@ describe('replayTriggersLogic', () => {
             expect(hasOutdatedWebSdk(atThreshold)).toBe(true)
             expect(legacyConditionsAreInactive(atThreshold)).toBe(false)
         })
+    })
+
+    it('exposes a mobile minimum version for every Since platform key', () => {
+        expect(Object.keys(TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS).sort()).toEqual([
+            'android',
+            'flutter',
+            'ios',
+            'reactNative',
+        ])
     })
 })

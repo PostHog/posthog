@@ -20,7 +20,10 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS, TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { TRIGGER_GROUPS_MIN_SDK_VERSION } from 'scenes/settings/environment/ReplayTriggers'
+import {
+    TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS,
+    TRIGGER_GROUPS_MIN_SDK_VERSION,
+} from 'scenes/settings/environment/ReplayTriggers'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
 import {
@@ -130,7 +133,13 @@ export function TriggerGroupsEditor(): JSX.Element {
                 <div className="flex items-center gap-2">
                     <LemonLabel className="text-base py-2">
                         Trigger groups
-                        <Since web={{ version: TRIGGER_GROUPS_MIN_SDK_VERSION }} />
+                        <Since
+                            web={{ version: TRIGGER_GROUPS_MIN_SDK_VERSION }}
+                            ios={{ version: TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS.ios }}
+                            android={{ version: TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS.android }}
+                            reactNative={{ version: TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS.reactNative }}
+                            flutter={{ version: TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS.flutter }}
+                        />
                     </LemonLabel>
                 </div>
                 {!isAddingGroup && !editingGroupId && (
