@@ -2,10 +2,11 @@ import os
 
 os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")
 
-from datetime import UTC, datetime, timedelta  # noqa: E402
+from datetime import timedelta  # noqa: E402
+from functools import partial  # noqa: E402
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events  # noqa: E402
-from unittest.mock import patch  # noqa: E402
+from unittest.mock import patch
 
 import numpy as np  # noqa: E402
 
@@ -137,18 +138,22 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         for i, vector in enumerate(_blob_vectors(0, 60, seed=1)):
-            insert_intent_embedding(
-                self.team.pk,
-                f"a{i:03d}",
-                f"create insight {i}",
-                at=NOW - timedelta(days=2),
-                embedding=vector,
-                calls=1 + i % 3,
-            )
+            self._embed(f"create insight {i}", vector, days_ago=2, calls=1 + i % 3)
         for i, vector in enumerate(_blob_vectors(1, 60, seed=2)):
-            insert_intent_embedding(
-                self.team.pk, f"b{i:03d}", f"list flags {i}", at=NOW - timedelta(days=3), embedding=vector
+            self._embed(f"list flags {i}", vector, days_ago=3)
+        flush_persons_and_events()
+
+    def _embed(self, text: str, vector: list[float], *, days_ago: int, calls: int = 1) -> None:
+        at = NOW - timedelta(days=days_ago)
+        for _ in range(calls):
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="agent-1",
+                timestamp=at,
+                properties={"$mcp_intent": text},
             )
+        insert_intent_embedding(self.team.pk, intent_hash(text), text, at=at, embedding=vector, calls=99)
 
     def _assignments(self) -> list[tuple]:
         return execute_hogql_query(
@@ -191,15 +196,34 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert MCPIntentClusteringRun.objects.filter(team=self.team, kind="refit", status="succeeded").count() == 2
 
     @patch("products.mcp_analytics.backend.intent_topics.pipeline.labeling.label_topics", return_value={})
-    def test_assign_inserts_one_day_at_a_time(self, _mock_labels) -> None:
+    def test_assign_preserves_whole_window_counts_across_pages(self, _mock_labels) -> None:
+        first = NOW - timedelta(days=4)
+        for _ in range(2):
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="agent-1",
+                timestamp=first,
+                properties={"$mcp_intent": "create insight 0"},
+            )
+        flush_persons_and_events()
         pipeline.run_refit(self.team, now=NOW)
 
-        with patch.object(pipeline, "sync_execute", wraps=pipeline.sync_execute) as insert:
+        with patch.object(
+            pipeline.corpus,
+            "iter_live_intent_pages",
+            wraps=partial(pipeline.corpus.iter_live_intent_pages, page_size=50),
+        ):
             assign = pipeline.run_assign(self.team, window_start=NOW - timedelta(days=7), window_end=NOW)
 
-        assert insert.call_count == 7
         assert assign.n_intents == 120
         assert sum(r[1] for r in self._assignments()) == 120
+        [row] = execute_hogql_query(
+            query="SELECT calls_in_run, source_min_timestamp FROM posthog.mcp_intent_assignments WHERE intent_text = 'create insight 0'",
+            team=self.team,
+        ).results
+        assert row[0] == 3
+        assert row[1].replace(tzinfo=first.tzinfo) == first
 
     def test_assign_without_topics_is_skipped(self) -> None:
         outcome = pipeline.run_assign(self.team, window_start=NOW - timedelta(days=1), window_end=NOW)
@@ -211,7 +235,15 @@ class TestRefitTooFew(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, API
     def test_skips_when_the_window_has_too_few_vectors(self) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        insert_intent_embedding(self.team.pk, "only", "only one", at=NOW - timedelta(days=1))
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="agent-1",
+            timestamp=NOW - timedelta(days=1),
+            properties={"$mcp_intent": "only one"},
+        )
+        flush_persons_and_events()
+        insert_intent_embedding(self.team.pk, intent_hash("only one"), "only one", at=NOW - timedelta(days=1))
 
         outcome = pipeline.run_refit(self.team, now=NOW)
 
@@ -250,20 +282,3 @@ class TestSyncWindow(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         start = pipeline.sync_window_start(self.team, now=NOW)
 
         assert start == NOW - pipeline.MAX_SYNC_CATCH_UP
-
-
-class TestAssignmentSlices:
-    def test_cuts_the_window_into_days_without_gap_or_overlap(self) -> None:
-        start = datetime(2026, 11, 1, 6, 30, tzinfo=UTC)
-        end = start + timedelta(days=2, hours=5)
-
-        assert list(pipeline.assignment_slices(start, end)) == [
-            pipeline.TimeSlice(start=start, end=start + timedelta(days=1)),
-            pipeline.TimeSlice(start=start + timedelta(days=1), end=start + timedelta(days=2)),
-            pipeline.TimeSlice(start=start + timedelta(days=2), end=end),
-        ]
-
-    def test_an_empty_window_has_no_slices(self) -> None:
-        moment = datetime(2026, 11, 1, tzinfo=UTC)
-
-        assert list(pipeline.assignment_slices(moment, moment)) == []

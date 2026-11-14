@@ -14,15 +14,15 @@ from datetime import datetime, timedelta
 import numpy as np
 import structlog
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
-from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
@@ -33,9 +33,6 @@ from products.mcp_analytics.backend.facade.contracts import (
 from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist
 from products.mcp_analytics.backend.intent_topics.assignment_sql import build_assignment_insert
 from products.mcp_analytics.backend.intent_topics.constants import (
-    EMBEDDING_DOCUMENT_TYPE,
-    EMBEDDING_MODEL,
-    EMBEDDING_PRODUCT,
     FIT_LOOKBACK_DAYS,
     FIT_SAMPLE_SIZE,
     MAX_INTENTS_PER_SYNC,
@@ -153,24 +150,6 @@ WHERE run_id = {run_id}
 """
 
 
-ASSIGNMENT_SLICE = timedelta(days=1)
-
-
-@frozen
-class TimeSlice:
-    start: datetime
-    end: datetime
-
-
-def assignment_slices(window_start: datetime, window_end: datetime) -> Iterator[TimeSlice]:
-    """[window_start, window_end) cut into consecutive pieces of at most ASSIGNMENT_SLICE, with no gap or overlap."""
-    cursor = window_start
-    while cursor < window_end:
-        slice_end = min(cursor + ASSIGNMENT_SLICE, window_end)
-        yield TimeSlice(start=cursor, end=slice_end)
-        cursor = slice_end
-
-
 def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
     run = persist.start_run(
         team,
@@ -186,23 +165,22 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
         persist.finish_run(run, status=Status.SKIPPED_TOO_FEW, error_message=message)
         return RunOutcome(run.run_id, Kind.ASSIGN, Status.SKIPPED_TOO_FEW, error_message=message)
     try:
-        # One INSERT ... SELECT per day: the insert holds its result in memory until it is forwarded to the shards
-        # (about 0.3 GB per million rows), and the post-refit window is a month of intents. Per day, peak memory
-        # stays near 1 GB however long the window is.
-        for time_slice in assignment_slices(window_start, window_end):
-            sql, params = build_assignment_insert(
-                team_id=team.pk,
+        # Page whole-window aggregates, not time slices: each hash keeps its full count and earliest source.
+        for sources in corpus.iter_live_intent_pages(team, since=window_start, until=window_end):
+            query = build_assignment_insert(
+                team=team,
                 run_id=run.run_id,
-                window_start=time_slice.start,
-                window_end=time_slice.end,
+                sources=sources,
+                as_of=window_end,
                 topics=topics,
                 pca=pca,
             )
-            sync_execute(sql, params, team_id=team.pk, workload=Workload.OFFLINE)
+            query.execute(team, settings={"insert_distributed_sync": 1})
         response = execute_hogql_query(
             query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
             team=team,
             workload=Workload.OFFLINE,
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
         )
         n_intents, n_outliers = (
             (int(response.results[0][0]), int(response.results[0][1])) if response.results else (0, 0)
@@ -216,33 +194,6 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
     )
 
 
-# The ids are sampled first, so the sort over the whole window carries no vectors or text.
-_FIT_SAMPLE_SQL = """
-SELECT document_id, embedding, content, JSONExtractUInt(metadata, 'calls') AS calls
-FROM document_embeddings
-WHERE model_name = {model}
-  AND product = {product}
-  AND document_type = {document_type}
-  AND timestamp >= {since}
-  AND timestamp < {until}
-  AND document_id IN (
-    SELECT document_id
-    FROM document_embeddings
-    WHERE model_name = {model}
-      AND product = {product}
-      AND document_type = {document_type}
-      AND timestamp >= {since}
-      AND timestamp < {until}
-    GROUP BY document_id
-    ORDER BY cityHash64(concat(document_id, {salt}))
-    LIMIT {limit}
-  )
-ORDER BY cityHash64(concat(document_id, {salt}))
-LIMIT 1 BY document_id
-LIMIT {limit}
-"""
-
-
 @dataclass(frozen=True)
 class FitSample:
     hashes: list[str]
@@ -253,26 +204,22 @@ class FitSample:
 
 def fetch_fit_sample(team: Team, *, since: datetime, until: datetime, limit: int = FIT_SAMPLE_SIZE) -> FitSample:
     """A deterministic random sample of the window's embedded intents, with call counts as weights."""
-    query = parse_select(
-        _FIT_SAMPLE_SQL,
-        placeholders={
-            "model": ast.Constant(value=EMBEDDING_MODEL),
-            "product": ast.Constant(value=EMBEDDING_PRODUCT),
-            "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
-            "since": ast.Constant(value=since),
-            "until": ast.Constant(value=until),
-            "salt": ast.Constant(value=until.strftime("%Y%m%d")),
-            "limit": ast.Constant(value=limit),
-        },
-    )
-    rows = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE).results
+    rows: list = []
+    for sources in corpus.iter_live_intent_pages(team, since=since, until=until, sample_salt=until.strftime("%Y%m%d")):
+        query = corpus.live_intent_embeddings_query(team, sources, as_of=until)
+        embedded = {row[0]: row for row in query.execute(team)}
+        # The event pages have a deterministic shuffled order; absent vectors do not consume sample slots.
+        rows.extend(embedded[source.hash] for source in sources if source.hash in embedded)
+        if len(rows) >= limit:
+            rows = rows[:limit]
+            break
     if not rows:
         return FitSample(hashes=[], vectors=np.zeros((0, 0), dtype=np.float32), weights=np.zeros(0), texts=[])
     return FitSample(
         hashes=[row[0] for row in rows],
-        vectors=np.asarray([row[1] for row in rows], dtype=np.float32),
-        weights=np.asarray([max(int(row[3] or 0), 1) for row in rows], dtype=np.float32),
-        texts=[row[2] for row in rows],
+        vectors=np.asarray([row[4] for row in rows], dtype=np.float32),
+        weights=np.asarray([int(row[2]) for row in rows], dtype=np.float32),
+        texts=[row[1] for row in rows],
     )
 
 
