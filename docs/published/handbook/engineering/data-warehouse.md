@@ -26,6 +26,19 @@ The activity has a five-minute heartbeat timeout and permits up to ten attempts.
 
 **Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.
 
+## Column aliases on direct connections
+
+A HogQL query can name an expression once and use the name later in the same `SELECT` list, in `WHERE`, and in the clauses after it.
+An alias wins over a table column of the same name, as it does for PostHog tables.
+To read the column, write it with its table name, such as `product.name`.
+
+PostgreSQL, Redshift, MySQL, DuckDB, and Snowflake connections receive a copy of the aliased expression at each reference, so the result does not depend on how the engine resolves alias names.
+A bare alias in `GROUP BY` is sent as the position of its column, and a bare alias in `ORDER BY` stays a name.
+
+An alias that holds an aggregate function cannot be used in `WHERE` or `GROUP BY`, and an alias that holds a window function cannot be used in `WHERE`, `GROUP BY`, or `HAVING`.
+An alias that calls `rand()` or `arrayJoin()` cannot be reused on PostgreSQL and MySQL, because a copy of the call does not return the same value.
+Select it in a subquery and use it in the outer query.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
