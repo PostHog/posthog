@@ -7932,6 +7932,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "metrics-ingestion"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.7.9",
+ "common-alloc",
+ "common-database",
+ "futures",
+ "ingestion-framework",
+ "lifecycle",
+ "logs-ingestion",
+ "metrics",
+ "rand 0.8.8",
+ "rdkafka",
+ "redis",
+ "rustls 0.23.46",
+ "serve-metrics",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "metrics-util"
 version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

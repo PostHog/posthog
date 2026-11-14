@@ -107,6 +107,8 @@ jobs:
                         # replay-core-v4's tests read the encryption vectors the Node writers pin
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json'
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json'
+                        # metrics-ingestion's parity test replays the fixtures the Node consumer records
+                        - 'nodejs/src/ingestion/pipelines/metrics/parity/fixtures/**'
                       all_crates:
                         - '.github/scripts/rust_test_shards.py'
                         # Pins the service images that every crate's tests run against.

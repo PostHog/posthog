@@ -114,6 +114,7 @@ fn every_deployable_binary_has_an_image_entry() {
         "run", // hogvm dev/diff CLI, not a service
         "hermes",
         "logs-ingestion-bench",   // logs consumer benchmark CLI, not a service
+        "metrics-ingestion",      // no image until its shared-services ECR repository exists
         "personhog-stateright",   // model-checker explorer CLI, not a service
         "personhog-test-harness", // e2e load/correctness harness CLI, not a service
         "reconcile_dispatch",     // operator-invoked cohort reconcile dispatcher CLI, not a service
