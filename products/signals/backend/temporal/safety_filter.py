@@ -15,6 +15,7 @@ from redis.exceptions import RedisError
 from temporalio import activity
 
 from posthog.event_usage import groups
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Team
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
@@ -28,6 +29,7 @@ from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, Mode
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.llm import SAFETY_MODEL, EmptyLLMResponseError, call_llm
+from products.signals.backend.trial.policy import TrialRefused
 
 logger = structlog.get_logger(__name__)
 
@@ -359,6 +361,18 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
             input.source_id,
             signal_id=input.signal_id,
         )
+    except (QuotaLimitExceeded, TrialRefused) as error:
+        # Refused work is dropped, not retried: the buffer requeues failed signals without limit.
+        reason = error.reason if isinstance(error, TrialRefused) else "quota_limited"
+        if input.signal_id and input.team_id is not None:
+            await database_sync_to_async(complete_signal_pipeline)(
+                team_id=input.team_id,
+                signal_id=input.signal_id,
+                billing_exempt=system_source_exempt(input.source_product),
+            )
+        metrics.increment_dropped(stage="safety_filter", reason=reason)
+        logger.info("signals_safety_filter.admission_refused", team_id=input.team_id, reason=reason)
+        return SafetyFilterOutput(safe=False, threat_type="admission_refused", explanation=reason)
     except Exception:
         logger.exception("Failed to run safety filter")
         raise
