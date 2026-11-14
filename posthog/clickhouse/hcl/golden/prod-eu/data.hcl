@@ -794,6 +794,10 @@ database "posthog" {
     column "calls_in_run" {
       type = "UInt32"
     }
+    column "source_min_timestamp" {
+      type    = "Nullable(DateTime64(3, 'UTC'))"
+      default = "NULL"
+    }
     column "timestamp" {
       type = "DateTime64(3, 'UTC')"
     }
@@ -6271,6 +6275,10 @@ database "posthog" {
     column "calls_in_run" {
       type = "UInt32"
     }
+    column "source_min_timestamp" {
+      type    = "Nullable(DateTime64(3, 'UTC'))"
+      default = "NULL"
+    }
     column "timestamp" {
       type = "DateTime64(3, 'UTC')"
     }
@@ -8858,6 +8866,10 @@ database "posthog" {
     }
     column "calls_in_run" {
       type = "UInt32"
+    }
+    column "source_min_timestamp" {
+      type    = "Nullable(DateTime64(3, 'UTC'))"
+      default = "NULL"
     }
     column "timestamp" {
       type = "DateTime64(3, 'UTC')"

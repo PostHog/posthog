@@ -375,6 +375,19 @@ def prepare_ast_for_printing(
                 resolver_factory=resolver_factory,
             )
 
+    if dialect == "clickhouse":
+        # Cohort-gated events data retention: floor every events scan to now() - retention. Computed once here
+        # before lazy expansion, which also needs it for retention checks after aggregation.
+        # Gated on the backend-only apply_events_retention_floor flag so server-side paths that must bypass the floor
+        # — e.g. the GDPR data-deletion mutation path — can opt out; the flag can't be set from a query, so the
+        # enforcement floor still can't be circumvented by a query-supplied modifier.
+        with context.timings.measure("events_retention_floor"):
+            if context.apply_events_retention_floor:
+                # Deferred: Django-side load at the prepare boundary; see the restricted-properties load above.
+                from posthog.models.team.event_retention import events_retention_months_for_team  # noqa: PLC0415
+
+                context.events_retention_months = events_retention_months_for_team(context.team, context.team_id)
+
     if dialect in SQL_TARGET_DIALECTS:
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
@@ -438,18 +451,6 @@ def prepare_ast_for_printing(
         # mutation analyzer rejects table prefixes), so no extra marking is needed.
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
-
-        # Cohort-gated events data retention: floor every events scan to now() - retention. Computed once here
-        # (the per-scan printer hook can't afford the team lookup + flag eval); the printer reads it off the context.
-        # Gated on the backend-only apply_events_retention_floor flag so server-side paths that must bypass the floor
-        # — e.g. the GDPR data-deletion mutation path — can opt out; the flag can't be set from a query, so the
-        # enforcement floor still can't be circumvented by a query-supplied modifier.
-        with context.timings.measure("events_retention_floor"):
-            if context.apply_events_retention_floor:
-                # Deferred: Django-side load at the prepare boundary; see the restricted-properties load above.
-                from posthog.models.team.event_retention import events_retention_months_for_team  # noqa: PLC0415
-
-                context.events_retention_months = events_retention_months_for_team(context.team, context.team_id)
 
         # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
         # dialect-neutral PropertyAccess form. Its pre-filtering subquery projects only source columns (raw blobs and

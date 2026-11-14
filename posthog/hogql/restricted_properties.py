@@ -12,7 +12,10 @@ from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPers
 from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
-from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable, RawMCPIntentAssignmentsTable
+from posthog.hogql.database.schema.mcp_intent_assignments import (
+    MCPIntentAssignmentsTable,
+    StoredMCPIntentAssignmentsTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebBouncesDimensionalPreAggregatedTable,
@@ -149,7 +152,7 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
         source = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
     elif isinstance(table, FlagEvaluationsTable):
         source = _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
-    elif isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable):
+    elif isinstance(table, MCPIntentAssignmentsTable | StoredMCPIntentAssignmentsTable):
         source = _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS.get(column_name)
     else:
         source = None
@@ -236,7 +239,7 @@ def restricted_property_keys_for_table_type(
             WebStatsDimensionalPreAggregatedTable,
             WebBouncesDimensionalPreAggregatedTable,
             MCPIntentAssignmentsTable,
-            RawMCPIntentAssignmentsTable,
+            StoredMCPIntentAssignmentsTable,
             ModelSpecificEmbeddingTable,
             RawDocumentEmbeddingsTable,
         ),

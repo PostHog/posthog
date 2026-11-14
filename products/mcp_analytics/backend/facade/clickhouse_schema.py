@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     is_outlier UInt8,
     intent_text String, -- truncated copy for the map and outlier lists
     calls_in_run UInt32, -- calls carrying this intent in the assignment window
+    source_min_timestamp Nullable(DateTime64(3, 'UTC')) DEFAULT NULL,
     timestamp DateTime64(3, 'UTC') -- when the assignment was made; newest wins
 ) ENGINE = {engine}
 """
