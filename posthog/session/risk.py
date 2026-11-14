@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY
 from django.contrib.sessions.backends.base import SessionBase
 from django.core.cache import cache
+from django.db import transaction
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -232,13 +233,17 @@ def advance_baseline(session_key: str, baseline: Baseline, ctx: Context, *, now:
         and (now - baseline.baseline_at).total_seconds() < settings.RISK_BASELINE_REFRESH_S
     ):
         return
-    Session.objects.filter(session_key=session_key).update(
-        latitude=ctx.latitude,
-        longitude=ctx.longitude,
-        country_code=ctx.country_code,
-        ua_signature=ctx.ua_signature,
-        baseline_at=now,
-    )
+    sessions = Session.objects.filter(session_key=session_key, baseline_at=baseline.baseline_at)
+    with transaction.atomic():
+        if not sessions.select_for_update(skip_locked=True).exists():
+            return
+        sessions.update(
+            latitude=ctx.latitude,
+            longitude=ctx.longitude,
+            country_code=ctx.country_code,
+            ua_signature=ctx.ua_signature,
+            baseline_at=now,
+        )
 
 
 def _risk_signature(tier: RiskTier, signals: set[RiskSignal]) -> str:
