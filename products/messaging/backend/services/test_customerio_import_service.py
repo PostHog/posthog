@@ -363,15 +363,15 @@ user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
         assert result["suppressions_imported"] == 2
         assert any("invalid_emails" in error for error in result["errors"])
         rows = {
-            row.identifier: (row.source, row.suppressed, row.deleted)
+            row.identifier: (row.source, row.suppressed, row.deleted, row.hard_bounced_at is not None)
             for row in MessageSuppression.objects.for_team(self.team.id).all()
         }
         assert rows == {
-            "bounced@example.com": (SuppressionSource.BOUNCE, True, False),
-            "spam@example.com": (SuppressionSource.COMPLAINT, True, False),
-            "manual@example.com": (SuppressionSource.MANUAL, True, False),
-            "removed@example.com": (SuppressionSource.BOUNCE, False, True),
-            "earlier@example.com": (SuppressionSource.BOUNCE, True, False),
+            "bounced@example.com": (SuppressionSource.BOUNCE, True, False, True),
+            "spam@example.com": (SuppressionSource.COMPLAINT, True, False, False),
+            "manual@example.com": (SuppressionSource.MANUAL, True, False, True),
+            "removed@example.com": (SuppressionSource.BOUNCE, False, True, False),
+            "earlier@example.com": (SuppressionSource.BOUNCE, True, False, True),
         }
         details = {
             row.identifier: (

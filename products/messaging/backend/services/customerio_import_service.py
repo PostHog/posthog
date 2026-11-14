@@ -20,6 +20,7 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.services.suppression import block_transactional_for_hard_bounces
 
 from .customerio_client import CustomerIOAPIError, CustomerIOClient
 
@@ -538,9 +539,10 @@ class CustomerIOImportService:
     ) -> int:
         """Suppress the addresses that have no suppression row yet, and return how many it added.
 
-        An existing row is left alone. It can be a manual entry, an address someone removed from the list on
-        purpose, or a row the bounce feedback already manages. The one exception is a row an earlier import of
-        this list created without Customer.io's date and diagnostic, which gets them filled in.
+        An existing row keeps its source and reason. It can be a manual entry, an address someone removed from the
+        list on purpose, or a row the bounce feedback already manages. A bounce still makes a row nobody removed
+        block transactional email. A row an earlier import of this list created without Customer.io's date and
+        diagnostic gets them filled in.
         """
         suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
         existing = {row.identifier: row for row in suppressions.filter(identifier__in=list(imported))}
@@ -566,6 +568,8 @@ class CustomerIOImportService:
         ]
         # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
         suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
+        if is_bounce:
+            block_transactional_for_hard_bounces(team_id, sorted(existing), reason)
 
         backfilled = []
         for email, row in existing.items():

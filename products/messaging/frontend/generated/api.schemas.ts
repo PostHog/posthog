@@ -795,7 +795,7 @@ export interface BulkAddSuppressionsResultApi {
     total: number
     /** Number of addresses added to the suppression list. */
     created: number
-    /** Number of addresses that already had an entry. Their entry is left unchanged, even when someone removed it from the list. */
+    /** Number of addresses that already had an entry. An entry keeps its reason. A `bounce` also makes an entry block transactional email, unless someone removed it from the list. */
     already_present: number
 }
 

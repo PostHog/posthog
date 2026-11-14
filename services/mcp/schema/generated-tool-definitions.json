@@ -15575,7 +15575,7 @@
         "feature_flag": "workflows-supabase-auth-emails"
     },
     "suppressions-add": {
-        "description": "Suppress one or more email addresses (up to 1000 per call) so no workflow sends to them. Use this to migrate a suppression list from another email provider, such as Resend or SendGrid: page through the provider's list and send each page in one call instead of adding addresses one at a time. Set reason to bounce for bounced or invalid addresses (these also block transactional email), complaint for spam reports, and manual for anything else. Addresses that already have an entry keep it, so repeating a call is safe.",
+        "description": "Suppress one or more email addresses (up to 1000 per call) so no workflow sends to them. Use this to migrate a suppression list from another email provider, such as Resend or SendGrid: page through the provider's list and send each page in one call instead of adding addresses one at a time. Set reason to bounce for bounced or invalid addresses (these also block transactional email), complaint for spam reports, and manual for anything else. An address that already has an entry keeps it. A bounce also makes that entry block transactional email, unless someone removed it from the list. Repeating a call is safe.",
         "category": "Messaging",
         "feature": "messaging",
         "summary": "Add email addresses to the suppression list",

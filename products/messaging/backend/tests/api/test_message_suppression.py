@@ -198,6 +198,76 @@ class TestBulkAddSuppressions(APIBaseTest):
             True,
         )
 
+    @parameterized.expand(
+        [
+            ("complaint", SuppressionSource.COMPLAINT, True, "Spam complaint", "Spam complaint"),
+            ("manual", SuppressionSource.MANUAL, True, "Manually added", "Manually added"),
+            ("soft_bounces", SuppressionSource.BOUNCE, True, "Soft bounced 3 times", "Soft bounced 3 times"),
+            ("counting_soft_bounces", SuppressionSource.BOUNCE, False, None, "Imported (bounced)"),
+        ]
+    )
+    def test_imported_bounce_makes_an_existing_entry_block_transactional_email(
+        self,
+        _name: str,
+        source: SuppressionSource,
+        suppressed: bool,
+        reason: str | None,
+        expected_reason: str,
+    ) -> None:
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team,
+            identifier="alice@example.com",
+            source=source,
+            suppressed=suppressed,
+            suppressed_at=timezone.now() if suppressed else None,
+            reason=reason,
+        )
+
+        response = self._bulk_add([{"identifier": "alice@example.com", "reason": "bounce"}])
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"total": 1, "created": 0, "already_present": 1}
+        row = MessageSuppression.objects.for_team(self.team.id).get()
+        assert (
+            row.source,
+            row.reason,
+            row.suppressed,
+            row.suppressed_at is not None,
+            row.hard_bounced_at is not None,
+        ) == (
+            source,
+            expected_reason,
+            True,
+            True,
+            True,
+        )
+
+    @parameterized.expand(
+        [
+            ("removed_entry_gets_a_bounce", {"suppressed": False, "deleted": True}, "bounce"),
+            ("manual_entry_gets_a_complaint", {"source": SuppressionSource.MANUAL, "suppressed": True}, "complaint"),
+            ("complaint_entry_gets_a_manual", {"source": SuppressionSource.COMPLAINT, "suppressed": True}, "manual"),
+        ]
+    )
+    def test_import_leaves_an_entry_that_must_not_block_transactional_email_unchanged(
+        self, _name: str, existing: dict, imported_reason: str
+    ) -> None:
+        before = MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team, identifier="alice@example.com", **existing
+        )
+
+        response = self._bulk_add([{"identifier": "alice@example.com", "reason": imported_reason}])
+
+        assert response.status_code == 200, response.json()
+        after = MessageSuppression.objects.for_team(self.team.id).get()
+        assert (after.source, after.suppressed, after.deleted, after.hard_bounced_at, after.updated_at) == (
+            before.source,
+            before.suppressed,
+            before.deleted,
+            None,
+            before.updated_at,
+        )
+
 
 class TestRemoveSuppressions(APIBaseTest):
     def _url(self, action: str) -> str:

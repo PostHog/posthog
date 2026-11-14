@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import F, QuerySet, Value
+from django.db.models import Case, F, QuerySet, Value, When
 from django.db.models.functions import Coalesce, Greatest, Least, Now
 from django.utils import timezone
 
@@ -47,6 +47,30 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
     return suppression, created
 
 
+def block_transactional_for_hard_bounces(team_id: int, identifiers: list[str], reason: str) -> None:
+    """Make the team's existing rows for these hard-bounced addresses suppress them and block transactional email.
+
+    `team_id` must be the canonical project id. A row keeps its source, so a spam complaint still needs confirmation
+    to remove, and keeps a reason it has. A row someone removed from the list stays removed.
+    """
+    now = timezone.now()
+    with transaction.atomic():
+        suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
+        locked = list(
+            suppressions.filter(identifier__in=identifiers, deleted=False, hard_bounced_at__isnull=True)
+            .order_by("identifier")
+            .select_for_update()
+            .values_list("id", flat=True)
+        )
+        suppressions.filter(id__in=locked).update(
+            suppressed=True,
+            suppressed_at=Case(When(suppressed=False, then=Value(now)), default=F("suppressed_at")),
+            hard_bounced_at=now,
+            reason=Coalesce(F("reason"), Value(reason)),
+            updated_at=now,
+        )
+
+
 IMPORTED_SUPPRESSION_REASONS: dict[SuppressionSource, str] = {
     SuppressionSource.BOUNCE: "Imported (bounced)",
     SuppressionSource.COMPLAINT: "Imported (spam complaint)",
@@ -59,8 +83,9 @@ def bulk_add_suppressions(
 ) -> int:
     """Suppress the identifiers that have no row yet, and return how many rows it added.
 
-    An existing row is left alone. It can be a manual entry, an address someone removed from the list on purpose,
-    or a row the bounce feedback already manages.
+    An existing row keeps its source and reason. It can be a manual entry, an address someone removed from the list
+    on purpose, or a row the bounce feedback already manages. A bounce still makes a row nobody removed block
+    transactional email, see `block_transactional_for_hard_bounces`.
     """
     # bulk_create skips the save() that moves a child environment's rows to its parent project.
     team_id = resolve_effective_team_id(team_id)
@@ -85,6 +110,11 @@ def bulk_add_suppressions(
     ]
     # ignore_conflicts skips an address inserted after the read above, and the count by pk leaves it out.
     suppressions.bulk_create(new_rows, ignore_conflicts=True)
+    block_transactional_for_hard_bounces(
+        team_id,
+        [identifier for identifier, source in sources_by_identifier.items() if source == SuppressionSource.BOUNCE],
+        IMPORTED_SUPPRESSION_REASONS[SuppressionSource.BOUNCE],
+    )
     return suppressions.filter(pk__in=[row.pk for row in new_rows]).count()
 
 
