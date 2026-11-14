@@ -25,6 +25,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import (
     ParseError,
     PermissionDenied,
+    Throttled,
     ValidationError as DRFValidationError,
 )
 from rest_framework.request import Request
@@ -45,7 +46,9 @@ from posthog.schema import (
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.event_usage import report_user_action
@@ -1340,6 +1343,11 @@ def _cursor_timestamp(value: dt.datetime | str) -> str:
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, ConcurrencyLimitExceeded):
+            exc = Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+        return super().handle_exception(exc)
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
