@@ -1,23 +1,25 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import '@posthog/lemon-ui'
 
-import api, { ApiConfig } from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
-import { AnnotationScope, AnnotationType, DashboardBasicType, InsightModel } from '~/types'
+import { AnnotationScope, AnnotationType, DashboardBasicType, InsightModel, SidePanelTab } from '~/types'
 
 import type { UserType } from '../../../../frontend/src/types'
 import type { RawAnnotationType } from '../../../../frontend/src/types'
-import { annotationsPartialUpdate } from '../generated/api'
+import { annotationsCreate, annotationsPartialUpdate } from '../generated/api'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -87,7 +89,20 @@ export interface annotationModalLogicActions {
     replaceAnnotation: (annotation: RawAnnotationType) => {
         annotation: RawAnnotationType
     } // annotationsModel
+    closeSidePanel: (tab?: SidePanelTab | undefined) => {
+        tab: SidePanelTab | undefined
+    } // sidePanelStateLogic
+    openSidePanel: (
+        tab: SidePanelTab,
+        options?: string | undefined
+    ) => {
+        options: string | undefined
+        tab: SidePanelTab
+    } // sidePanelStateLogic
     closeModal: () => {
+        value: true
+    }
+    openEditor: () => {
         value: true
     }
     openModalToCreateAnnotation: (
@@ -168,10 +183,13 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         actions: [
             annotationsModel,
             ['loadAnnotationsSuccess', 'replaceAnnotation', 'appendAnnotations', 'deleteAnnotation'],
+            sidePanelStateLogic,
+            ['openSidePanel', 'closeSidePanel'],
         ],
         values: [annotationsModel, ['annotations', 'annotationsLoading'], teamLogic, ['timezone'], userLogic, ['user']],
     })),
     actions({
+        openEditor: true,
         openModalToCreateAnnotation: (
             initialDate?: Dayjs | null,
             insightId?: InsightModel['id'] | null,
@@ -219,7 +237,26 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         ],
     })),
     listeners(({ cache, actions, values }) => ({
+        openEditor: () => {
+            cache.editorGeneration = (cache.editorGeneration ?? 0) + 1
+            cache.disposables.add(() => annotationModalLogic.mount(), 'editor', { pauseOnPageHidden: false })
+            cache.editorTeamId = teamLogic.values.currentTeamId
+            actions.openSidePanel(SidePanelTab.Annotations)
+            posthog.capture('annotation editor opened', { editing: !!values.existingModalAnnotation })
+        },
+        closeModal: () => {
+            cache.editorGeneration = (cache.editorGeneration ?? 0) + 1
+            actions.closeSidePanel(SidePanelTab.Annotations)
+            actions.resetAnnotationModal()
+            cache.disposables.dispose('editor')
+        },
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            if (values.isModalOpen && cache.editorTeamId !== teamLogic.values.currentTeamId) {
+                actions.closeModal()
+            }
+        },
         openModalToEditAnnotation: ({ annotation: { date_marker, scope, content, emoji }, insightId, dashboardId }) => {
+            actions.resetAnnotationModal()
             actions.setAnnotationModalValues({
                 dateMarker: dayjs(date_marker).tz(values.timezone),
                 scope,
@@ -232,6 +269,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             if (dashboardId) {
                 actions.setAnnotationModalValue('dashboardId', dashboardId)
             }
+            actions.openEditor()
         },
         openModalToCreateAnnotation: ({ initialDate, insightId, dashboardId }) => {
             actions.resetAnnotationModal()
@@ -244,6 +282,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             if (dashboardId) {
                 actions.setAnnotationModalValue('dashboardId', dashboardId)
             }
+            actions.openEditor()
         },
         loadAnnotationsSuccess: ({ rawAnnotations }) => {
             if (!values.isModalOpen && cache.annotationToShowId) {
@@ -264,7 +303,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, cache }) => ({
         annotationModal: {
             defaults: {
                 dateMarker: dayjs().tz(values.timezone),
@@ -279,6 +318,8 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             }),
             submit: async (data) => {
                 const { dateMarker, content, emoji, scope, dashboardItemId, dashboardId } = data
+                const editorGeneration = cache.editorGeneration
+                const editing = !!values.existingModalAnnotation
 
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
@@ -303,7 +344,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                     actions.replaceAnnotation(updatedAnnotation as unknown as RawAnnotationType)
                 } else {
                     // annotationsModel's createAnnotationGenerically inlined so that isAnnotationModalSubmitting works
-                    const createdAnnotation = await api.annotations.create({
+                    const createdAnnotation = await annotationsCreate(String(ApiConfig.getCurrentProjectId()), {
                         date_marker: dateMarker.toISOString(),
                         content,
                         emoji: emoji || null,
@@ -311,7 +352,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         dashboard_item: dashboardItemId,
                         dashboard_id: dashboardId,
                     })
-                    actions.appendAnnotations([createdAnnotation])
+                    actions.appendAnnotations([createdAnnotation as unknown as RawAnnotationType])
                     const trimmedContent = content?.trim() ?? ''
                     const snippet = trimmedContent.length > 60 ? trimmedContent.slice(0, 57) + '…' : trimmedContent
                     const date = dateMarker.format('YYYY-MM-DD')
@@ -319,12 +360,18 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         derivedPrompt: snippet ? `Annotate ${date}: ${snippet}` : undefined,
                     })
                 }
-                actions.closeModal()
+                posthog.capture('annotation editor saved', { editing, scope })
+                if (editorGeneration === cache.editorGeneration) {
+                    actions.closeModal()
+                }
             },
         },
     })),
     urlToAction(({ values, actions, cache }) => ({
-        [urls.annotation(':id')]: ({ id }) => {
+        [urls.annotation(':id')]: ({ id }, _search, _hash, { initial, method }, previousLocation) => {
+            if (!initial && method !== 'PUSH' && previousLocation?.pathname === router.values.location.pathname) {
+                return
+            }
             cache.annotationToShowId = parseInt(id as string)
             const annotation = values.annotations.find((a) => a.id === cache.annotationToShowId)
             if (!annotation) {

@@ -83,7 +83,7 @@ describe('sidePanelLogic', () => {
         await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: false })
     })
 
-    it.each([SidePanelTab.Max, SidePanelTab.Support, SidePanelTab.Notebooks])(
+    it.each([SidePanelTab.Max, SidePanelTab.Support, SidePanelTab.Notebooks, SidePanelTab.Annotations])(
         'keeps the %s tab open when navigating to a different scene',
         async (tab) => {
             sidePanelStateLogic.actions.openSidePanel(tab)

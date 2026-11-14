@@ -8,7 +8,8 @@
         "@posthog/quill": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",

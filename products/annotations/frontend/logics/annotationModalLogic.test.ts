@@ -1,9 +1,14 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { annotationsModel } from '~/models/annotationsModel'
 import { initKeaTests } from '~/test/init'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, RawAnnotationType, SidePanelTab } from '~/types'
 
 import * as generatedApi from '../generated/api'
 import type { AnnotationApi } from '../generated/api.schemas'
@@ -19,6 +24,113 @@ describe('annotationModalLogic', () => {
 
     afterEach(() => {
         updateSpy.mockRestore()
+    })
+
+    it('keeps the draft when its chart unmounts and another panel opens', () => {
+        const unmountPanel = sidePanelStateLogic.mount()
+        const logic = annotationModalLogic()
+        const unmount = logic.mount()
+        logic.actions.openModalToCreateAnnotation(null, 7)
+        logic.actions.setAnnotationModalValue('content', 'Deployment notes')
+        unmount()
+
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Annotations)
+        const unmountEditor = logic.mount()
+        expect(logic.values.annotationModal).toMatchObject({ content: 'Deployment notes', dashboardItemId: 7 })
+        expect(logic.values.isModalOpen).toBe(true)
+
+        logic.actions.closeModal()
+        expect(logic.values.annotationModal.content).toBe('')
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+        unmountEditor()
+        unmountPanel()
+    })
+
+    it('discards the draft when the current project changes', () => {
+        const logic = annotationModalLogic()
+        logic.mount()
+        logic.actions.openModalToCreateAnnotation()
+        logic.actions.setAnnotationModalValue('content', 'Project-specific note')
+
+        teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: 99 })
+
+        expect(logic.values.isModalOpen).toBe(false)
+        expect(logic.values.annotationModal.content).toBe('')
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+    })
+
+    it.each(['save', 'cancel'])('preserves edits through panel switches and reopens after %s', async (closeAction) => {
+        const logic = annotationModalLogic()
+        logic.mount()
+        await expectLogic(annotationsModel).toFinishAllListeners()
+        annotationsModel.actions.loadAnnotationsSuccess([
+            {
+                id: 1,
+                content: 'Saved note',
+                scope: AnnotationScope.Project,
+                date_marker: '2024-01-01T00:00:00Z',
+                created_at: '2024-01-01T00:00:00Z',
+            } as RawAnnotationType,
+        ])
+        await expectLogic(logic, () => router.actions.push(urls.annotation(1))).toMatchValues({ isModalOpen: true })
+        logic.actions.setAnnotationModalValue('content', 'Unsaved edits')
+
+        await expectLogic(sidePanelStateLogic, () =>
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+        ).toFinishAllListeners()
+
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+        expect(logic.values.annotationModal.content).toBe('Unsaved edits')
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Annotations)
+
+        await expectLogic(logic, () => {
+            if (closeAction === 'save') {
+                logic.actions.submitAnnotationModal()
+            } else {
+                logic.actions.closeModal()
+            }
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ isModalOpen: false })
+
+        await expectLogic(logic, () => router.actions.push(urls.annotation(1))).toMatchValues({ isModalOpen: true })
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Annotations)
+    })
+
+    it('keeps a newer draft open when an earlier save completes', async () => {
+        let finishSave!: (annotation: AnnotationApi) => void
+        const createSpy = jest.spyOn(generatedApi, 'annotationsCreate').mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finishSave = resolve
+                })
+        )
+        const logic = annotationModalLogic()
+        logic.mount()
+        try {
+            logic.actions.openModalToCreateAnnotation()
+            logic.actions.setAnnotationModalValue('content', 'First draft')
+            await expectLogic(logic, () => logic.actions.submitAnnotationModal()).toMatchValues({
+                isAnnotationModalSubmitting: true,
+            })
+
+            logic.actions.openModalToCreateAnnotation()
+            logic.actions.setAnnotationModalValue('content', 'Second draft')
+            finishSave({
+                id: 1001,
+                content: 'First draft',
+                scope: AnnotationScope.Project,
+                date_marker: '2024-01-01T00:00:00Z',
+                created_at: '2024-01-01T00:00:00Z',
+            } as AnnotationApi)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isModalOpen).toBe(true)
+            expect(logic.values.annotationModal.content).toBe('Second draft')
+        } finally {
+            createSpy.mockRestore()
+        }
     })
 
     it.each([
@@ -72,6 +184,7 @@ describe('annotationModalLogic', () => {
         const logic = annotationModalLogic()
         logic.mount()
 
+        logic.actions.openModalToCreateAnnotation(null, 42, 8)
         logic.actions.openModalToEditAnnotation(annotation, insightId, dashboardId)
         if (newScope) {
             logic.actions.setAnnotationModalValue('scope', newScope)

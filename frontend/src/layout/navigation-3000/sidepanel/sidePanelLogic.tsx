@@ -24,6 +24,7 @@ const TABS_REQUIRING_A_TEAM = [
     SidePanelTab.Discussion,
     SidePanelTab.AccessControl,
     SidePanelTab.Exports,
+    SidePanelTab.Annotations,
 ]
 
 /**
@@ -31,7 +32,12 @@ const TABS_REQUIRING_A_TEAM = [
  * so they stay open across navigation. Every other tab describes the object on screen and closes
  * when the user moves to a different scene.
  */
-export const TABS_PERSISTED_ACROSS_NAVIGATION = [SidePanelTab.Max, SidePanelTab.Support, SidePanelTab.Notebooks]
+export const TABS_PERSISTED_ACROSS_NAVIGATION = [
+    SidePanelTab.Max,
+    SidePanelTab.Support,
+    SidePanelTab.Notebooks,
+    SidePanelTab.Annotations,
+]
 
 /** The tabs a canvas scene shows instead of the general ones, in order. */
 export const CANVAS_SIDE_PANEL_TABS = [SidePanelTab.CanvasChat, SidePanelTab.CanvasBlocks, SidePanelTab.CanvasTimeline]
@@ -197,6 +203,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 tabs.push(SidePanelTab.Max)
                 tabs.push(SidePanelTab.Notebooks)
+                tabs.push(SidePanelTab.Annotations)
 
                 // Activity entries and comments are both stored against the scene's activity scope. A
                 // scene that declares none has nothing to show, and the discussion panel can only

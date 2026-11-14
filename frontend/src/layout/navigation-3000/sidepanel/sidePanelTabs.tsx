@@ -1,4 +1,4 @@
-import { IconApps, IconChat, IconLock, IconLogomark, IconNotebook, IconPulse } from '@posthog/icons'
+import { IconApps, IconChat, IconLock, IconLogomark, IconNotebook, IconPulse, IconComment } from '@posthog/icons'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -13,6 +13,9 @@ import { LazySidePanelSupportIcon } from './panels/support/LazySidePanelSupportI
 const SidePanelMax = lazyWithRetry(() => import('./panels/max/SidePanelMax').then((m) => ({ default: m.SidePanelMax })))
 const NotebookPanel = lazyWithRetry(() =>
     import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
+)
+const AnnotationEditor = lazyWithRetry(() =>
+    import('products/annotations/frontend/components/AnnotationEditor').then((m) => ({ default: m.AnnotationEditor }))
 )
 // The support panel renders the ticket editor, which pulls in tiptap extensions and lowlight.
 const SidePanelSupport = lazyWithRetry(() =>
@@ -39,6 +42,11 @@ const SidePanelActivity = lazyWithRetry(() =>
 )
 
 export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
+    [SidePanelTab.Annotations]: {
+        label: 'Annotations',
+        Icon: IconComment,
+        Content: AnnotationEditor,
+    },
     [SidePanelTab.Max]: {
         label: 'PostHog AI',
         Icon: IconLogomark,
