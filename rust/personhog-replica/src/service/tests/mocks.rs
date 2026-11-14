@@ -290,6 +290,14 @@ impl storage::CohortStorage for FailingStorage {
         Err(self.error.clone())
     }
 
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        _cohort_id: i64,
+        _person_ids: &[i64],
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
+
     async fn insert_cohort_members(
         &self,
         _cohort_id: i64,
@@ -732,6 +740,14 @@ impl storage::CohortStorage for SuccessStorage {
         _batch_size: i32,
     ) -> storage::StorageResult<i64> {
         Ok(0)
+    }
+
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        _cohort_id: i64,
+        person_ids: &[i64],
+    ) -> storage::StorageResult<i64> {
+        Ok(person_ids.len() as i64)
     }
 
     async fn insert_cohort_members(
@@ -1231,6 +1247,14 @@ impl storage::CohortStorage for PopulatedStorage {
         Ok(0)
     }
 
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        _cohort_id: i64,
+        person_ids: &[i64],
+    ) -> storage::StorageResult<i64> {
+        Ok(person_ids.len() as i64)
+    }
+
     async fn insert_cohort_members(
         &self,
         _cohort_id: i64,
@@ -1708,6 +1732,14 @@ impl storage::CohortStorage for ConsistencyTrackingStorage {
         _batch_size: i32,
     ) -> storage::StorageResult<i64> {
         Ok(0)
+    }
+
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        _cohort_id: i64,
+        person_ids: &[i64],
+    ) -> storage::StorageResult<i64> {
+        Ok(person_ids.len() as i64)
     }
 
     async fn insert_cohort_members(

@@ -1,7 +1,9 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -34,30 +36,41 @@ from posthog.models.event.new_events_schema import events_read_settings
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
 from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPopulationMode
 from products.cohorts.backend.models.util import (
     COHORT_QUERY_TIMEOUT_SECONDS,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
+    DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX,
     ERROR_CODE_MESSAGES,
+    PRUNE_PAGE_SIZE,
+    REPLACE_INSERT_QUORUM_SETTINGS,
     STATIC_COHORT_READ_BACK_WAITS_SECONDS,
     CohortErrorCode,
+    PopulationMarkerClockSkew,
     StaticCohortReadBackIncomplete,
     _recalculate_cohortpeople_for_team,
     _recalculate_cohortpeople_for_team_hogql,
     _sanitize_query_for_cohort,
     count_cohort_members,
+    delete_cohort_members_by_person_ids,
     get_all_cohort_dependencies,
     get_friendly_error_message,
     get_nested_cohort_ids,
     get_static_cohort_size,
     insert_cohort_filter_actors_into_ch,
+    insert_cohort_members,
     insert_cohort_people_into_pg,
     insert_cohort_query_actors_into_ch,
     legacy_groups_to_filters,
+    list_cohort_member_ids,
+    mint_population_marker,
     parse_error_code,
     print_cohort_hogql_query,
+    prune_members_absent_from_replace,
+    prune_static_cohort_rows_before_marker,
     run_cohort_query,
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
@@ -1052,7 +1065,16 @@ class TestCohortUtils(BaseTest):
         self.assertIn("group by 1", sql)
         self.assertIn("order by 2", sql)
 
-    def test_insert_actors_into_cohort_by_query_uses_offline_workload_and_cohort_timeout_settings(self):
+    @parameterized.expand(
+        [
+            ("append", None, {}),
+            # A replace prunes on what it reads back, so its insert must be a quorum write.
+            ("replace", datetime(2026, 11, 7, 12, 0, tzinfo=UTC), REPLACE_INSERT_QUORUM_SETTINGS),
+        ]
+    )
+    def test_insert_actors_into_cohort_by_query_uses_offline_workload_and_cohort_timeout_settings(
+        self, _name: str, replace_marker: datetime | None, mode_settings: dict[str, Any]
+    ):
         from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 
         from products.cohorts.backend.models.util import (
@@ -1070,6 +1092,7 @@ class TestCohortUtils(BaseTest):
                 {"custom_param": "val"},
                 context,
                 team_id=self.team.id,
+                replace_marker=replace_marker,
             )
 
         mock_sync_execute.assert_called_once()
@@ -1085,11 +1108,160 @@ class TestCohortUtils(BaseTest):
                 "max_bytes_ratio_before_external_group_by": 0,
                 "max_bytes_ratio_before_external_sort": 0,
                 **events_read_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA),
+                **mode_settings,
             },
         )
         self.assertEqual(kwargs["workload"], Workload.OFFLINE)
         self.assertEqual(kwargs["ch_user"], ClickHouseUser.COHORTS)
         self.assertEqual(kwargs["team_id"], self.team.id)
+
+    def _static_cohort_stamps(self, cohort: Cohort) -> dict[str, tuple[int, datetime]]:
+        rows = sync_execute(
+            f"SELECT person_id, count(), max(_timestamp) FROM {PERSON_STATIC_COHORT_TABLE} "
+            "WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s GROUP BY person_id",
+            {"team_id": self.team.pk, "cohort_id": cohort.pk},
+        )
+        return {str(person_id): (count, _timestamp.replace(tzinfo=UTC)) for person_id, count, _timestamp in rows}
+
+    def test_replace_restamps_every_match_then_prunes_both_stores(self):
+        # Random uuids: this class shares one team across tests and never clears ClickHouse, so a
+        # fixed uuid can collide with a person an earlier test wrote.
+        kept, new, stale, pg_only = (
+            create_person(team=self.team, distinct_ids=[name], properties={"tag": tag}, uuid=uuid4())
+            for name, tag in (("kept", "in"), ("new", "in"), ("stale", "out"), ("pg_only", "out"))
+        )
+        other_person = create_person(team=self.team, distinct_ids=["other"], uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'in'"},
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+        cohort.insert_users_list_by_uuid([str(kept.uuid), str(stale.uuid)], team_id=self.team.pk)
+        # A member whose person can't be resolved, as a person not yet on a replica would be.
+        unresolved_id = 987_654_321
+        insert_cohort_members(self.team.pk, cohort.pk, [unresolved_id, pg_only.id], None)
+
+        other_cohort = Cohort.objects.create(team=self.team, name="other", is_static=True)
+        other_cohort.insert_users_list_by_uuid([str(other_person.uuid)], team_id=self.team.pk)
+
+        with time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False):
+            marker = mint_population_marker(cohort, team_id=self.team.pk)
+            assert marker is not None
+            written = insert_cohort_query_actors_into_ch(cohort, team=self.team, replace_marker=marker)
+            insert_cohort_people_into_pg(cohort, team_id=self.team.pk, replace_marker=marker, min_rows=written)
+            before_prune = self._static_cohort_stamps(cohort)
+            # One member per page, so the cursor has to move past deleted members.
+            with (
+                patch("products.cohorts.backend.models.util.PRUNE_PAGE_SIZE", 1),
+                patch(
+                    "products.cohorts.backend.models.util.delete_cohort_members_by_person_ids",
+                    wraps=delete_cohort_members_by_person_ids,
+                ) as delete_calls,
+            ):
+                removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker)
+            prune_static_cohort_rows_before_marker(cohort.pk, team_id=self.team.pk, marker=marker)
+
+        # One delete call per page that has stale members, never one per member. And the page size must
+        # stay within what that call accepts, or every replace would fail.
+        self.assertEqual(delete_calls.call_count, 2)
+        self.assertLessEqual(PRUNE_PAGE_SIZE, DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX)
+
+        # The existing member who still matches gets a second row at the marker. The append insert
+        # would skip them, and the prune would then delete a member the query still matches.
+        self.assertEqual(
+            (written, before_prune[str(kept.uuid)], before_prune[str(new.uuid)][1]),
+            (2, (2, marker), marker),
+        )
+        self.assertEqual(removed, 2)
+        self.assertEqual(set(list_cohort_member_ids(self.team.pk, cohort.pk)), {kept.id, new.id, unresolved_id})
+        self.assertEqual(self._static_cohort_stamps(cohort), {str(kept.uuid): (1, marker), str(new.uuid): (1, marker)})
+        self.assertEqual(list_cohort_member_ids(self.team.pk, other_cohort.pk), [other_person.id])
+        self.assertEqual(len(self._static_cohort_stamps(other_cohort)), 1)
+
+    def test_replace_prune_restores_a_member_whose_row_arrives_late(self):
+        late = create_person(team=self.team, distinct_ids=["late"], uuid=uuid4())
+        cohort = Cohort.objects.create(team=self.team, name="replace", is_static=True)
+        insert_cohort_members(self.team.pk, cohort.pk, [late.id], None)
+        marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        Cohort.objects.filter(pk=cohort.pk).update(population_marker=marker)
+
+        # A workflow add's row lagged on the replica the prune read, then replicated before the re-check.
+        events: list[str] = []
+        presence = iter([set(), {str(late.uuid)}])
+
+        def check_presence(*args: Any) -> set[str]:
+            events.append("check")
+            return next(presence)
+
+        def delete(*args: Any) -> int:
+            events.append("delete")
+            return delete_cohort_members_by_person_ids(*args)
+
+        with (
+            patch("products.cohorts.backend.models.util.REPLACE_PRUNE_SETTLE_SECONDS", 1),
+            patch("products.cohorts.backend.models.util.time.sleep", side_effect=lambda _: events.append("wait")),
+            patch("products.cohorts.backend.models.util._uuids_present_at_marker", side_effect=check_presence),
+            patch("products.cohorts.backend.models.util.delete_cohort_members_by_person_ids", side_effect=delete),
+        ):
+            removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker)
+
+        # The re-check has to come after the delete and the wait, or it can't see a row that arrived late.
+        self.assertEqual(events, ["check", "delete", "wait", "check"])
+        self.assertEqual((removed, list_cohort_member_ids(self.team.pk, cohort.pk)), (0, [late.id]))
+
+    def test_mint_population_marker_loses_to_a_newer_attempt(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+        newer = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        Cohort.objects.filter(pk=cohort.pk).update(population_marker=newer)
+
+        # The in-memory cohort still holds the marker this attempt read, which is no longer stored.
+        self.assertIsNone(mint_population_marker(cohort, team_id=self.team.pk))
+        self.assertEqual(Cohort.objects.get(pk=cohort.pk).population_marker, newer)
+
+    def test_mint_population_marker_refuses_rows_stamped_ahead_of_the_clock(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [
+                {
+                    "id": str(uuid4()),
+                    "person_id": str(uuid4()),
+                    "cohort_id": cohort.pk,
+                    "team_id": self.team.pk,
+                    "_timestamp": timezone.now() + timedelta(hours=1),
+                    "_offset": 0,
+                }
+            ],
+        )
+
+        with self.assertRaises(PopulationMarkerClockSkew):
+            mint_population_marker(cohort, team_id=self.team.pk)
+        self.assertIsNone(Cohort.objects.get(pk=cohort.pk).population_marker)
+
+    def test_mint_population_marker_refuses_cohort_whose_mode_is_no_longer_replace(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+        Cohort.objects.filter(pk=cohort.pk).update(pending_population_mode=None)
+
+        self.assertIsNone(mint_population_marker(cohort, team_id=self.team.pk))
+        self.assertIsNone(Cohort.objects.get(pk=cohort.pk).population_marker)
 
     def test_insert_cohort_filter_actors_into_ch_sends_the_native_read_settings_for_a_switched_team(self):
         cohort = Cohort.objects.create(

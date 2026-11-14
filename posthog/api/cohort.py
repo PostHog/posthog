@@ -117,8 +117,10 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import (
     DEFAULT_COHORT_INSERT_BATCH_SIZE,
     REALTIME_COHORT_MAX_PERSON_COUNT,
+    STATIC_POPULATION_RUN_FIELDS,
     Cohort,
     CohortOrEmpty,
+    CohortPopulationMode,
     CohortType,
     Group,
 )
@@ -164,6 +166,8 @@ from products.workflows.backend.facade.api import (
     team_has_active_workflows_using_cohorts,
 )
 from products.workflows.backend.facade.contracts import CohortDependentWorkflow, HogFlowReference
+
+CohortPopulationModeEnum = CohortPopulationMode
 
 
 def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow]:
@@ -858,6 +862,12 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     total_read_rows = serializers.ReadOnlyField()
     total_written_rows = serializers.ReadOnlyField()
     main_query = serializers.ReadOnlyField()
+    mode = serializers.ChoiceField(
+        choices=CohortPopulationModeEnum.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="How this static calculation ran: append added matches to existing members, and replace also pruned non-matches. Null for dynamic cohorts or runs that recorded no mode.",
+    )
 
     class Meta:
         model = CohortCalculationHistory
@@ -877,7 +887,9 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_read_rows",
             "total_written_rows",
             "main_query",
+            "mode",
         ]
+        read_only_fields = ["mode"]
 
 
 class CohortCalculationHistoryResponseSerializer(serializers.Serializer):
@@ -1339,6 +1351,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)  # ty: ignore[invalid-assignment]
     last_error_message = serializers.SerializerMethodField()
     realtime = serializers.SerializerMethodField()
+    population_mode = serializers.ChoiceField(
+        choices=CohortPopulationModeEnum.choices,
+        write_only=True,
+        required=False,
+        help_text=(
+            "How to populate the static cohort from the query. 'append' adds newly matched persons to existing "
+            "members. 'replace' also removes members the query no longer matches. A replace runs in the background. "
+            "Read the cohort until 'is_calculating' is false; if the query matched no persons, 'last_error_message' "
+            "says the replace was refused and the members are unchanged. Only accepted together with query on an "
+            "existing static cohort."
+        ),
+    )
 
     class Meta:
         model = Cohort
@@ -1371,6 +1395,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "search_match_type",
             "_create_in_folder",
             "_create_static_person_ids",
+            "population_mode",
         ]
         read_only_fields = [
             "id",
@@ -1390,6 +1415,15 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "condition_type",
             "realtime",
         ]
+        extra_kwargs = {
+            "query": {
+                "help_text": (
+                    "Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query "
+                    "and adds newly matched persons to the cohort, keeping existing members by default. "
+                    "Can't be combined with filters."
+                ),
+            },
+        }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -1842,6 +1876,46 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Resolved from whichever context shape the caller provided, so the check can't be skipped.
         return _team_from_serializer_context(self.context)
 
+    def _is_static_cohort_replace_enabled(self) -> bool:
+        team = _team_from_serializer_context(self.context)
+        if team is None:
+            return False
+
+        return feature_enabled_or_false(
+            "static-cohort-replace-on-recalc",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            send_feature_flag_events=False,
+        )
+
+    def _validate_population_mode(self, attrs: dict) -> None:
+        if "population_mode" not in attrs or attrs["population_mode"] is None:
+            return
+
+        if not self._is_static_cohort_replace_enabled():
+            raise ValidationError({"population_mode": ["The static cohort replace option is not enabled."]})
+
+        if self.instance is None:
+            raise ValidationError({"population_mode": ["population_mode cannot be specified on create."]})
+
+        is_static = attrs.get("is_static", self.instance.is_static)
+        if not is_static:
+            raise ValidationError({"population_mode": ["population_mode is only supported on static cohorts."]})
+
+        request = self.context.get("request")
+        has_csv = bool(attrs.get("_parsed_csv")) or bool(
+            request is not None and getattr(request, "FILES", {}).get("csv")
+        )
+        if has_csv:
+            raise ValidationError({"population_mode": ["population_mode cannot be used with CSV uploads."]})
+
+        if not attrs.get("query"):
+            raise ValidationError({"population_mode": ["population_mode requires query in the same request."]})
+
     def _validate_warehouse_access(self, attrs: dict) -> None:
         """Background execution runs the cohort without warehouse access control (the definition
         is team-owned), so access is enforced here instead: the member saving the definition must
@@ -1971,8 +2045,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         self._validate_cohort_references(attrs)
         self._validate_warehouse_access(attrs)
         self._validate_no_new_hidden_event_criteria(attrs)
+        self._validate_population_mode(attrs)
 
-        if self.context["request"].method != "PATCH" or self.instance is None:
+        request = self.context.get("request")
+        if (request is not None and request.method != "PATCH") or self.instance is None:
             return attrs
 
         if self._reactivates_static_cohort(attrs):
@@ -2150,7 +2226,12 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def _user_access_control(self) -> Optional[UserAccessControl]:
         return getattr(self.context.get("view"), "user_access_control", None)
 
-    def _claim_static_population(self, cohort: Cohort, source_field: Literal["query", "csv"]) -> None:
+    def _claim_static_population(
+        self,
+        cohort: Cohort,
+        source_field: Literal["query", "csv"],
+        mode: CohortPopulationMode | str | None = None,
+    ) -> None:
         # A query population can run on ClickHouse for hours, and each PATCH would otherwise queue another full run.
         # The claim sets is_calculating, and a query or CSV PATCH gets a 400 until it is cleared. A CSV import takes
         # the claim too, because it clears is_calculating when it finishes and would release a running population.
@@ -2165,11 +2246,27 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # tell an abandoned claim from a queued upload, so a CSV-only cohort skips the check, and the next upload
             # recovers it.
             claimable |= ~HAS_STATIC_POPULATION_SOURCE
-        claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=True)
+        # The claim records its mode, which overwrites any mode a failed replace left behind, so that the stuck
+        # cohort sweep never redispatches an old replace in place of this request's population. A CSV import
+        # records none: its task never reads or clears a mode, and NULL already means append.
+        # It also clears the marker. A replace worker checks its marker before every write, so a worker the sweep gave
+        # up on but that is still running stops at its next check instead of pruning during this request's run.
+        if source_field == "csv":
+            claim_mode = None
+        elif mode is not None:
+            claim_mode = CohortPopulationMode(mode)
+        else:
+            claim_mode = CohortPopulationMode.APPEND
+
+        claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(
+            is_calculating=True, pending_population_mode=claim_mode, population_marker=None
+        )
         if not claimed:
             raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
-        # cohort.save() writes every field, so the in-memory value must match the claim.
+        # cohort.save() writes every field, so the in-memory values must match the claim.
         cohort.is_calculating = True
+        cohort.pending_population_mode = claim_mode
+        cohort.population_marker = None
 
     def _enqueue_query_population(self, cohort: Cohort) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_query
@@ -2178,8 +2275,12 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
         except Exception as e:
             # Without a release, every retry is rejected for a run that was never queued.
-            Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=False)
+            Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id).update(
+                is_calculating=False, pending_population_mode=None, population_marker=None
+            )
             cohort.is_calculating = False
+            cohort.pending_population_mode = None
+            cohort.population_marker = None
             capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
             raise ValidationError(
                 {"query": ["Couldn't start populating this cohort. Try again in a few minutes."]}
@@ -2380,22 +2481,28 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if will_create_loops(cohort):
             raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
 
+        population_mode = validated_data.pop("population_mode", None)
         import_from_csv = not deleted_state and cohort.is_static and parsed_csv is not None
         populate_from_query = (
             not deleted_state and cohort.is_static and parsed_csv is None and bool(validated_data.get("query"))
         )
         with transaction.atomic():
             if import_from_csv or populate_from_query:
-                self._claim_static_population(cohort, "csv" if import_from_csv else "query")
+                self._claim_static_population(
+                    cohort,
+                    "csv" if import_from_csv else "query",
+                    mode=population_mode,
+                )
                 cohort.save()
             elif cohort.is_static:
-                # A concurrent query PATCH can claim the cohort after this request loaded it. Writing this request's
-                # stale is_calculating would release that claim and let a duplicate population through.
+                # A concurrent query PATCH can claim the cohort after this request loaded it, and the population it
+                # starts writes its own state. Writing this request's stale copy would release that claim and let a
+                # duplicate population through, or change the replace marker under the running population.
                 cohort.save(
                     update_fields=[
                         field.name
                         for field in Cohort._meta.concrete_fields
-                        if not field.primary_key and field.name != "is_calculating"
+                        if not field.primary_key and field.name not in STATIC_POPULATION_RUN_FIELDS
                     ]
                 )
             else:

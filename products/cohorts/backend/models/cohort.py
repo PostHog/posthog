@@ -62,6 +62,15 @@ class CohortType(StrEnum):
     ANALYTICAL = "analytical"
 
 
+class CohortPopulationMode(models.TextChoices):
+    APPEND = "append", "Append"
+    REPLACE = "replace", "Replace"
+
+
+# Columns a static population owns while it runs. Only the claim and the population itself write them.
+STATIC_POPULATION_RUN_FIELDS = frozenset({"is_calculating", "pending_population_mode", "population_marker"})
+
+
 class CohortConditionFlags(TypedDict):
     """Boolean flags describing which kinds of leaf conditions a cohort's filters contain,
     independent of `CohortType` (which is about realtime-evaluation eligibility, not filter shape)."""
@@ -151,6 +160,8 @@ COHORT_RECALCULATION_FIELDS = frozenset(
         "count",
         "last_import_total_count",
         "last_import_unmatched_count",
+        "pending_population_mode",
+        "population_marker",
     }
 )
 
@@ -283,6 +294,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         blank=True,
         null=True,
         help_text="How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.",
+    )
+    pending_population_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=CohortPopulationMode.choices,
+        help_text="How the claimed static population writes its matches: append adds them to the current members, and replace also removes the members the query no longer matches. Null if the cohort was never claimed for a population.",
+    )
+    population_marker = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="ClickHouse _timestamp of the current replace attempt. Every attempt stores a newer value, and an attempt that finds a different value stored stops writing. Null when no replace is in flight.",
     )
 
     is_static = models.BooleanField(default=False)
@@ -1187,11 +1210,22 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         if insert_in_clickhouse:
             existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
+            # A replace in flight removes every member without a row at or after its marker, so a re-add
+            # during it writes a fresh row even for an existing member. Readers use DISTINCT, so the
+            # duplicate row is harmless.
+            if existing_uuids and self._replace_in_flight():
+                existing_uuids = set()
             new_uuids = [UUID(u) for u in person_uuids if u not in existing_uuids]
             if new_uuids:
                 insert_static_cohort(new_uuids, self.pk, team_id=team_id)
 
         insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
+
+    def _replace_in_flight(self) -> bool:
+        # Read from the database: the caller's instance may predate the claim.
+        return Cohort.objects.filter(
+            pk=self.pk, is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
+        ).exists()
 
     def _get_existing_ch_member_uuids(
         self,

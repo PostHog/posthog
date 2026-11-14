@@ -543,6 +543,8 @@ INSERT_PERSON_STATIC_COHORT = (
 )
 
 DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
+# A replace's prune: one mutation removes every row older than the run's marker.
+DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND _timestamp < %(marker)s"
 
 #
 # Copying demo data
@@ -597,6 +599,15 @@ WHERE actor_id NOT IN (
     SELECT person_id FROM {cohort_table}
     WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 )
+"""
+
+# A replace inserts every match, existing members included, because the prune that follows removes
+# rows older than this run's _timestamp. Skipping existing members would leave them only at older
+# timestamps, and the prune would delete members the query still matches.
+INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE = """
+INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
+    SELECT DISTINCT actor_id FROM ({query})
+) AS new_actors
 """
 
 

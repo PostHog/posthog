@@ -32,6 +32,8 @@ from posthog.personhog_client.proto import (
     DeleteCohortMemberResponse,
     DeleteCohortMembersBulkRequest,
     DeleteCohortMembersBulkResponse,
+    DeleteCohortMembersByPersonIdsRequest,
+    DeleteCohortMembersByPersonIdsResponse,
     DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse,
     DeleteGroupTypeMappingRequest,
@@ -435,6 +437,16 @@ class PersonHogClient:
         self, request: DeleteCohortMembersBulkRequest, timeout: float | None = None
     ) -> DeleteCohortMembersBulkResponse:
         return self._stub.DeleteCohortMembersBulk(request, timeout=timeout or self._timeout)
+
+    def delete_cohort_members_by_person_ids(
+        self, request: DeleteCohortMembersByPersonIdsRequest, timeout: float | None = None
+    ) -> DeleteCohortMembersByPersonIdsResponse:
+        """Delete the given persons from one cohort. Does not check team ownership.
+
+        cohortpeople has no team_id, so isolation is the caller's job. Call it only through
+        ``delete_cohort_members_by_person_ids`` in the cohorts product, which checks it.
+        """
+        return self._stub.DeleteCohortMembersByPersonIds(request, timeout=timeout or self._timeout)
 
     def insert_cohort_members(
         self, request: InsertCohortMembersRequest, timeout: float | None = None

@@ -1832,6 +1832,17 @@ export const SearchMatchTypeEnumApi = {
     Similar: 'similar',
 } as const
 
+/**
+ * * `append` - Append
+ * * `replace` - Replace
+ */
+export type CohortPopulationModeEnumApi = (typeof CohortPopulationModeEnumApi)[keyof typeof CohortPopulationModeEnumApi]
+
+export const CohortPopulationModeEnumApi = {
+    Append: 'append',
+    Replace: 'replace',
+} as const
+
 export interface CohortApi {
     readonly id: number
     /**
@@ -1844,6 +1855,7 @@ export interface CohortApi {
     groups?: unknown
     deleted?: boolean
     filters?: CohortFiltersApi | null
+    /** Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds newly matched persons to the cohort, keeping existing members by default. Can't be combined with filters. */
     query?: unknown
     /** @nullable */
     readonly version: number | null
@@ -1894,6 +1906,11 @@ export interface CohortApi {
      * @maxItems 1000
      */
     _create_static_person_ids?: string[]
+    /** How to populate the static cohort from the query. 'append' adds newly matched persons to existing members. 'replace' also removes members the query no longer matches. A replace runs in the background. Read the cohort until 'is_calculating' is false; if the query matched no persons, 'last_error_message' says the replace was refused and the members are unchanged. Only accepted together with query on an existing static cohort.
+     *
+     * * `append` - Append
+     * * `replace` - Replace */
+    population_mode?: CohortPopulationModeEnumApi
 }
 
 export interface CreateStaticCohortForFlagResponseApi {

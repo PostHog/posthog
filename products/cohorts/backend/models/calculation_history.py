@@ -5,6 +5,8 @@ from django.utils import timezone
 
 from posthog.models.utils import RootTeamMixin, UUIDModel
 
+from products.cohorts.backend.models.cohort import CohortPopulationMode
+
 
 class CohortCalculationHistory(RootTeamMixin, UUIDModel):
     """
@@ -37,6 +39,14 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
         null=True,
         blank=True,
         help_text="Error code for categorizing failures (e.g., 'timeout', 'memory_limit'), used for displaying errors to end-users",
+    )
+
+    mode = models.CharField(
+        max_length=16,
+        choices=CohortPopulationMode.choices,
+        null=True,
+        blank=True,
+        help_text="How this static calculation ran: append added matches to existing members, and replace also pruned non-matches. Null for dynamic cohorts or runs that recorded no mode.",
     )
 
     class Meta:

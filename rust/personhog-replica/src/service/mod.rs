@@ -16,14 +16,16 @@ use personhog_proto::personhog::types::v1::{
     CohortMembership, CohortMembershipResponse, CountCohortMembersRequest,
     CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
     CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
-    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
-    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
-    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
-    DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse, DistinctIdRow as ProtoDistinctIdRow, DistinctIdWithVersion,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteCohortMembersByPersonIdsRequest, DeleteCohortMembersByPersonIdsResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse,
+    DeletePersonsMode as ProtoDeletePersonsMode, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    DistinctIdRow as ProtoDistinctIdRow, DistinctIdWithVersion,
     DistinctIdWriteAction as ProtoDistinctIdWriteAction,
     DistinctIdWriteOutcome as ProtoDistinctIdWriteOutcome,
     DistinctIdWriteResult as ProtoDistinctIdWriteResult, EnsurePersonVersionFloorsRequest,
@@ -856,6 +858,35 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "delete_cohort_members_bulk"))?;
 
         Ok(Response::new(DeleteCohortMembersBulkResponse {
+            deleted_count,
+        }))
+    }
+
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        request: Request<DeleteCohortMembersByPersonIdsRequest>,
+    ) -> Result<Response<DeleteCohortMembersByPersonIdsResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.person_ids.len() > 10000 {
+            return Err(Status::invalid_argument(
+                "Maximum 10000 person IDs per request",
+            ));
+        }
+
+        if req.person_ids.is_empty() {
+            return Ok(Response::new(DeleteCohortMembersByPersonIdsResponse {
+                deleted_count: 0,
+            }));
+        }
+
+        let deleted_count = self
+            .storage
+            .delete_cohort_members_by_person_ids(req.cohort_id, &req.person_ids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_cohort_members_by_person_ids"))?;
+
+        Ok(Response::new(DeleteCohortMembersByPersonIdsResponse {
             deleted_count,
         }))
     }

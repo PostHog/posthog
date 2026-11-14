@@ -4573,6 +4573,8 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
             ("version", "version", 2),
             ("last_import_total_count", "last_import_total_count", 5),
             ("last_import_unmatched_count", "last_import_unmatched_count", 3),
+            ("pending_population_mode", "pending_population_mode", "replace"),
+            ("population_marker", "population_marker", datetime(2026, 11, 7, 12, 0, tzinfo=UTC)),
         ]
     )
     @patch("django.db.transaction.on_commit", lambda fn: fn())

@@ -181,6 +181,48 @@ const cohortsPartialUpdate = (): ToolBase<
         },
     })
 
+const CohortsReplaceStaticMembersSchema = () => {
+    const CohortsPartialUpdateBody = orvalSchemas.CohortsPartialUpdateBody()
+    const CohortsPartialUpdateParams = orvalSchemas.CohortsPartialUpdateParams()
+    return CohortsPartialUpdateParams.omit({ project_id: true })
+        .extend(
+            CohortsPartialUpdateBody.omit({
+                name: true,
+                description: true,
+                deleted: true,
+                filters: true,
+                is_static: true,
+                cohort_type: true,
+                _create_in_folder: true,
+                _create_static_person_ids: true,
+            }).shape
+        )
+        .extend({ id: z.preprocess(castStringToInt, CohortsPartialUpdateParams.shape['id']) })
+}
+
+const cohortsReplaceStaticMembers = (): ToolBase<
+    ReturnType<typeof CohortsReplaceStaticMembersSchema>,
+    WithPostHogUrl<Schemas.Cohort>
+> =>
+    withUiApp('cohort', {
+        name: 'cohorts-replace-static-members',
+        schema: CohortsReplaceStaticMembersSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof CohortsReplaceStaticMembersSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            body['population_mode'] = 'replace'
+            const result = await context.api.request<Schemas.Cohort>({
+                method: 'PATCH',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/`,
+                body,
+            })
+            return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
+        },
+    })
+
 const CohortsRetrieveSchema = () => {
     const CohortsRetrieveParams = orvalSchemas.CohortsRetrieveParams()
     return CohortsRetrieveParams.omit({ project_id: true }).extend({
@@ -249,6 +291,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cohorts-create': cohortsCreate,
     'cohorts-list': cohortsList,
     'cohorts-partial-update': cohortsPartialUpdate,
+    'cohorts-replace-static-members': cohortsReplaceStaticMembers,
     'cohorts-retrieve': cohortsRetrieve,
     'cohorts-rm-person-from-static-cohort-partial-update': cohortsRmPersonFromStaticCohortPartialUpdate,
 }

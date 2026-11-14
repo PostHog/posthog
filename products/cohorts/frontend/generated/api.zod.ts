@@ -54,7 +54,12 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional(),
-    query: zod.unknown().optional(),
+    query: zod
+        .unknown()
+        .optional()
+        .describe(
+            "Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds newly matched persons to the cohort, keeping existing members by default. Can't be combined with filters."
+        ),
     is_static: zod.boolean().optional(),
     cohort_type: zod
         .union([
@@ -76,6 +81,13 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
         .max(cohortsCreateBodyCreateStaticPersonIdsMax)
         .default(cohortsCreateBodyCreateStaticPersonIdsDefault)
         .describe('Person UUIDs to add to a new static cohort.'),
+    population_mode: zod
+        .enum(['append', 'replace'])
+        .describe('\* `append` - Append\n\* `replace` - Replace')
+        .optional()
+        .describe(
+            "How to populate the static cohort from the query. 'append' adds newly matched persons to existing members. 'replace' also removes members the query no longer matches. A replace runs in the background. Read the cohort until 'is_calculating' is false; if the query matched no persons, 'last_error_message' says the replace was refused and the members are unchanged. Only accepted together with query on an existing static cohort.\n\n\* `append` - Append\n\* `replace` - Replace"
+        ),
 })
 
 export const cohortsUpdateBodyNameMax = 400
@@ -101,7 +113,12 @@ export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional(),
-    query: zod.unknown().optional(),
+    query: zod
+        .unknown()
+        .optional()
+        .describe(
+            "Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds newly matched persons to the cohort, keeping existing members by default. Can't be combined with filters."
+        ),
     is_static: zod.boolean().optional(),
     cohort_type: zod
         .union([
@@ -123,6 +140,13 @@ export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
         .max(cohortsUpdateBodyCreateStaticPersonIdsMax)
         .default(cohortsUpdateBodyCreateStaticPersonIdsDefault)
         .describe('Person UUIDs to add to a new static cohort.'),
+    population_mode: zod
+        .enum(['append', 'replace'])
+        .describe('\* `append` - Append\n\* `replace` - Replace')
+        .optional()
+        .describe(
+            "How to populate the static cohort from the query. 'append' adds newly matched persons to existing members. 'replace' also removes members the query no longer matches. A replace runs in the background. Read the cohort until 'is_calculating' is false; if the query matched no persons, 'last_error_message' says the replace was refused and the members are unchanged. Only accepted together with query on an existing static cohort.\n\n\* `append` - Append\n\* `replace` - Replace"
+        ),
 })
 
 export const cohortsPartialUpdateBodyNameMax = 400
@@ -148,7 +172,12 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional(),
-    query: zod.unknown().optional(),
+    query: zod
+        .unknown()
+        .optional()
+        .describe(
+            "Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds newly matched persons to the cohort, keeping existing members by default. Can't be combined with filters."
+        ),
     is_static: zod.boolean().optional(),
     cohort_type: zod
         .union([
@@ -170,6 +199,13 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(cohortsPartialUpdateBodyCreateStaticPersonIdsMax)
         .default(cohortsPartialUpdateBodyCreateStaticPersonIdsDefault)
         .describe('Person UUIDs to add to a new static cohort.'),
+    population_mode: zod
+        .enum(['append', 'replace'])
+        .describe('\* `append` - Append\n\* `replace` - Replace')
+        .optional()
+        .describe(
+            "How to populate the static cohort from the query. 'append' adds newly matched persons to existing members. 'replace' also removes members the query no longer matches. A replace runs in the background. Read the cohort until 'is_calculating' is false; if the query matched no persons, 'last_error_message' says the replace was refused and the members are unchanged. Only accepted together with query on an existing static cohort.\n\n\* `append` - Append\n\* `replace` - Replace"
+        ),
 })
 
 export const cohortsAddPersonsToStaticCohortPartialUpdateBodyPersonIdsMax = 1000

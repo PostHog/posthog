@@ -145,6 +145,7 @@ function createGrpcClient(): { client: PersonHogClient; handlers: ServiceHandler
             countCohortMembers: () => ({ count: 0n }),
             deleteCohortMember: () => ({ deleted: false }),
             deleteCohortMembersBulk: () => ({ deletedCount: 0n }),
+            deleteCohortMembersByPersonIds: () => ({ deletedCount: 0n }),
             insertCohortMembers: () => ({ insertedCount: 0n }),
             listCohortMemberIds: () => ({ personIds: [], nextCursor: 0n }),
             updatePersonProperties: () => ({}),
