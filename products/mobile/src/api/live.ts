@@ -283,14 +283,13 @@ export function liveQuery(
                 window
             )
         case 'usersOnline':
-            // Keep parity with the live events stats service, which counts the whole project without audience filters.
             // The web header badge's fallback count. It reads its own window, so it carries no values.
             return {
                 kind: 'HogQLQuery',
                 query: `SELECT uniq(distinct_id)
                     FROM events
                     WHERE timestamp > now() - INTERVAL 1 MINUTE
-                        AND timestamp < now() + INTERVAL 1 MINUTE`,
+                        AND timestamp < now() + INTERVAL 1 MINUTE${audienceWhere ? ` AND ${audienceWhere}` : ''}`,
                 tags: tags('live_users_count'),
             }
     }

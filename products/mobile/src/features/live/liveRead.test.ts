@@ -81,7 +81,7 @@ describe('Live reads', () => {
             now: 1800000000000,
             signal: new AbortController().signal,
             pathCleaning: true,
-            countUsersOnline: false,
+            countUsersOnline: true,
             run: async (key: string, query: Record<string, unknown>) => {
                 queries[key] = query
                 return { results: [] }
@@ -90,6 +90,7 @@ describe('Live reads', () => {
         await readLiveSnapshot({ ...input, profile: { kind: 'web' } })
         expect(queries.usersPageviews?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
         expect(queries.geo?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
+        expect(queries.usersOnline?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
         expect(queries.paths?.properties).toEqual({
             type: 'AND',
             values: [
@@ -107,9 +108,10 @@ describe('Live reads', () => {
         await readLiveSnapshot({ ...input, profile: { kind: 'mixed' } })
         expect(queries.usersPageviews?.query).not.toContain('properties.$lib')
         expect(queries.geo?.query).not.toContain('properties.$lib')
+        expect(queries.usersOnline?.query).not.toContain('properties.$lib')
         await readLiveSnapshot({ ...input, profile: { kind: 'mobile' } })
         expect(queries.mobileMetrics).toBeUndefined()
-        for (const key of ['usersPageviews', 'geo', 'recentEvents', 'mobileSessions', 'screens']) {
+        for (const key of ['usersPageviews', 'geo', 'recentEvents', 'mobileSessions', 'screens', 'usersOnline']) {
             expect(queries[key]?.query).toContain(
                 "event = '$screen' AND (properties.$lib IS NULL OR properties.$lib = '') AND lower(properties.$os)"
             )
