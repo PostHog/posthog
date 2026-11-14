@@ -197,6 +197,7 @@ class RecommendationInputs:
 class _Term:
     term: str
     clicks: float
+    impressions: float
     cost: float
     conversions: float
     status: str
@@ -822,9 +823,9 @@ class _Recommender:
                     else "It does not rank organically, so a new page in the top 3 "
                 )
                 + "could bring these visitors without ad spend.",
-                term.conversions * benchmark.cpa,
+                term.cost * min(1, term.impressions * TOP3_CTR / max(term.clicks, 1)),
                 "gain",
-                "measured",
+                "estimated",
                 steps=self._content_gap_steps(term),
             )
             for term in terms
@@ -1098,7 +1099,7 @@ class _Recommender:
     # Helpers
 
     def _aggregate_terms(self) -> dict[str, _Term]:
-        totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0])
+        totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         statuses: dict[str, str] = {}
         cost_by_campaign: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         top_impressions: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
@@ -1107,6 +1108,7 @@ class _Recommender:
             total[0] += row.clicks
             total[1] += row.cost
             total[2] += row.conversions
+            total[3] += row.impressions
             statuses.setdefault(row.term, row.status)
             cost_by_campaign[row.term][row.campaign_id] += row.cost
             if row.absolute_top_percentage is not None and row.impressions:
@@ -1116,6 +1118,7 @@ class _Recommender:
             term: _Term(
                 term=term,
                 clicks=clicks,
+                impressions=impressions,
                 cost=cost,
                 conversions=conversions,
                 status=statuses[term],
@@ -1123,7 +1126,7 @@ class _Recommender:
                 organic=self.organic.get(term),
                 absolute_top=top[0] / top[1] if (top := top_impressions.get(term)) and top[1] else None,
             )
-            for term, (clicks, cost, conversions) in totals.items()
+            for term, (clicks, cost, conversions, impressions) in totals.items()
         }
 
     def _names_brand(self, query: str) -> bool:
