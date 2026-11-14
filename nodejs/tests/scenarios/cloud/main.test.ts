@@ -1320,6 +1320,52 @@ describe('cloud controller', () => {
             'could not read the reader capacity',
         ],
         [
+            'a reader above 1 ACU while the failover waits for its offset',
+            {
+                readerAcu: [
+                    ...minutes(-12, -11, 1, 1),
+                    { minute: -10, max: 3, avg: 2 },
+                    ...minutes(-9, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'reader above 1 ACU before T0',
+        ],
+        [
+            'a failover entry without the instant of its request',
+            { card: { journalsIntent: false } },
+            () => undefined,
+            'invalid',
+            'the runner recorded no pg.failover request',
+        ],
+        [
+            'one internal error from CloudWatch, then a complete answer',
+            {
+                averageStatuses: ['InternalError'],
+                readerAcu: [...minutes(-3, -1, 1, 1), ...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)],
+            },
+            () => undefined,
+            'passed',
+            '',
+        ],
+        [
+            'CloudWatch answering an internal error on every attempt',
+            { averageStatuses: ['InternalError', 'InternalError', 'InternalError'] },
+            () => undefined,
+            'invalid',
+            'CloudWatch answered InternalError for the avg series',
+        ],
+        [
+            'CloudWatch refusing the average series',
+            { averageStatuses: ['Forbidden', 'Complete'] },
+            () => undefined,
+            'invalid',
+            'CloudWatch answered Forbidden for the avg series',
+        ],
+        [
             'a card that passes before its failover',
             { card: { takesMs: HOUR_MS / 6 } },
             () => undefined,
@@ -1348,6 +1394,8 @@ describe('cloud controller', () => {
                 acu_peak: 8,
                 acu_seconds_to_peak: 60,
             })
+            const t0 = Date.parse(String(published().t0_at))
+            expect(published().acu_gaps).not.toContain(new Date(t0 - (t0 % 60_000)).toISOString())
         }
     })
 

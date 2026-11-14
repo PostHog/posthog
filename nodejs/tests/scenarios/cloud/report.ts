@@ -34,7 +34,7 @@ const DEVIATIONS = [
 const EXCLUDED = ['data transfer', 'S3 requests', 'Enhanced Monitoring log ingestion']
 
 const HostScorecard = z.object({
-    timeline: z.array(z.object({ valve: z.string(), requestedAt: z.string() }).passthrough()),
+    timeline: z.array(z.object({ valve: z.string(), intentAt: z.iso.datetime().optional() }).passthrough()),
     event: z
         .object({
             status: z.enum(['passed', 'failed', 'invalid']),
@@ -46,9 +46,17 @@ const HostScorecard = z.object({
 
 const MetricData = z.object({
     MetricDataResults: z.array(
-        z.object({ Id: z.enum(['max', 'avg']), Timestamps: z.array(z.string()), Values: z.array(z.number()) })
+        z.object({
+            Id: z.enum(['max', 'avg']),
+            Timestamps: z.array(z.string()),
+            Values: z.array(z.number()),
+            StatusCode: z.string(),
+            Messages: z.array(z.object({ Code: z.string().optional(), Value: z.string().optional() })).optional(),
+        })
     ),
 })
+
+const METRIC_ATTEMPTS = 3
 
 const LogPage = z.object({ events: z.array(z.unknown()), nextToken: z.string().optional() })
 
@@ -80,20 +88,42 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
             Stat,
         },
     }))
-    const { MetricDataResults } = MetricData.parse(
-        await aws.call([
-            'cloudwatch',
-            'get-metric-data',
-            '--start-time',
-            iso(minuteOf(from)),
-            '--end-time',
-            iso(minuteOf(to) + MINUTE_MS),
-            '--scan-by',
-            'TimestampAscending',
-            '--metric-data-queries',
-            JSON.stringify(queries),
-        ])
-    )
+    const read = async (): Promise<z.infer<typeof MetricData>['MetricDataResults']> =>
+        MetricData.parse(
+            await aws.call([
+                'cloudwatch',
+                'get-metric-data',
+                '--start-time',
+                iso(minuteOf(from)),
+                '--end-time',
+                iso(minuteOf(to) + MINUTE_MS),
+                '--scan-by',
+                'TimestampAscending',
+                '--metric-data-queries',
+                JSON.stringify(queries),
+            ])
+        ).MetricDataResults
+    let MetricDataResults = await read()
+    for (
+        let attempt = 1;
+        attempt < METRIC_ATTEMPTS && MetricDataResults.some(({ StatusCode }) => StatusCode === 'InternalError');
+        attempt++
+    ) {
+        MetricDataResults = await read()
+    }
+    const incomplete = MetricDataResults.filter(({ StatusCode }) => StatusCode !== 'Complete')
+    if (incomplete.length > 0) {
+        throw new Error(
+            incomplete
+                .map(({ Id, StatusCode, Messages = [] }) =>
+                    [
+                        `CloudWatch answered ${StatusCode} for the ${Id} series`,
+                        ...Messages.map(({ Code, Value }) => Value ?? Code),
+                    ].join(': ')
+                )
+                .join('; ')
+        )
+    }
     const byMinute = new Map<number, Minute>()
     for (const { Id, Timestamps, Values } of MetricDataResults) {
         Timestamps.forEach((timestamp, i) => {
@@ -233,9 +263,9 @@ export async function report(
     const to = controller.now().getTime()
     const reasons = [...end.reasons]
     const host = await attempt(reasons, 'could not read the runner scorecard', () => hostScorecardOf(evidence, runId))
-    const t0 = host?.timeline.find(({ valve }) => valve === FAILOVER_VALVE)?.requestedAt
+    const t0 = host?.timeline.find(({ valve }) => valve === FAILOVER_VALVE)?.intentAt
     if (host?.event.status === 'passed' && !t0) {
-        reasons.push(`the runner recorded no ${FAILOVER_VALVE}, so the reader was not judged`)
+        reasons.push(`the runner recorded no ${FAILOVER_VALVE} request (intentAt), so the reader was not judged`)
     }
     const capacity = await attempt(reasons, 'could not read the reader capacity', () =>
         capacityOf(

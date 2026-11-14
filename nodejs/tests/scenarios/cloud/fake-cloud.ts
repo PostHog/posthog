@@ -117,10 +117,12 @@ export type FakeCloudOptions = {
         uploadFails?: boolean
         diesAfterMs?: number
         runnerStatus?: string
+        journalsIntent?: boolean
     }
     probe?: 'lost' | 'timedOut'
     agent?: 'offline'
     readerAcu?: ReaderMinute[]
+    averageStatuses?: string[]
 }
 
 const ACTION_OF: Record<string, string> = {
@@ -182,6 +184,7 @@ export class FakeCloud implements Aws {
     readonly untyped: string[] = []
     private readonly commands: Command[] = []
     private card: Card | undefined
+    private metricReads = 0
     readonly failovers = new Map<string, number>()
     private deleteFailures: number
     private readonly failures = new Map<string, { from: number; to: number }>()
@@ -443,7 +446,10 @@ export class FakeCloud implements Aws {
                       {
                           valve: 'pg.failover',
                           target: 'cyclotron',
-                          requestedAt: new Date(failoverAt).toISOString(),
+                          requestedAt: new Date(card.startedAt).toISOString(),
+                          ...(this.options.card?.journalsIntent === false
+                              ? {}
+                              : { intentAt: new Date(failoverAt).toISOString() }),
                           appliedAt: new Date(failoverAt + 5_000).toISOString(),
                       },
                   ]
@@ -474,7 +480,22 @@ export class FakeCloud implements Aws {
         })
     }
 
-    private readerCapacity({ Id, MetricStat: { Metric, Period, Stat } }: MetricQuery, from: number, to: number) {
+    private readerCapacity(
+        { Id, MetricStat: { Metric, Period, Stat } }: MetricQuery,
+        from: number,
+        to: number,
+        averageStatus: string
+    ) {
+        if (Id === 'avg' && averageStatus !== 'Complete') {
+            return {
+                Id,
+                Label: Id,
+                Timestamps: [],
+                Values: [],
+                StatusCode: averageStatus,
+                Messages: [{ Code: averageStatus, Value: 'injected by the fake cloud' }],
+            }
+        }
         const instance = (Metric.Dimensions ?? []).find(({ Name }) => Name === 'DBInstanceIdentifier')?.Value ?? ''
         const runId = /^scn-(.+)-reader$/.exec(instance)?.[1]
         const measured =
@@ -941,7 +962,12 @@ export class FakeCloud implements Aws {
                     ? (parseJSON(flags.get('metric-data-queries')!) as MetricQuery[])
                     : []
                 const [from, to] = ['start-time', 'end-time'].map((flag) => Date.parse(flags.get(flag) ?? ''))
-                return { MetricDataResults: queries.map((query) => this.readerCapacity(query, from, to)) }
+                const averageStatus = flags.has('scan-by')
+                    ? (this.options.averageStatuses?.[this.metricReads++] ?? 'Complete')
+                    : 'Complete'
+                return {
+                    MetricDataResults: queries.map((query) => this.readerCapacity(query, from, to, averageStatus)),
+                }
             }
             case 'logs filter-log-events':
                 return this.enhancedMonitoring(flags)
