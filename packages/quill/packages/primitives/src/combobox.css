@@ -1,5 +1,7 @@
 @layer components {
     .quill-combobox__content {
+        --quill-combobox-input-height: calc(var(--spacing, 0.25rem) * 9);
+
         position: relative;
         max-width: min(24rem, var(--available-width));
         max-height: var(--available-height);
@@ -68,12 +70,14 @@
         margin: var(--spacing) calc(var(--spacing) * -1) 0;
     }
 
+    /*
+     * The list fills the height the positioner leaves below the search input
+     * and scrolls only past that. A consumer that wants a shorter list sets
+     * its own `max-h-*`.
+     */
     .quill-combobox__list {
         min-height: 0;
-        max-height: min(
-            calc(var(--spacing, 0.25rem) * 72 - var(--spacing, 0.25rem) * 9),
-            calc(var(--available-height) - var(--spacing, 0.25rem) * 9)
-        );
+        max-height: calc(var(--available-height) - var(--quill-combobox-input-height));
         padding: 0.25rem;
         overflow-y: auto;
         overscroll-behavior: contain;
