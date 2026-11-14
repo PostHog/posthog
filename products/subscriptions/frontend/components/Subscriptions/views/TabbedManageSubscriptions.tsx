@@ -37,7 +37,8 @@ interface SubscriptionTabConfig {
     emptyState?: ReactNode
 }
 
-interface TabbedManageSubscriptionsProps extends SubscriptionsLogicProps {
+export interface TabbedManageSubscriptionsProps extends SubscriptionsLogicProps {
+    resourceExtra?: ReactNode
     onCancel: () => void
     onSelect: (value: number | 'new', resourceType?: SubscriptionResourceType) => void
     // Tab state is owned by the parent modal: this component unmounts while a subscription
@@ -129,6 +130,7 @@ function SubscriptionTabList({
 export function TabbedManageSubscriptions({
     insightShortId,
     dashboardId,
+    resourceExtra,
     onCancel,
     onSelect,
     activeTab,
@@ -167,11 +169,14 @@ export function TabbedManageSubscriptions({
                     onAction={() => onSelect('new')}
                 />
             ),
-            footer: aiPromptReportsAvailable ? (
-                <div className="border-t pt-3">
-                    <AIPromptReportsLink />
-                </div>
-            ) : undefined,
+            footer:
+                resourceExtra || aiPromptReportsAvailable ? (
+                    // `resourceExtra` can render nothing, which would leave a bare divider.
+                    <div className="border-t pt-3 flex flex-col gap-2 empty:hidden">
+                        {resourceExtra}
+                        {aiPromptReportsAvailable ? <AIPromptReportsLink /> : null}
+                    </div>
+                ) : undefined,
         },
         !isInsightContext && {
             key: 'insights',

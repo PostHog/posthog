@@ -17,6 +17,8 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, DashboardType } from '~/types'
 
+import { DashboardScoutReportsButton } from 'products/subscriptions/frontend/components/Subscriptions/dashboardScout/DashboardScoutReportsButton'
+
 import {
     ADD_TILE_MENU_DATA_ATTRS,
     DashboardAddTileHandlers,
@@ -182,6 +184,7 @@ export function DashboardActions(): JSX.Element {
 
     return (
         <>
+            <DashboardScoutReportsButton dashboardId={dashboard.id} />
             <DashboardSubscribeButton />
             <DashboardLayoutUndoButton />
             <DashboardShortcuts />
