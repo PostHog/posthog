@@ -89,6 +89,7 @@ Direction = Literal["save", "gain", "invest", "keep"]
 MATCH_TYPES = {"2": "EXACT", "3": "PHRASE", "4": "BROAD"}
 # Google Ads pages for the whole account. A link cannot open one campaign, because that needs an
 # interface id the API does not return, so steps also copy the campaign name to search for.
+ADS_ACCOUNT_SETTINGS_URL = "https://ads.google.com/aw/settings/account"
 ADS_CAMPAIGNS_URL = "https://ads.google.com/aw/campaigns"
 ADS_KEYWORDS_URL = "https://ads.google.com/aw/keywords"
 ADS_NEGATIVE_KEYWORDS_URL = "https://ads.google.com/aw/keywords/negative"
@@ -438,7 +439,11 @@ class _Recommender:
             "measured",
             recommendation_identity(MarketingAnalyticsRecommendationRule.KEYWORD_TRACKING, self.inputs.customer_id),
             steps=(
-                Step(text="In Google Ads, open Admin, then Account settings, and expand Tracking."),
+                Step(
+                    text="In Google Ads, open Account settings and expand Tracking.",
+                    url=ADS_ACCOUNT_SETTINGS_URL,
+                    linkText="Account settings",
+                ),
                 Step(
                     text="Add this parameter to the Final URL suffix and save. If the field already has parameters, "
                     "add & before it. Google replaces {keyword} with the keyword that matched the search.",
@@ -552,6 +557,16 @@ class _Recommender:
             "invest",
             "estimated",
             budget_id=campaign.budget_id,
+            steps=(
+                self._open_campaign(campaign.name),
+                Step(
+                    text="Click its budget, change it to this daily amount and save. A shared budget changes for "
+                    "every campaign that uses it.",
+                    # A whole number reads the same in every Google Ads locale and currency.
+                    copyValue=str(round(recommended)),
+                ),
+                self._check_cpa_step(benchmark),
+            ),
             cpa=self._cpa(cpa, benchmark),
         )
 
@@ -681,6 +696,20 @@ class _Recommender:
             extra * self.per_month,
             "invest",
             "estimated",
+            steps=(
+                self._open_campaign(campaign.name),
+                Step(text="Click its budget, raise it and save.")
+                if budget_bound
+                else Step(text="Open the campaign settings, go to Bidding, raise the target CPA and save.")
+                if campaign.target_cpa
+                else Step(
+                    text="Open Keywords, filter by this campaign, and raise the bids of the keywords that convert. "
+                    "Check that their ads and landing page match the search.",
+                    url=ADS_KEYWORDS_URL,
+                    linkText="Keywords",
+                ),
+                self._check_cpa_step(benchmark),
+            ),
             cpa=self._cpa(cpa, benchmark),
         )
 
@@ -698,6 +727,14 @@ class _Recommender:
             extra * self.per_month,
             "invest",
             "estimated",
+            steps=(
+                self._open_campaign(campaign.name),
+                Step(
+                    text="Open the campaign settings, go to Bidding, and raise the target CPA or lower the target "
+                    "ROAS. Then save."
+                ),
+                Step(text="Open its asset groups and add assets to the ones with Poor or Average ad strength."),
+            ),
         )
 
     def _review(
@@ -1255,6 +1292,13 @@ class _Recommender:
         campaign = self.campaigns.get(term.top_campaign_id)
         return campaign.name if campaign else None
 
+    def _check_cpa_step(self, benchmark: _Benchmark) -> Step:
+        # Google Ads shows no non-brand CPA, so the check happens on these recommendations.
+        return Step(
+            text=f"After two weeks, come back here and check that its {benchmark.compared} stays at or below "
+            f"{self._money(benchmark.cpa)}, {benchmark.label}."
+        )
+
     @staticmethod
     def _open_campaign(
         name: str | None,
@@ -1325,9 +1369,10 @@ class _Recommender:
         )
 
     def _search_console_url(self, url: str) -> str:
-        # With several properties the right one is unknown, so Search Console opens its property picker.
+        # A page other than the root needs a property, or it shows a welcome page. The root opens the last
+        # property the user viewed.
         sites = set(self.inputs.site_urls)
-        return f"{url}?resource_id={quote(sites.pop(), safe='')}" if len(sites) == 1 else url
+        return f"{url}?resource_id={quote(sites.pop(), safe='')}" if len(sites) == 1 else SEARCH_CONSOLE_URL
 
     @staticmethod
     def _internal_links_step() -> Step:
