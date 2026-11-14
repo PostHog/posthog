@@ -61,28 +61,17 @@ import {
 import { createSupervisor } from './supervisor'
 
 const SELF = 100
-const REPO = '/work/posthog'
-const NODEJS = `${REPO}/nodejs`
 const STATE_DIR = '/home/dev/.cache/posthog-scenarios'
 const EDGE = { url: 'http://127.0.0.1:4566', caCertPath: `${STATE_DIR}/edge-ca/ca.pem` }
 const MARKED_ENV = ['PATH=/usr/bin', `SCENARIO_RUNNER=${STATE_DIR}`]
 const PLAIN_ENV = ['PATH=/usr/bin']
-const OTHER_CHECKOUT = '/work/posthog-other/nodejs'
 const OTHER_MARKED_ENV = ['PATH=/usr/bin', 'SCENARIO_RUNNER=/home/other/.cache/posthog-scenarios']
-const modeEnv = (mode: string): string[] => [...PLAIN_ENV, `PLUGIN_SERVER_MODE=${mode}`]
 const NODEJS_DIR = path.resolve(__dirname, '..', '..', '..')
 
-const proc = (
-    pid: number,
-    pgid: number,
-    cmdline: string,
-    environ: string[] | null,
-    cwd: string | null = NODEJS
-): ProcEntry => ({
+const proc = (pid: number, pgid: number, cmdline: string, environ: string[] | null): ProcEntry => ({
     pid,
     pgid,
     cmdline,
-    cwd,
     environ,
 })
 
@@ -151,159 +140,16 @@ describe('scenario environment', () => {
                 { groups: [200], pids: [], strangers: [] },
             ],
             [
-                'a role group another runner marked for its own state dir, from another checkout, is a stranger and survives',
+                'a role group another runner marked for its own state dir is a stranger and survives',
                 [
-                    proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
-                    proc(211, 210, 'node src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
+                    proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', OTHER_MARKED_ENV),
+                    proc(211, 210, 'node src/index.ts', OTHER_MARKED_ENV),
                 ],
                 { groups: [], pids: [], strangers: [210, 211] },
             ],
             [
-                'an unmarked combined posthog-node started by path from anywhere is a stranger',
-                [proc(300, 300, `bash ${REPO}/bin/posthog-node`, PLAIN_ENV, '/home/dev')],
-                { groups: [], pids: [], strangers: [300] },
-            ],
-            [
-                'an unmarked combined posthog-node started from the repo, after it moves into nodejs, is a stranger',
-                [proc(301, 301, 'bash ./bin/posthog-node', PLAIN_ENV, NODEJS)],
-                { groups: [], pids: [], strangers: [301] },
-            ],
-            [
-                'an unmarked combined tsx src/index.ts in the nodejs dir is a stranger',
-                [proc(310, 310, `node ${NODEJS}/node_modules/.bin/tsx watch src/index.ts`, PLAIN_ENV)],
-                { groups: [], pids: [], strangers: [310] },
-            ],
-            [
-                'an unmarked CDP-mode process is a stranger',
-                [proc(311, 311, 'node tsx src/index.ts', modeEnv('cdp-processed-events'))],
-                { groups: [], pids: [], strangers: [311] },
-            ],
-            [
-                'an unmarked local-cdp process is a stranger',
-                [proc(315, 315, 'node tsx src/index.ts', modeEnv('local-cdp'))],
-                { groups: [], pids: [], strangers: [315] },
-            ],
-            [
-                'an unmarked CDP mode outside the scenario roles is a stranger',
-                [proc(316, 316, 'node tsx src/index.ts', modeEnv('cdp-cyclotron-worker'))],
-                { groups: [], pids: [], strangers: [316] },
-            ],
-            [
-                'an unmarked process whose capability groups include CDP is a stranger',
-                [proc(317, 317, 'node tsx src/index.ts', [...PLAIN_ENV, 'NODEJS_CAPABILITY_GROUPS=cdp_workflows'])],
-                { groups: [], pids: [], strangers: [317] },
-            ],
-            [
-                'an unmarked process that only runs the feature flags group is not a stranger',
-                [proc(318, 318, 'node tsx src/index.ts', [...PLAIN_ENV, 'NODEJS_CAPABILITY_GROUPS=feature_flags'])],
-                { groups: [], pids: [], strangers: [] },
-            ],
-            [
-                'an unmarked node that tsx re-execs with its loaders on src/index.ts is a stranger',
-                [
-                    proc(
-                        319,
-                        319,
-                        `/opt/node/bin/node --require ${REPO}/node_modules/tsx/dist/preflight.cjs --import file://${REPO}/node_modules/tsx/dist/loader.mjs src/index.ts`,
-                        PLAIN_ENV
-                    ),
-                ],
-                { groups: [], pids: [], strangers: [319] },
-            ],
-            [
-                'an unmarked tsx watcher launched through its pnpm shim is a stranger',
-                [proc(322, 322, `node ${NODEJS}/node_modules/.bin/../tsx/dist/cli.mjs watch src/index.ts`, PLAIN_ENV)],
-                { groups: [], pids: [], strangers: [322] },
-            ],
-            [
-                'an unmarked node whose options take separate values before the entry point is a stranger',
-                [
-                    proc(323, 323, 'node --title cdp dist/index.js', PLAIN_ENV),
-                    proc(324, 324, 'node --env-file ../.env dist/index.js', PLAIN_ENV),
-                    proc(325, 325, 'node --inspect-port 9230 --import tsx src/index.ts', PLAIN_ENV),
-                    proc(
-                        326,
-                        326,
-                        'node --max-old-space-size 4096 --redirect-warnings /tmp/cdp.log dist/index.js',
-                        PLAIN_ENV
-                    ),
-                    proc(327, 327, 'tsx --tsconfig tsconfig.json src/index.ts', PLAIN_ENV),
-                    proc(328, 328, 'tsx watch --include src src/index.ts', PLAIN_ENV),
-                    proc(329, 329, 'tsx watch --ignore **/*.test.ts src/index.ts', PLAIN_ENV),
-                    proc(330, 330, 'tsx watch --exclude src/generated.ts src/index.ts', PLAIN_ENV),
-                ],
-                { groups: [], pids: [], strangers: [323, 324, 325, 326, 327, 328, 329, 330] },
-            ],
-            [
-                'an unmarked node whose short options only resemble inline code is a stranger',
-                [
-                    proc(331, 331, 'node -rperf_hooks --import tsx src/index.ts', PLAIN_ENV),
-                    proc(332, 332, 'node -prof dist/index.js', PLAIN_ENV),
-                ],
-                { groups: [], pids: [], strangers: [331, 332] },
-            ],
-            [
-                'an editor open on the entry point in the nodejs dir is not a stranger',
-                [proc(350, 350, 'vim src/index.ts', PLAIN_ENV), proc(351, 351, 'less ../bin/posthog-node', PLAIN_ENV)],
-                { groups: [], pids: [], strangers: [] },
-            ],
-            [
-                'a shell command that only names the entry point is not a stranger',
-                [proc(352, 352, 'bash -c vim src/index.ts', PLAIN_ENV)],
-                { groups: [], pids: [], strangers: [] },
-            ],
-            [
-                'a node or tsx script or inline code that takes the entry point as an argument is not a stranger',
-                [
-                    proc(353, 353, 'node node_modules/typescript/bin/tsc src/index.ts', PLAIN_ENV),
-                    proc(
-                        354,
-                        354,
-                        `node ${NODEJS}/node_modules/.bin/tsx watch scripts/lint.ts src/index.ts`,
-                        PLAIN_ENV
-                    ),
-                    proc(355, 355, 'tsx scripts/lint.tsx src/index.ts', PLAIN_ENV),
-                    proc(356, 356, 'node -e require("fs").watch(process.argv[1],()=>{}) src/index.ts', PLAIN_ENV),
-                    proc(357, 357, 'node --print 1 src/index.ts', PLAIN_ENV),
-                    proc(359, 359, 'node --eval=require("fs").watch(process.argv[1],()=>{}) src/index.ts', PLAIN_ENV),
-                    proc(360, 360, 'node -pe process.argv[1] src/index.ts', PLAIN_ENV),
-                    proc(
-                        358,
-                        358,
-                        'node --max-old-space-size=4096 node_modules/typescript/bin/tsc src/index.ts',
-                        PLAIN_ENV
-                    ),
-                ],
-                { groups: [], pids: [], strangers: [] },
-            ],
-            [
-                "the workflows stack's push-api posthog-node is not a stranger",
-                [proc(312, 312, 'bash ./bin/posthog-node', modeEnv('push-api'), NODEJS)],
-                { groups: [], pids: [], strangers: [] },
-            ],
-            [
-                "the workflows stack's ingestion process is not a stranger",
-                [proc(313, 313, 'node tsx watch src/index.ts', modeEnv('ingestion-v2-combined'))],
-                { groups: [], pids: [], strangers: [] },
-            ],
-            [
-                "another project's tsx src/index.ts is not a stranger",
-                [proc(314, 314, 'node tsx src/index.ts', PLAIN_ENV, '/work/other-app')],
-                { groups: [], pids: [], strangers: [] },
-            ],
-            [
-                "another user's process on this checkout's entry point, whose cwd and environ are unreadable, is a stranger",
-                [proc(320, 320, `node ${NODEJS}/src/index.ts`, null, null)],
-                { groups: [], pids: [], strangers: [320] },
-            ],
-            [
-                "another user's process on a relative entry point, whose cwd and environ are unreadable, is ignored",
-                [proc(321, 321, 'node dist/index.js', null, null)],
-                { groups: [], pids: [], strangers: [] },
-            ],
-            [
                 'an unreadable environ on anything else is ignored',
-                [proc(330, 330, 'postgres: checkpointer', null, '/var/lib/postgresql')],
+                [proc(330, 330, 'postgres: checkpointer', null)],
                 { groups: [], pids: [], strangers: [] },
             ],
             [
@@ -322,31 +168,16 @@ describe('scenario environment', () => {
                 { groups: [], pids: [500], strangers: [] },
             ],
         ])('%s', (_name, entries, expected) => {
-            const plan = planCleanup([runner, ...entries], SELF, NODEJS, STATE_DIR)
+            const plan = planCleanup([runner, ...entries], SELF, STATE_DIR)
 
             expect({ ...plan, strangers: plan.strangers.map((entry) => entry.pid) }).toEqual(expected)
         })
 
         it('never targets the runner itself, even when it carries the marker', () => {
-            const plan = planCleanup(
-                [proc(SELF, SELF, 'node scenarios run smoke', MARKED_ENV)],
-                SELF,
-                NODEJS,
-                STATE_DIR
-            )
+            const plan = planCleanup([proc(SELF, SELF, 'node scenarios run smoke', MARKED_ENV)], SELF, STATE_DIR)
 
             expect(plan).toEqual({ groups: [], pids: [], strangers: [] })
         })
-    })
-
-    it('names the stop command for every stranger', async () => {
-        const error = await strangerConflict([
-            proc(41, 41, 'bash ./bin/posthog-node', PLAIN_ENV, REPO),
-            proc(42, 41, 'node src/index.ts', PLAIN_ENV),
-        ])
-
-        expect(error).toMatchObject({ exitCode: 2 })
-        expect(error.message).toContain('Run `kill 41 42`, then run the scenario again.')
     })
 
     describe('roleSpecs', () => {
@@ -759,7 +590,7 @@ describe('scenario environment', () => {
             await expect(holdRunLock(stateDir)).rejects.toThrow(`Scenario runner ${other.child.pid} is already running`)
         }, 20_000)
 
-        it('names the process that holds the state dir, not what it answers, when the answer is not a pid', async () => {
+        it('refuses a state dir whose holder does not answer with a pid, without repeating its answer', async () => {
             const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
             const impostor = net.createServer((socket) => socket.end('1; rm -rf ~'))
             await new Promise<void>((resolve) => impostor.listen(lockAddress(stateDir), resolve))
@@ -768,24 +599,11 @@ describe('scenario environment', () => {
 
                 expect(refusal).toMatchObject({ exitCode: 2 })
                 expect((refusal as Error).message).toBe(
-                    `Process ${process.pid} holds ${stateDir} but does not answer with a pid; it may be a suspended scenario runner (resume it with fg). Run \`kill -CONT ${process.pid}; kill ${process.pid}\`, then run the scenario again.`
+                    `Another scenario runner holds ${stateDir} and does not answer. Find what holds it with \`ss -xlp | grep posthog-scenarios\`, stop it, then run the scenario again.`
                 )
             } finally {
                 impostor.close()
             }
-        }, 20_000)
-
-        it('names a suspended runner that holds the state dir, and how to stop it', async () => {
-            const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
-            const other = await lockFromAnotherRunner(stateDir)
-            other.child.kill('SIGSTOP')
-
-            await expect(holdRunLock(stateDir)).rejects.toMatchObject({
-                exitCode: 2,
-                message: expect.stringContaining(
-                    `Process ${other.child.pid} holds ${stateDir} but does not answer with a pid; it may be a suspended scenario runner (resume it with fg). Run \`kill -CONT ${other.child.pid}; kill ${other.child.pid}\`, then run the scenario again.`
-                ),
-            })
         }, 20_000)
 
         it('frees the state dir for the next runner when released', async () => {
@@ -800,8 +618,8 @@ describe('scenario environment', () => {
             const rolesOf = (stateDir: string): ProcEntry[] => {
                 const environ = ['PATH=/usr/bin', `SCENARIO_RUNNER=${stateDir}`]
                 return [
-                    proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', environ, OTHER_CHECKOUT),
-                    proc(211, 210, 'node src/index.ts', environ, OTHER_CHECKOUT),
+                    proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', environ),
+                    proc(211, 210, 'node src/index.ts', environ),
                 ]
             }
             const listedRoles = '210 (sh node_modules/.bin/tsx src/index.ts), 211 (node src/index.ts)'
@@ -818,28 +636,14 @@ describe('scenario environment', () => {
                 )
             }, 20_000)
 
-            it('resumes a suspended runner before killing it and its roles', async () => {
-                const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
-                const other = await lockFromAnotherRunner(stateDir)
-                other.child.kill('SIGSTOP')
-
-                const error = await strangerConflict(rolesOf(stateDir))
-
-                expect(error.message).toBe(
-                    `Roles of scenario runner ${other.child.pid}, which uses ${stateDir} but does not answer with a pid and may be suspended, are running: ${listedRoles}. That runner restarts roles that are killed, so run \`kill -CONT ${other.child.pid}; kill ${other.child.pid} 210 211\`, then run the scenario again.`
-                )
-            }, 20_000)
-
             it('names the kill command for its roles once no runner holds its state dir', async () => {
                 const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
 
-                const error = await strangerConflict([
-                    ...rolesOf(stateDir),
-                    proc(41, 41, 'bash ./bin/posthog-node', PLAIN_ENV, REPO),
-                ])
+                const error = await strangerConflict(rolesOf(stateDir))
 
+                expect(error).toMatchObject({ exitCode: 2 })
                 expect(error.message).toBe(
-                    `CDP processes the scenario runner did not start are running: ${listedRoles}, 41 (bash ./bin/posthog-node). Use \`hogli down\` if hogli started them. Run \`kill 210 211 41\`, then run the scenario again.`
+                    `CDP processes the scenario runner did not start are running: ${listedRoles}. Run \`kill 210 211\`, then run the scenario again.`
                 )
             })
         })
@@ -881,7 +685,7 @@ describe('scenario environment', () => {
             const marked = await launch(roleEnv.env)
             const unmarked = await launch(plainEnv)
 
-            const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR, stateDir)
+            const plan = planCleanup(readProcs(), process.pid, stateDir)
             expect(plan.groups).toContain(marked.pid)
             expect([...plan.groups, ...plan.pids]).not.toContain(unmarked.pid)
 
@@ -1258,7 +1062,6 @@ describe('scenario environment', () => {
                 : {}
         let fakes = ''
         let cacheDir = ''
-        let stranger: ChildProcess | undefined
         let leftover: ChildProcess | undefined
         let environment: Environment | undefined
         let portHolder: http.Server | undefined
@@ -1461,7 +1264,6 @@ describe('scenario environment', () => {
             }
             neverAnswers = undefined
             jest.restoreAllMocks()
-            stranger?.kill('SIGKILL')
             leftover?.kill('SIGKILL')
             leftover = undefined
             if (cacheHome === undefined) {
@@ -2085,32 +1887,5 @@ describe('scenario environment', () => {
 
             await waitForExpect(() => expect(role.signalCode).toBe('SIGTERM'), 5_000)
         }, 30_000)
-
-        it('refuses a stranger again when retried after a refused up, instead of reporting itself as the holder', async () => {
-            const {
-                SCENARIO_RUNNER: _marker,
-                PLUGIN_SERVER_MODE: _mode,
-                NODEJS_CAPABILITY_GROUPS: _groups,
-                ...plainEnv
-            } = process.env
-            const hold = path.join(fakes, 'hold.cjs')
-            writeFileSync(hold, 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)')
-            stranger = spawn(process.execPath, ['--require', hold, 'src/index.ts'], {
-                cwd: NODEJS_DIR,
-                env: plainEnv,
-                stdio: 'ignore',
-            })
-            await once(stranger, 'spawn')
-            const environment = createEnvironment()
-            const refusal = {
-                exitCode: 2,
-                message: expect.stringMatching(
-                    new RegExp(`Run \`kill (\\d+ )*${stranger.pid}( \\d+)*\`, then run the scenario again\\.$`)
-                ),
-            }
-
-            await expect(environment.up()).rejects.toMatchObject(refusal)
-            await expect(environment.up()).rejects.toMatchObject(refusal)
-        }, 20_000)
     })
 })

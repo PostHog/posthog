@@ -276,7 +276,7 @@ export function createEnvironment({
 
     async function bringUp(): Promise<void> {
         const exitsBefore = supervisor.exits().length
-        const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR, stateDir)
+        const plan = planCleanup(readProcs(), process.pid, stateDir)
         if (plan.strangers.length > 0) {
             throw await strangerConflict(plan.strangers)
         }
