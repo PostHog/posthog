@@ -8,11 +8,12 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import DatabaseField, UUIDDatabaseField
+from posthog.hogql.database.raw_trino_view import VIEW_CTE_PREFIX, RawTrinoViewTable, raw_trino_view_body
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
-from posthog.hogql.errors import ImpossibleASTError
+from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.printer.postgres import PostgresPrinter
@@ -204,6 +205,7 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 
 
 _POSIX_CLASS_PATTERN = re.compile(r"\[:\^?[a-z]+:\]")
+_ANONYMOUS_COLUMN = re.compile(r"_col\d+")
 
 
 def _is_null_constant(expr: ast.Expr) -> bool:
@@ -284,8 +286,23 @@ class TrinoPrinter(PostgresPrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "trino"
     DIALECT_LABEL: ClassVar[str] = "Trino"
 
+    _visit_depth: int = 0
+    # View name to its CTE declaration head and body, in the order the query reads them.
+    _raw_view_ctes: dict[str, tuple[str, str]] | None = None
+    # View name to its CTE name, which is what a reference to the view prints as.
+    _raw_view_cte_names: dict[str, str] | None = None
+
     def visit(self, node: ast.AST | None) -> str:
-        sql = super().visit(node)
+        outermost = self._visit_depth == 0
+        self._visit_depth += 1
+        try:
+            sql = super().visit(node)
+        finally:
+            self._visit_depth -= 1
+        if outermost and self._raw_view_ctes:
+            if self.stack:
+                raise QueryError("Raw Trino views can only be read by a top-level query.")
+            sql = self._with_raw_view_ctes(sql)
         if len(sql) > MAX_TRINO_SQL_LENGTH:
             self._unsupported(
                 "TRINO_SQL_SIZE_LIMIT",
@@ -4390,6 +4407,8 @@ class TrinoPrinter(PostgresPrinter):
             return "UNNEST"
         if isinstance(table, TrinoUnnestTable):
             return table.to_printed_trino(self.context)
+        if isinstance(table, RawTrinoViewTable):
+            return self._print_raw_view(table)
         locator = resolve_trino_table_locator(table, self.context)
         if locator is not None:
             return ".".join(escape_trino_identifier(part) for part in locator)
@@ -4397,6 +4416,44 @@ class TrinoPrinter(PostgresPrinter):
             "TRINO_TABLE_LOCATOR_MISSING",
             f"Table '{table.name or table.__class__.__name__}' has no Trino physical locator.",
         )
+
+    def _print_raw_view(self, table: RawTrinoViewTable) -> str:
+        """Point the reference at a CTE that `visit` puts before the query's own CTEs.
+
+        A subquery in place would see the query's CTEs, so a CTE that shares a name with a table the view reads would
+        replace that table.
+        """
+        name = table.name or ""
+        if table.sql is None:
+            raise ExposedHogQLError(f"View '{name}' runs raw Trino SQL. Open it from the SQL editor while signed in.")
+        if self._raw_view_ctes is None or self._raw_view_cte_names is None:
+            self._raw_view_ctes = {}
+            self._raw_view_cte_names = {}
+        if name not in self._raw_view_ctes:
+            cte_name = f"{VIEW_CTE_PREFIX}{len(self._raw_view_ctes)}"
+            column_names = list(table.fields)
+            # Trino labels an unnamed column `_colN` in a result, but inside a CTE it stays anonymous.
+            # Declaring the stored names lets the query reach it. Other views keep Trino's own names.
+            if any(_ANONYMOUS_COLUMN.fullmatch(column) for column in column_names):
+                cte_name_head = f"{cte_name}({', '.join(escape_trino_identifier(column) for column in column_names)})"
+            else:
+                cte_name_head = cte_name
+            self._raw_view_ctes[name] = (cte_name_head, raw_trino_view_body(name, table.sql))
+            self._raw_view_cte_names[name] = cte_name
+        return self._raw_view_cte_names[name]
+
+    def _with_raw_view_ctes(self, sql: str) -> str:
+        """Put the views first in the statement's WITH. A Trino WITH member sees only the members before it."""
+        assert self._raw_view_ctes
+        ctes = ", ".join(f"{cte_head} AS (\n{body}\n)" for cte_head, body in self._raw_view_ctes.values())
+        with_clause = re.match(r"WITH(\s+RECURSIVE)?\s+", sql)
+        if with_clause is None:
+            return f"WITH {ctes}\n{sql}"
+        if with_clause.group(1):
+            raise ExposedHogQLError(
+                "A WITH RECURSIVE query cannot read a saved view. Copy the view's SQL into the query instead."
+            )
+        return f"{with_clause.group(0)}{ctes}, {sql[with_clause.end() :]}"
 
     def visit_lambda(self, node: ast.Lambda) -> str:
         identifiers = [self._print_identifier(arg) for arg in node.args]
@@ -4848,6 +4905,8 @@ class TrinoPrinter(PostgresPrinter):
         self._unsupported("TRINO_WITH_TIES_NOT_LOWERED", "WITH TIES must be lowered before Trino printing.")
 
     def visit_cte(self, node: ast.CTE) -> str:
+        if node.name.lower().startswith(VIEW_CTE_PREFIX):
+            raise ExposedHogQLError(f"CTE names starting with '{VIEW_CTE_PREFIX}' are reserved. Rename '{node.name}'.")
         if node.using_key is not None:
             self._unsupported(
                 "TRINO_CTE_MODIFIER_UNSUPPORTED",
