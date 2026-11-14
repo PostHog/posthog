@@ -89,6 +89,7 @@ jobs:
               with:
                   name: agent-tarball
                   path: ${{ runner.temp }}/posthog-agent-*.tgz*
+                  compression-level: 0
                   if-no-files-found: error
                   retention-days: 1
 
