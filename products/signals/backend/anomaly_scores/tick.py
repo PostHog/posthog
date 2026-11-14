@@ -78,6 +78,7 @@ from products.signals.backend.anomaly_scores.scoring import (
 from products.signals.backend.anomaly_scores.selection import parse_selection_config
 from products.signals.backend.anomaly_scores.spend import CpuSpendReport
 from products.signals.backend.anomaly_scores.state import invalidate_state, load_state, save_state
+from products.signals.backend.scout_harness.precheck import make_never_run_scout_due
 
 logger = structlog.get_logger(__name__)
 
@@ -116,6 +117,10 @@ TICK_BUDGET = datetime.timedelta(minutes=10)
 # A census key lives past its UTC day, so a tick at the end of the day still reads it.
 _CENSUS_TTL = datetime.timedelta(days=2)
 _FIRST_TRAIN_SENT_TTL = datetime.timedelta(days=30)
+ANOMALY_SCOUT_SKILL = "signals-scout-anomaly-detection"
+# The scores of a train reach ClickHouse through ingestion, so the anomaly scout pre-check waits this
+# long after the first train. A pre-check that runs before the scores land skips, and waits a whole interval.
+FIRST_TRAIN_SCOUT_SETTLE = datetime.timedelta(minutes=10)
 # The last batch can start at the budget, and the summary capture runs after it.
 TICK_TIMEOUT = _PLAN_TIMEOUT + TICK_BUDGET + _INSIGHT_TIMEOUT + _CAPTURE_TIMEOUT
 
@@ -411,7 +416,7 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     )
     record_pick(status=result.status, interval=interval, duration_ms=duration_ms, events=result.events, run=result.run)
     if pick.first_train and result.series and result.run != ScoringRun.SCORE:
-        capture_first_train(pick, now)
+        record_first_train(pick, now)
     capture_pick(
         pick,
         status=result.status,
@@ -463,9 +468,13 @@ def _first_train_key(team_id: int) -> str:
     return f"signals:anomaly_scoring:first_train:{team_id}"
 
 
-def capture_first_train(pick: InsightPick, now: datetime.datetime) -> None:
-    """One event per project, from its first trained daily model, with the time since the project was enrolled."""
-    # `add` sets the key only when it is missing, so two picks of one project in one tick send one event.
+def record_first_train(pick: InsightPick, now: datetime.datetime) -> None:
+    """Act once per project on its first trained daily model.
+
+    Make the project's anomaly scout due soon if it has never run, and send one event with the time
+    since the project was enrolled.
+    """
+    # `add` sets the key only when it is missing, so two picks of one project in one tick act once.
     if not cache.add(_first_train_key(pick.team_id), True, timeout=_FIRST_TRAIN_SENT_TTL.total_seconds()):
         return
     listed_at = first_listed_at(pick.team_id)
@@ -478,11 +487,22 @@ def capture_first_train(pick: InsightPick, now: datetime.datetime) -> None:
         if source_enabled_at is None
         else round((now - source_enabled_at).total_seconds()),
         "seconds_since_listed": None if listed_at is None else round((now - listed_at).total_seconds()),
+        "scout_made_due": _make_anomaly_scout_due(pick.team_id, now),
     }
     logger.info("anomaly_scoring_first_train", **properties)
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID, event="anomaly scoring first train", properties=properties
     )
+
+
+def _make_anomaly_scout_due(team_id: int, now: datetime.datetime) -> bool:
+    # The scores are already written, so a failure here must not fail the pick and score it again.
+    # The scout keeps its next scheduled pre-check.
+    try:
+        return make_never_run_scout_due(team_id, ANOMALY_SCOUT_SKILL, at=now + FIRST_TRAIN_SCOUT_SETTLE)
+    except Exception:
+        logger.warning("anomaly_scoring_first_train_scout_not_made_due", team_id=team_id, exc_info=True)
+        return False
 
 
 def _census_key(team_id: int, day: datetime.date) -> str:
