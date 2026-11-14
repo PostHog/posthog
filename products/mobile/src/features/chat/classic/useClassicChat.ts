@@ -11,6 +11,7 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { currentAiIdentity, useAiApproval } from '@/features/ai/aiApproval'
 import { conversationListKeys } from '@/features/chats/conversationKeys'
 import { sessionListKeys } from '@/features/chats/hooks'
+import { sleep } from '@/lib/sleep'
 
 import { toChatError } from '../chatErrors'
 import {
@@ -20,6 +21,26 @@ import {
     EMPTY_CLASSIC_STATE,
     reduceClassicEvent,
 } from './classicMessages'
+
+const RECOVERY_ATTEMPTS = 2
+const RECOVERY_DELAY_MS = 1000
+
+async function retryRecovery(work: () => Promise<void>, signal: AbortSignal, active: () => boolean): Promise<void> {
+    for (let attempt = 0; attempt < RECOVERY_ATTEMPTS && active(); attempt++) {
+        try {
+            await work()
+            return
+        } catch (failure) {
+            if (!active()) return
+            if (
+                attempt === RECOVERY_ATTEMPTS - 1 ||
+                (failure instanceof ApiError && [401, 403, 404].includes(failure.status))
+            )
+                throw failure
+            await sleep(RECOVERY_DELAY_MS, signal)
+        }
+    }
+}
 
 export function useClassicChat(
     initialId?: string,
@@ -77,6 +98,59 @@ export function useClassicChat(
             currentAiIdentity() === openedIdentity.current &&
             (appState.current === null || appState.current === 'active'),
         [approval.signal]
+    )
+
+    const recoverConversation = useCallback(
+        async (conversation: string, signal: AbortSignal, generation: number): Promise<void> => {
+            const active = (): boolean => generation === epoch.current && !signal.aborted && canConnect()
+            const publish = (saved: Awaited<ReturnType<typeof getConversation>>): ReturnType<typeof classicHistory> => {
+                const history = classicHistory(saved.messages, saved.title, saved.pending_approvals)
+                setId(conversation)
+                setState((previous) => ({
+                    ...history,
+                    error: previous.error,
+                }))
+                return history
+            }
+            await retryRecovery(
+                async () => {
+                    const saved = await getConversation(conversation, signal)
+                    if (!active()) return
+                    const history = publish(saved)
+                    if (
+                        saved.status !== 'in_progress' ||
+                        saved.pending_approvals.some((approval) => approval.decision_status === 'pending') ||
+                        history.form
+                    )
+                        return
+                    if (!(await approval.request()) || !active()) return
+                    setWorking(true)
+                    setLoading(false)
+                    const response = await requestWithDeadline(
+                        (signal) =>
+                            streamConversation(
+                                { conversation, content: null, trace_id: randomUUID(), is_sandbox: false },
+                                signal
+                            ),
+                        signal
+                    )
+                    if (!active()) return
+                    await readSse(
+                        response,
+                        (event) => {
+                            if (active()) setState((previous) => reduceClassicEvent(previous, event))
+                        },
+                        signal,
+                        60_000
+                    )
+                    const completed = await getConversation(conversation, signal)
+                    if (active()) publish(completed)
+                },
+                signal,
+                active
+            )
+        },
+        [approval.request, canConnect]
     )
 
     const stream = useCallback(
@@ -145,17 +219,10 @@ export function useClassicChat(
                 return true
             } catch (failure) {
                 if (active() && !abort.signal.aborted) {
-                    if (accepted) {
+                    if (accepted || (content === null && !resumePayload)) {
                         try {
-                            const saved = await getConversation(conversation, abort.signal)
-                            if (!active()) return true
-                            const history = classicHistory(saved.messages, saved.title, saved.pending_approvals)
-                            if (saved.status === 'idle' || history.approval || history.form) {
-                                setState((previous) => ({ ...history, error: previous.error }))
-                                setHistoryError(null)
-                            } else {
-                                setHistoryError('The reply was interrupted. Reconnect to load the latest messages.')
-                            }
+                            await recoverConversation(conversation, abort.signal, generation)
+                            if (active()) setHistoryError(null)
                         } catch {
                             if (active() && !abort.signal.aborted)
                                 setHistoryError('The reply was interrupted. Reconnect to load the latest messages.')
@@ -189,13 +256,14 @@ export function useClassicChat(
                 }
             }
         },
-        [client, scope, approval.request, canConnect]
+        [client, scope, approval.request, canConnect, recoverConversation]
     )
 
     const reload = useCallback(async (): Promise<void> => {
         const conversation = idRef.current
         if (!conversation || busy.current || reloadBusy.current || !canConnect()) return
         reloadBusy.current = true
+        busy.current = true
         const generation = epoch.current
         const abort = new AbortController()
         controller.current = abort
@@ -203,26 +271,19 @@ export function useClassicChat(
         setHistoryError(null)
         setError(null)
         try {
-            const saved = await getConversation(conversation, abort.signal)
-            if (generation !== epoch.current) return
-            setId(conversation)
-            const history = classicHistory(saved.messages, saved.title, saved.pending_approvals)
-            setState(history)
-            if (
-                saved.status === 'in_progress' &&
-                !saved.pending_approvals.some((approval) => approval.decision_status === 'pending') &&
-                !history.form
-            )
-                void stream(null)
+            await recoverConversation(conversation, abort.signal, generation)
         } catch (failure) {
             if (generation === epoch.current && !abort.signal.aborted) setHistoryError(toChatError(failure).message)
         } finally {
             if (generation === epoch.current) {
                 reloadBusy.current = false
+                busy.current = false
+                controller.current = null
                 setLoading(false)
+                setWorking(false)
             }
         }
-    }, [stream, canConnect])
+    }, [recoverConversation, canConnect])
 
     const stop = async (): Promise<void> => {
         if (!idRef.current || stopBusy.current) return

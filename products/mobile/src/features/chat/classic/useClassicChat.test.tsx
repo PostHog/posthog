@@ -132,12 +132,23 @@ describe('classic chat transport', () => {
     })
 
     test.each(['manual', 'foreground'] as const)('recovers a disconnected reply on %s', async (trigger) => {
+        jest.useFakeTimers()
         jest.mocked(readSse).mockRejectedValueOnce(new TypeError('Connection lost'))
-        jest.mocked(getConversation).mockRejectedValueOnce(new TypeError('Connection lost'))
+        jest.mocked(getConversation)
+            .mockRejectedValueOnce(new TypeError('Connection lost'))
+            .mockRejectedValueOnce(new TypeError('Connection lost'))
         const { result } = renderHook(() => useClassicChat(), { wrapper })
+        let sending!: Promise<boolean>
         await act(async () => {
-            expect(await result.current.send('Question')).toBe(true)
+            sending = result.current.send('Question')
         })
+        expect(result.current.historyError).toBeNull()
+        expect(getConversation).toHaveBeenCalledTimes(1)
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(await sending).toBe(true)
+        })
+        expect(getConversation).toHaveBeenCalledTimes(2)
         expect(result.current.historyError).toContain('Reconnect')
         await act(async () => {
             if (trigger === 'manual') await result.current.reload()
@@ -174,6 +185,101 @@ describe('classic chat transport', () => {
             >)
         )
         expect(result.current.state.title).toBe('A chat')
+    })
+
+    test.each([
+        ['history', true],
+        ['history', false],
+        ['reattach', true],
+        ['reattach', false],
+    ] as const)(
+        'keeps %s recovery silent until the second attempt settles (success: %s)',
+        async (boundary, succeeds) => {
+            jest.useFakeTimers()
+            const saved = {
+                id: 'saved-chat',
+                title: 'A chat',
+                status: 'idle',
+                messages: [{ id: 'reply', type: 'ai', content: 'Saved reply' }],
+                pending_approvals: [],
+            } as unknown as Awaited<ReturnType<typeof getConversation>>
+            const { result } = renderHook(() => useClassicChat(saved.id, saved), { wrapper })
+            let settle!: () => void
+            const pending = new Promise<never>((_resolve, reject) => {
+                settle = () => reject(new TypeError('Connection lost'))
+            })
+            if (boundary === 'history') {
+                jest.mocked(getConversation).mockRejectedValueOnce(new TypeError('Connection lost'))
+                if (succeeds) jest.mocked(getConversation).mockResolvedValueOnce(saved)
+                else jest.mocked(getConversation).mockReturnValueOnce(pending)
+            } else {
+                jest.mocked(getConversation).mockResolvedValue({ ...saved, status: 'in_progress' })
+                jest.mocked(streamConversation).mockRejectedValueOnce(new TypeError('Connection lost'))
+                if (!succeeds) jest.mocked(streamConversation).mockReturnValueOnce(pending)
+            }
+            await act(async () => {
+                changeAppState('background')
+                changeAppState('active')
+            })
+            expect(result.current.historyError).toBeNull()
+            expect(result.current.error).toBeNull()
+            expect(result.current.state.messages[0]?.data.content).toBe('Saved reply')
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(999)
+            })
+            expect(boundary === 'history' ? getConversation : streamConversation).toHaveBeenCalledTimes(1)
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(1)
+            })
+            expect(result.current.historyError).toBeNull()
+            expect(result.current.error).toBeNull()
+            if (!succeeds) {
+                await act(async () => settle())
+                expect(result.current.historyError).not.toBeNull()
+                expect(boundary === 'history' ? getConversation : streamConversation).toHaveBeenCalledTimes(2)
+            }
+            expect(result.current.working).toBe(false)
+            expect(result.current.loading).toBe(false)
+            expect(
+                jest
+                    .mocked(streamConversation)
+                    .mock.calls.every(([body]) => body.content === null && !body.resume_payload)
+            ).toBe(true)
+            expect(cancelConversation).not.toHaveBeenCalled()
+        }
+    )
+
+    test.each(['background', 'reset', 'unmount'] as const)(
+        'cancels a delayed recovery retry on %s',
+        async (transition) => {
+            jest.useFakeTimers()
+            jest.mocked(getConversation).mockRejectedValue(new TypeError('Offline'))
+            const { result, unmount } = renderHook(() => useClassicChat('saved-chat'), { wrapper })
+            await act(async () => undefined)
+            expect(getConversation).toHaveBeenCalledTimes(1)
+            await act(async () => {
+                if (transition === 'background') changeAppState('background')
+                else if (transition === 'reset') result.current.reset()
+                else unmount()
+            })
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(1000)
+            })
+            expect(getConversation).toHaveBeenCalledTimes(1)
+            expect(result.current.historyError).toBeNull()
+        }
+    )
+
+    test.each([401, 403, 404])('does not silently retry a %s history rejection', async (status) => {
+        jest.useFakeTimers()
+        jest.mocked(getConversation).mockRejectedValue(new ApiError(status, undefined))
+        const { result } = renderHook(() => useClassicChat('saved-chat'), { wrapper })
+        await act(async () => undefined)
+        expect(result.current.historyError).not.toBeNull()
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(1000)
+        })
+        expect(getConversation).toHaveBeenCalledTimes(1)
     })
 
     test.each(['reset', 'project', 'unmount'] as const)('does not reconnect a chat after %s', async (transition) => {
@@ -459,8 +565,14 @@ describe('classic chat transport', () => {
                 status,
                 pending_approvals: [],
             } as unknown as Awaited<ReturnType<typeof getConversation>>
-            if (status === 'unavailable') jest.mocked(getConversation).mockRejectedValueOnce(new TypeError('Offline'))
-            else jest.mocked(getConversation).mockResolvedValueOnce(saved)
+            if (status === 'unavailable')
+                jest.mocked(getConversation)
+                    .mockRejectedValueOnce(new TypeError('Offline'))
+                    .mockRejectedValueOnce(new TypeError('Offline'))
+            else
+                jest.mocked(getConversation)
+                    .mockResolvedValueOnce(saved)
+                    .mockResolvedValueOnce({ ...saved, status: 'idle' })
             const reader = {
                 read: () => new Promise(() => undefined),
                 cancel: jest.fn(async () => undefined),
@@ -477,12 +589,13 @@ describe('classic chat transport', () => {
             })
             await act(async () => {
                 await jest.advanceTimersByTimeAsync(60_000)
+                await jest.advanceTimersByTimeAsync(1000)
                 expect(await pending).toBe(true)
             })
             expect(result.current.working).toBe(false)
-            expect(streamConversation).toHaveBeenCalledTimes(1)
-            expect(getConversation).toHaveBeenCalledTimes(1)
-            if (status === 'idle') {
+            expect(streamConversation).toHaveBeenCalledTimes(status === 'in_progress' ? 2 : 1)
+            expect(getConversation).toHaveBeenCalledTimes(status === 'idle' ? 1 : 2)
+            if (status !== 'unavailable') {
                 expect(result.current.historyError).toBeNull()
                 expect(result.current.state.messages.at(-1)?.data.content).toBe('Saved reply')
             } else {
@@ -497,6 +610,7 @@ describe('classic chat transport', () => {
     test.each(['stream', 'history', 'snapshot'])(
         'exposes and resumes forms from %s without reconnecting or duplicating submissions',
         async (source) => {
+            jest.useFakeTimers()
             const form = {
                 id: 'form-call',
                 name: 'create_form',
@@ -529,8 +643,14 @@ describe('classic chat transport', () => {
                 jest.mocked(getConversation)
                     .mockRejectedValueOnce(new Error('Connection lost'))
                     .mockRejectedValueOnce(new Error('Connection lost'))
+                    .mockRejectedValueOnce(new Error('Connection lost'))
+                let sending!: Promise<boolean>
                 await act(async () => {
-                    await result.current.send('Question')
+                    sending = result.current.send('Question')
+                })
+                await act(async () => {
+                    await jest.advanceTimersByTimeAsync(1000)
+                    await sending
                 })
             } else {
                 expect(streamConversation).not.toHaveBeenCalled()
