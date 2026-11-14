@@ -90,6 +90,25 @@ function refuseCreationNearExpiry(
     }
 }
 
+const HALTED = new Set(['shutting-down', 'terminated', 'stopping', 'stopped'])
+
+async function hostStateOf({ aws }: Controller, stackName: string): Promise<string | undefined> {
+    const { StackResources } = (await aws.call([
+        'cloudformation',
+        'describe-stack-resources',
+        '--stack-name',
+        stackName,
+    ])) as { StackResources: { LogicalResourceId: string; PhysicalResourceId?: string }[] }
+    const id = StackResources.find(({ LogicalResourceId }) => LogicalResourceId === 'Host')?.PhysicalResourceId
+    if (!id) {
+        return undefined
+    }
+    const { Reservations } = (await aws.call(['ec2', 'describe-instances', '--instance-ids', id])) as {
+        Reservations: { Instances: { State: { Name: string } }[] }[]
+    }
+    return Reservations[0]?.Instances[0]?.State.Name
+}
+
 async function waitForHost(
     controller: Controller,
     profile: CloudProfile,
@@ -108,6 +127,12 @@ async function waitForHost(
         }
         if (markers.includes(keyOf(manifest.runId, 'host/ready'))) {
             return
+        }
+        const state = await hostStateOf(controller, manifest.stackName)
+        if (state && HALTED.has(state)) {
+            throw new Error(
+                `The run host is ${state} before it reported ready or failed, so a step before its failure reporting failed.`
+            )
         }
         if (controller.now().getTime() >= deadline) {
             throw new Error(

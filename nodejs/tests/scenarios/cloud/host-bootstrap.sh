@@ -98,6 +98,7 @@ check_ready() {
     aws sts get-caller-identity >/dev/null
 }
 
+trap poweroff ERR
 install_packages_and_aws_cli
 trap report_failure ERR
 verify_inputs
