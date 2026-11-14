@@ -105,6 +105,7 @@ export interface messageTemplateLogicValues {
             sensitive?: boolean | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
+            type?: string | undefined
             updated_at: string | null
         },
         ValidationErrorType
@@ -130,6 +131,7 @@ export interface messageTemplateLogicValues {
             sensitive?: boolean | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
+            type?: string | undefined
             updated_at: string | null
         },
         ValidationErrorType
@@ -217,6 +219,7 @@ export interface messageTemplateLogicActions {
         sensitive?: boolean | undefined
         tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
+        type?: string | undefined
         updated_at: string | null
     }) => {
         values?: {
@@ -233,6 +236,7 @@ export interface messageTemplateLogicActions {
             sensitive?: boolean | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
+            type?: string | undefined
             updated_at: string | null
         }
     }
@@ -332,6 +336,7 @@ export interface messageTemplateLogicActions {
             sensitive?: boolean | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
+            type?: string | undefined
             updated_at: string | null
         }>
     ) => {
@@ -349,6 +354,7 @@ export interface messageTemplateLogicActions {
             sensitive?: boolean | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
+            type?: string | undefined
             updated_at: string | null
         }>
     }
@@ -379,6 +385,7 @@ export interface messageTemplateLogicActions {
         sensitive?: boolean | undefined
         tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
+        type?: string | undefined
         updated_at: string | null
     }) => {
         template: {
@@ -395,6 +402,7 @@ export interface messageTemplateLogicActions {
             sensitive?: boolean | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
+            type?: string | undefined
             updated_at: string | null
         }
     }
@@ -412,6 +420,7 @@ export interface messageTemplateLogicActions {
         sensitive?: boolean | undefined
         tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
+        type?: string | undefined
         updated_at: string | null
     }) => {
         template: {
@@ -428,6 +437,7 @@ export interface messageTemplateLogicActions {
             sensitive?: boolean | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
+            type?: string | undefined
             updated_at: string | null
         }
     }
