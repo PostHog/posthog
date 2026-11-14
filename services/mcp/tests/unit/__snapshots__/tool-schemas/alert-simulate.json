@@ -2273,75 +2273,97 @@
                 },
                 {
                     "properties": {
-                        "absolute_threshold": {
+                        "above": {
                             "anyOf": [
                                 {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Absolute mode: distance from the expected value, in the series' units"
-                        },
-                        "band": {
-                            "anyOf": [
-                                {
-                                    "anyOf": [
-                                        {
-                                            "const": 0.8,
-                                            "type": "number"
+                                    "properties": {
+                                        "min_absolute_change": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "The value is at least this far from the expected value, in the series' units"
                                         },
-                                        {
-                                            "const": 0.9,
-                                            "type": "number"
+                                        "min_relative_change": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "The value is at least this fraction away from the expected value. 1 = 100%"
                                         },
-                                        {
-                                            "const": 0.98,
-                                            "type": "number"
+                                        "quantile": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05."
                                         }
-                                    ]
+                                    },
+                                    "type": "object"
                                 },
                                 {
                                     "type": "null"
                                 }
                             ],
-                            "description": "Forecast interval for band mode, and the range shown in every mode (default: 0.9)"
+                            "description": "Rule for a value higher than expected. Omit to ignore that side."
                         },
-                        "direction": {
+                        "below": {
                             "anyOf": [
                                 {
-                                    "enum": ["above", "below", "both"],
-                                    "type": "string"
+                                    "properties": {
+                                        "min_absolute_change": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "The value is at least this far from the expected value, in the series' units"
+                                        },
+                                        "min_relative_change": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "The value is at least this fraction away from the expected value. 1 = 100%"
+                                        },
+                                        "quantile": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05."
+                                        }
+                                    },
+                                    "type": "object"
                                 },
                                 {
                                     "type": "null"
                                 }
                             ],
-                            "description": "Which side of the forecast can fire (default: both)"
-                        },
-                        "mode": {
-                            "anyOf": [
-                                {
-                                    "enum": ["band", "relative", "absolute"],
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "How the actual value is compared with the forecast (default: band)"
-                        },
-                        "relative_threshold": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Relative mode: fraction of the expected value. 1 = 100% away from expected"
+                            "description": "Rule for a value lower than expected. Omit to ignore that side."
                         },
                         "type": {
                             "default": "forecast",

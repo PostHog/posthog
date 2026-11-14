@@ -31805,33 +31805,17 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
-        "ForecastDetectorBand": {
-            "enum": [0.8, 0.9, 0.98],
-            "type": "number"
-        },
         "ForecastDetectorConfig": {
             "additionalProperties": false,
-            "description": "Forecasts the next point from the points before it, then compares the actual value with the forecast. Carries no preprocessing block: the forecast reads the series as it is.",
+            "description": "Forecasts the next point from the points before it, then compares the actual value with the forecast. Carries no preprocessing block: the forecast reads the series as it is. With neither side set, it fires outside the 0.05 to 0.95 forecast range on either side.",
             "properties": {
-                "absolute_threshold": {
-                    "description": "Absolute mode: distance from the expected value, in the series' units",
-                    "type": "number"
+                "above": {
+                    "$ref": "#/definitions/ForecastSideRule",
+                    "description": "Rule for a value higher than expected. Omit to ignore that side."
                 },
-                "band": {
-                    "$ref": "#/definitions/ForecastDetectorBand",
-                    "description": "Forecast interval for band mode, and the range shown in every mode (default: 0.9)"
-                },
-                "direction": {
-                    "$ref": "#/definitions/ForecastDetectorDirection",
-                    "description": "Which side of the forecast can fire (default: both)"
-                },
-                "mode": {
-                    "$ref": "#/definitions/ForecastDetectorMode",
-                    "description": "How the actual value is compared with the forecast (default: band)"
-                },
-                "relative_threshold": {
-                    "description": "Relative mode: fraction of the expected value. 1 = 100% away from expected",
-                    "type": "number"
+                "below": {
+                    "$ref": "#/definitions/ForecastSideRule",
+                    "description": "Rule for a value lower than expected. Omit to ignore that side."
                 },
                 "type": {
                     "const": "forecast",
@@ -31841,13 +31825,24 @@
             "required": ["type"],
             "type": "object"
         },
-        "ForecastDetectorDirection": {
-            "enum": ["above", "below", "both"],
-            "type": "string"
-        },
-        "ForecastDetectorMode": {
-            "enum": ["band", "relative", "absolute"],
-            "type": "string"
+        "ForecastSideRule": {
+            "additionalProperties": false,
+            "description": "One side of a forecast detector. The side fires when every condition it sets is true.",
+            "properties": {
+                "min_absolute_change": {
+                    "description": "The value is at least this far from the expected value, in the series' units",
+                    "type": "number"
+                },
+                "min_relative_change": {
+                    "description": "The value is at least this fraction away from the expected value. 1 = 100%",
+                    "type": "number"
+                },
+                "quantile": {
+                    "description": "The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.",
+                    "type": "number"
+                }
+            },
+            "type": "object"
         },
         "FormDismissPayload": {
             "additionalProperties": false,
