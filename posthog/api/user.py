@@ -959,7 +959,11 @@ class UserSerializer(serializers.ModelSerializer):
         # Clients such as the setup agent take `team` as the project to work in. A credential that reaches
         # one project names that project without doubt. With several, any pick could send a client's
         # writes to a project the user did not choose, so `team` stays null.
-        if current_team_outside_reach and (sole_team := self._sole_reachable_team(instance, request)) is not None:
+        if (
+            current_team_outside_reach
+            and request is not None
+            and (sole_team := self._sole_reachable_team(instance, request)) is not None
+        ):
             data["team"] = TeamBasicSerializer(sole_team, context=self.context).data
             data["organization"] = OrganizationSerializer(sole_team.organization, context=self.context).data
         scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
