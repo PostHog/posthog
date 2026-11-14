@@ -1,6 +1,6 @@
 import './TodayShell.scss'
 
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { ComponentType, Suspense, useEffect, useRef } from 'react'
 
 import { Skeleton, ToastProvider } from '@posthog/quill'
@@ -20,6 +20,7 @@ import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
+import { todayRecentsLogic } from './todayRecentsLogic'
 import {
     TODAY_RAIL_WIDTH,
     TODAY_SIDEBAR_CLOSE_THRESHOLD,
@@ -75,6 +76,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
+    useMountedLogic(todayRecentsLogic)
     useShortcut({
         name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],

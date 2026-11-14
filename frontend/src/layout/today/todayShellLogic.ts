@@ -22,7 +22,6 @@ import { FileSystemImport } from '~/queries/schema/schema-general'
 import { isErrorTrackingIssuePath, monitorProductForPath } from './todayMonitor'
 import { isTodayPaneEnabled } from './todayPaneFlags'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
-import { todayRecentsLogic } from './todayRecentsLogic'
 
 export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'monitor' | 'people' | 'release' | 'products' | 'settings'
 
@@ -428,7 +427,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
             ['mobileLayout'],
         ],
         actions: [router, ['locationChanged']],
-        logic: [todayRecentsLogic],
     })),
     actions({
         rememberSceneUrl: (location: { pathname: string; search: string; hash: string }) => ({ location }),
