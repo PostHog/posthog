@@ -20,7 +20,7 @@ const insight = (id: number, name: string): RelatedInsight => ({
 })
 
 const input = (extra: Partial<RankInput>): RankInput => ({
-    name: 'Quiet theme',
+    tokens: ['quiet', 'theme'],
     flags: [{ id: 7, key: 'quiet-theme' }],
     linkedSurveyIds: new Set(),
     linkedInsightIds: new Set(),
@@ -57,7 +57,12 @@ describe('releaseRelated', () => {
                     survey('old', 'Archived', { archived: true }),
                 ],
                 flagInsights: [insight(1, 'Adoption')],
-                nameSurveys: [survey('theme', 'Theme check'), survey('flagged', 'Exit poll')],
+                nameSurveys: [
+                    survey('theme', 'Theme check'),
+                    survey('flagged', 'Quiet theme exit poll'),
+                    survey('linked', 'Quiet theme notes'),
+                    survey('retired', 'Quiet theme pulse', { archived: true }),
+                ],
                 nameInsights: [insight(2, 'Quiet theme retention'), insight(3, 'Unrelated')],
             })
         )

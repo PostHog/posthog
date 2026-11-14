@@ -91,7 +91,7 @@ function TrackLabelCell({ row: lane }: CellContext<Lane, unknown>): JSX.Element 
         <ReleaseTrackLabel
             lane={lane.original}
             style={{ width: labelWidth - 24 }}
-            detailed
+            variant="detailed"
             actions={
                 lane.original.kind === 'flag' ? <ReleaseFlagActions row={row} flag={lane.original.flag} /> : undefined
             }
@@ -107,7 +107,7 @@ function TrackLaneCell({ row: lane }: CellContext<Lane, unknown>): JSX.Element {
             {stacked && (
                 <ReleaseTrackLabel
                     lane={lane.original}
-                    inline
+                    variant="inline"
                     className="sticky left-0 z-10 w-fit rounded-br-md bg-card py-0.5 pr-2 pl-3 mt-1.5"
                     style={{ maxWidth: width - 1 }}
                     actions={
@@ -163,8 +163,8 @@ function trackColumns(labelWidth: number, stacked: boolean): ColumnDef<Lane>[] {
 export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | null {
     const { failedFlagIds } = useValues(releaseCalendarLogic)
     const { loadFlagActivity } = useActions(releaseCalendarLogic)
-    const { ref, width = 0 } = useResizeObserver<HTMLDivElement>()
     const [container, setContainer] = useState<HTMLDivElement | null>(null)
+    const { width = 0 } = useResizeObserver<HTMLDivElement>({ ref: container })
     useRefreshChangedFlagHistory(row.flags)
 
     const stepsByFlag = useRolloutStepsByFlag(TRACK_MAX_FUTURE_DAYS)
@@ -180,7 +180,7 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
     const scale = useMemo(() => trackScale(track, width, labelWidth), [track, width, labelWidth])
     const measuredOffset = useStickyColumnWidth(stacked ? null : container, labelWidth)
     const stickyOffset = stacked ? 0 : measuredOffset
-    useScrollToToday(container, scale, stickyOffset, width > 0 && track.lanes.length > 0)
+    useScrollToToday(container, scale, !stacked, width > 0 && track.lanes.length > 0)
     const color = STAGE_COLOR[row.stage]
     const warnings = row.audiences.flatMap((audience) => {
         const warning = emptyVariantWarning(row, audience)
@@ -236,10 +236,7 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
                 </div>
             )}
             <div
-                ref={(node) => {
-                    ref(node)
-                    setContainer(node)
-                }}
+                ref={setContainer}
                 className="overflow-hidden border-t border-border [--quill-table-sticky-bg:var(--card)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0"
             >
                 {width > 0 && (

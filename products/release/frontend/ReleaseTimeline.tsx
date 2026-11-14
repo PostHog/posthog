@@ -262,11 +262,11 @@ export function ReleaseTimeline(): JSX.Element {
     const { visible, sentinel } = useInfiniteRows(filteredRows.length)
     const rows = useMemo(() => filteredRows.slice(0, visible), [filteredRows, visible])
     const lastRowId = visible < filteredRows.length ? rows[rows.length - 1]?.id : undefined
-    const { ref, width = 0 } = useResizeObserver<HTMLDivElement>()
     const [container, setContainer] = useState<HTMLDivElement | null>(null)
+    const { width = 0 } = useResizeObserver<HTMLDivElement>({ ref: container })
     const nameWidth = width > 0 && width < NARROW_WIDTH ? NAME_NARROW : NAME
     const stickyOffset = useStickyColumnWidth(container, nameWidth)
-    useScrollToToday(container, CALENDAR_SCALE(), stickyOffset, width > 0 && rows.length > 0)
+    useScrollToToday(container, CALENDAR_SCALE(), true, width > 0 && rows.length > 0)
     const columns = useMemo(() => calendarColumns(nameWidth), [nameWidth])
 
     const state = useMemo(
@@ -285,10 +285,7 @@ export function ReleaseTimeline(): JSX.Element {
 
     return (
         <div
-            ref={(node) => {
-                ref(node)
-                setContainer(node)
-            }}
+            ref={setContainer}
             className={`overflow-hidden rounded-lg border border-border bg-background ${STAGE_COLOR_VARS} [--quill-table-sticky-bg:var(--background)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0`}
             data-attr="release-timeline"
         >

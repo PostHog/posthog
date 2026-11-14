@@ -32,6 +32,22 @@ export const scene: SceneExport = {
     logic: releaseLogic,
 }
 
+function ReleaseNameLink({ row }: { row: ReleaseRow }): JSX.Element {
+    return (
+        <Button
+            variant="link-foreground"
+            size="sm"
+            nativeButton={false}
+            left
+            render={<LinkPrimitive to={urls.release(row.id)} />}
+            className="min-w-0 max-w-full"
+            data-attr="release-table-name"
+        >
+            <span className="truncate">{row.name}</span>
+        </Button>
+    )
+}
+
 const COLUMNS: ColumnDef<ReleaseRow>[] = [
     {
         id: 'name',
@@ -41,17 +57,7 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
         meta: { expand: true },
         cell: ({ row }) => (
             <div className="flex min-w-0 flex-col items-start">
-                <Button
-                    variant="link-foreground"
-                    size="sm"
-                    nativeButton={false}
-                    left
-                    render={<LinkPrimitive to={urls.release(row.original.id)} />}
-                    className="min-w-0 max-w-full"
-                    data-attr="release-table-name"
-                >
-                    <span className="truncate">{row.original.name}</span>
-                </Button>
+                <ReleaseNameLink row={row.original} />
                 <Text size="xs" variant="muted" className="px-2">
                     {row.original.status}
                 </Text>
@@ -162,17 +168,7 @@ function narrowColumns(width: number): ColumnDef<ReleaseRow>[] {
             cell: ({ row }) => (
                 <div className="flex min-w-0 items-center gap-3" style={{ width: width - 26 }}>
                     <div className="flex min-w-0 flex-1 flex-col items-start">
-                        <Button
-                            variant="link-foreground"
-                            size="sm"
-                            nativeButton={false}
-                            left
-                            render={<LinkPrimitive to={urls.release(row.original.id)} />}
-                            className="min-w-0 max-w-full"
-                            data-attr="release-table-name"
-                        >
-                            <span className="truncate">{row.original.name}</span>
-                        </Button>
+                        <ReleaseNameLink row={row.original} />
                         <Text size="xs" variant="muted" className="w-full truncate px-2">
                             {row.original.audience
                                 ? `${row.original.status} · ${row.original.audience}`
@@ -191,7 +187,8 @@ function narrowColumns(width: number): ColumnDef<ReleaseRow>[] {
 function ReleaseListContent(): JSX.Element {
     const { filteredRows, dataLoading, loadFailed, releases } = useValues(releaseLogic)
     const { showAutoImport } = useValues(releaseImportLogic)
-    const { ref, width = 0 } = useResizeObserver<HTMLDivElement>()
+    const [container, setContainer] = useState<HTMLDivElement | null>(null)
+    const { width = 0 } = useResizeObserver<HTMLDivElement>({ ref: container })
     const narrow = width > 0 && width < NARROW_WIDTH
     const columns = useMemo(() => (narrow ? narrowColumns(width) : COLUMNS), [narrow, width])
     const [sorting, setSorting] = useState<SortingState>([])
@@ -211,7 +208,7 @@ function ReleaseListContent(): JSX.Element {
                     </div>
                 }
             />
-            <div data-quill className="flex flex-col gap-3" ref={ref}>
+            <div data-quill className="flex flex-col gap-3" ref={setContainer}>
                 {!showAutoImport && <ReleaseFilters />}
                 <ReleasePartialLoadWarning />
                 <ReleaseImportFailedNotice />

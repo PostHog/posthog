@@ -23,13 +23,11 @@ import {
     fromLinkedSurvey,
     flagKeysPattern,
     rankRelatedSuggestions,
-    toInsightRow,
+    fromInsightRow,
     toSurvey,
 } from './releaseRelated'
 import { TrackRelated, relatedFor } from './releaseTracks'
 import { ReleaseRow, nameTokens } from './releaseUtils'
-
-export type { RelatedInsight, RelatedKind, RelatedSuggestion, RelatedSurvey } from './releaseRelated'
 
 export interface RelatedSuggestions {
     releaseId: string
@@ -107,7 +105,7 @@ async function searchInsights(projectId: string, search: string, limit: number):
 
 async function queryInsights(query: ReturnType<typeof hogql>): Promise<RelatedInsight[]> {
     const response = await api.queryHogQL(query, { scene: 'Releases', productKey: 'feature_flags' })
-    return (response.results ?? []).map(toInsightRow)
+    return (response.results ?? []).map(fromInsightRow)
 }
 
 export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
@@ -197,7 +195,7 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     ])
                     breakpoint()
                     const items = rankRelatedSuggestions({
-                        name: row.name,
+                        tokens,
                         flags: row.flags,
                         linkedSurveyIds: linkedSurveys,
                         linkedInsightIds: linkedInsights,

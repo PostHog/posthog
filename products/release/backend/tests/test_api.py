@@ -219,6 +219,11 @@ class TestReleaseAPI(APIBaseTest):
         field = f"{kind}_ids"
         visible_id, _ = self._linked_object(kind, "Visible")
         hidden_id, hidden_path = self._linked_object(kind, "Hidden")
+        detail = self.client.get(f"/api/projects/{self.team.id}/{kind}s/{visible_id}/").json()
+        summary_fields = {
+            "survey": ("name", "created_at", "start_date", "end_date", "linked_flag_id", "archived"),
+            "insight": ("short_id", "name", "created_at", "last_modified_at", "deleted"),
+        }[kind]
         release_id = self.client.post(
             self._url(), {"name": "Dark mode", field: [visible_id, hidden_id]}, format="json"
         ).json()["id"]
@@ -235,7 +240,7 @@ class TestReleaseAPI(APIBaseTest):
         stored = getattr(Release.objects.unscoped().get(id=release_id), field)
 
         assert member_view[field] == [visible_id]
-        assert [item["id"] for item in member_view[f"{kind}s"]] == [visible_id]
+        assert member_view[f"{kind}s"] == [{"id": visible_id, **{key: detail[key] for key in summary_fields}}]
         assert guessed_linked.status_code == guessed_unknown.status_code == status.HTTP_400_BAD_REQUEST
         assert field in guessed_unknown.json()["attr"]
         assert [str(item) for item in stored] == [str(hidden_id)]

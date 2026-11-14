@@ -91,6 +91,39 @@ describe('releaseLogic', () => {
 
     it.each([
         [
+            'names the release page after the release',
+            urls.release('r1'),
+            [{ key: ['Release', 'r1'], name: 'Quiet theme' }],
+        ],
+        ['names the list page', urls.releaseList(), [{ key: 'Releases', name: 'Releases' }]],
+        ['names the calendar page', urls.releases(), [{ key: 'ReleaseCalendar', name: 'Release calendar' }]],
+    ])('%s', async (_name, url, expected) => {
+        mockedReleasesList.mockResolvedValue({
+            results: [
+                {
+                    id: 'r1',
+                    name: 'Quiet theme',
+                    feature_flag_ids: [],
+                    broadcast_ids: [],
+                    broadcasts: [],
+                    has_hidden_flags: false,
+                    created_at: '2026-11-01T00:00:00Z',
+                },
+            ],
+            count: 1,
+            next: null,
+        } as never)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
+        router.actions.push(url)
+        const logic = releaseLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.breadcrumbs).toEqual(expected)
+    })
+
+    it.each([
+        [
             'links the broadcasts the viewer started and keeps the linked ones',
             [
                 ['b1', 1],

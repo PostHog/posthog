@@ -18,7 +18,8 @@ import {
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { linkSuggestionsKey, releaseLogic } from './releaseLogic'
-import { RelatedKind, releaseRelatedLogic } from './releaseRelatedLogic'
+import type { RelatedKind } from './releaseRelated'
+import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { linkedKeys } from './releaseTracks'
 import { LinkCandidate, ReleaseRow } from './releaseUtils'
 

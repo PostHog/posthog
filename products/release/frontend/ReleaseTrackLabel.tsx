@@ -35,27 +35,30 @@ export function ReleaseTrackLabel({
     lane,
     className,
     style,
-    detailed,
-    inline,
+    variant = 'compact',
     actions,
 }: {
     lane: Lane
     className?: string
     style?: CSSProperties
-    detailed?: boolean
-    inline?: boolean
+    variant?: 'compact' | 'detailed' | 'inline'
     actions?: JSX.Element
 }): JSX.Element {
-    const detail = detailed || inline ? laneDetail(lane) : ''
+    const detail = variant === 'compact' ? '' : laneDetail(lane)
     return (
         <div
             className={cn('flex items-center gap-2', className)}
-            style={{ ...style, height: inline ? undefined : laneHeight(detailed) }}
+            style={{ ...style, height: variant === 'inline' ? undefined : laneHeight(variant === 'detailed') }}
         >
             <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
                 {iconForType(LANE_ICON[lane.kind] as never)}
             </span>
-            <span className={cn('flex min-w-0 flex-1', inline ? 'items-baseline gap-1.5' : 'flex-col gap-0.5')}>
+            <span
+                className={cn(
+                    'flex min-w-0 flex-1',
+                    variant === 'inline' ? 'items-baseline gap-1.5' : 'flex-col gap-0.5'
+                )}
+            >
                 <LinkPrimitive
                     to={lane.href}
                     title={lane.title}
@@ -69,7 +72,7 @@ export function ReleaseTrackLabel({
                     </Text>
                 )}
             </span>
-            {!detailed && !inline && !lane.live && (
+            {variant === 'compact' && !lane.live && (
                 <Text size="xs" variant="muted" className="shrink-0">
                     {statusLabel(lane.status)}
                 </Text>

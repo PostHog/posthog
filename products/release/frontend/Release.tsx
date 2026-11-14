@@ -57,16 +57,16 @@ function ReleaseSkeleton({ suggestions }: { suggestions: boolean }): JSX.Element
                     <Skeleton className="h-5 w-72" />
                 </div>
             )}
-            <div className="flex flex-col gap-4 @4xl:grid @4xl:grid-cols-3 @4xl:items-start">
-                <div className="contents @4xl:col-span-2 @4xl:flex @4xl:flex-col @4xl:gap-4">
-                    <Skeleton className="order-1 h-100 w-full @4xl:order-none @4xl:h-76" />
-                    <Skeleton className="order-3 h-56 w-full @4xl:order-none @4xl:h-52" />
-                    <Skeleton className="order-5 h-60 w-full @4xl:order-none" />
+            <div className="grid items-start gap-4 @4xl:grid-cols-3">
+                <div className="flex min-w-0 flex-col gap-4 @4xl:col-span-2">
+                    <Skeleton className="h-100 w-full @4xl:h-76" />
+                    <Skeleton className="h-56 w-full @4xl:h-52" />
+                    <Skeleton className="h-60 w-full" />
                 </div>
-                <div className="contents @4xl:flex @4xl:flex-col @4xl:gap-4">
-                    <Skeleton className="order-6 h-20 w-full @4xl:order-none" />
-                    <Skeleton className="order-2 h-60 w-full @4xl:order-none @4xl:h-44" />
-                    {suggestions && <Skeleton className="order-4 h-40 w-full @4xl:order-none" />}
+                <div className="flex min-w-0 flex-col gap-4">
+                    <Skeleton className="h-20 w-full" />
+                    <Skeleton className="h-60 w-full @4xl:h-44" />
+                    {suggestions && <Skeleton className="h-40 w-full" />}
                 </div>
             </div>
         </div>
@@ -136,28 +136,16 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
             />
             <div data-quill className={`@container flex flex-col gap-4 pb-8 ${STAGE_COLOR_VARS}`}>
                 <ReleasePartialLoadWarning />
-                <div className="flex flex-col gap-4 @4xl:grid @4xl:grid-cols-3 @4xl:items-start">
-                    <div className="contents @4xl:col-span-2 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
-                        <div className="order-1 min-w-0 @4xl:order-none">
-                            <ReleaseStatusCard row={row} />
-                        </div>
-                        <div className="order-3 min-w-0 @4xl:order-none">
-                            <ReleaseTrackCard row={row} />
-                        </div>
-                        <div className="order-5 min-w-0 @4xl:order-none">
-                            <ReleaseHistory row={row} />
-                        </div>
+                <div className="grid items-start gap-4 @4xl:grid-cols-3">
+                    <div className="flex min-w-0 flex-col gap-4 @4xl:col-span-2">
+                        <ReleaseStatusCard row={row} />
+                        <ReleaseTrackCard row={row} />
+                        <ReleaseHistory row={row} />
                     </div>
-                    <div className="contents @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
-                        <div className="order-6 min-w-0 empty:hidden @4xl:order-none">
-                            <ReleaseDetailsCard row={row} />
-                        </div>
-                        <div className="order-2 min-w-0 @4xl:order-none">
-                            <ReleaseLinkedCard row={row} />
-                        </div>
-                        <div className="order-4 min-w-0 empty:hidden @4xl:order-none">
-                            <ReleaseSuggestedCard row={row} />
-                        </div>
+                    <div className="flex min-w-0 flex-col gap-4">
+                        <ReleaseDetailsCard row={row} />
+                        <ReleaseLinkedCard row={row} />
+                        <ReleaseSuggestedCard row={row} />
                     </div>
                 </div>
                 <ReleaseScheduleDialog />

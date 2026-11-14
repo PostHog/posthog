@@ -54,7 +54,17 @@ const RELEASE = {
     broadcast_ids: [],
     broadcasts: [],
     survey_ids: ['s1'],
-    surveys: [],
+    surveys: [
+        {
+            id: 's1',
+            name: 'Quiet theme feedback',
+            created_at: '2026-11-02T00:00:00Z',
+            start_date: '2026-11-03T00:00:00Z',
+            end_date: null,
+            linked_flag_id: null,
+            archived: false,
+        },
+    ],
     insight_ids: [4],
     insights: [],
     has_hidden_flags: false,
@@ -91,6 +101,10 @@ describe('releaseRelatedLogic', () => {
         await expectLogic(releaseLogic).toFinishAllListeners()
 
         expect(mockedPartialUpdate).toHaveBeenCalledWith(expect.any(String), 'r1', payload)
+    })
+
+    it('passes the linked survey summaries from the release to the calendar', () => {
+        expect(logic.values.relatedByRelease['r1'].surveys.map((survey) => survey.id)).toEqual(['s1'])
     })
 
     it('creates one survey when New survey is clicked twice', async () => {

@@ -3,7 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import type { ReleaseDTOApi } from './generated/api.schemas'
 import { RelatedSurvey } from './releaseRelated'
 import { RolloutStep } from './releaseRollout'
-import { Scale, buildTrack, mergeOverlapping, rolloutSegments, surveyStatus } from './releaseTracks'
+import { Scale, buildTrack, mergeOverlapping, rolloutSegments, surveyStatus, todayScrollLeft } from './releaseTracks'
 import { ReleaseSpan, buildReleaseIndex, buildReleaseRow } from './releaseUtils'
 
 const span = (key: string, kind: ReleaseSpan['kind'], from: string, to: string, label: string): ReleaseSpan => ({
@@ -89,13 +89,14 @@ describe('rolloutSegments', () => {
     const step = (from: string, to: string, percent: number, upcoming = false): RolloutStep =>
         ({ from, to, percent, label: `${percent}%`, upcoming }) as RolloutStep
 
-    it('drops steps that ended before the window, ends the current step today and projects to the next one', () => {
+    it('drops steps outside the window, ends the current step today and projects to the next one', () => {
         const segments = rolloutSegments(
             [
                 step('2026-09-01T00:00:00Z', '2026-09-20T00:00:00Z', 5),
                 step('2026-09-20T00:00:00Z', '2026-11-05T00:00:00Z', 20),
                 step('2026-11-05T00:00:00Z', '2026-11-11T12:00:00Z', 50),
                 step('2026-11-15T00:00:00Z', '2026-12-01T00:00:00Z', 100, true),
+                step('2026-12-03T00:00:00Z', '2026-12-20T00:00:00Z', 100, true),
             ],
             scale,
             today
@@ -105,7 +106,7 @@ describe('rolloutSegments', () => {
             [20, 0, 40, false],
             [50, 40, 65, false],
             [50, 105, 35, true],
-            [100, 140, 108, false],
+            [100, 140, 160, false],
         ])
     })
 
@@ -113,5 +114,18 @@ describe('rolloutSegments', () => {
         const segments = rolloutSegments([step('2026-09-01T00:00:00Z', '2026-11-11T12:00:00Z', 50)], scale, today)
 
         expect(segments.map(({ left, width }) => [left, width])).toEqual([[0, 105]])
+    })
+})
+
+describe('todayScrollLeft', () => {
+    const scale: Scale = { start: dayjs('2026-11-01T00:00:00Z'), days: 30, day: 10 }
+    const today = dayjs('2026-11-11T12:00:00Z')
+
+    it.each([
+        ['leaves the calendar alone while today is in view', today, 400, 100, null],
+        ['scrolls today into view past the sticky column', today, 200, 100, 40],
+        ['never scrolls before the start of the window', scale.start, 110, 100, 0],
+    ])('%s', (_name, day, viewportWidth, stickyWidth, expected) => {
+        expect(todayScrollLeft(scale, viewportWidth, stickyWidth, day)).toBe(expected)
     })
 })

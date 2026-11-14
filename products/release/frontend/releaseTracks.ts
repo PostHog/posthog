@@ -113,6 +113,19 @@ export function rolloutSegments(steps: RolloutStep[], scale: Scale, today: dayjs
         }))
 }
 
+const PAST_SHARE = 0.65
+
+export function todayScrollLeft(
+    scale: Scale,
+    viewportWidth: number,
+    stickyWidth: number,
+    today: dayjs.Dayjs
+): number | null {
+    const visible = viewportWidth - stickyWidth
+    const todayX = x(today.toISOString(), scale) + scale.day / 2
+    return todayX > visible - scale.day ? Math.max(0, todayX - visible * PAST_SHARE) : null
+}
+
 export function linkedKeys(row: ReleaseRow, related: TrackRelated | undefined): Set<string> {
     return new Set([
         ...row.flags.map((flag) => `flag:${flag.id}`),

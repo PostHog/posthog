@@ -39,7 +39,7 @@ export const SUGGESTION_LIMIT = 6
 
 export const INSIGHT_COLUMNS = hogql.raw('id, short_id, name, created_at, last_modified_at')
 
-export function toInsightRow(row: unknown[]): RelatedInsight {
+export function fromInsightRow(row: unknown[]): RelatedInsight {
     const [id, shortId, name, createdAt, lastModifiedAt] = row as [number, string, string | null, string, string | null]
     return { id, shortId, name: name || 'Untitled insight', createdAt, lastModifiedAt }
 }
@@ -85,7 +85,7 @@ export function flagKeysPattern(keys: string[]): string {
 }
 
 export interface RankInput {
-    name: string
+    tokens: string[]
     flags: { id: number; key: string }[]
     linkedSurveyIds: Set<string>
     linkedInsightIds: Set<number>
@@ -96,7 +96,7 @@ export interface RankInput {
 }
 
 export function rankRelatedSuggestions(input: RankInput): RelatedSuggestion[] {
-    const wanted = new Set(nameTokens(input.name).slice(0, 4))
+    const wanted = new Set(input.tokens)
     const overlap = (label: string): number => nameTokens(label).filter((token) => wanted.has(token)).length
     const flagKeyById = new Map(input.flags.map((flag) => [flag.id, flag.key]))
     const items = new Map<string, RelatedSuggestion>()

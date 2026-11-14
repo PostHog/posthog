@@ -117,23 +117,20 @@ def _checked(field: str, noun: str, submitted: list[T], linked: list[T], lookup:
     linked_set = set(linked)
     visibility = lookup(sorted(set(submitted) | linked_set, key=str))
     unknown = sorted(
-        (
-            item
-            for item in set(submitted)
-            if item in visibility.hidden or (item not in visibility.linkable and item not in linked_set)
-        ),
-        key=str,
+        item
+        for item in set(submitted)
+        if item in visibility.hidden or (item not in visibility.linkable and item not in linked_set)
     )
     if unknown:
         raise contracts.UnknownLinkedObjectsError(field, noun, unknown)
     return [*submitted, *(item for item in linked if item in visibility.hidden)]
 
 
-_LINKED_FIELDS: tuple[tuple[str, str, str], ...] = (
-    ("feature_flag_ids", "flags", "flags"),
-    ("broadcast_ids", "broadcasts", "broadcasts"),
-    ("survey_ids", "surveys", "surveys"),
-    ("insight_ids", "insights", "insights"),
+_LINKED_FIELDS: tuple[tuple[str, str], ...] = (
+    ("feature_flag_ids", "flags"),
+    ("broadcast_ids", "broadcasts"),
+    ("survey_ids", "surveys"),
+    ("insight_ids", "insights"),
 )
 
 
@@ -145,30 +142,27 @@ def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[con
 
 def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contracts.ReleaseDTO:
     checked = {
-        field: _checked(field, noun, list(getattr(input, field)), [], getattr(lookups, lookup))
-        for field, noun, lookup in _LINKED_FIELDS
+        field: _checked(field, noun, list(getattr(input, field)), [], getattr(lookups, noun))
+        for field, noun in _LINKED_FIELDS
     }
     obj = logic.create_release(
         team_id=input.team_id,
         name=input.name,
         description=input.description,
         owner_id=input.owner_id,
-        feature_flag_ids=checked["feature_flag_ids"],
-        broadcast_ids=checked["broadcast_ids"],
-        survey_ids=checked["survey_ids"],
-        insight_ids=checked["insight_ids"],
+        **checked,
     )
     return _visible_dto(logic.get_release(input.team_id, obj.id), lookups)
 
 
 def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: LinkLookups) -> contracts.ReleaseDTO:
-    if {field for field, _, _ in _LINKED_FIELDS} & changes.keys():
+    if {field for field, _ in _LINKED_FIELDS} & changes.keys():
         current = logic.get_release(team_id, release_id)
         changes = dict(changes)
-        for field, noun, lookup in _LINKED_FIELDS:
+        for field, noun in _LINKED_FIELDS:
             if field in changes:
                 changes[field] = _checked(
-                    field, noun, list(changes[field]), list(getattr(current, field)), getattr(lookups, lookup)
+                    field, noun, list(changes[field]), list(getattr(current, field)), getattr(lookups, noun)
                 )
     return _visible_dto(logic.update_release(team_id, release_id, changes), lookups)
 
