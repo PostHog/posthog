@@ -27,7 +27,6 @@ import { InsightHomeGuide } from 'products/product_analytics/frontend/insights/h
 import { InsightModals } from 'products/product_analytics/frontend/insights/insightScene/InsightModals'
 import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
 
-import { InsightFlagCalledBanner } from './banners/InsightFlagCalledBanner'
 import { InsightQueryScanBanner } from './banners/InsightQueryScanBanner'
 import { InsightRetentionBanner } from './banners/InsightRetentionBanner'
 import { InsightWarehouseSyncBanner } from './banners/InsightWarehouseSyncBanner'
@@ -107,8 +106,6 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 {insightId === 'new' && isEditing && <InsightHomeGuide query={query} />}
 
                 <InsightRetentionBanner insightProps={insightProps} />
-
-                <InsightFlagCalledBanner insightProps={insightProps} />
 
                 {!isBIVisualizationNode(query) && <InsightQueryScanBanner insightProps={insightProps} />}
 

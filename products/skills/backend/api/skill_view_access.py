@@ -17,6 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -62,7 +63,11 @@ class SkillAccessMixin(_SkillViewBase):
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(
             request.successful_authenticator,
-            SessionAuthentication | JwtAuthentication | PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication,
+            SessionAuthentication
+            | JwtAuthentication
+            | PersonalAPIKeyAuthentication
+            | OAuthAccessTokenAuthentication
+            | IDJagAccessTokenAuthentication,
         ):
             return Response(
                 {"detail": "This endpoint is only available to web-authenticated users."},

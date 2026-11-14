@@ -3,13 +3,10 @@ from uuid import UUID
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from temporalio import activity
-
 from products.replay_vision.backend.enqueue_claims import pending_enqueue_claims
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.temporal.constants import COUNT_IN_FLIGHT_APPLIES_TIMEOUT, in_flight_headroom
-from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.sweep_types import CountInFlightAppliesInputs, InFlightApplyCounts
@@ -45,12 +42,6 @@ def count_in_flight(
     for scope, pending in claims.items():
         counts[scope] += pending
     return counts
-
-
-@activity.defn
-@track_activity()
-def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
-    return count_in_flight_applies(inputs)
 
 
 def count_in_flight_applies(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:

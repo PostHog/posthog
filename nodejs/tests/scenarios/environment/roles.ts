@@ -4,6 +4,7 @@ import { getDefaultCdpConfig } from '~/cdp/config'
 import { overrideConfigWithEnv } from '~/common/config/config'
 
 import { CdpRole, Profile } from '../cards'
+import { ReplicaOf } from './identity'
 import { MARKER_KEY } from './processes'
 
 export type Role = z.infer<typeof CdpRole>
@@ -14,15 +15,31 @@ export const ROLE_PORTS: Record<Role, number> = {
     'cdp-cyclotron-worker-hogflow': 6761,
     'cdp-cyclotron-worker-email': 6762,
     'cdp-cyclotron-v2-janitor': 6763,
+    'cdp-ses-webhooks': 6764,
 }
+
+export const SES_WEBHOOKS_GROUP = 'cdp-ses-webhooks-consumer'
 
 export const PERSONHOG_ADDR = '127.0.0.1:50052'
 
 export const SES_RATE_LIMITER_VALKEY = { host: '127.0.0.1', port: 6390 }
 
+export const SCENARIO_SESSION_PREFIX = 'scenario-'
+
 export type Secrets = { encryptionSaltKeys: string; transactionalEmailJwtSecret: string }
 
-export type RoleSpec = { role: Role; env: NodeJS.ProcessEnv }
+export type Replicas = Profile['replicas']
+
+export type RoleId = ReplicaOf<Role>
+
+export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
+
+const REPLICA_PORT_OFFSET = 100
+
+export const portOf = ({ role, replica }: RoleId): number => ROLE_PORTS[role] + REPLICA_PORT_OFFSET * replica
+
+export const roleIdsOf = (replicas: Replicas = {}): RoleId[] =>
+    CdpRole.options.flatMap((role) => Array.from({ length: replicas[role] ?? 1 }, (_, replica) => ({ role, replica })))
 
 export type EdgeAddress = { url: string; caCertPath?: string }
 
@@ -42,7 +59,8 @@ export function roleSpecs(
     secrets: Secrets,
     stateDir: string,
     settings: Profile['settings'] = {},
-    sesValkey: { host: string; port: number } = SES_RATE_LIMITER_VALKEY
+    sesValkey: { host: string; port: number } = SES_RATE_LIMITER_VALKEY,
+    replicas: Replicas = {}
 ): RoleSpec[] {
     const { AWS_PROFILE: _profile, ...inherited } = base
     const {
@@ -58,8 +76,9 @@ export function roleSpecs(
         PERSONHOG_ENABLED: 'true',
         ...settings,
     }
-    return CdpRole.options.map((role) => ({
-        role,
+    return roleIdsOf(replicas).map((id) => ({
+        ...id,
+        port: portOf(id),
         env: {
             ...configured,
             SES_ENDPOINT: edge.url,
@@ -70,9 +89,9 @@ export function roleSpecs(
             SES_RATE_LIMITER_VALKEY_PORT: String(sesValkey.port),
             ENCRYPTION_SALT_KEYS: secrets.encryptionSaltKeys,
             WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: secrets.transactionalEmailJwtSecret,
-            PLUGIN_SERVER_MODE: role,
-            HTTP_SERVER_PORT: String(ROLE_PORTS[role]),
-            PGAPPNAME: `scenario-${role}`,
+            PLUGIN_SERVER_MODE: id.role,
+            HTTP_SERVER_PORT: String(portOf(id)),
+            PGAPPNAME: `${SCENARIO_SESSION_PREFIX}${id.role}`,
             [MARKER_KEY]: stateDir,
         },
     }))
@@ -88,10 +107,27 @@ export function fetchRetriesOf({ env }: RoleSpec): number {
 
 export function consumerGroupsOf(specs: RoleSpec[]): ConsumerGroup[] {
     const defaults = getDefaultCdpConfig()
-    return specs
-        .filter(({ role }) => role === 'cdp-processed-events')
-        .map(({ env }) => ({
-            group: env.CDP_EVENTS_CONSUMER_GROUP_ID || defaults.CDP_EVENTS_CONSUMER_GROUP_ID,
-            topics: [env.CDP_EVENTS_CONSUMER_TOPIC || `${env.KAFKA_PREFIX || ''}clickhouse_events_json`],
-        }))
+    return specs.flatMap(({ role, replica, env }): ConsumerGroup[] => {
+        if (replica !== 0) {
+            return []
+        }
+        switch (role) {
+            case 'cdp-processed-events':
+                return [
+                    {
+                        group: env.CDP_EVENTS_CONSUMER_GROUP_ID || defaults.CDP_EVENTS_CONSUMER_GROUP_ID,
+                        topics: [env.CDP_EVENTS_CONSUMER_TOPIC || `${env.KAFKA_PREFIX || ''}clickhouse_events_json`],
+                    },
+                ]
+            case 'cdp-ses-webhooks':
+                return [
+                    {
+                        group: SES_WEBHOOKS_GROUP,
+                        topics: [env.CDP_SES_WEBHOOKS_TOPIC || `${env.KAFKA_PREFIX || ''}cdp_ses_webhooks`],
+                    },
+                ]
+            default:
+                return []
+        }
+    })
 }

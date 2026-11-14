@@ -42,11 +42,16 @@ describe('getAvailableContexts', () => {
             { resource_attributes: { 'service.name': 'api' } },
             ['surrounding_service', 'surrounding_all'],
         ],
-        ['with trace', { trace_id: 'abc' }, ['surrounding_all', 'trace']],
+        ['with trace', { trace_id: '4BF92F3577B34DA6A3CE929D0E0E4736' }, ['surrounding_all', 'trace']],
+        ['with an unset all-zero trace', { trace_id: '0'.repeat(32) }, ['surrounding_all']],
         ['with session', { attributes: { 'session.id': 's1' } }, ['surrounding_all', 'session']],
         [
             'all metadata',
-            { resource_attributes: { 'service.name': 'api' }, trace_id: 'abc', attributes: { 'session.id': 's1' } },
+            {
+                resource_attributes: { 'service.name': 'api' },
+                trace_id: '4BF92F3577B34DA6A3CE929D0E0E4736',
+                attributes: { 'session.id': 's1' },
+            },
             ['surrounding_service', 'surrounding_all', 'trace', 'session'],
         ],
     ])('%s → %j', (_, overrides, expectedTypes) => {
@@ -60,7 +65,7 @@ describe('buildContextFilters', () => {
     const log = makeLog({
         timestamp,
         resource_attributes: { 'service.name': 'api-server' },
-        trace_id: 'trace-abc',
+        trace_id: '4bf92f3577b34da6a3ce929d0e0e4736',
         attributes: { 'session.id': 'sess-123' },
     })
 
@@ -90,7 +95,10 @@ describe('buildContextFilters', () => {
     it.each([
         ['surrounding_service', { serviceNames: ['api-server'] }],
         ['surrounding_all', { serviceNames: [] }],
-        ['trace', { filterGroup: makeFilterGroup('trace_id', 'trace-abc', PropertyFilterType.Log) }],
+        [
+            'trace',
+            { filterGroup: makeFilterGroup('trace_id', '4bf92f3577b34da6a3ce929d0e0e4736', PropertyFilterType.Log) },
+        ],
         ['session', { filterGroup: makeFilterGroup('session.id', 'sess-123', PropertyFilterType.LogAttribute) }],
     ] as [LogContextType, Record<string, any>][])(
         '%s sets correct context-specific filters',
