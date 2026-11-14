@@ -29,18 +29,22 @@ def _flags_routing_can_change(cohort) -> bool:
     )
 
 
-def _refresh_flags_caches(team_ids: set[int]) -> None:
+def _refresh_flags_caches(team_ids: set[int]) -> int:
     # The flags service reads cohorts from the team's flags cache, and `bulk_update` fires none of the
     # cohort save receivers that rebuild it. Without the flags cache there is nothing to rebuild, and
     # an unreachable broker could stall the deploy, so this follows the save receiver's guard.
     if not settings.FLAGS_REDIS_URL:
-        return
+        return 0
+    dispatched = 0
     for team_id in sorted(team_ids):
         try:
             refresh_readiness_caches(team_id)
         except Exception:
             # The cache entry still refreshes before it expires, so a failed dispatch only delays the change.
             logger.exception("cohort_condition_type_backfill_cache_refresh_failed", team_id=team_id)
+        else:
+            dispatched += 1
+    return dispatched
 
 
 def backfill_condition_type(apps, schema_editor):
@@ -94,8 +98,7 @@ def backfill_condition_type(apps, schema_editor):
         # between the two batches read this batch's rows while they were still null. Refreshing per
         # batch also covers a retry after a partial run, which finds these rows classified.
         teams = {cohort.team_id for cohort in changed if _flags_routing_can_change(cohort)}
-        _refresh_flags_caches(teams)
-        refreshes += len(teams)
+        refreshes += _refresh_flags_caches(teams)
 
         batches += 1
         if batches % LOG_EVERY_BATCHES == 0:

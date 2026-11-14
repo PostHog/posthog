@@ -54,7 +54,7 @@ class TestBackfillCohortConditionType(TestMigrations):
 
         self.unclassified = create(filters=BEHAVIORAL_FILTERS, last_backfill_events_at=STAMP)
         self.unclassified_lifecycle = create(filters=LIFECYCLE_FILTERS, last_realtime_cohort_calculation_at=STAMP)
-        self.unclassified_deleted = create(filters=BEHAVIORAL_FILTERS, deleted=True)
+        self.unclassified_deleted = create(filters=BEHAVIORAL_FILTERS, deleted=True, last_backfill_events_at=STAMP)
         self.already_classified = create(filters=BEHAVIORAL_FILTERS, condition_type=STALE_CONDITION_TYPE)
         self.without_leaves = create(filters={"properties": {"type": "OR", "values": []}})
         self.without_filters = create(filters=None)
