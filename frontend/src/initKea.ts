@@ -198,6 +198,11 @@ const NOT_FOUND_SELF_HANDLED = new Set([
     'loadDatasetItemVersions',
 ])
 
+// The same as NOT_FOUND_SELF_HANDLED, for an action name that other logics also use and do not handle.
+const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic', // The workflow scene and notebook node render NotFound
+}
+
 /*
 Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
 generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
@@ -412,7 +417,9 @@ export function initKea({
                     console.error({ error, reducerKey, actionKey })
                 }
                 const isSelfHandledNotFound =
-                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
+                    (NOT_FOUND_SELF_HANDLED.has(String(actionKey)) ||
+                        isOwnedByLogic(NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)) &&
+                    isUnavailableEndpointError(error)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
                 if (
