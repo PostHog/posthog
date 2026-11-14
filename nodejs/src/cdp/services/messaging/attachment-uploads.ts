@@ -1,4 +1,3 @@
-import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { EmailAttachmentMetadata, MAX_EMAIL_ATTACHMENTS } from '~/cdp/schema/cyclotron'
@@ -58,16 +57,6 @@ export type AcceptedSendFiles = { files: EmailAttachmentMetadata[]; attachmentBy
 const DJANGO_SEND_TIMEOUT_MS = 10_000
 export const ATTACHMENT_VERIFICATION_DEADLINE_MS = DJANGO_SEND_TIMEOUT_MS / 2
 
-const uploadRequestsTotal = new Counter({
-    name: 'cdp_email_attachments_upload_requests_total',
-    help: 'Upload requests for the files of transactional emails, by outcome: answered, or the refusal code',
-    labelNames: ['outcome'],
-})
-
-export function countUploadRequest(outcome: string): void {
-    uploadRequestsTotal.inc({ outcome })
-}
-
 const DELIVERY_UNAVAILABLE = { status: 503, body: { error: 'delivery_unavailable' } } as const satisfies SendRefusal
 
 export class AttachmentUploads {
@@ -82,12 +71,6 @@ export class AttachmentUploads {
     }
 
     public async prepare(teamId: number, body: unknown): Promise<UploadsAnswer> {
-        const answer = await this.answer(teamId, body)
-        countUploadRequest(String(answer.body.error ?? 'answered'))
-        return answer
-    }
-
-    private async answer(teamId: number, body: unknown): Promise<UploadsAnswer> {
         if (!this.isAllowed(teamId)) {
             return { status: 400, body: { error: 'field_not_accepted' } }
         }
