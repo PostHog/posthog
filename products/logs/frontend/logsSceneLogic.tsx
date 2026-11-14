@@ -131,6 +131,8 @@ export const SAVED_VIEW_PARAM = 'savedView'
 
 const SAVED_VIEW_ID_PATTERN = /^[A-Za-z0-9_-]+$/
 
+const SAVED_VIEW_FILTER_PARAMS = ['dateRange', 'filterGroup', 'searchTerm']
+
 /** The saved view a link opens, or the one the person loaded, so the shell can list it in Monitor. */
 export type LogsOpenSavedView = Pick<LogsViewApi, 'short_id' | 'name'>
 
@@ -392,10 +394,16 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             const raw = params[SAVED_VIEW_PARAM]
             // The id goes into the API path, so anything but a short id is ignored rather than requested.
             const savedView = typeof raw === 'string' && SAVED_VIEW_ID_PATTERN.test(raw) ? raw : null
+            // A link edited after the view opened carries its own filters, which win over the view's.
+            const linkHasFilters = SAVED_VIEW_FILTER_PARAMS.some((key) => params[key])
             if (savedView && savedView !== values.openSavedView?.short_id) {
-                // A link edited after the view opened carries its own filters, which win over the view's.
-                const keepFilters = ['dateRange', 'filterGroup', 'searchTerm'].some((key) => params[key])
-                actions.openSavedViewById(savedView, keepFilters)
+                actions.openSavedViewById(savedView, linkHasFilters)
+            } else if (savedView && !linkHasFilters && cache.openedView?.short_id === savedView) {
+                // The view's own link, opened again after its filters changed, restores them.
+                const viewFilters = cache.openedView.filters ?? {}
+                if (SAVED_VIEW_FILTER_PARAMS.some((key) => viewFilters[key as keyof typeof viewFilters])) {
+                    actions.applySavedView(cache.openedView)
+                }
             } else if (!savedView && values.openSavedView) {
                 actions.setOpenSavedView(null)
             }
@@ -793,6 +801,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             actions.applySavedView(view, keepFilters)
         },
         applySavedView: ({ view, keepFilters }) => {
+            cache.openedView = view
             // A null `columns` means the view has no column preference, so it opens with the default set.
             actions.setColumns(view.columns ?? DEFAULT_LOGS_COLUMNS)
             if (!keepFilters) {

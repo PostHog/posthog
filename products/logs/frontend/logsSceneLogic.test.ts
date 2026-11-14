@@ -306,6 +306,24 @@ describe('logsSceneLogic', () => {
             expect(logic.values.filters.searchTerm).toEqual('')
         })
 
+        it("restores the view's filters when its own link is opened again after an edit", async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { savedView: 'abc123' })
+            }).toFinishAllListeners()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { savedView: 'abc123', searchTerm: 'edited' })
+            }).toFinishAllListeners()
+            expect(logic.values.filters.searchTerm).toEqual('edited')
+
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { savedView: 'abc123' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.searchTerm).toEqual('timeout')
+        })
+
         it('keeps the filters a link carries over the saved view', async () => {
             await expectLogic(logic, () => {
                 router.actions.push('/logs', { savedView: 'abc123', searchTerm: 'edited' })
