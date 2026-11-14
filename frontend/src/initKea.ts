@@ -158,6 +158,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    loadResult: 'products.conversations.frontend.components.TicketAiTracesPanel.ticketAiTracesLogic', // The AI traces widget shows its own retry
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
