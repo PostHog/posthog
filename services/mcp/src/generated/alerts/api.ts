@@ -1277,28 +1277,58 @@ export const AlertsCreateBody = () => zod.object({
                         type: zod.enum(['llm']).default(alertsCreateBodyDetectorConfigOneOnefourTypeDefault),
                     }),
                     zod.object({
-                        absolute_threshold: zod
-                            .union([zod.number(), zod.null()])
+                        above: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
                             .optional()
-                            .describe("Absolute mode: distance from the expected value, in the series' units"),
-                        band: zod
-                            .union([zod.union([zod.literal(0.8), zod.literal(0.9), zod.literal(0.98)]), zod.null()])
+                            .describe('Rule for a value higher than expected. Omit to ignore that side.'),
+                        below: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
                             .optional()
-                            .describe(
-                                'Forecast interval for band mode, and the range shown in every mode (default: 0.9)'
-                            ),
-                        direction: zod
-                            .union([zod.enum(['above', 'below', 'both']), zod.null()])
-                            .optional()
-                            .describe('Which side of the forecast can fire (default: both)'),
-                        mode: zod
-                            .union([zod.enum(['band', 'relative', 'absolute']), zod.null()])
-                            .optional()
-                            .describe('How the actual value is compared with the forecast (default: band)'),
-                        relative_threshold: zod
-                            .union([zod.number(), zod.null()])
-                            .optional()
-                            .describe('Relative mode: fraction of the expected value. 1 = 100% away from expected'),
+                            .describe('Rule for a value lower than expected. Omit to ignore that side.'),
                         type: zod.enum(['forecast']).default(alertsCreateBodyDetectorConfigOneOnefiveTypeDefault),
                     }),
                 ])
@@ -2680,28 +2710,58 @@ export const AlertsPartialUpdateBody = () => zod.object({
                         type: zod.enum(['llm']).default(alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault),
                     }),
                     zod.object({
-                        absolute_threshold: zod
-                            .union([zod.number(), zod.null()])
+                        above: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
                             .optional()
-                            .describe("Absolute mode: distance from the expected value, in the series' units"),
-                        band: zod
-                            .union([zod.union([zod.literal(0.8), zod.literal(0.9), zod.literal(0.98)]), zod.null()])
+                            .describe('Rule for a value higher than expected. Omit to ignore that side.'),
+                        below: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
                             .optional()
-                            .describe(
-                                'Forecast interval for band mode, and the range shown in every mode (default: 0.9)'
-                            ),
-                        direction: zod
-                            .union([zod.enum(['above', 'below', 'both']), zod.null()])
-                            .optional()
-                            .describe('Which side of the forecast can fire (default: both)'),
-                        mode: zod
-                            .union([zod.enum(['band', 'relative', 'absolute']), zod.null()])
-                            .optional()
-                            .describe('How the actual value is compared with the forecast (default: band)'),
-                        relative_threshold: zod
-                            .union([zod.number(), zod.null()])
-                            .optional()
-                            .describe('Relative mode: fraction of the expected value. 1 = 100% away from expected'),
+                            .describe('Rule for a value lower than expected. Omit to ignore that side.'),
                         type: zod
                             .enum(['forecast'])
                             .default(alertsPartialUpdateBodyDetectorConfigOneOnefiveTypeDefault),
@@ -3929,26 +3989,54 @@ export const AlertsSimulateCreateBody = () => zod.object({
                 type: zod.enum(['llm']).default(alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault),
             }),
             zod.object({
-                absolute_threshold: zod
-                    .union([zod.number(), zod.null()])
+                above: zod
+                    .union([
+                        zod.object({
+                            min_absolute_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "The value is at least this far from the expected value, in the series' units"
+                                ),
+                            min_relative_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value is at least this fraction away from the expected value. 1 = 100%'),
+                            quantile: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
                     .optional()
-                    .describe("Absolute mode: distance from the expected value, in the series' units"),
-                band: zod
-                    .union([zod.union([zod.literal(0.8), zod.literal(0.9), zod.literal(0.98)]), zod.null()])
+                    .describe('Rule for a value higher than expected. Omit to ignore that side.'),
+                below: zod
+                    .union([
+                        zod.object({
+                            min_absolute_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "The value is at least this far from the expected value, in the series' units"
+                                ),
+                            min_relative_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value is at least this fraction away from the expected value. 1 = 100%'),
+                            quantile: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
                     .optional()
-                    .describe('Forecast interval for band mode, and the range shown in every mode (default: 0.9)'),
-                direction: zod
-                    .union([zod.enum(['above', 'below', 'both']), zod.null()])
-                    .optional()
-                    .describe('Which side of the forecast can fire (default: both)'),
-                mode: zod
-                    .union([zod.enum(['band', 'relative', 'absolute']), zod.null()])
-                    .optional()
-                    .describe('How the actual value is compared with the forecast (default: band)'),
-                relative_threshold: zod
-                    .union([zod.number(), zod.null()])
-                    .optional()
-                    .describe('Relative mode: fraction of the expected value. 1 = 100% away from expected'),
+                    .describe('Rule for a value lower than expected. Omit to ignore that side.'),
                 type: zod.enum(['forecast']).default(alertsSimulateCreateBodyDetectorConfigOneOnefiveTypeDefault),
             }),
         ])

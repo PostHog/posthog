@@ -114,7 +114,7 @@ def score_latest(
     logger.info(
         "alerts.forecast_detector.compared",
         fires=comparison.fires,
-        mode=comparison.mode,
+        side=comparison.side,
         history_points=len(history),
     )
     return comparison

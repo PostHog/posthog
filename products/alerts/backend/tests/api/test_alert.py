@@ -3366,12 +3366,45 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
             ("instructions_not_text", {"type": "llm", "instructions": 5}, "must be text"),
             ("removed_threshold", {"type": "llm", "threshold": 0.7}, "Invalid detector configuration"),
             ("removed_window", {"type": "llm", "window": 90}, "Invalid detector configuration"),
-            ("forecast_relative_without_threshold", {"type": "forecast", "mode": "relative"}, "relative threshold"),
+            ("forecast_empty_side", {"type": "forecast", "above": {}}, "above needs at least one condition"),
             (
-                "forecast_negative_absolute_threshold",
-                {"type": "forecast", "mode": "absolute", "absolute_threshold": -5},
-                "absolute threshold above 0",
+                "forecast_unsupported_quantile",
+                {"type": "forecast", "above": {"quantile": 0.975}},
+                "above.quantile must be one of 0.55, 0.6,",
             ),
+            (
+                "forecast_upper_quantile_below_median",
+                {"type": "forecast", "above": {"quantile": 0.3}},
+                "above.quantile is an upper level, so it must be above 0.5",
+            ),
+            (
+                "forecast_lower_quantile_above_median",
+                {"type": "forecast", "below": {"quantile": 0.9}},
+                "below.quantile is a lower level, so it must be below 0.5",
+            ),
+            (
+                "forecast_drop_beyond_everything",
+                {"type": "forecast", "below": {"min_relative_change": 1.5}},
+                "below.min_relative_change must be 1 or less",
+            ),
+            (
+                "forecast_zero_threshold",
+                {"type": "forecast", "above": {"min_absolute_change": 0}},
+                "above.min_absolute_change must be above 0",
+            ),
+            (
+                "forecast_negative_threshold",
+                {"type": "forecast", "below": {"min_relative_change": -0.2}},
+                "below.min_relative_change must be above 0",
+            ),
+            (
+                "forecast_threshold_too_large_for_a_float",
+                {"type": "forecast", "above": {"min_absolute_change": 10**400}},
+                "above.min_absolute_change must be a number",
+            ),
+            ("forecast_removed_mode", {"type": "forecast", "mode": "band"}, "Unknown field in the forecast detector"),
+            ("forecast_removed_direction", {"type": "forecast", "direction": "above"}, "Unknown field"),
+            ("forecast_side_unknown_field", {"type": "forecast", "above": {"band": 0.9}}, "Unknown field in above"),
             (
                 "forecast_ensemble_member",
                 {

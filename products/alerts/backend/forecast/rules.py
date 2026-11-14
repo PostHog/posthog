@@ -1,49 +1,58 @@
-"""How an actual value compares with its forecast. Pure functions, so that every mode and direction is
-testable without the gateway."""
+"""How an actual value compares with its forecast. Pure functions, so that every side rule is testable
+without the gateway."""
 
-from typing import Any, Literal, get_args
+import math
+from typing import Any, Literal
 
 from posthog.dataclasses import frozen
+from posthog.llm.forecast_client import QUANTILE_LEVELS
 
-Mode = Literal["band", "relative", "absolute"]
-Direction = Literal["above", "below", "both"]
+Side = Literal["above", "below"]
 
-# The lower and upper quantile of each forecast interval that a person can pick.
-BAND_QUANTILES: dict[float, tuple[float, float]] = {0.8: (0.1, 0.9), 0.9: (0.05, 0.95), 0.98: (0.01, 0.99)}
 EXPECTED_QUANTILE = 0.5
+UPPER_QUANTILES = tuple(sorted(level for level in QUANTILE_LEVELS if level > EXPECTED_QUANTILE))
+LOWER_QUANTILES = tuple(sorted(level for level in QUANTILE_LEVELS if level < EXPECTED_QUANTILE))
 
-DEFAULT_MODE: Mode = "band"
-DEFAULT_BAND = 0.9
-DEFAULT_DIRECTION: Direction = "both"
+# The range shown for a side with no quantile, and the fire range of each side when neither side is set.
+DEFAULT_UPPER_QUANTILE = 0.95
+DEFAULT_LOWER_QUANTILE = 0.05
 
-RELATIVE_THRESHOLD_REQUIRED_MESSAGE = "Set a relative threshold above 0 for relative mode."
-ABSOLUTE_THRESHOLD_REQUIRED_MESSAGE = "Set an absolute threshold above 0 for absolute mode."
+_CONFIG_FIELDS = frozenset({"type", "above", "below"})
+_SIDE_FIELDS = ("quantile", "min_relative_change", "min_absolute_change")
+
 EXPECTED_ZERO_REASON = "The forecast expected 0, so the relative change can't be calculated and the check didn't fire."
 
 
 @frozen
+class SideRule:
+    """The conditions for one side of the forecast. The side fires when every condition it sets is true."""
+
+    quantile: float | None = None
+    min_relative_change: float | None = None
+    min_absolute_change: float | None = None
+
+
+@frozen
 class ForecastRule:
-    """The parts of a forecast detector config that decide whether a point fires."""
+    """The parts of a forecast detector config that decide whether a point fires. None ignores that side."""
 
-    mode: Mode = DEFAULT_MODE
-    # Picks the range shown in every mode, and the fire range in band mode.
-    band: float = DEFAULT_BAND
-    direction: Direction = DEFAULT_DIRECTION
-    # The threshold of the relative or absolute mode. None in band mode.
-    threshold: float | None = None
-
-    def __post_init__(self) -> None:
-        if self.band not in BAND_QUANTILES:
-            raise ValueError(f"The forecast band must be one of {sorted(BAND_QUANTILES)}, got {self.band}")
-        if self.mode != "band" and (self.threshold is None or not self.threshold > 0):
-            raise ValueError(
-                RELATIVE_THRESHOLD_REQUIRED_MESSAGE if self.mode == "relative" else ABSOLUTE_THRESHOLD_REQUIRED_MESSAGE
-            )
+    above: SideRule | None
+    below: SideRule | None
 
     @property
     def quantile_levels(self) -> "QuantileLevels":
-        lower, upper = BAND_QUANTILES[self.band]
-        return QuantileLevels(lower=lower, expected=EXPECTED_QUANTILE, upper=upper)
+        upper = self.above.quantile if self.above is not None and self.above.quantile is not None else None
+        lower = self.below.quantile if self.below is not None and self.below.quantile is not None else None
+        return QuantileLevels(
+            lower=DEFAULT_LOWER_QUANTILE if lower is None else lower,
+            expected=EXPECTED_QUANTILE,
+            upper=DEFAULT_UPPER_QUANTILE if upper is None else upper,
+        )
+
+
+DEFAULT_RULE = ForecastRule(
+    above=SideRule(quantile=DEFAULT_UPPER_QUANTILE), below=SideRule(quantile=DEFAULT_LOWER_QUANTILE)
+)
 
 
 @frozen
@@ -58,27 +67,73 @@ class QuantileLevels:
         return [self.lower, self.expected, self.upper]
 
 
+def _format_levels(levels: tuple[float, ...]) -> str:
+    return ", ".join(f"{level:g}" for level in levels)
+
+
+def _number(side: Side, field: str, value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{side}.{field} must be a number.")
+    try:
+        number = float(value)
+    except OverflowError:
+        # JSON accepts an integer of any size, and one too large for a float would otherwise escape as a 500.
+        number = math.inf
+    if not math.isfinite(number):
+        raise ValueError(f"{side}.{field} must be a number.")
+    return number
+
+
+def _side_rule(side: Side, raw: Any) -> SideRule | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f"{side} must be an object with quantile, min_relative_change or min_absolute_change.")
+    unknown = sorted(set(raw) - set(_SIDE_FIELDS))
+    if unknown:
+        raise ValueError(f"Unknown field in {side}: {', '.join(unknown)}.")
+    quantile, min_relative_change, min_absolute_change = (
+        _number(side, field, raw.get(field)) for field in _SIDE_FIELDS
+    )
+    if quantile is None and min_relative_change is None and min_absolute_change is None:
+        raise ValueError(f"{side} needs at least one condition: quantile, min_relative_change or min_absolute_change.")
+
+    if quantile is not None:
+        if side == "above" and quantile <= EXPECTED_QUANTILE:
+            raise ValueError(f"above.quantile is an upper level, so it must be above 0.5. Got {quantile:g}.")
+        if side == "below" and quantile >= EXPECTED_QUANTILE:
+            raise ValueError(f"below.quantile is a lower level, so it must be below 0.5. Got {quantile:g}.")
+        levels = UPPER_QUANTILES if side == "above" else LOWER_QUANTILES
+        if quantile not in levels:
+            raise ValueError(f"{side}.quantile must be one of {_format_levels(levels)}. Got {quantile:g}.")
+    for field, threshold in (
+        ("min_relative_change", min_relative_change),
+        ("min_absolute_change", min_absolute_change),
+    ):
+        if threshold is not None and not threshold > 0:
+            raise ValueError(f"{side}.{field} must be above 0.")
+    if side == "below" and min_relative_change is not None and min_relative_change > 1:
+        raise ValueError(
+            "A value can't be more than 100% below the expected value, so below.min_relative_change must be 1 or less."
+        )
+    return SideRule(quantile=quantile, min_relative_change=min_relative_change, min_absolute_change=min_absolute_change)
+
+
 def forecast_rule(config: dict[str, Any]) -> ForecastRule:
-    """The rule in a stored or submitted config. A missing or null field takes its default.
+    """The rule in a stored or submitted config. A missing or null side is ignored, and with neither side
+    set the rule watches the default range on both sides.
 
     Raises ``ValueError`` with a message for the alert's author when the config cannot run.
     """
-    mode = config.get("mode") or DEFAULT_MODE
-    direction = config.get("direction") or DEFAULT_DIRECTION
-    if mode not in get_args(Mode):
-        raise ValueError(f"The forecast mode must be one of {list(get_args(Mode))}, got {mode!r}")
-    if direction not in get_args(Direction):
-        raise ValueError(f"The forecast direction must be one of {list(get_args(Direction))}, got {direction!r}")
-    threshold = config.get("relative_threshold") if mode == "relative" else config.get("absolute_threshold")
-    if threshold is not None and (isinstance(threshold, bool) or not isinstance(threshold, int | float)):
-        threshold = None
-    band = config.get("band")
-    return ForecastRule(
-        mode=mode,
-        band=float(band) if isinstance(band, int | float) and not isinstance(band, bool) else DEFAULT_BAND,
-        direction=direction,
-        threshold=float(threshold) if threshold is not None and mode != "band" else None,
-    )
+    unknown = sorted(set(config) - _CONFIG_FIELDS)
+    if unknown:
+        raise ValueError(f"Unknown field in the forecast detector: {', '.join(unknown)}.")
+    above, below = _side_rule("above", config.get("above")), _side_rule("below", config.get("below"))
+    if above is None and below is None:
+        return DEFAULT_RULE
+    return ForecastRule(above=above, below=below)
 
 
 @frozen
@@ -89,8 +144,11 @@ class ForecastComparison:
     expected: float
     lower: float
     upper: float
+    lower_quantile: float
+    upper_quantile: float
     actual: float
-    mode: Mode
+    # The side that fired. None when the point did not fire.
+    side: Side | None = None
     # Why the point could not fire, whatever its distance from the forecast. None when it was compared.
     reason: str | None = None
 
@@ -100,41 +158,63 @@ class ForecastComparison:
             "expected": self.expected,
             "lower": self.lower,
             "upper": self.upper,
+            "lower_quantile": self.lower_quantile,
+            "upper_quantile": self.upper_quantile,
             "actual": self.actual,
-            "mode": self.mode,
         }
+        if self.side is not None:
+            metadata["side"] = self.side
         if self.reason is not None:
             metadata["reason"] = self.reason
         return metadata
 
 
+def _side_fires(rule: SideRule, *, distance: float, beyond_quantile: bool, expected: float) -> bool:
+    """``distance`` is how far the actual value is from the expected value toward this side. It is
+    negative when the actual value is on the other side."""
+    if rule.quantile is not None and not beyond_quantile:
+        return False
+    if rule.min_absolute_change is not None and not distance >= rule.min_absolute_change:
+        return False
+    if rule.min_relative_change is not None and (
+        expected == 0 or not distance / abs(expected) >= rule.min_relative_change
+    ):
+        return False
+    return True
+
+
 def compare(rule: ForecastRule, *, expected: float, lower: float, upper: float, actual: float) -> ForecastComparison:
-    """Whether ``actual`` is far enough from the forecast, on a side the rule watches, to fire."""
-    if rule.mode == "band":
-        above, below = actual > upper, actual < lower
-    else:
-        assert rule.threshold is not None
-        if rule.mode == "relative" and expected == 0:
-            return ForecastComparison(
-                fires=False,
-                expected=expected,
-                lower=lower,
-                upper=upper,
-                actual=actual,
-                mode=rule.mode,
-                reason=EXPECTED_ZERO_REASON,
-            )
-        distance = actual - expected
-        if rule.mode == "relative":
-            distance /= abs(expected)
-        above, below = distance > rule.threshold, -distance > rule.threshold
+    """Whether ``actual`` is far enough from the forecast, on a side the rule watches, to fire.
+
+    ``lower`` and ``upper`` are the forecast at the rule's ``quantile_levels``.
+    """
+    side: Side | None = None
+    if rule.above is not None and _side_fires(
+        rule.above, distance=actual - expected, beyond_quantile=actual > upper, expected=expected
+    ):
+        side = "above"
+    elif rule.below is not None and _side_fires(
+        rule.below, distance=expected - actual, beyond_quantile=actual < lower, expected=expected
+    ):
+        side = "below"
+
+    # A relative condition can't be evaluated against a forecast of 0. Say so when it is why the
+    # side the actual value is on did not fire.
+    side_of_actual = rule.above if actual > expected else rule.below if actual < expected else None
+    blocked_by_zero = (
+        side is None and expected == 0 and side_of_actual is not None and side_of_actual.min_relative_change is not None
+    )
+    levels = rule.quantile_levels
     return ForecastComparison(
-        fires=(above and rule.direction != "below") or (below and rule.direction != "above"),
+        fires=side is not None,
         expected=expected,
         lower=lower,
         upper=upper,
+        lower_quantile=levels.lower,
+        upper_quantile=levels.upper,
         actual=actual,
-        mode=rule.mode,
+        side=side,
+        reason=EXPECTED_ZERO_REASON if blocked_by_zero else None,
     )
 
 

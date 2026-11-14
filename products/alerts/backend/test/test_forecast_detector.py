@@ -100,46 +100,66 @@ def _evaluate(
 
 
 class TestCompare(SimpleTestCase):
+    # The forecast is 100 expected, with 80 and 120 at the rule's lower and upper quantiles.
     @parameterized.expand(
         [
-            ("band_above", {}, 130, True),
-            ("band_below", {}, 70, True),
-            ("band_inside", {}, 110, False),
-            ("band_above_watching_below", {"direction": "below"}, 130, False),
-            ("band_below_watching_below", {"direction": "below"}, 70, True),
-            ("band_below_watching_above", {"direction": "above"}, 70, False),
-            ("relative_above", {"mode": "relative", "relative_threshold": 0.5}, 160, True),
-            ("relative_below", {"mode": "relative", "relative_threshold": 0.5}, 40, True),
-            ("relative_inside", {"mode": "relative", "relative_threshold": 0.5}, 140, False),
+            ("default_range_either_side", {}, [(130, "above"), (70, "below"), (110, None)]),
+            ("extreme_spike_only", {"above": {"quantile": 0.99}}, [(130, "above"), (10, None)]),
             (
-                "relative_below_watching_above",
-                {"mode": "relative", "relative_threshold": 0.5, "direction": "above"},
-                40,
-                False,
+                "extreme_spike_or_moderate_drop",
+                {"above": {"quantile": 0.99}, "below": {"quantile": 0.2}},
+                [(130, "above"), (70, "below"), (90, None)],
             ),
-            ("absolute_above", {"mode": "absolute", "absolute_threshold": 25}, 130, True),
-            ("absolute_inside", {"mode": "absolute", "absolute_threshold": 25}, 120, False),
+            ("at_least_double", {"above": {"min_relative_change": 1}}, [(200, "above"), (199, None), (0, None)]),
+            ("at_least_half_below", {"below": {"min_relative_change": 0.5}}, [(50, "below"), (51, None), (300, None)]),
             (
-                "absolute_below_watching_below",
-                {"mode": "absolute", "absolute_threshold": 25, "direction": "below"},
-                70,
-                True,
+                "range_and_both_minimums",
+                {"above": {"quantile": 0.95, "min_relative_change": 0.2, "min_absolute_change": 50}},
+                [(150, "above"), (125, None), (70, None)],
+            ),
+            (
+                "absolute_either_side",
+                {"above": {"min_absolute_change": 500}, "below": {"min_absolute_change": 500}},
+                [(600, "above"), (-400, "below"), (500, None)],
+            ),
+            (
+                "relative_spike_or_range_drop_with_minimum",
+                {"above": {"min_relative_change": 0.5}, "below": {"quantile": 0.05, "min_absolute_change": 100}},
+                [(150, "above"), (-10, "below"), (70, None), (140, None)],
             ),
         ]
     )
-    def test_fires_by_mode_and_direction(self, _name: str, config: dict[str, Any], actual: float, fires: bool) -> None:
-        comparison = compare(forecast_rule(config), expected=100.0, lower=80.0, upper=120.0, actual=actual)
+    def test_fires_on_the_side_whose_conditions_all_hold(
+        self, _name: str, config: dict[str, Any], cases: list[tuple[float, str | None]]
+    ) -> None:
+        rule = forecast_rule({"type": "forecast", **config})
 
-        assert comparison.fires is fires
-        assert comparison.reason is None
+        for actual, side in cases:
+            comparison = compare(rule, expected=100.0, lower=80.0, upper=120.0, actual=actual)
 
-    def test_relative_mode_with_a_zero_forecast_never_fires_and_says_why(self) -> None:
-        rule = forecast_rule({"mode": "relative", "relative_threshold": 0.1})
+            assert (comparison.fires, comparison.side, comparison.reason) == (side is not None, side, None), actual
+
+    def test_a_relative_rule_with_a_zero_forecast_never_fires_and_says_why(self) -> None:
+        rule = forecast_rule({"above": {"min_relative_change": 0.1}})
 
         comparison = compare(rule, expected=0.0, lower=0.0, upper=3.0, actual=500.0)
 
         assert comparison.fires is False
         assert comparison.persisted_metadata()["reason"] == EXPECTED_ZERO_REASON
+
+    @parameterized.expand(
+        [
+            ("default", {}, [0.05, 0.5, 0.95]),
+            ("both_quantiles", {"above": {"quantile": 0.99}, "below": {"quantile": 0.2}}, [0.2, 0.5, 0.99]),
+            # A side with no quantile, or an ignored side, shows the default end of the range.
+            ("one_side_no_quantile", {"above": {"min_absolute_change": 5}}, [0.05, 0.5, 0.95]),
+            ("one_side_quantile", {"below": {"quantile": 0.01}}, [0.01, 0.5, 0.95]),
+        ]
+    )
+    def test_requests_the_expected_value_and_the_shown_range(
+        self, _name: str, config: dict[str, Any], levels: list[float]
+    ) -> None:
+        assert forecast_rule(config).quantile_levels.as_list() == levels
 
 
 class TestForecastCheck(SimpleTestCase):
@@ -167,7 +187,9 @@ class TestForecastCheck(SimpleTestCase):
             "lower": 80.0,
             "upper": 120.0,
             "actual": 180.0,
-            "mode": "band",
+            "lower_quantile": 0.05,
+            "upper_quantile": 0.95,
+            "side": "above",
         }
 
     def test_a_history_too_short_to_forecast_leaves_the_check_uncomputed(self) -> None:
