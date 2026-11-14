@@ -8,9 +8,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { tryJsonParse } from 'lib/utils/json'
+import { SecretReentryRefusal, parseSecretReentryRefusal } from 'lib/utils/secretReentryRefusal'
 
 import { groupsModel } from '~/models/groupsModel'
 import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'
+
+import type { HogFunctionPublishRequestApiInputs } from 'products/cdp/frontend/generated/api.schemas'
 
 import type {
     GroupType,
@@ -24,11 +27,19 @@ import {
     hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogFunctionConfigurationLogic'
+import {
+    SecretReentryConfiguration,
+    SecretReentrySource,
+    hogFunctionSecretReentryLogic,
+    withEnteredSecrets,
+} from './hogFunctionSecretReentryLogic'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
 
 export type HogFunctionTestInvocationForm = {
     globals: string // CyclotronJobInvocationGlobals
     mock_async_functions: boolean
+    // Set only on the retry of a refused test run, so the form never holds the secrets the dialog asked for.
+    secret_inputs?: HogFunctionPublishRequestApiInputs
 }
 
 export type HogTransformationEvent = {
@@ -139,6 +150,17 @@ export interface hogFunctionTestLogicActions {
     touchConfigurationField: (key: string) => {
         key: string
     } // hogFunctionConfigurationLogic
+    requireSecretReentry: (
+        refusal: SecretReentryRefusal,
+        source: SecretReentrySource,
+        onContinue: (entered: HogFunctionPublishRequestApiInputs) => void,
+        configuration?: SecretReentryConfiguration | null | undefined
+    ) => {
+        configuration: SecretReentryConfiguration | null | undefined
+        onContinue: (entered: HogFunctionPublishRequestApiInputs) => void
+        refusal: SecretReentryRefusal
+        source: SecretReentrySource
+    } // hogFunctionSecretReentryLogic
     cancelSampleGlobalsLoading: () => {
         value: true
     }
@@ -232,6 +254,13 @@ export type hogFunctionTestLogicType = MakeLogicType<
     hogFunctionTestLogicMeta
 >
 
+function testInvocationFailureMessage(error: any): string {
+    const filterErrors = error?.data?.configuration?.filters?.non_field_errors
+    return filterErrors
+        ? `Testing failed: ${filterErrors}`
+        : `An unexpected server error occurred while testing the function: ${error}`
+}
+
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
@@ -260,6 +289,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         actions: [
             hogFunctionConfigurationLogic(props),
             ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals', 'setSampleGlobals'],
+            hogFunctionSecretReentryLogic(props),
+            ['requireSecretReentry'],
         ],
     })),
     actions({
@@ -497,7 +528,9 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 }
 
                 const parsedData = tryJsonParse(data.globals)
-                const configuration = sanitizeConfiguration(values.configuration) as Record<string, any>
+                const configuration = sanitizeConfiguration(
+                    withEnteredSecrets(values.configuration, data.secret_inputs)
+                ) as Record<string, any>
                 configuration.template_id = values.templateId
                 configuration.hog = values.currentHogCode
 
@@ -523,11 +556,14 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
 
                     actions.setTestResult(res)
                 } catch (e: any) {
-                    if (e?.data?.configuration?.filters?.non_field_errors) {
-                        lemonToast.error(`Testing failed: ${e.data.configuration.filters.non_field_errors}`)
+                    const refusal = parseSecretReentryRefusal(e)
+                    if (refusal) {
+                        actions.requireSecretReentry(refusal, 'test', (entered) =>
+                            actions.submitTestInvocationRequest({ ...values.testInvocation, secret_inputs: entered })
+                        )
                         return
                     }
-                    lemonToast.error(`An unexpected server error occurred while testing the function: ${e}`)
+                    lemonToast.error(testInvocationFailureMessage(e))
                 }
             },
         },

@@ -348,9 +348,13 @@ const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 // (`pat`, credential-bearing URLs) have names key-based redaction can't recognize.
 const FIVETRAN_UPLOAD_TOOL_NAME = 'warehouse-migration-upload-connections'
 
+// Every value in its `inputs` is a secret typed again, under whatever key the destination gave it, such as `auth`.
+const SECRET_REENTRY_TOOL_NAME = 'cdp-functions-publish'
+
 const UNCAPTURED_PAYLOAD_TOOL_NAMES: ReadonlySet<string> = new Set([
     PRESIGNED_UPLOAD_TOOL_NAME,
     FIVETRAN_UPLOAD_TOOL_NAME,
+    SECRET_REENTRY_TOOL_NAME,
 ])
 
 function carriesUncapturedPayload(toolName: string, input: unknown): boolean {
