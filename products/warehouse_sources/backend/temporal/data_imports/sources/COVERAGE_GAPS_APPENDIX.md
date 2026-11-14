@@ -12909,13 +12909,13 @@ Today (6): `alert_contacts`, `maintenance_windows`, `monitor_logs`, `monitors`, 
 Diffed against: <https://cdn.uptimerobot.com/api/openapi.yaml>
 
 - [x] `GET /incidents` — the downtime incident record — the headline analytical object for uptime reporting (high)
-- [ ] `GET /monitors/uptime-stats and GET /monitors/{id}/stats/uptime` — uptime percentage / SLA metric, the vendor's headline number (high)
+- [x] `GET /monitors/uptime-stats and GET /monitors/{id}/stats/uptime` — uptime percentage / SLA metric, the vendor's headline number (high)
 - [x] `GET /monitor-groups` — lookup resolving the groupId carried on monitors we already sync (high)
 - [x] `GET /tags` — lookup resolving tag ids on monitors; the main breakdown dimension (high)
-- [ ] `GET /incidents/{id}/alerts` — which alert contacts were notified and when, per incident (medium)
-- [ ] `GET /incidents/{id}/activity-log` — state-transition history of an incident (acknowledge, resolve, escalate) (medium)
+- [x] `GET /incidents/{id}/alerts` — which alert contacts were notified and when, per incident (medium)
+- [x] `GET /incidents/{id}/activity-log` — state-transition history of an incident (acknowledge, resolve, escalate) (medium)
 - [ ] `GET /incidents/{id}/comments` — human annotations on incidents, useful for postmortem analysis (low)
-- [ ] `GET /psps/{pspId}/announcements` — published status-page announcements tied to status_pages we already sync (low)
+- [x] `GET /psps/{pspId}/announcements` — published status-page announcements tied to status_pages we already sync (low)
 
 Note: The source is pinned to the legacy v2 API (UPTIMEROBOT_BASE_URL = https://api.uptimerobot.com/v2), and it covers essentially all of v2 (getMonitors, getAlertContacts, getMWindows, getPSPs, plus logs/response-times unpacked from getMonitors). All gaps above come from the current v3 REST API, whose OpenAPI spec is served at cdn.uptimerobot.com/api/openapi.yaml; capturing them means moving to v3 (or dual-pathing), not just adding endpoints. Excluded /integrations, /alert-contacts config CRUD and /user/me as plumbing/account settings.
 
