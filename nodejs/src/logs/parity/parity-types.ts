@@ -52,7 +52,8 @@ export type ParityScenario = {
     pattern_message_keys: Record<string, string[]>
     traces_retention_days: Record<string, number>
     internal_source_policies?: Record<string, { billed: boolean; teamRules: boolean }>
-    team_lookup_faults: Record<string, ParityError>
+    /** Without `times` the lookup fails every time. */
+    team_lookup_faults: Record<string, ParityError & { times?: number }>
     team_by_id_faults: Record<string, ParityError & { times: number }>
     team_by_id_missing: number[]
     metric_rules_faults: Record<string, ParityError>

@@ -231,7 +231,8 @@ pub struct Recorded {
 struct ScenarioTeams {
     by_id: HashMap<i64, Team>,
     by_token: HashMap<String, Team>,
-    lookup_faults: HashMap<String, JsValue>,
+    /// `None` fails every lookup; `Some(n)` fails the next `n`.
+    lookup_faults: Mutex<HashMap<String, (Option<u64>, JsValue)>>,
     by_id_faults: Mutex<HashMap<i64, (u64, JsValue)>>,
     missing: Vec<i64>,
     recorded: Arc<Recorded>,
@@ -253,8 +254,15 @@ impl TeamManager for ScenarioTeams {
     }
 
     async fn get_team_by_token(&self, token: &str) -> anyhow::Result<Option<Team>> {
-        if let Some(spec) = self.lookup_faults.get(token) {
-            return Err(to_error(spec));
+        if let Some((left, spec)) = self.lookup_faults.lock().unwrap().get_mut(token) {
+            match left {
+                None => return Err(to_error(spec)),
+                Some(n) if *n > 0 => {
+                    *n -= 1;
+                    return Err(to_error(spec));
+                }
+                Some(_) => {}
+            }
         }
         Ok(self.by_token.get(token).cloned())
     }
@@ -582,10 +590,12 @@ pub fn scenario_parts(
             .iter()
             .map(|t| (t.api_token.clone(), t.clone()))
             .collect(),
-        lookup_faults: entries(get(scenario, "team_lookup_faults"))
-            .into_iter()
-            .map(|(k, v)| (k, v.clone()))
-            .collect(),
+        lookup_faults: Mutex::new(
+            entries(get(scenario, "team_lookup_faults"))
+                .into_iter()
+                .map(|(k, v)| (k, (n(get(v, "times")).map(|t| t as u64), v.clone())))
+                .collect(),
+        ),
         by_id_faults: Mutex::new(faults_with_times(get(scenario, "team_by_id_faults"))),
         missing: arr(get(scenario, "team_by_id_missing"))
             .iter()
