@@ -64,6 +64,7 @@ from products.alerts_platform.backend.facade.enums import (
 )
 from products.alerts_platform.backend.logic import (
     alert_destinations,
+    alert_routes,
     alert_routing,
     delivery_holds,
     destination_sends,
@@ -874,8 +875,11 @@ def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
 
 
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
-    """Whether an alert whose destinations the platform owns has an enabled incident manager."""
-    return alert_destinations.has_incident_destination(team_id=team_id, configuration_id=configuration_id)
+    """Whether an enabled incident manager follows the alert: one of its own, when the platform owns
+    its destinations, or a receiver that one of the alert's routes sends to."""
+    return alert_destinations.has_incident_destination(
+        team_id=team_id, configuration_id=configuration_id
+    ) or alert_routes.routes_reach_incident_receiver(team_id=team_id, configuration_id=configuration_id)
 
 
 def destination_hears_kind(

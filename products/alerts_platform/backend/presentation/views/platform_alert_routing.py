@@ -6,7 +6,7 @@ matches. Both endpoints answer only while the routing flag is on for the team.
 
 from typing import Any, Literal, cast
 
-from django.db import models, transaction
+from django.db import transaction
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -27,7 +27,6 @@ from posthog.scopes import APIScopeObject
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.api import redact_destination_data
 from products.alerts_platform.backend.facade.contracts import (
-    ROUTABLE_DESTINATION_TYPES,
     ROUTING_FLAG,
     AlertDestinationValidationError,
     AlertEventKind,
@@ -45,18 +44,25 @@ from products.alerts_platform.backend.presentation.views.platform_alert import (
     resource_permitted,
 )
 from products.alerts_platform.backend.presentation.views.platform_alert_destinations import (
+    PagerDutyRegionChoices,
+    PagerDutySeverityChoices,
     PlatformAlertDestinationEventKind,
+    PlatformAlertDestinationType,
+    check_pagerduty_routing_key,
     check_slack_workspace,
     destination_data,
 )
 
-# TextChoices supports this functional API at runtime, but its type stubs only describe member
-# construction. The OpenAPI enum is named after this class.
-AlertReceiverType = cast(Any, models.TextChoices)(
-    "AlertReceiverType",
-    [(member.name, (member.value, member.label)) for member in ROUTABLE_DESTINATION_TYPES],
+_DESTINATION_FIELDS = (
+    "type",
+    "slack_workspace_id",
+    "slack_channel_id",
+    "slack_channel_name",
+    "webhook_url",
+    "pagerduty_routing_key",
+    "pagerduty_severity",
+    "pagerduty_region",
 )
-_DESTINATION_FIELDS = ("type", "slack_workspace_id", "slack_channel_id", "slack_channel_name", "webhook_url")
 
 
 class PlatformAlertRoutingFlagPermission(BasePermission):
@@ -98,7 +104,11 @@ class PlatformAlertRoutingSourceAccessPermission(BasePermission):
 class AlertReceiverSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the receiver. Routes name it in receiver_id.")
     name = serializers.CharField(help_text="Name of the receiver, unique in the project.")
-    type = serializers.ChoiceField(choices=AlertReceiverType.choices, help_text="Notification destination type.")
+    # The destinations' own choices: a second class with the same set collides in the OpenAPI enum names.
+    # The write path refuses a type routing cannot send to.
+    type = serializers.ChoiceField(
+        choices=PlatformAlertDestinationType.choices, help_text="Notification destination type."
+    )
     enabled = serializers.BooleanField(
         help_text="Whether routes send to this receiver. A disabled receiver gets nothing."
     )
@@ -116,6 +126,19 @@ class AlertReceiverSerializer(serializers.Serializer):
         required=False,
         help_text="Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret.",
     )
+    pagerduty_routing_key = serializers.CharField(
+        required=False, help_text="PagerDuty integration key reduced to its last four characters."
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=PagerDutySeverityChoices.choices,
+        required=False,
+        help_text="Severity of the PagerDuty incident. Unset means critical.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=PagerDutyRegionChoices.choices,
+        required=False,
+        help_text="PagerDuty service region the events go to. Unset means us.",
+    )
 
 
 class AlertReceiverWriteSerializer(serializers.Serializer):
@@ -123,7 +146,11 @@ class AlertReceiverWriteSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(
         required=False, help_text="Whether routes send to this receiver. Defaults to true."
     )
-    type = serializers.ChoiceField(choices=AlertReceiverType.choices, help_text="Notification destination type.")
+    # The destinations' own choices: a second class with the same set collides in the OpenAPI enum names.
+    # The write path refuses a type routing cannot send to.
+    type = serializers.ChoiceField(
+        choices=PlatformAlertDestinationType.choices, help_text="Notification destination type."
+    )
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )
@@ -136,16 +163,32 @@ class AlertReceiverWriteSerializer(serializers.Serializer):
         help_text="HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every "
         "update that changes the destination, because reads return it redacted.",
     )
+    # No defaults: a default would arrive on a rename too, and replace the stored destination.
+    pagerduty_routing_key = serializers.CharField(
+        required=False,
+        trim_whitespace=True,
+        help_text="Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it "
+        "again on every update that changes the destination, because reads return it redacted.",
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=PagerDutySeverityChoices.choices,
+        required=False,
+        help_text="Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=PagerDutyRegionChoices.choices,
+        required=False,
+        help_text="PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.",
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         sent = [key for key in _DESTINATION_FIELDS if key in attrs]
         if sent and "type" not in attrs:
             raise ValidationError({"type": "Send the type with the destination fields it goes with."})
-        return {
-            "name": attrs.get("name"),
-            "enabled": attrs.get("enabled"),
-            "data": destination_data(attrs) if sent else None,
-        }
+        data = destination_data(attrs) if sent else None
+        if data is not None:
+            check_pagerduty_routing_key(data)
+        return {"name": attrs.get("name"), "enabled": attrs.get("enabled"), "data": data}
 
 
 class AlertRouteMatcherSerializer(serializers.Serializer):
@@ -157,7 +200,10 @@ class AlertRouteMatcherSerializer(serializers.Serializer):
 _MATCHERS_HELP = (
     "Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project."
 )
-_EVENT_KINDS_HELP = "The alert transitions the receiver hears about through this route."
+_EVENT_KINDS_HELP = (
+    "The alert transitions the receiver hears about through this route. A PagerDuty receiver hears the incident "
+    "trigger and resolve of every firing, whatever this lists."
+)
 
 
 class AlertRouteSerializer(serializers.Serializer):

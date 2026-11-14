@@ -31,6 +31,9 @@ import {
     receiverDestinationBody,
     receiverFormErrors,
     receiverFormFor,
+    ALL_ROUTE_EVENT_KINDS,
+    opensIncidents,
+    receiverTypeOf,
     routeFormErrors,
     routeFormFor,
     trimmedMatchers,
@@ -42,6 +45,9 @@ const RECEIVER_FIELD_BY_ATTR: Record<string, keyof ReceiverForm> = {
     slack_workspace_id: 'slackChannel',
     slack_channel_id: 'slackChannel',
     webhook_url: 'webhookUrl',
+    pagerduty_routing_key: 'pagerdutyRoutingKey',
+    pagerduty_severity: 'pagerdutySeverity',
+    pagerduty_region: 'pagerdutyRegion',
     config: 'webhookUrl',
 }
 const ROUTE_FIELD_BY_ATTR: Record<string, keyof RouteForm> = {
@@ -367,13 +373,19 @@ export const platformAlertRoutingLogic = kea<platformAlertRoutingLogicType>([
         routeForm: {
             defaults: EMPTY_ROUTE_FORM,
             // An array field takes one message for the whole list, which kea-forms renders but does not type.
-            errors: (form: RouteForm) => routeFormErrors(form) as DeepPartialMap<RouteForm, ValidationErrorType>,
+            errors: (form: RouteForm) =>
+                routeFormErrors(form, receiverTypeOf(values.receivers, form.receiverId)) as DeepPartialMap<
+                    RouteForm,
+                    ValidationErrorType
+                >,
             submit: async (form: RouteForm) => {
                 const teamId = String(values.currentTeamId)
                 const body = {
                     receiver_id: form.receiverId!,
                     matchers: trimmedMatchers(form.matchers),
-                    event_kinds: form.eventKinds,
+                    event_kinds: opensIncidents(receiverTypeOf(values.receivers, form.receiverId))
+                        ? ALL_ROUTE_EVENT_KINDS
+                        : form.eventKinds,
                 }
                 try {
                     if (values.editingRoute) {

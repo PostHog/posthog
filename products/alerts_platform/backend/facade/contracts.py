@@ -1546,13 +1546,13 @@ DESTINATION_EVENT_KINDS: Final = frozenset(
 
 # Turns on team-wide receivers and routes for a team, in delivery and in the API that edits them.
 ROUTING_FLAG: Final = "platform-alerts-routing"
-# The types routed delivery sends to. It skips incident managers, and email and in-app need
-# recipients that belong to one alert.
+# The types routed delivery sends to. Email and in-app need recipients that belong to one alert.
 ROUTABLE_DESTINATION_TYPES: Final = (
     DestinationType.SLACK,
     DestinationType.WEBHOOK,
     DestinationType.TEAMS,
     DestinationType.DISCORD,
+    DestinationType.PAGERDUTY,
 )
 
 

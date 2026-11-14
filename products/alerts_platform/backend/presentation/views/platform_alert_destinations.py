@@ -164,13 +164,7 @@ class PlatformAlertCreateDestinationSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         data = destination_data(attrs)
-        routing_key = data.get("pagerduty_routing_key")
-        if routing_key is not None and not _PAGERDUTY_ROUTING_KEY_RE.fullmatch(routing_key):
-            raise ValidationError(
-                {
-                    "pagerduty_routing_key": "Enter the 32-character integration key of a PagerDuty Events API v2 integration."
-                }
-            )
+        check_pagerduty_routing_key(data)
         # The platform's write path checks the rest. Refusing here names the field at fault.
         if refusal := refused_destination(data):
             raise ValidationError({"webhook_url": refusal} if data.get("webhook_url") is not None else refusal)
@@ -200,6 +194,16 @@ def destination_data(attrs: dict[str, Any]) -> AlertDestinationData:
     if missing := [key for key in _REQUIRED_FIELDS[destination_type] if not data.get(key)]:
         raise ValidationError(dict.fromkeys(missing, f"Required for {destination_type.label} destinations."))
     return data
+
+
+def check_pagerduty_routing_key(data: AlertDestinationData) -> None:
+    routing_key = data.get("pagerduty_routing_key")
+    if routing_key is not None and not _PAGERDUTY_ROUTING_KEY_RE.fullmatch(routing_key):
+        raise ValidationError(
+            {
+                "pagerduty_routing_key": "Enter the 32-character integration key of a PagerDuty Events API v2 integration."
+            }
+        )
 
 
 def check_slack_workspace(team_id: int, data: AlertDestinationData) -> None:

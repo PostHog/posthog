@@ -12,14 +12,43 @@
  * * `webhook` - Webhook
  * * `teams` - Microsoft Teams
  * * `discord` - Discord
+ * * `pagerduty` - PagerDuty
  */
-export type AlertReceiverTypeEnumApi = (typeof AlertReceiverTypeEnumApi)[keyof typeof AlertReceiverTypeEnumApi]
+export type PlatformAlertDestinationTypeEnumApi =
+    (typeof PlatformAlertDestinationTypeEnumApi)[keyof typeof PlatformAlertDestinationTypeEnumApi]
 
-export const AlertReceiverTypeEnumApi = {
+export const PlatformAlertDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
     Teams: 'teams',
     Discord: 'discord',
+    Pagerduty: 'pagerduty',
+} as const
+
+/**
+ * * `critical` - critical
+ * * `error` - error
+ * * `warning` - warning
+ * * `info` - info
+ */
+export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
+
+export const PagerDutySeverityEnumApi = {
+    Critical: 'critical',
+    Error: 'error',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `us` - us
+ * * `eu` - eu
+ */
+export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
+
+export const PagerDutyRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
 } as const
 
 export interface AlertReceiverApi {
@@ -32,8 +61,9 @@ export interface AlertReceiverApi {
      * * `slack` - Slack
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
-     * * `discord` - Discord */
-    type: AlertReceiverTypeEnumApi
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty */
+    type: PlatformAlertDestinationTypeEnumApi
     /** Whether routes send to this receiver. A disabled receiver gets nothing. */
     enabled: boolean
     /** How many routes send to this receiver. Deleting the receiver deletes them. */
@@ -46,6 +76,20 @@ export interface AlertReceiverApi {
     slack_channel_name?: string
     /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
     webhook_url?: string
+    /** PagerDuty integration key reduced to its last four characters. */
+    pagerduty_routing_key?: string
+    /** Severity of the PagerDuty incident. Unset means critical.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region the events go to. Unset means us.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
 }
 
 export interface AlertReceiverWriteApi {
@@ -61,8 +105,9 @@ export interface AlertReceiverWriteApi {
      * * `slack` - Slack
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
-     * * `discord` - Discord */
-    type: AlertReceiverTypeEnumApi
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty */
+    type: PlatformAlertDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -71,6 +116,20 @@ export interface AlertReceiverWriteApi {
     slack_channel_name?: string
     /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
     webhook_url?: string
+    /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it again on every update that changes the destination, because reads return it redacted. */
+    pagerduty_routing_key?: string
+    /** Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
 }
 
 export interface PatchedAlertReceiverWriteApi {
@@ -86,8 +145,9 @@ export interface PatchedAlertReceiverWriteApi {
      * * `slack` - Slack
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
-     * * `discord` - Discord */
-    type?: AlertReceiverTypeEnumApi
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty */
+    type?: PlatformAlertDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -96,6 +156,20 @@ export interface PatchedAlertReceiverWriteApi {
     slack_channel_name?: string
     /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
     webhook_url?: string
+    /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it again on every update that changes the destination, because reads return it redacted. */
+    pagerduty_routing_key?: string
+    /** Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
 }
 
 export interface AlertRouteMatcherApi {
@@ -128,7 +202,7 @@ export interface AlertRouteApi {
     receiver_id: string
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
     matchers: AlertRouteMatcherApi[]
-    /** The alert transitions the receiver hears about through this route. */
+    /** The alert transitions the receiver hears about through this route. A PagerDuty receiver hears the incident trigger and resolve of every firing, whatever this lists. */
     event_kinds: PlatformAlertDestinationEventKindEnumApi[]
     /** Whether this route sends. */
     enabled: boolean
@@ -140,7 +214,7 @@ export interface AlertRouteWriteApi {
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
     matchers?: AlertRouteMatcherApi[]
     /**
-     * The alert transitions the receiver hears about through this route. Defaults to every kind.
+     * The alert transitions the receiver hears about through this route. A PagerDuty receiver hears the incident trigger and resolve of every firing, whatever this lists. Defaults to every kind.
      * @minItems 1
      */
     event_kinds?: PlatformAlertDestinationEventKindEnumApi[]
@@ -154,7 +228,7 @@ export interface PatchedAlertRouteWriteApi {
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
     matchers?: AlertRouteMatcherApi[]
     /**
-     * The alert transitions the receiver hears about through this route. Defaults to every kind.
+     * The alert transitions the receiver hears about through this route. A PagerDuty receiver hears the incident trigger and resolve of every firing, whatever this lists. Defaults to every kind.
      * @minItems 1
      */
     event_kinds?: PlatformAlertDestinationEventKindEnumApi[]
@@ -2305,50 +2379,6 @@ export type PatchedPlatformAlertConfigurationEditApi =
     | PatchedTracesPlatformAlertConfigurationEditApi
     | PatchedWarehouseDestinationPlatformAlertConfigurationEditApi
     | PatchedWarehouseSourcePlatformAlertConfigurationEditApi
-
-/**
- * * `slack` - Slack
- * * `webhook` - Webhook
- * * `teams` - Microsoft Teams
- * * `discord` - Discord
- * * `pagerduty` - PagerDuty
- */
-export type PlatformAlertDestinationTypeEnumApi =
-    (typeof PlatformAlertDestinationTypeEnumApi)[keyof typeof PlatformAlertDestinationTypeEnumApi]
-
-export const PlatformAlertDestinationTypeEnumApi = {
-    Slack: 'slack',
-    Webhook: 'webhook',
-    Teams: 'teams',
-    Discord: 'discord',
-    Pagerduty: 'pagerduty',
-} as const
-
-/**
- * * `critical` - critical
- * * `error` - error
- * * `warning` - warning
- * * `info` - info
- */
-export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
-
-export const PagerDutySeverityEnumApi = {
-    Critical: 'critical',
-    Error: 'error',
-    Warning: 'warning',
-    Info: 'info',
-} as const
-
-/**
- * * `us` - us
- * * `eu` - eu
- */
-export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
-
-export const PagerDutyRegionEnumApi = {
-    Us: 'us',
-    Eu: 'eu',
-} as const
 
 export interface PlatformAlertDestinationApi {
     /** ID of the destination. Send it to the delete endpoint to remove it. */

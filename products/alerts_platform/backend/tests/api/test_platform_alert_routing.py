@@ -11,8 +11,11 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
+from products.alerts_platform.backend.facade.api import has_incident_destination
+from products.alerts_platform.backend.facade.contracts import ROUTING_FLAG, SourceKind
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic.alert_routes import routed_receivers
-from products.alerts_platform.backend.models import AlertReceiver
+from products.alerts_platform.backend.models import AlertReceiver, PlatformAlertConfiguration
 from products.alerts_platform.backend.presentation.views.platform_alert import SOURCE_KIND_RESOURCE
 
 _WEBHOOK = {"type": "webhook", "webhook_url": "https://example.com/hooks/secret-token"}
@@ -109,6 +112,55 @@ class TestPlatformAlertRouting(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("matching_route", True, "apm", True),
+            ("route_matches_another_team", True, "web", False),
+            ("routing_off_for_the_team", False, "apm", False),
+            # A dropped resolve would leave the incident open for good, so a failed lookup keeps the actions.
+            ("flag_lookup_fails", RuntimeError("flags down"), "apm", True),
+        ]
+    )
+    def test_a_pagerduty_receiver_makes_the_alerts_its_routes_match_open_and_close_incidents(
+        self, _name: str, routing_on: bool | Exception, alert_team: str, expected: bool
+    ) -> None:
+        def feature_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
+            if isinstance(routing_on, Exception):
+                raise routing_on
+            return routing_on and flag == ROUTING_FLAG
+
+        key = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+        receiver = self.client.post(
+            self.receivers_url,
+            {"name": "Pager", "type": "pagerduty", "pagerduty_routing_key": key, "pagerduty_severity": "warning"},
+            format="json",
+        ).json()
+        self.client.post(
+            self.routes_url,
+            {"receiver_id": receiver["id"], "matchers": [{"label": "team", "value": "apm"}]},
+            format="json",
+        )
+        with team_scope(self.team.id):
+            configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+                team=self.team,
+                name="API errors",
+                source_kind=SourceKind.LOGS,
+                check_interval_minutes=5,
+                destinations_owner=PlatformAlertOwner.PLATFORM,
+                labels={"team": alert_team},
+            )
+            with patch(
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                side_effect=feature_enabled,
+            ):
+                follows = has_incident_destination(team_id=self.team.id, configuration_id=configuration.id)
+
+        assert follows is expected
+        listed = self.client.get(self.receivers_url).json()
+        assert [(r["type"], r["pagerduty_routing_key"], r["pagerduty_severity"]) for r in listed] == [
+            ("pagerduty", "••••c3d4", "warning")
+        ]
+
+    @parameterized.expand(
+        [
             ("routing_flag_off", None, False, status.HTTP_403_FORBIDDEN),
             ("member_who_is_not_an_org_admin", None, True, status.HTTP_403_FORBIDDEN),
             ("key_without_source_scopes", ["alert:read", "alert:write"], True, status.HTTP_403_FORBIDDEN),
@@ -180,7 +232,12 @@ class TestPlatformAlertRouting(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("pagerduty_is_not_routable", {"name": "Pager", "type": "pagerduty"}, "type"),
+            ("email_is_not_routable", {"name": "Mail", "type": "email"}, "type"),
+            (
+                "pagerduty_key_is_not_an_integration_key",
+                {"name": "Pager", "type": "pagerduty", "pagerduty_routing_key": "not-a-key"},
+                "pagerduty_routing_key",
+            ),
             ("duplicate_name", {"name": "Infra", **_WEBHOOK}, "name"),
             ("slack_workspace_of_no_integration", {"name": "Chat", "type": "slack"}, "slack_workspace_id"),
         ]
