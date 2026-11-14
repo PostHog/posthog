@@ -6,21 +6,50 @@ single-use nonce management via Redis for tying challenges to specific
 signup attempts.
 """
 
+import time
 import uuid
 import hashlib
+from enum import StrEnum
 
 from django.conf import settings
 
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
+from posthog.egress.cloudflare_turnstile import TURNSTILE_SITEVERIFY_URL, turnstile_siteverify_request
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
 
-TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 TURNSTILE_VERIFY_TIMEOUT = 5.0
 CHALLENGE_NONCE_TTL_SECONDS = 300
+
+# Connect and read timeouts apply separately, so this pair keeps the whole call near 2 seconds.
+LOGIN_SITEVERIFY_TIMEOUT_SECONDS = (0.5, 1.5)
+LOGIN_TURNSTILE_ACTION = "login"
+TURNSTILE_TOKEN_MAX_LENGTH = 2048
+# Cloudflare's published test secrets return no `action`, so the action check cannot apply to them.
+CLOUDFLARE_TEST_SECRET_KEYS = frozenset(
+    {
+        "1x0000000000000000000000000000000AA",
+        "2x0000000000000000000000000000000AA",
+        "3x0000000000000000000000000000000AA",
+    }
+)
+
+
+class SiteverifyResult(StrEnum):
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    UNAVAILABLE = "unavailable"
+
+
+@frozen
+class SiteverifyOutcome:
+    result: SiteverifyResult
+    error_codes: tuple[str, ...] = ()
+    duration_seconds: float = 0.0
 
 
 def _nonce_identity_hash(email: str, ip_address: str) -> str:
@@ -91,3 +120,44 @@ def validate_and_consume_nonce(nonce: str, email: str, ip_address: str) -> bool:
         return False
 
     return True
+
+
+def verify_login_turnstile_token(token: str, remote_ip: str) -> SiteverifyOutcome:
+    if len(token) > TURNSTILE_TOKEN_MAX_LENGTH:
+        return SiteverifyOutcome(result=SiteverifyResult.REJECTED, error_codes=("token-too-long",))
+    # A Turnstile token is printable ASCII. Anything else would fail to encode before the request,
+    # which must not read as a Cloudflare outage.
+    if not (token.isascii() and token.isprintable()):
+        return SiteverifyOutcome(result=SiteverifyResult.REJECTED, error_codes=("token-malformed",))
+
+    secret_key = settings.CLOUDFLARE_TURNSTILE_SECRET_KEY
+    start = time.perf_counter()
+    try:
+        response = turnstile_siteverify_request(
+            {"secret": secret_key, "response": token, "remoteip": remote_ip},
+            source="login_turnstile",
+            timeout=LOGIN_SITEVERIFY_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        data = None
+    else:
+        try:
+            data = None if response.status_code >= 500 else response.json()
+        except ValueError:
+            data = None
+    duration_seconds = time.perf_counter() - start
+
+    if not isinstance(data, dict):
+        return SiteverifyOutcome(result=SiteverifyResult.UNAVAILABLE, duration_seconds=duration_seconds)
+
+    error_codes = tuple(str(code) for code in data.get("error-codes") or [])
+    if not data.get("success"):
+        result = SiteverifyResult.UNAVAILABLE if "internal-error" in error_codes else SiteverifyResult.REJECTED
+        return SiteverifyOutcome(result=result, error_codes=error_codes, duration_seconds=duration_seconds)
+
+    if secret_key not in CLOUDFLARE_TEST_SECRET_KEYS and data.get("action") != LOGIN_TURNSTILE_ACTION:
+        return SiteverifyOutcome(
+            result=SiteverifyResult.REJECTED, error_codes=("action-mismatch",), duration_seconds=duration_seconds
+        )
+
+    return SiteverifyOutcome(result=SiteverifyResult.ACCEPTED, duration_seconds=duration_seconds)

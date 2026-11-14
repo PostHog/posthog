@@ -198,6 +198,8 @@ LOGGING: dict[str, Any] = {
         "posthog.utils": {"level": "INFO", "handlers": ["console"], "propagate": False},
         # Same clamp: the admin console audit log, with the reason staff gave, logs at INFO.
         "posthog.admin.console": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Same clamp: the login Turnstile check logs each shadow-mode decision at INFO.
+        "posthog.login_challenge": {"level": "INFO", "handlers": ["console"], "propagate": False},
         # The Celery worker logs through this logger before it configures logging, and
         # disable_existing_loggers then turns off every existing logger that is not named here.
         "posthog.celery": {"level": "INFO", "handlers": ["console"], "propagate": False},

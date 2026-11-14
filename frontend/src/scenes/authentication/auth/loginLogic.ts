@@ -67,7 +67,19 @@ export interface PrecheckResponseType {
      * rest of the page session.
      */
     precheckFailed?: boolean
+    // Sent only to a browser with no known-device cookie for this email, while the server runs the login Turnstile check
+    turnstile_site_key?: string
 }
+
+// What the login Turnstile widget reported at submit, sent so the server can tell a blocked widget from a non-browser client
+export type TurnstileClientStatus =
+    | 'token'
+    | 'pending'
+    | 'error'
+    | 'expired'
+    | 'unsupported'
+    | 'script_failed'
+    | 'not_rendered'
 
 // Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
 // would stay stuck at `status: 'pending'`, which keeps the password field hidden and swallows submits.
@@ -156,6 +168,14 @@ export interface loginLogicValues {
     setPasswordLinkSentToLoading: boolean
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
+    turnstileClientStatus: TurnstileClientStatus
+    turnstileLoginFields: {
+        turnstile_client_status: TurnstileClientStatus
+        turnstile_token?: string
+    }
+    turnstileScriptFailed: boolean
+    turnstileToken: string | null
+    turnstileWidgetKey: number
     wasSignedOutForSessionRisk: boolean
 }
 
@@ -224,6 +244,9 @@ export interface loginLogicActions {
     resetLogin: (values?: LoginForm) => {
         values?: LoginForm
     }
+    resetTurnstile: () => {
+        value: true
+    }
     sendSetPasswordLink: (email: string) => string
     sendSetPasswordLinkFailure: (
         error: string,
@@ -274,6 +297,12 @@ export interface loginLogicActions {
     }
     setLoginValues: (values: DeepPartial<LoginForm>) => {
         values: DeepPartial<LoginForm>
+    }
+    setTurnstileClientStatus: (status: TurnstileClientStatus) => {
+        status: TurnstileClientStatus
+    }
+    setTurnstileToken: (token: string | null) => {
+        token: string | null
     }
     startAutoRedirectToProvider: (
         provider: SSOProvider,
@@ -326,6 +355,13 @@ export interface loginLogicActions {
 export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isPasswordLoginUnavailable: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
+        turnstileLoginFields: (
+            turnstileToken: string | null,
+            turnstileClientStatus: TurnstileClientStatus
+        ) => {
+            turnstile_client_status: TurnstileClientStatus
+            turnstile_token?: string
+        }
         availableLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
         hasNoConfiguredLoginMethod: (
             precheckResponse: PrecheckResponseType,
@@ -365,6 +401,9 @@ export const loginLogic = kea<loginLogicType>([
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
         markPasskeyPrompted: (email: string) => ({ email }),
+        setTurnstileToken: (token: string | null) => ({ token }),
+        setTurnstileClientStatus: (status: TurnstileClientStatus) => ({ status }),
+        resetTurnstile: true,
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -428,6 +467,33 @@ export const loginLogic = kea<loginLogicType>([
             null as string | null,
             {
                 markPasskeyPrompted: (_, { email }) => email,
+            },
+        ],
+        turnstileToken: [
+            null as string | null,
+            {
+                setTurnstileToken: (_, { token }) => token,
+                resetTurnstile: () => null,
+            },
+        ],
+        turnstileClientStatus: [
+            'not_rendered' as TurnstileClientStatus,
+            {
+                setTurnstileClientStatus: (_, { status }) => status,
+            },
+        ],
+        // The Turnstile script loads once per page, so a remounted widget cannot see an earlier load failure
+        turnstileScriptFailed: [
+            false,
+            {
+                setTurnstileClientStatus: (failed, { status }) => failed || status === 'script_failed',
+            },
+        ],
+        // A Turnstile token is single use, so the widget remounts under a new key after each submit
+        turnstileWidgetKey: [
+            0,
+            {
+                resetTurnstile: (key) => key + 1,
             },
         ],
     }),
@@ -542,8 +608,9 @@ export const loginLogic = kea<loginLogicType>([
                 actions.clearGeneralError()
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    return await api.create<any>('api/login', { email, password })
+                    return await api.create<any>('api/login', { email, password, ...values.turnstileLoginFields })
                 } catch (e) {
+                    actions.resetTurnstile()
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
                         const next: string | undefined = router.values.searchParams.next
@@ -622,6 +689,16 @@ export const loginLogic = kea<loginLogicType>([
         ],
         // Every way this specific account can get in. Empty until precheck resolves, and empty when
         // SSO is enforced (that path takes over the whole form).
+        turnstileLoginFields: [
+            (s) => [s.turnstileToken, s.turnstileClientStatus],
+            (
+                turnstileToken: string | null,
+                turnstileClientStatus: TurnstileClientStatus
+            ): { turnstile_client_status: TurnstileClientStatus; turnstile_token?: string } =>
+                turnstileToken
+                    ? { turnstile_client_status: turnstileClientStatus, turnstile_token: turnstileToken }
+                    : { turnstile_client_status: turnstileClientStatus },
+        ],
         availableLoginMethods: [
             (s) => [s.precheckResponse],
             (precheckResponse: PrecheckResponseType): LoginMethod[] => {

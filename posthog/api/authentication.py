@@ -32,7 +32,8 @@ from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session, restore_original_login
 from requests import RequestException
 from rest_framework import exceptions, mixins, permissions, serializers, status, viewsets
@@ -82,6 +83,7 @@ from posthog.helpers.two_factor_session import (
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.login_challenge import precheck_turnstile_fields, record_login_turnstile_decision
 from posthog.models import IdentityProviderConfig, OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -314,9 +316,37 @@ def is_email_verified_for_login(user: User) -> bool:
     return True
 
 
+@extend_schema_field(OpenApiTypes.STR)
+class _IgnoreInvalidStringField(serializers.Field):
+    # Login ignored these fields before they existed, so a value that is not a plain string reads as
+    # empty instead of turning the login into a 400.
+    def to_internal_value(self, data: Any) -> str:
+        return data if isinstance(data, str) and "\x00" not in data else ""
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
+    turnstile_token = _IgnoreInvalidStringField(
+        required=False,
+        allow_null=True,
+        default="",
+        write_only=True,
+        help_text="Cloudflare Turnstile token from the login widget, when the browser got one.",
+    )
+    turnstile_client_status = _IgnoreInvalidStringField(
+        required=False,
+        allow_null=True,
+        default="",
+        write_only=True,
+        help_text=(
+            "What the login widget reported at submit: token, pending, error, expired, unsupported, "
+            "script_failed or not_rendered. Any other value is recorded as unknown."
+        ),
+    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
@@ -400,6 +430,15 @@ class LoginSerializer(serializers.Serializer):
         # Check if axes has locked out this IP/user before attempting authentication
         if handler.is_locked(axes_request, credentials=axes_credentials):
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
+
+        record_login_turnstile_decision(
+            axes_request,
+            email=validated_data["email"],
+            existing_user=existing_user,
+            is_reauth=was_authenticated_before_login_attempt,
+            token=validated_data.get("turnstile_token") or "",
+            client_status=validated_data.get("turnstile_client_status") or "",
+        )
 
         user = cast(
             User | None,
@@ -535,6 +574,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
             "oidc_available": oidc_available,
             "webauthn_credentials": webauthn_credentials,
             **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
+            **precheck_turnstile_fields(self.context["request"]._request, user),
         }
 
     @staticmethod

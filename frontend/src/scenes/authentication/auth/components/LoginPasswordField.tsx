@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { authLogic, hasSingleSignOn } from '../authLogic'
 import { loginLogic } from '../loginLogic'
+import { LoginTurnstileWidget } from './LoginTurnstileWidget'
 
 export function LoginPasswordField(): JSX.Element {
     const { accountExists, isLoginPasswordHidden } = useValues(authLogic)
@@ -20,6 +21,7 @@ export function LoginPasswordField(): JSX.Element {
         autoRedirectingToProvider,
         setPasswordLinkSentTo,
         preflight,
+        turnstileWidgetKey,
     } = useValues(loginLogic)
     const { setLoginValue } = useActions(loginLogic)
 
@@ -27,36 +29,44 @@ export function LoginPasswordField(): JSX.Element {
         // `empty:hidden` drops the top padding for an SSO-only account, which has nothing to show here
         <div className="flex flex-col gap-4 pt-4 empty:hidden">
             {!isLoginPasswordHidden && (
-                <LemonField.Pure
-                    htmlFor="auth-login-password"
-                    label={
-                        <div className="flex items-baseline justify-between w-full">
-                            <span>Password</span>
-                            <Link
-                                to={[urls.passwordReset(), { email: login.email }]}
-                                data-attr="forgot-password"
-                                className="text-xs font-semibold text-warning"
-                                tabIndex={-1}
-                            >
-                                Forgot password?
-                            </Link>
-                        </div>
-                    }
-                    error={loginErrors.password}
-                >
-                    <LemonInput
-                        id="auth-login-password"
-                        className="ph-ignore-input"
-                        data-attr="password"
-                        type="password"
-                        autoFocus
-                        autoComplete="current-password"
-                        value={login.password}
-                        onChange={(value) => setLoginValue('password', value)}
-                        status={loginErrors.password ? 'danger' : 'default'}
-                        fullWidth
-                    />
-                </LemonField.Pure>
+                <>
+                    <LemonField.Pure
+                        htmlFor="auth-login-password"
+                        label={
+                            <div className="flex items-baseline justify-between w-full">
+                                <span>Password</span>
+                                <Link
+                                    to={[urls.passwordReset(), { email: login.email }]}
+                                    data-attr="forgot-password"
+                                    className="text-xs font-semibold text-warning"
+                                    tabIndex={-1}
+                                >
+                                    Forgot password?
+                                </Link>
+                            </div>
+                        }
+                        error={loginErrors.password}
+                    >
+                        <LemonInput
+                            id="auth-login-password"
+                            className="ph-ignore-input"
+                            data-attr="password"
+                            type="password"
+                            autoFocus
+                            autoComplete="current-password"
+                            value={login.password}
+                            onChange={(value) => setLoginValue('password', value)}
+                            status={loginErrors.password ? 'danger' : 'default'}
+                            fullWidth
+                        />
+                    </LemonField.Pure>
+                    {precheckResponse.turnstile_site_key && (
+                        <LoginTurnstileWidget
+                            key={`${precheckResponse.email}-${turnstileWidgetKey}`}
+                            siteKey={precheckResponse.turnstile_site_key}
+                        />
+                    )}
+                </>
             )}
             {accountExists === false && !hasSingleSignOn(precheckResponse) && (
                 <AuthBanner variant="note">
