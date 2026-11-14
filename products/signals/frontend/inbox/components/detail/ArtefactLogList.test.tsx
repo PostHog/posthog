@@ -288,6 +288,34 @@ describe('ArtefactLogList', () => {
         )
     })
 
+    // A lower threshold starts work only for the threshold reasons, so the settings link must not
+    // send a reader there when no member can run the report at all.
+    it.each([
+        ['below_threshold', 'Below priority threshold', true],
+        ['no_identity_candidates', 'No reviewer can run it', true],
+        ['no_fallback_user', 'No member can run it', false],
+    ])('points %s at Inbox settings only when a threshold can clear it', (skipReason, expectedTag, linksSettings) => {
+        render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        { skip_reason: skipReason, detail: 'No work started because nobody can run it.' },
+                        'autostart_skip'
+                    ),
+                ]}
+            />
+        )
+
+        expect(screen.getByText(expectedTag)).toBeInTheDocument()
+        const settingsLink = screen.queryByText('Open Inbox settings')
+        if (linksSettings) {
+            expect(settingsLink?.closest('a')).toHaveAttribute('href', expect.stringContaining('/inbox/settings'))
+        } else {
+            expect(settingsLink).not.toBeInTheDocument()
+        }
+    })
+
     it('shows the three scores first, with the other heads and the challengers behind collapsed disclosures', () => {
         const { container } = render(
             <ArtefactLogList

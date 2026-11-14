@@ -55,6 +55,7 @@ import {
     artefactAttributionLabel,
     artefactLocationLabel,
     AUTOSTART_SKIP_REASON_LABELS,
+    AUTOSTART_SKIP_THRESHOLD_REASONS,
     AutostartSkipContent,
     CheckLifecycleContent,
     CheckResultContent,
@@ -377,6 +378,15 @@ function AutostartSkipBody({ content }: { content: AutostartSkipContent }): JSX.
                         data-attr="artefact-autostart-skip-open"
                     >
                         Open that report <IconExternal className="size-3" />
+                    </Link>
+                ) : null}
+                {content.skip_reason && AUTOSTART_SKIP_THRESHOLD_REASONS.has(content.skip_reason) ? (
+                    <Link
+                        to={urls.inbox('settings')}
+                        className="inline-flex items-center gap-1"
+                        data-attr="artefact-autostart-skip-settings"
+                    >
+                        Open Inbox settings <IconExternal className="size-3" />
                     </Link>
                 ) : null}
             </div>

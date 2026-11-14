@@ -28,6 +28,7 @@ from products.signals.backend.artefact_schemas import (
     AutostartSkip,
     ImplementationDispatch,
     ImplementationReplacement,
+    NoRunnerReason,
     ReviewerState,
     SuggestedReviewerEntry,
 )
@@ -555,7 +556,8 @@ def _capture_steering_attached(
 # the sentence is reworded. `task_exists` has no slug on purpose: it is idempotency, not a gate, and
 # it fires on every re-evaluation of a report whose run already started. The two non-immediate
 # actionability choices get a slug each: a report waiting on a person still holds work, so counting
-# it as `not_actionable` would read as the opposite conclusion.
+# it as `not_actionable` would read as the opposite conclusion. `no_runner` events also carry a
+# `no_runner_reason`, so a breakdown can tell a threshold setting from a missing member.
 SKIP_NOT_ACTIONABLE = "not_actionable"
 SKIP_REQUIRES_HUMAN_INPUT = "requires_human_input"
 SKIP_ALREADY_ADDRESSED = "already_addressed"
@@ -564,10 +566,17 @@ SKIP_AUTOSTART_DISABLED = "autostart_disabled"
 SKIP_NO_RUNNER = "no_runner"
 SKIP_FREE_TRIAL = "free_trial"
 SKIP_REPOSITORY_NOT_NAMED = "repository_not_named"
+SKIP_REVIEWER_CORRECTIONS = "reviewer_corrections"
+SKIP_REPOSITORY_ACCESS = "repository_access"
 
 
 def _capture_autostart_skipped(
-    *, team_id: int, report_id: str, skip_reason: str, linked_report_id: str | None = None
+    *,
+    team_id: int,
+    report_id: str,
+    skip_reason: str,
+    linked_report_id: str | None = None,
+    no_runner_reason: NoRunnerReason | None = None,
 ) -> None:
     """`signals_autostart_skipped` — fired once per evaluation that started nothing, so the share of
     reports each gate holds back is readable against the share that started.
@@ -588,6 +597,7 @@ def _capture_autostart_skipped(
                 "report_id": report_id,
                 "skip_reason": skip_reason,
                 "linked_report_id": linked_report_id,
+                "no_runner_reason": no_runner_reason,
             },
             groups=groups(team.organization, team),
         )
@@ -690,11 +700,11 @@ def _evaluate_link_gates(team_id: int, report_id: str) -> AutostartSkip | None:
     return None
 
 
-def _record_link_gate_skip(team_id: int, report_id: str, skip: AutostartSkip) -> None:
-    """Put the gate on the report's work log, then count it.
+def _log_autostart_skip(team_id: int, report_id: str, skip: AutostartSkip) -> None:
+    """Put the gate on the report's work log.
 
-    Best-effort on the artefact: holding the report back is the decision that matters, and losing
-    the log row must not turn a blocked report into a started one.
+    Best-effort: holding the report back is the decision that matters, and losing the log row must
+    not turn a blocked report into a started one.
     """
     try:
         SignalReportArtefact.add_log(
@@ -705,11 +715,94 @@ def _record_link_gate_skip(team_id: int, report_id: str, skip: AutostartSkip) ->
         )
     except Exception:
         logger.exception("signals autostart skip artefact failed", report_id=report_id, team_id=team_id)
+
+
+def _record_link_gate_skip(team_id: int, report_id: str, skip: AutostartSkip) -> None:
+    _log_autostart_skip(team_id, report_id, skip)
     _capture_autostart_skipped(
         team_id=team_id,
         report_id=report_id,
         skip_reason=skip.skip_reason,
         linked_report_id=skip.linked_report_id,
+    )
+
+
+_NO_RUNNER_DETAIL: dict[NoRunnerReason, str] = {
+    "below_threshold": (
+        "No work started because this report's priority is below the auto-start threshold of every "
+        "suggested reviewer who could run it, and below the project threshold. Lower a threshold in "
+        "Inbox settings, or press Create PR to start it now."
+    ),
+    "no_identity_candidates": (
+        "No work started because none of the suggested reviewers can run it, and this report's "
+        "priority is below the project threshold. Lower the project threshold in Inbox settings, or "
+        "press Create PR to start it now."
+    ),
+    "no_fallback_user": (
+        "No work started because none of the suggested reviewers can run it, and this project has no "
+        "active member who turned on a signal source and no active organization admin to run it "
+        "instead. Press Create PR to start it now."
+    ),
+}
+
+# A reviewer edit runs as the editor and never falls back, so only these two reasons can apply.
+_USER_TRIGGERED_NO_RUNNER_DETAIL: dict[NoRunnerReason, str] = {
+    "below_threshold": (
+        "No work started because this report's priority is below the auto-start threshold of the "
+        "person who last edited its reviewers. They can lower their threshold in Inbox settings, or "
+        "press Create PR to start it now."
+    ),
+    "no_identity_candidates": (
+        "No work started because the person who last edited this report's reviewers is no longer a "
+        "member of this organization. Press Create PR to start it now."
+    ),
+}
+
+
+def _no_runner_reason(*, meets_team_threshold: bool, has_candidate_members: bool) -> NoRunnerReason:
+    """Why the reviewer path found nobody to run the report.
+
+    A report at or above the team threshold always reaches the fallback, so a missing runner there
+    means the fallback found nobody, whatever the reviewers resolved to. Below the team threshold
+    the fallback never runs, and the report waits on a reviewer's own threshold when at least one
+    reviewer resolved to a member, or on the reviewers themselves when none did.
+    """
+    if meets_team_threshold:
+        return "no_fallback_user"
+    return "below_threshold" if has_candidate_members else "no_identity_candidates"
+
+
+def _explain_no_runner(
+    *,
+    team_id: int,
+    report_priority: Priority,
+    team_default_priority: Priority,
+    reviewers_content: list[ReviewerContent],
+    live_owner_identities: ReviewerIdentitySet,
+    confirmed_research_user_uuids: set[str],
+    triggering_user_id: int | None,
+) -> NoRunnerReason:
+    if triggering_user_id is not None:
+        is_member = User.objects.filter(id=triggering_user_id, organization__team=team_id).exists()
+        return "below_threshold" if is_member else "no_identity_candidates"
+    if _report_meets_team_autostart_threshold(report_priority, team_default_priority):
+        return _no_runner_reason(meets_team_threshold=True, has_candidate_members=False)
+    candidates = _autostart_candidate_users(
+        team_id, reviewers_content, live_owner_identities, confirmed_research_user_uuids
+    )
+    return _no_runner_reason(meets_team_threshold=False, has_candidate_members=bool(candidates))
+
+
+def _record_no_runner_skip(team_id: int, report_id: str, reason: NoRunnerReason, *, user_triggered: bool) -> None:
+    """Put the missing runner on the report's work log, then count it under `no_runner`.
+
+    The event keeps the `no_runner` slug so existing breakdowns still group these skips together,
+    and `no_runner_reason` splits them.
+    """
+    details = _USER_TRIGGERED_NO_RUNNER_DETAIL if user_triggered else _NO_RUNNER_DETAIL
+    _log_autostart_skip(team_id, report_id, AutostartSkip(skip_reason=reason, detail=details[reason]))
+    _capture_autostart_skipped(
+        team_id=team_id, report_id=report_id, skip_reason=SKIP_NO_RUNNER, no_runner_reason=reason
     )
 
 
@@ -1258,9 +1351,40 @@ def _resolve_autostart_assignee(
     priorities"/P4 when the team has no config row). A lower rank means higher priority. Returns
     the first matching ``User``, or ``None`` if no reviewer maps to an org member.
     """
+    candidate_users = _autostart_candidate_users(
+        team_id, reviewers_content, live_owner_identities, confirmed_research_user_uuids
+    )
+    if not candidate_users:
+        return None
+
+    report_rank = _priority_rank(report_priority)
+    # Personal autonomy configs are optional: load any that exist to honor a reviewer's own
+    # threshold. A reviewer with no config falls back to the team default, which is itself
+    # "all priorities" (P4) when the team has no config row (set by the caller).
+    configs = {
+        c.user_id: c for c in SignalUserAutonomyConfig.objects.filter(user_id__in=[u.id for u in candidate_users])
+    }
+
+    for user in candidate_users:
+        if report_rank <= _priority_rank(_effective_threshold(configs.get(user.id), team_default_priority)):
+            return user
+
+    return None
+
+
+def _autostart_candidate_users(
+    team_id: int,
+    reviewers_content: list[ReviewerContent],
+    live_owner_identities: ReviewerIdentitySet | None,
+    confirmed_research_user_uuids: set[str] | None,
+) -> list[User]:
+    """Suggested reviewers that may run the task, as org members with GitHub, most relevant first.
+
+    Thresholds are not applied here. See `_resolve_autostart_assignee` for which entries are
+    excluded and why.
+    """
     # Owner-stamped entries — by the stored stamp or the live owner set — never select the task
-    # identity (see docstring). Filter before resolving so their logins aren't even looked up as
-    # candidates.
+    # identity. Filter before resolving so their logins aren't even looked up as candidates.
     owners = live_owner_identities or ReviewerIdentitySet.empty()
     confirmed_uuids = confirmed_research_user_uuids or set()
     identity_candidates = [
@@ -1278,7 +1402,6 @@ def _resolve_autostart_assignee(
     uuid_to_user = resolve_org_users_by_uuid(
         team_id, (str(r["user_uuid"]) for r in identity_candidates if r.get("user_uuid"))
     )
-    report_rank = _priority_rank(report_priority)
 
     # Map reviewer github logins to org members, preserving reviewer order (most relevant first).
     candidate_users: list[User] = []
@@ -1303,20 +1426,7 @@ def _resolve_autostart_assignee(
                 team_id=team_id,
                 login_count=attempted_count,
             )
-        return None
-
-    # Personal autonomy configs are optional: load any that exist to honor a reviewer's own
-    # threshold. A reviewer with no config falls back to the team default, which is itself
-    # "all priorities" (P4) when the team has no config row (set by the caller).
-    configs = {
-        c.user_id: c for c in SignalUserAutonomyConfig.objects.filter(user_id__in=[u.id for u in candidate_users])
-    }
-
-    for user in candidate_users:
-        if report_rank <= _priority_rank(_effective_threshold(configs.get(user.id), team_default_priority)):
-            return user
-
-    return None
+    return candidate_users
 
 
 def _resolve_autostart_fallback_user(team_id: int) -> User | None:
@@ -1398,8 +1508,9 @@ async def maybe_autostart_implementation_task(
 
     A typed `report_link` to another report can also hold it back — a duplicate, an unmet
     dependency, or a plan whose children do the work (see `_evaluate_link_gates`). Those gates
-    write an `autostart_skip` artefact naming the deciding report, because unlike every other skip
-    the reason is not visible on this report.
+    write an `autostart_skip` artefact naming the deciding report, because the reason is not
+    visible on this report. A missing runner writes one too (see `_explain_no_runner`), because its
+    reason lives in thresholds and memberships that the report does not show.
 
     Suggested reviewers no longer gate the pipeline path: an immediately-actionable report
     whose reviewers don't resolve to a connected-GitHub member (or has none) still auto-starts
@@ -1443,6 +1554,9 @@ async def maybe_autostart_implementation_task(
         and assignment.corrections.needs_review
         and await database_sync_to_async(assignment_writer_enabled)(team_id)
     ):
+        await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
+            team_id=team_id, report_id=report_id, skip_reason=SKIP_REVIEWER_CORRECTIONS
+        )
         return AutostartOutcome(
             status="blocked", reason="Older reviewer edits need recovery before automatic execution"
         )
@@ -1461,6 +1575,9 @@ async def maybe_autostart_implementation_task(
                 )
             ]
             if assignment.corrections.needs_review or not reviewers_content:
+                await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
+                    team_id=team_id, report_id=report_id, skip_reason=SKIP_REVIEWER_CORRECTIONS
+                )
                 return AutostartOutcome(
                     status="blocked", reason="No automatic reviewer remains after human corrections"
                 )
@@ -1529,6 +1646,9 @@ async def maybe_autostart_implementation_task(
     if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id) and not await database_sync_to_async(
         ResearchAccessPolicy.repository_available, thread_sensitive=False
     )(team_id, repository, priority=EgressPriority.BATCH):
+        await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
+            team_id=team_id, report_id=report_id, skip_reason=SKIP_REPOSITORY_ACCESS
+        )
         return AutostartOutcome(status="blocked", reason="Connect or repair GitHub access to the selected repository")
 
     if not await database_sync_to_async(monitoring_repository_allowed, thread_sensitive=False)(
@@ -1574,6 +1694,8 @@ async def maybe_autostart_implementation_task(
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
     # (commit-authorship) reviewer. Either way the task's user is never an attacker-named colleague.
     runner_source = "triggering_user" if triggering_user_id is not None else "reviewer"
+    live_owner_identities = ReviewerIdentitySet.empty()
+    confirmed_uuids: set[str] = set()
     if triggering_user_id is not None:
         task_user = await database_sync_to_async(_resolve_triggering_user, thread_sensitive=False)(
             team_id, triggering_user_id, priority.priority, team_default_priority
@@ -1636,8 +1758,17 @@ async def maybe_autostart_implementation_task(
             team_id=team_id,
             reason="no autostart runner: no reviewer met threshold, and no enabling member for a report at/above the team autostart priority",
         )
-        await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
-            team_id=team_id, report_id=report_id, skip_reason=SKIP_NO_RUNNER
+        no_runner_reason = await database_sync_to_async(_explain_no_runner, thread_sensitive=False)(
+            team_id=team_id,
+            report_priority=priority.priority,
+            team_default_priority=team_default_priority,
+            reviewers_content=reviewers_content,
+            live_owner_identities=live_owner_identities,
+            confirmed_research_user_uuids=confirmed_uuids,
+            triggering_user_id=triggering_user_id,
+        )
+        await database_sync_to_async(_record_no_runner_skip, thread_sensitive=False)(
+            team_id, report_id, no_runner_reason, user_triggered=triggering_user_id is not None
         )
         return AutostartOutcome(status="blocked", reason="No eligible autostart runner")
 

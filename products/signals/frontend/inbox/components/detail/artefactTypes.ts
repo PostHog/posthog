@@ -94,7 +94,16 @@ export const AUTOSTART_SKIP_REASON_LABELS: Record<string, string> = {
     duplicate_of: 'Duplicate',
     blocked_by_dependency: 'Waiting on a dependency',
     plan_parent: 'Tracked by other reports',
+    below_threshold: 'Below priority threshold',
+    no_identity_candidates: 'No reviewer can run it',
+    no_fallback_user: 'No member can run it',
 }
+
+/** Skip reasons a person can clear by changing a priority threshold in Inbox settings. */
+export const AUTOSTART_SKIP_THRESHOLD_REASONS: ReadonlySet<string> = new Set([
+    'below_threshold',
+    'no_identity_candidates',
+])
 
 export const REPORT_LINK_KIND_LABELS: Record<string, string> = {
     depends_on: 'Depends on',
