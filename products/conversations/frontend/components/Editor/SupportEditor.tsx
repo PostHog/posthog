@@ -1,11 +1,12 @@
 import './SupportEditor.scss'
 
-import { JSONContent, TextSerializer } from '@tiptap/core'
+import { CommandProps, JSONContent, TextSerializer, isNodeActive } from '@tiptap/core'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import ExtensionDocument from '@tiptap/extension-document'
 import { Image } from '@tiptap/extension-image'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
+import { ResolvedPos } from '@tiptap/pm/model'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import {
     EditorContent,
@@ -73,9 +74,70 @@ function SupportCodeBlockComponent({ node }: NodeViewProps): JSX.Element {
     )
 }
 
+function hardBreakBefore($pos: ResolvedPos): number | null {
+    let position: number | null = null
+    $pos.parent.forEach((child, offset) => {
+        if (child.type.name === 'hardBreak' && offset < $pos.parentOffset) {
+            position = $pos.start() + offset
+        }
+    })
+    return position
+}
+
+function hardBreakAfter($pos: ResolvedPos): number | null {
+    let position: number | null = null
+    $pos.parent.forEach((child, offset) => {
+        if (position === null && child.type.name === 'hardBreak' && offset >= $pos.parentOffset) {
+            position = $pos.start() + offset
+        }
+    })
+    return position
+}
+
+/**
+ * Lines typed with Shift+Enter are hard breaks inside one paragraph, and a code block always takes a
+ * whole paragraph. Split the paragraph at the hard breaks around the selection, so that only the
+ * selected lines, or the line with the cursor, go into the code block.
+ */
+function splitOffSelectedLines({ tr, dispatch }: CommandProps): boolean {
+    const { $from, $to, anchor, head } = tr.selection
+    const breakBefore = hardBreakBefore($from)
+    const breakAfter = hardBreakAfter($to)
+    if (!dispatch || (breakBefore === null && breakAfter === null)) {
+        return true
+    }
+    // Split after the selection first, so the position of the break before it stays valid.
+    if (breakAfter !== null) {
+        tr.delete(breakAfter, breakAfter + 1).split(breakAfter)
+    }
+    if (breakBefore !== null) {
+        tr.delete(breakBefore, breakBefore + 1).split(breakBefore)
+    }
+    // Each split puts a paragraph boundary (2 positions) where a hard break (1 position) was, so only the
+    // split before the selection moves it. Mapping can't do this: a cursor on a split point moves to the wrong side.
+    const shift = breakBefore === null ? 0 : 1
+    tr.setSelection(TextSelection.create(tr.doc, anchor + shift, head + shift))
+    return true
+}
+
 const SupportCodeBlockExtension = CodeBlockLowlight.extend({
     addNodeView() {
         return ReactNodeViewRenderer(SupportCodeBlockComponent)
+    },
+    addCommands() {
+        return {
+            ...this.parent?.(),
+            setCodeBlock:
+                (attributes) =>
+                ({ chain }) =>
+                    chain().command(splitOffSelectedLines).setNode(this.name, attributes).run(),
+            toggleCodeBlock:
+                (attributes) =>
+                ({ state, commands }) =>
+                    isNodeActive(state, this.name)
+                        ? commands.toggleNode(this.name, 'paragraph', attributes)
+                        : commands.setCodeBlock(attributes),
+        }
     },
     addKeyboardShortcuts() {
         return {
