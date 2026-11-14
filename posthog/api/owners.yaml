@@ -1,6 +1,8 @@
 version: 1
 owners: []
 rules:
+    - match: ['/ai_gateway_reload.py', '/test/test_ai_gateway_reload.py']
+      owners: team-billing
     - match: ['/cli_catalog.py', '/test/test_cli_catalog.py']
       owners: team-context-and-mcp
     - match: ['/cohort.py', '/test/test_cohort.py']
