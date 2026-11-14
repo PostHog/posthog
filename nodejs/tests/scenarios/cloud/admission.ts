@@ -15,6 +15,8 @@ export type Controller = {
     aws: Aws
     origin: Origin
     now(): Date
+    sleep(ms: number): Promise<void>
+    onInterrupt(handler: () => void): () => void
     env: NodeJS.ProcessEnv
     print(line: string): void
     warn(line: string): void
@@ -134,10 +136,15 @@ async function sessionOf({ aws, env }: Controller, needed: Date): Promise<Sessio
     return endOf(token.expiresAt)
 }
 
-function probesOf({ baseline }: CloudProfile, now: Date): [string, string[]][] {
+function probesOf({ baseline, host }: CloudProfile, now: Date): [string, string[]][] {
     const minuteAgo = new Date(now.getTime() - 60_000).toISOString()
     return [
         ['cloudformation:DescribeStacks', ['cloudformation', 'describe-stacks', '--stack-name', PROBE_ID]],
+        [
+            'cloudformation:DescribeStackResources',
+            ['cloudformation', 'describe-stack-resources', '--stack-name', PROBE_ID],
+        ],
+        ['ssm:GetParameter', ['ssm', 'get-parameter', '--name', host.imageParameter]],
         ['scheduler:GetSchedule', ['scheduler', 'get-schedule', '--name', PROBE_ID]],
         [
             's3:ListBucket',
@@ -188,6 +195,20 @@ function probesOf({ baseline }: CloudProfile, now: Date): [string, string[]][] {
                 '--start-time',
                 String(now.getTime()),
             ],
+        ],
+        ['rds:DescribeDBClusters', ['rds', 'describe-db-clusters', '--db-cluster-identifier', PROBE_ID]],
+        ['rds:DescribeDBInstances', ['rds', 'describe-db-instances', '--db-instance-identifier', PROBE_ID]],
+        ['ec2:DescribeVolumes', ['ec2', 'describe-volumes', '--volume-ids', 'vol-00000000000000000']],
+        [
+            'rds:DescribeDBClusterSnapshots',
+            ['rds', 'describe-db-cluster-snapshots', '--db-cluster-identifier', PROBE_ID],
+        ],
+        ['ec2:DescribeInstances', ['ec2', 'describe-instances', '--max-items', '1']],
+        ['secretsmanager:DescribeSecret', ['secretsmanager', 'describe-secret', '--secret-id', PROBE_ID]],
+        ['secretsmanager:ListSecrets', ['secretsmanager', 'list-secrets', '--max-results', '1']],
+        [
+            'rds:DescribeDBClusterAutomatedBackups',
+            ['rds', 'describe-db-cluster-automated-backups', '--db-cluster-identifier', PROBE_ID],
         ],
         [
             'tag:GetResources',

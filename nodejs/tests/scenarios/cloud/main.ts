@@ -1,9 +1,11 @@
 import { EXIT_CODE } from '../runner/status'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
-import { lease, manifestOf, release, sweepExpired } from './lease'
+import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
 import { CloudProfile, REGION, RunInputs, loadCloudProfile, loadRunInputs } from './profile'
+import { addReader, createRunStack } from './stack'
+import { teardown, teardownExpired } from './teardown'
 
 export type { Controller } from './admission'
 
@@ -13,11 +15,18 @@ const USAGE = [
     '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> (<run id> | --expired)',
 ].join('\n')
 
+const SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+
 function defaultController(): Controller {
     return {
         aws: awsCli({ ...process.env, AWS_REGION: REGION, AWS_PAGER: '' }),
         origin: githubOrigin(),
         now: () => new Date(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        onInterrupt: (handler) => {
+            SIGNALS.forEach((signal) => process.on(signal, handler))
+            return () => SIGNALS.forEach((signal) => process.off(signal, handler))
+        },
         env: process.env,
         print: (line) => process.stdout.write(`${line}\n`),
         warn: (line) => process.stderr.write(`${line}\n`),
@@ -25,34 +34,45 @@ function defaultController(): Controller {
 }
 
 async function run(controller: Controller, loaded: RunInputs): Promise<number> {
-    const bucket = loaded.profile.baseline.evidenceBucket
-    for (const problem of await sweepExpired(controller, bucket)) {
-        controller.warn(problem)
+    const { profile } = loaded
+    if (!(await teardownExpired(controller, profile, { retryLeftovers: false }))) {
+        controller.warn('Refused the run: an expired run still holds resources.')
+        return EXIT_CODE.invalid
     }
-    const admission = await admit(controller, loaded.profile)
+    const admission = await admit(controller, profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
         return EXIT_CODE.invalid
     }
     const manifest = await lease(controller, loaded, admission.admitted)
+    controller.print(`Leased run ${manifest.runId} until ${manifest.expiresAt}.`)
+    const interruption = new AbortController()
+    const stopListening = controller.onInterrupt(() => {
+        controller.warn(`Interrupted; tearing down run ${manifest.runId}.`)
+        interruption.abort()
+    })
+    let outcome: number = EXIT_CODE.passed
     try {
-        controller.print(`Leased run ${manifest.runId} until ${manifest.expiresAt}.`)
+        const parameters = await createRunStack(controller, profile, manifest, interruption.signal)
+        await addReader(controller, profile, manifest, parameters, interruption.signal)
+    } catch (error) {
+        controller.warn(`Run ${manifest.runId} is invalid: ${(error as Error).message}`)
+        outcome = EXIT_CODE.invalid
     } finally {
-        await release(controller, bucket, manifest)
+        if (!(await teardown(controller, profile, manifest))) {
+            outcome = EXIT_CODE.invalid
+        }
+        stopListening()
     }
-    return EXIT_CODE.passed
+    return outcome
 }
 
 async function cleanup(controller: Controller, profile: CloudProfile, target: string): Promise<number> {
-    const bucket = profile.baseline.evidenceBucket
-    if (target === '--expired') {
-        const problems = await sweepExpired(controller, bucket)
-        problems.forEach((problem) => controller.warn(problem))
-        return problems.length > 0 ? EXIT_CODE.invalid : EXIT_CODE.passed
-    } else {
-        await release(controller, bucket, await manifestOf(controller, bucket, target))
-    }
-    return EXIT_CODE.passed
+    const clean =
+        target === '--expired'
+            ? await teardownExpired(controller, profile, { retryLeftovers: true })
+            : await teardown(controller, profile, await manifestOf(controller, profile.baseline.evidenceBucket, target))
+    return clean ? EXIT_CODE.passed : EXIT_CODE.invalid
 }
 
 export async function main(argv: string[], controller: Controller = defaultController()): Promise<number> {

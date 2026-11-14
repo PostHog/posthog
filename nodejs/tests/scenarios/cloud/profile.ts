@@ -18,11 +18,33 @@ export const CloudProfile = z
         name: Name,
         account: z.string().regex(/^\d{12}$/, 'a 12-digit AWS account id'),
         region: z.literal(REGION),
-        baseline: z.object({ schedulerRole: Name, evidenceBucket: Name }).strict(),
+        availabilityZone: Name,
+        baseline: z
+            .object({
+                schedulerRole: Name,
+                stackServiceRole: Name,
+                monitoringRole: Name,
+                evidenceBucket: Name,
+                dbSubnetGroup: Name,
+                databaseSecurityGroup: Name,
+                clusterParameterGroup: Name,
+                instanceParameterGroup: Name,
+                hostSubnet: Name,
+                hostSecurityGroup: Name,
+                hostInstanceProfile: Name,
+            })
+            .strict(),
         engineVersion: Name,
         writerClass: Name,
         readerAcu: z.object({ min: z.literal(1), max: z.number().int().positive() }).strict(),
-        host: z.object({ class: Name, ebsGb: z.number().int().positive() }).strict(),
+        host: z
+            .object({
+                class: Name,
+                ebsGb: z.number().int().positive(),
+                imageParameter: Name,
+                bootstrapDeadline: Duration,
+            })
+            .strict(),
         runnerProfile: z.string().regex(/^(?!\.\.?$)[\w.-]+$/, 'a file name in the profile directory'),
         admission: z
             .object({

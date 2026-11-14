@@ -21,11 +21,29 @@ const PROFILE = {
     name: 'test-eu',
     account: '000000000000',
     region: 'us-east-1',
-    baseline: { schedulerRole: 'arn:aws:iam::000000000000:role/test-scheduler', evidenceBucket: 'test-evidence' },
+    availabilityZone: 'us-east-1a',
+    baseline: {
+        schedulerRole: 'arn:aws:iam::000000000000:role/test-scheduler',
+        stackServiceRole: 'arn:aws:iam::000000000000:role/test-stacks',
+        monitoringRole: 'arn:aws:iam::000000000000:role/test-monitoring',
+        evidenceBucket: 'test-evidence',
+        dbSubnetGroup: 'test-db-subnets',
+        databaseSecurityGroup: 'sg-0000000000000000a',
+        clusterParameterGroup: 'test-cluster-parameters',
+        instanceParameterGroup: 'test-instance-parameters',
+        hostSubnet: 'subnet-0000000000000000a',
+        hostSecurityGroup: 'sg-0000000000000000b',
+        hostInstanceProfile: 'test-host',
+    },
     engineVersion: '16.4',
     writerClass: 'db.r8g.2xlarge',
     readerAcu: { min: 1, max: 32 },
-    host: { class: 'm7i.8xlarge', ebsGb: 100 },
+    host: {
+        class: 'm7i.8xlarge',
+        ebsGb: 100,
+        imageParameter: '/test/ubuntu/ami-id',
+        bootstrapDeadline: '30m',
+    },
     runnerProfile: 'runner.yaml',
     admission: {
         teardownAllowance: '60m',
@@ -65,6 +83,8 @@ describe('cloud controller', () => {
     let cloud: FakeCloud
     let out: string[]
     let err: string[]
+    let interrupt: (() => void) | undefined
+    let onSleep: (() => Promise<void> | void) | undefined
 
     const profilePath = (): string => path.join(dir, 'profile.yaml')
 
@@ -102,6 +122,16 @@ describe('cloud controller', () => {
             aws: cloud,
             origin: { head: () => COMMIT, published: (commit) => Promise.resolve(published && commit === COMMIT) },
             now: () => now,
+            sleep: async (ms) => {
+                now = new Date(now.getTime() + ms)
+                await onSleep?.()
+            },
+            onInterrupt: (handler) => {
+                interrupt = handler
+                return () => {
+                    interrupt = undefined
+                }
+            },
             env: { HOME: dir, ...env },
             print: (line) => out.push(line),
             warn: (line) => err.push(line),
@@ -118,6 +148,16 @@ describe('cloud controller', () => {
     const leasedRunId = (): string =>
         /^Leased run (\S+) until/.exec(out.find((line) => line.startsWith('Leased run'))!)![1]
 
+    const lastReceipt = (runId: string): unknown => {
+        const key = [...cloud.objects.keys()]
+            .filter((name) => name.startsWith(`runs/${runId}/receipts/`))
+            .sort()
+            .at(-1)
+        return parseJSON(cloud.objects.get(key!)!)
+    }
+
+    const listsReceipts = (args: string[]): boolean => args.some((arg) => arg.includes('/receipts/'))
+
     const released = (runId: string): number => out.filter((line) => line === `Released run ${runId}.`).length
 
     const schedulesFor = (runId: string): string[] =>
@@ -131,6 +171,8 @@ describe('cloud controller', () => {
         now = T
         out = []
         err = []
+        interrupt = undefined
+        onSleep = undefined
     })
 
     afterEach(() => rmSync(dir, { recursive: true, force: true }))
@@ -355,6 +397,16 @@ describe('cloud controller', () => {
             'Missing permission logs:FilterLogEvents',
         ],
         [
+            'a missing permission that teardown needs to judge a volume',
+            { cloud: { denied: ['ec2:DescribeVolumes'] } },
+            'Missing permission ec2:DescribeVolumes',
+        ],
+        [
+            'a missing permission that teardown needs to judge a database instance',
+            { cloud: { denied: ['rds:DescribeDBInstances'] } },
+            'Missing permission rds:DescribeDBInstances',
+        ],
+        [
             'a cap other than the fixed one',
             { profile: (p) => ({ ...p, admission: { ...p.admission, capUsd: 300 } }) },
             'admission.capUsd',
@@ -546,22 +598,27 @@ describe('cloud controller', () => {
         expect(err.join('\n')).toContain('not-a-run')
     })
 
-    it.each<[string, string[], number]>([
-        ['run', [], 0],
-        ['cleanup', ['--expired'], 2],
-    ])('%s still releases the other expired leases when one manifest cannot be read', async (command, rest, code) => {
-        const { controller } = prepare({ cloud: { expiration: new Date(T.getTime() + 24 * HOUR_MS) } })
-        const broken = await leaseAt(T, controller)
-        const expired = await leaseAt(T, controller)
-        cloud.objects.set(`runs/${broken}/manifest.json`, 'not a manifest')
-        now = new Date(T.getTime() + 6.5 * HOUR_MS)
+    it.each<[string, string, string[], string]>([
+        ['run', 'manifest', [], 'manifest.json'],
+        ['cleanup', 'manifest', ['--expired'], 'manifest.json'],
+        ['run', 'receipt', [], 'receipts/earlier.json'],
+        ['cleanup', 'receipt', ['--expired'], 'receipts/earlier.json'],
+    ])(
+        "%s still releases the other expired leases when one run's %s cannot be read",
+        async (command, _, rest, name) => {
+            const { controller } = prepare({ cloud: { expiration: new Date(T.getTime() + 24 * HOUR_MS) } })
+            const broken = await leaseAt(T, controller)
+            const expired = await leaseAt(T, controller)
+            cloud.objects.set(`runs/${broken}/${name}`, 'not JSON')
+            now = new Date(T.getTime() + 6.5 * HOUR_MS)
 
-        await expect(main([command, profilePath(), ...rest], controller)).resolves.toBe(code)
+            await expect(main([command, profilePath(), ...rest], controller)).resolves.toBe(2)
 
-        expect(released(expired)).toBe(1)
-        expect(schedulesFor(expired)).toEqual([])
-        expect(err.join('\n')).toContain(broken)
-    })
+            expect(released(expired)).toBe(1)
+            expect(schedulesFor(expired)).toEqual([])
+            expect(err.join('\n')).toContain(broken)
+        }
+    )
 
     it.each<[string, (other: string) => Record<string, unknown>]>([
         ['schedules', (other) => ({ schedules: [`scn-${other}-expiry`, `scn-${other}-expiry-retry`] })],
@@ -590,5 +647,451 @@ describe('cloud controller', () => {
 
         expect(released(expired)).toBe(1)
         expect(schedulesFor(expired)).toEqual([])
+    })
+
+    it.each<[string, (fake: FakeCloud) => void]>([
+        ['', () => undefined],
+        [
+            ', retrying a resource read that fails during teardown',
+            (fake) => fake.failOnCall('describe-db-instances', 2),
+        ],
+        [
+            ', judging an untyped tagged resource gone once its tag listing drops it',
+            (fake) => fake.untyped.push('arn:aws:rds:us-east-1:000000000000:cluster-auto-backup:cab-0'),
+        ],
+        [', retrying a delete-stack that fails once', (fake) => fake.failOnCall('delete-stack')],
+        [', listing the tagged resources again after a failed listing', (fake) => fake.failOnCall('get-resources', 3)],
+        [
+            ', keeping its host when the image parameter moves',
+            (fake) => fake.beforeCall('update-stack', () => fake.parameterStore.set('/test/ubuntu/ami-id', 'ami-0b')),
+        ],
+    ])('creates the run stack, adds the reader, and leaves nothing billing%s', async (_, arrange) => {
+        const { controller } = prepare()
+        arrange(cloud)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+
+        const runId = leasedRunId()
+        expect(cloud.resources.filter(({ type }) => type === 'AWS::EC2::Instance')).toHaveLength(1)
+        expect(cloud.resources.map(({ type, id }) => `${type} ${id}`)).toContain(
+            `AWS::RDS::DBInstance scn-${runId}-reader`
+        )
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+        expect(lastReceipt(runId)).toMatchObject({ runId, clean: true })
+    })
+
+    it.each([
+        ['create-stack', 'fails', 1],
+        ['create-stack', 'loses its response', 1],
+        ['describe-stacks', 'fails', 2],
+        ['update-stack', 'fails', 1],
+        ['describe-stacks', 'fails', 4],
+    ])('tears everything down when %s %s (call %d)', async (operation, how, nth) => {
+        const { controller } = prepare()
+        if (how === 'fails') {
+            cloud.failOnCall(operation, nth)
+        } else {
+            cloud.loseResponseOf(operation, nth)
+        }
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+        expect(released(leasedRunId())).toBe(1)
+    })
+
+    it.each<[string, Setup, string]>([
+        ['the host writes its failed marker', { cloud: { host: 'failed' } }, 'host/bootstrap.log'],
+        ['the host misses its bootstrap deadline', { cloud: { host: 'silent' } }, 'not ready within 30m'],
+        [
+            'the host stays silent until the lease expires',
+            {
+                cloud: { host: 'silent' },
+                profile: (p) => ({ ...p, host: { ...p.host, bootstrapDeadline: '720m' } }),
+            },
+            'only its teardown allowance',
+        ],
+        ['the stack rolls back its creation', { cloud: { rollsBack: 'create' } }, 'not CREATE_COMPLETE'],
+        ['the stack rolls back the reader', { cloud: { rollsBack: 'update' } }, 'not UPDATE_COMPLETE'],
+    ])('makes the run invalid and tears down when %s', async (_, setup, reason) => {
+        const { controller } = prepare(setup)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain(reason)
+        expect(cloud.deleteStackRequests).toEqual([])
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it('tears down at once when interrupted while it waits for the host', async () => {
+        const { controller } = prepare({ cloud: { host: 'silent' } })
+        let interruptedAt: number | undefined
+        let deletedAt: number | undefined
+        onSleep = () => {
+            const created = [...cloud.stacks.values()].some(({ status }) => status === 'CREATE_COMPLETE')
+            if (created && interruptedAt === undefined) {
+                interruptedAt = now.getTime()
+                interrupt?.()
+            }
+        }
+        cloud.beforeCall('delete-stack', () => {
+            deletedAt ??= now.getTime()
+        })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(deletedAt! - interruptedAt!).toBeLessThan(60_000)
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it.each<[string, string, () => boolean, number]>([
+        ['as it resolves the host image', 'get-parameter', () => true, HOUR_MS / 6],
+        ['as it records the stack request', 'put-object', () => cloud.schedules.size === 2, HOUR_MS / 6 + 15 * 60_000],
+        ['as the host reports ready', 'list-objects-v2', () => true, HOUR_MS / 6],
+    ])('creates nothing more when interrupted %s', async (_, operation, due, within) => {
+        const { controller } = prepare()
+        let createdBefore: number | undefined
+        let interruptedAt: number | undefined
+        cloud.beforeCall(operation, () => {
+            if (interrupt && createdBefore === undefined && due()) {
+                createdBefore = cloud.resources.length
+                interruptedAt = now.getTime()
+                interrupt()
+            }
+        })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(cloud.resources).toHaveLength(createdBefore!)
+        expect(cloud.billable()).toEqual([])
+        expect(now.getTime() - interruptedAt!).toBeLessThan(within)
+    })
+
+    it.each<[string, (interruptAt: (status: string) => () => void) => void]>([
+        ['while the reader is added', (interruptAt) => (onSleep = interruptAt('UPDATE_IN_PROGRESS'))],
+        [
+            'as the reader update reports complete',
+            (interruptAt) => cloud.beforeCall('describe-stacks', interruptAt('UPDATE_COMPLETE')),
+        ],
+    ])('tears down and exits invalid when interrupted %s', async (_, arrange) => {
+        const { controller } = prepare()
+        let interrupted = false
+        arrange((status) => () => {
+            if (!interrupted && [...cloud.stacks.values()].some((stack) => stack.status === status)) {
+                interrupted = true
+                interrupt?.()
+            }
+        })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it.each([
+        ['the stack', 'get-schedule', 'too soon to create the stack'],
+        ['the stack after it reads the host image', 'get-parameter', 'too soon to create the stack'],
+        ['the stack after it records the stack request', 'put-object', 'too soon to create the stack'],
+        ['the reader', 'update-stack', 'too soon to add the reader'],
+    ])('creates nothing more once the lease is too close to expiry to create %s', async (_, operation, reason) => {
+        const { controller } = prepare()
+        let jumped = false
+        const jump = (): void => {
+            if (!jumped && cloud.schedules.size === 2) {
+                jumped = true
+                now = new Date(now.getTime() + 5.5 * HOUR_MS)
+            }
+        }
+        if (operation === 'update-stack') {
+            cloud.beforeCall('list-objects-v2', () => cloud.stacks.size > 0 && jump())
+        } else {
+            cloud.beforeCall(operation, jump)
+        }
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain(reason)
+        expect(cloud.resources.map(({ id }) => id).filter((id) => id.endsWith('-reader'))).toEqual([])
+        expect(cloud.billable()).toEqual([])
+    })
+
+    it.each<[string, Partial<FakeCloudOptions>, (fake: FakeCloud) => void]>([
+        ['the stack will not delete', { deleteFailures: 2 }, () => undefined],
+        ['deleting the stack fails', {}, (fake) => fake.failOnCall('delete-stack', 1, Infinity)],
+        [
+            'deleting the stack fails before its creation reports back',
+            {},
+            (fake) => {
+                fake.loseResponseOf('create-stack')
+                fake.failOnCall('delete-stack', 1, Infinity)
+            },
+        ],
+    ])('keeps the schedules and exits non-zero when %s, then cleanup finishes it', async (_, options, arrange) => {
+        const { controller } = prepare({ cloud: options })
+        arrange(cloud)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        const runId = leasedRunId()
+        expect(cloud.billable()).not.toEqual([])
+        expect(cloud.schedules.size).toBe(2)
+        expect(err.join('\n')).toContain(`cleanup <cloud profile> ${runId}`)
+        expect(lastReceipt(runId)).toMatchObject({ clean: false })
+
+        cloud.heal()
+        const cleanupStartedAt = now.getTime()
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
+
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+        expect(now.getTime() - cleanupStartedAt).toBeLessThan(HOUR_MS / 6)
+    })
+
+    it.each<[string, (fake: FakeCloud) => void, string]>([
+        ['it cannot list what the run created', (fake) => fake.failOnCall('get-resources', 2), 'could not list'],
+        ['releasing the lease fails', (fake) => fake.failOnCall('delete-schedule', 2), 'releasing its lease failed'],
+        [
+            'it cannot read its earlier receipts',
+            (fake) => fake.failWhen('list-objects-v2', listsReceipts),
+            'could not list the earlier receipts',
+        ],
+    ])('deletes the stack but keeps a schedule and names the cleanup when %s', async (_, arrange, reason) => {
+        const { controller } = prepare()
+        arrange(cloud)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        const runId = leasedRunId()
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBeGreaterThan(0)
+        expect(err.join('\n')).toContain(reason)
+        expect(err.join('\n')).toContain(`cleanup <cloud profile> ${runId}`)
+
+        cloud.heal()
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
+
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it.each<[string, string, (fake: FakeCloud) => void, (fake: FakeCloud) => void]>([
+        ['AWS::EC2::Volume', '', () => undefined, () => undefined],
+        ['AWS::SecretsManager::Secret', '', () => undefined, () => undefined],
+        [
+            'AWS::SecretsManager::Secret',
+            ', even when listing the cluster snapshots fails',
+            (fake) => fake.failOnCall('describe-db-cluster-snapshots', 2),
+            () => undefined,
+        ],
+        [
+            'AWS::SecretsManager::Secret',
+            ', even after a cleanup that cannot read an earlier receipt',
+            () => undefined,
+            (fake) => fake.failOnCall('get-object', 2),
+        ],
+        [
+            'AWS::SecretsManager::Secret',
+            ', even when the run cannot list its earlier receipts',
+            (fake) => fake.failWhen('list-objects-v2', listsReceipts),
+            (fake) => fake.heal(),
+        ],
+        [
+            'AWS::SecretsManager::Secret',
+            ', even when the run stops while the stack is created',
+            (fake) => {
+                onSleep = () => {
+                    if (fake.resources.length > 0) {
+                        interrupt?.()
+                    }
+                }
+            },
+            () => undefined,
+        ],
+        [
+            'AWS::SecretsManager::Secret',
+            ', even when the run stops before its cluster is visible',
+            (fake) => {
+                fake.hideCreationWhile(
+                    () => ![...fake.stacks.values()].some(({ status }) => status.startsWith('DELETE'))
+                )
+                onSleep = () => {
+                    if (fake.resources.length > 0) {
+                        interrupt?.()
+                    }
+                }
+            },
+            () => undefined,
+        ],
+        ['AWS::RDS::DBClusterAutomatedBackup', '', () => undefined, () => undefined],
+        ['AWS::RDS::DBClusterSnapshot', '', () => undefined, () => undefined],
+        [
+            'AWS::RDS::DBClusterAutomatedBackup',
+            ', even when the run cannot read the live cluster',
+            (fake) => fake.failWhen('describe-db-clusters', () => fake.schedules.size > 0),
+            (fake) => fake.heal(),
+        ],
+    ])('keeps the schedules and names a %s that outlives the stack%s', async (type, _, beforeRun, beforeCleanup) => {
+        const { controller } = prepare({ cloud: { outlives: [type] } })
+        beforeRun(cloud)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        const left = cloud.billable().filter((resource) => resource.startsWith(type))
+        expect(left).toHaveLength(1)
+        expect(err.join('\n')).toContain(`- ${left[0]}`)
+        expect(cloud.schedules.size).toBe(2)
+
+        beforeCleanup(cloud)
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
+
+        expect(cloud.schedules.size).toBe(2)
+    })
+
+    it.each<[string, Partial<FakeCloudOptions>, string[], string]>([
+        [
+            'could not look it up',
+            {},
+            ['describe-db-clusters', 'list-secrets'],
+            'could not list the secret and backups of cluster',
+        ],
+        [
+            'could list nothing',
+            {},
+            ['describe-stack-resources', 'get-resources', 'describe-db-clusters', 'list-secrets'],
+            'could not list the secret and backups of cluster',
+        ],
+        ['found its stack already deleted', { rollsBack: 'create' }, [], 'until the tag listings catch up'],
+    ])(
+        'names a secret that outlives the stack in a later cleanup, when the run %s',
+        async (_, options, failing, says) => {
+            const { controller } = prepare({
+                cloud: { ...options, outlives: ['AWS::SecretsManager::Secret'] },
+                profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
+            })
+            failing.forEach((operation) => cloud.failWhen(operation, () => cloud.schedules.size > 0))
+            onSleep = () => {
+                if (failing.length > 0 && cloud.resources.length > 0) {
+                    interrupt?.()
+                }
+            }
+
+            await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+            expect(err.join('\n')).toContain(says)
+
+            cloud.heal()
+            err.length = 0
+            await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
+            expect(err.join('\n')).toContain('until the tag listings catch up')
+            expect(cloud.schedules.size).toBe(2)
+
+            err.length = 0
+            now = new Date(now.getTime() + HOUR_MS / 3)
+            await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
+
+            const [secret] = cloud.billable().filter((resource) => resource.startsWith('AWS::SecretsManager::Secret'))
+            expect(err.join('\n')).toContain(`- ${secret}`)
+            expect(cloud.schedules.size).toBe(2)
+        }
+    )
+
+    it('releases a run whose stack was already deleted once the tag listings caught up, with a short allowance', async () => {
+        const { controller } = prepare({
+            cloud: { rollsBack: 'create' },
+            profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
+        })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        expect(err.join('\n')).toContain('until the tag listings catch up')
+
+        now = new Date(now.getTime() + HOUR_MS / 3)
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(0)
+
+        expect(released(leasedRunId())).toBe(1)
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it('waits for the tag listings again when the stack outlived the teardown that found its cluster gone', async () => {
+        const { controller } = prepare({
+            cloud: { deleteTakesMs: 3 * HOUR_MS },
+            profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
+        })
+        cloud.hideCreationWhile(() => true)
+        onSleep = () => {
+            if (cloud.resources.length > 0) {
+                interrupt?.()
+            }
+        }
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        err.length = 0
+        now = new Date(now.getTime() + 4 * HOUR_MS)
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
+        expect(err.join('\n')).toContain('until the tag listings catch up')
+
+        now = new Date(now.getTime() + HOUR_MS / 3)
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(0)
+        expect(released(leasedRunId())).toBe(1)
+    })
+
+    it.each([
+        ['its receipt', false],
+        ['no receipt', true],
+    ])('refuses a new run while an expired run with %s still holds resources', async (_, forgetReceipt) => {
+        const { controller } = prepare({ cloud: { outlives: ['AWS::EC2::Volume'] } })
+        await main(['run', profilePath()], controller)
+        const runId = leasedRunId()
+        if (forgetReceipt) {
+            ;[...cloud.objects.keys()]
+                .filter((key) => key.startsWith(`runs/${runId}/receipts/`))
+                .forEach((key) => cloud.objects.delete(key))
+        }
+        const at = new Date(T.getTime() + 7 * HOUR_MS)
+        now = at
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(out.filter((line) => line.startsWith('Leased run'))).toHaveLength(1)
+        expect(err.join('\n')).toContain('an expired run still holds resources')
+        expect(now.getTime() > at.getTime()).toBe(forgetReceipt)
+    })
+
+    it('changes nothing on a second cleanup of a torn-down run', async () => {
+        const { controller } = prepare()
+        await main(['run', profilePath()], controller)
+        const runId = leasedRunId()
+        const resources = structuredClone(cloud.resources)
+
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
+
+        expect(cloud.resources).toEqual(resources)
+        expect(cloud.stacks.size).toBe(0)
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it('deletes the stack by schedule when the controller dies after creating it', async () => {
+        const { controller } = prepare({ cloud: { host: 'silent' } })
+        let waitingForHost!: () => void
+        const died = new Promise<void>((resolve) => (waitingForHost = resolve))
+        onSleep = () => {
+            waitingForHost()
+            return new Promise(() => undefined)
+        }
+        void main(['run', profilePath()], controller)
+        await died
+        const runId = leasedRunId()
+        expect(cloud.billable()).not.toEqual([])
+
+        now = new Date(T.getTime() + 6 * HOUR_MS + 60_000)
+        cloud.tick()
+
+        expect(cloud.deleteStackRequests).toEqual([{ stackName: `scn-${runId}`, at: '2026-03-02T16:00:00.000Z' }])
+        expect(cloud.billable()).toEqual([])
     })
 })
