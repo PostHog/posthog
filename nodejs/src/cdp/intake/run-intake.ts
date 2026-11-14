@@ -5,7 +5,11 @@ import { IdempotentJobQueue } from '~/cdp/services/job-queue/job-queue.interface
 import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 
+import { IntakeMode, IntakeProducer } from './intake-producer'
+import { RunKind, claimFingerprint } from './message'
+
 export type Run = {
+    kind: RunKind
     invocation: CyclotronJobInvocationHogFlow
     claim?: { fingerprint: string }
 }
@@ -19,9 +23,15 @@ export type Recalled =
 // `claimedFingerprint` is set when a keyed run found an existing claim: the fingerprint of the request that made it.
 export type Committed = { runId: string; outcome: CyclotronV2IdempotentClaim['outcome']; claimedFingerprint?: string }
 
+// A sensitive send's state holds its login code or reset link, which the CDP keeps off every Kafka topic.
+export const carriesSecret = (invocation: CyclotronJobInvocationHogFlow): boolean =>
+    invocation.state?.sensitive === true || invocation.state?.send?.sensitive === true
+
 export type RunIntakeDeps = {
     hogflowQueue: Pick<IdempotentJobQueue, 'queueInvocations' | 'queueInvocationsIdempotently' | 'findIdempotencyKey'>
     invocationResultsRowsService: HogInvocationResultsService
+    // Absent, or `off` for a team, means the run never touches the intake topics.
+    intake?: { modeOf: (teamId: number) => IntakeMode; producer: IntakeProducer }
 }
 
 // Never change the namespace or the name's encoding: a retry inside the claim's window would get another id and
@@ -59,6 +69,7 @@ export class RunIntake {
                 rows.queuePreparedRow(row)
             }
         })
+        await this.produceShadowCopies(runs.filter((_, i) => claims[i].outcome === 'created'))
         return invocations.map((invocation, i) => ({
             runId: invocation.id,
             outcome: claims[i].outcome,
@@ -66,10 +77,34 @@ export class RunIntake {
         }))
     }
 
+    // Shadow measures the Kafka path beside the insert: the answer is already decided, so a failed produce changes nothing.
+    private async produceShadowCopies(created: Run[]): Promise<void> {
+        const intake = this.deps.intake
+        const shadow = intake
+            ? created.filter(
+                  (run) => !carriesSecret(run.invocation) && intake.modeOf(run.invocation.teamId) === 'shadow'
+              )
+            : []
+        await Promise.all(
+            shadow.map((run) =>
+                intake!.producer.produce(
+                    { kind: run.kind, invocation: run.invocation, fingerprint: run.claim?.fingerprint },
+                    'shadow'
+                )
+            )
+        )
+    }
+
     private async insert(runs: Run[]): Promise<CyclotronV2IdempotentClaim[]> {
         const claims: CyclotronV2IdempotentClaim[] = runs.map(() => ({ outcome: 'created' }))
-        const keyed = runs.flatMap((run, i) => (run.claim ? [{ i, fingerprint: run.claim.fingerprint }] : []))
-        const keyless = runs.filter((run) => !run.claim).map((run) => run.invocation)
+        // A run that can reach the intake topic claims a row even without a key, so the consumer replays its copy.
+        const claimOf = (run: Run): { fingerprint: string } | undefined =>
+            run.claim ?? (this.onIntake(run) ? { fingerprint: claimFingerprint(run.invocation.id) } : undefined)
+        const keyed = runs.flatMap((run, i) => {
+            const claim = claimOf(run)
+            return claim ? [{ i, fingerprint: claim.fingerprint }] : []
+        })
+        const keyless = runs.filter((run) => !claimOf(run)).map((run) => run.invocation)
         if (keyless.length > 0) {
             await this.deps.hogflowQueue.queueInvocations(keyless)
         }
@@ -80,5 +115,9 @@ export class RunIntake {
             keyed.forEach(({ i }, k) => (claims[i] = claimed[k]))
         }
         return claims
+    }
+
+    private onIntake(run: Run): boolean {
+        return (this.deps.intake?.modeOf(run.invocation.teamId) ?? 'off') !== 'off'
     }
 }

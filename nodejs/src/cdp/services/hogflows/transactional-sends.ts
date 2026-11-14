@@ -285,7 +285,9 @@ export class TransactionalSends {
         if (claim) {
             invocation.id = claim.runId
         }
-        const run: Run = claim ? { invocation, claim: { fingerprint: claim.fingerprint } } : { invocation }
+        const run: Run = claim
+            ? { kind: 'transactional-email', invocation, claim: { fingerprint: claim.fingerprint } }
+            : { kind: 'transactional-email', invocation }
         const leaseToken = randomUUID()
         const releaseKey = async (): Promise<void> => {
             if (idempotencyKey) {

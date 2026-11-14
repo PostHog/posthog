@@ -7,6 +7,7 @@ import { retryIfRetriable } from '~/common/utils/retries'
 
 import { HogFlow } from '../schema/hogflow'
 import type { CyclotronV2Manager } from '../services/cyclotron-v2'
+import { IDEMPOTENCY_KEY_TTL_MS } from '../services/cyclotron-v2/manager'
 import { CyclotronV2IdempotentOutcome } from '../services/cyclotron-v2/types'
 import { CdpDeadLetterService, DeadLetterCircuitBreakerError } from '../services/dead-letter/cdp-dead-letter.service'
 import { EMAIL_QUEUE_PRIORITY, cdpEmailQueuedTotal } from '../services/messaging/email-priority'
@@ -24,7 +25,7 @@ import {
 
 const claimsCounter = new Counter({
     name: 'cdp_intake_claims_total',
-    help: 'Intake runs by claim outcome: created inserted the job, replayed found the run already claimed (a redelivery, a duplicate in the batch, or a run the route claimed), mismatch found its key claimed by a different request.',
+    help: 'Intake runs by claim outcome: created inserted the job, replayed found the run already claimed (a redelivery, a duplicate in the batch, or a run the route claimed), mismatch found its key claimed by a different request, shadow_expired skipped a shadow copy too old to trust its claim.',
     labelNames: ['kind', 'outcome'] as const,
 })
 
@@ -61,7 +62,15 @@ export type IntakeBatchOptions = {
     claimRetry: { initialDelayMs: number; maxElapsedMs: number }
 }
 
-type IntakeRun = { message: IntakeMessage; invocation: CyclotronJobInvocation & { hogFlow: HogFlow } }
+type IntakeRun = {
+    message: IntakeMessage
+    invocation: CyclotronJobInvocation & { hogFlow: HogFlow }
+    producedAt: number | undefined
+}
+
+// A shadow copy repeats a run the route already inserted and claimed. Once the claim can have expired with its job,
+// inserting the copy would run it a second time, so an older copy is skipped. Topic retention keeps copies younger.
+export const SHADOW_COPY_MAX_AGE_MS = IDEMPOTENCY_KEY_TTL_MS - 4 * 60 * 60 * 1000
 
 /**
  * Inserts a batch of intake messages as cyclotron jobs, each run exactly once.
@@ -75,7 +84,7 @@ export async function insertIntakeBatch(
     options: IntakeBatchOptions
 ): Promise<void> {
     const { runs: parsed, unparseable } = parse(messages)
-    const runs = firstOfEachRun(parsed, options.kind)
+    const runs = firstOfEachRun(parsed, options.kind).filter((run) => !isExpiredShadowCopy(run, options.kind))
 
     // Dead letters are recorded only after the claim commits, so a batch that fails at the claim leaves nothing for its
     // retry to park twice.
@@ -104,7 +113,11 @@ function parse(messages: Message[]): {
     for (const source of messages) {
         const decoded = decodeIntakeMessage(source.value)
         if (decoded.status === 'decoded') {
-            runs.push({ message: decoded.message, invocation: intakeInvocation(decoded.message) })
+            runs.push({
+                message: decoded.message,
+                invocation: intakeInvocation(decoded.message),
+                producedAt: source.timestamp,
+            })
         } else {
             unparseable.push({ source, reason: decoded.reason })
         }
@@ -132,6 +145,14 @@ function deadLetter(
         offset: source.offset,
         reason,
     })
+}
+
+function isExpiredShadowCopy(run: IntakeRun, kind: RunKind): boolean {
+    if (!run.message.shadow || run.producedAt === undefined || Date.now() - run.producedAt <= SHADOW_COPY_MAX_AGE_MS) {
+        return false
+    }
+    claimsCounter.labels({ kind, outcome: 'shadow_expired' }).inc()
+    return true
 }
 
 function firstOfEachRun(runs: IntakeRun[], kind: RunKind): IntakeRun[] {

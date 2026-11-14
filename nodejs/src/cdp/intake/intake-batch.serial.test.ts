@@ -17,7 +17,7 @@ import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../services/monitoring/hog-invocation-results.service'
-import { IntakeBatchServices, insertIntakeBatch } from './intake-batch'
+import { IntakeBatchServices, SHADOW_COPY_MAX_AGE_MS, insertIntakeBatch } from './intake-batch'
 import { encodeIntakeMessage } from './message'
 import { keyedRunId } from './run-intake'
 
@@ -68,9 +68,10 @@ describe('insertIntakeBatch', () => {
         return result.rows.map((row) => ({ id: row.id, state: parseJSON(row.state.toString()) }))
     }
 
-    const kafkaMessage = (value: Buffer): Message =>
+    const kafkaMessage = (value: Buffer, timestamp?: number): Message =>
         ({
             value,
+            timestamp,
             key: null,
             topic: 'cdp_intake_transactional_email',
             partition: 0,
@@ -79,7 +80,7 @@ describe('insertIntakeBatch', () => {
         }) as Message
 
     const send = (
-        overrides: { id?: string; fingerprint?: string; to?: string } = {}
+        overrides: { id?: string; fingerprint?: string; to?: string; shadow?: boolean; producedAt?: number } = {}
     ): { id: string; message: Message } => {
         const id = overrides.id ?? new UUIDT().toString()
         const state = {
@@ -96,6 +97,7 @@ describe('insertIntakeBatch', () => {
         const encoded = encodeIntakeMessage({
             kind: 'transactional-email',
             fingerprint: overrides.fingerprint ?? 'fingerprint-a',
+            shadow: overrides.shadow,
             job: {
                 id,
                 teamId: 7,
@@ -109,7 +111,7 @@ describe('insertIntakeBatch', () => {
         if (encoded.status !== 'encoded') {
             throw new Error('expected an encoded message')
         }
-        return { id, message: kafkaMessage(encoded.message.value) }
+        return { id, message: kafkaMessage(encoded.message.value, overrides.producedAt) }
     }
 
     beforeAll(() => {
@@ -195,6 +197,17 @@ describe('insertIntakeBatch', () => {
 
         expect(await storedJobs([run.id])).toHaveLength(1)
         expect(recorded).toEqual([])
+    })
+
+    it.each([
+        ['a fresh shadow copy', 0, 1],
+        ['a shadow copy older than its claim can be trusted', SHADOW_COPY_MAX_AGE_MS + 60_000, 0],
+    ])('inserts %s only while its claim still holds', async (_name, ageMs, jobs) => {
+        const run = send({ shadow: true, producedAt: Date.now() - ageMs })
+
+        await insertIntakeBatch([run.message], services, OPTIONS)
+
+        expect(await storedJobs([run.id])).toHaveLength(jobs)
     })
 
     it('leaves the first request untouched when its key comes back with a different request', async () => {
