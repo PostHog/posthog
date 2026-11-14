@@ -16,6 +16,7 @@ from posthog.models.file_system.refs import file_refs_q
 from posthog.models.tag import tagify
 from posthog.models.utils import strict_fetch
 
+from products.cdp.backend.validation import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.contracts import EmailTemplateSummary
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 
@@ -135,6 +136,13 @@ def category_id_for_team(team_id: int, category_id: Any) -> UUID:
 def _apply_fields(template: MessageTemplate, fields: dict[str, Any]) -> None:
     for attr, value in fields.items():
         setattr(template, "message_category_id" if attr == "message_category" else attr, value)
+
+
+def with_editor_design(email: dict[str, Any]) -> dict[str, Any]:
+    """The email with a design that holds its html, so the visual editor can open a template written as html."""
+    if email.get("html") and html_wrap_design_needs_refresh(email["html"], email.get("design")):
+        return {**email, "design": build_html_wrap_design(email["html"])}
+    return email
 
 
 def create_template(team_id: int, created_by_id: int | None, fields: dict[str, Any]) -> MessageTemplate:
