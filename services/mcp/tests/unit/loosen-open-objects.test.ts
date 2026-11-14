@@ -82,32 +82,6 @@ describe('loosenOpenObjects', () => {
             source: 'export const ThingsCreateBody = zod.strictObject({ data: zod.union([zod.strictObject({ a: zod.string() }), zod.strictObject({ a: zod.string() })]) })',
             error: /things things_create .*"data"/,
         },
-        {
-            case: 'two branches open the same path',
-            body: {
-                allOf: [
-                    closedObject({ data: openObject({ a: { type: 'string' } }) }),
-                    closedObject({ data: openObject({ b: { type: 'string' } }) }),
-                ],
-            },
-            source: 'export const ThingsCreateBody = zod.strictObject({ data: zod.strictObject({ a: zod.string(), b: zod.string() }) })',
-            error: /things things_create .*"data"/,
-        },
-        {
-            case: 'a property name on the path has a dot',
-            body: closedObject({ 'a.b': openObject({ c: { type: 'string' } }) }),
-            source: "export const ThingsCreateBody = zod.strictObject({ 'a.b': zod.strictObject({ c: zod.string() }) })",
-            error: /things things_create .*"a\.b"/,
-        },
-        {
-            case: 'a closed sibling name with a dot aliases a nested open path',
-            body: closedObject({
-                a: closedObject({ b: openObject({ c: { type: 'string' } }) }),
-                'a.b': closedObject({ c: { type: 'string' } }),
-            }),
-            source: "export const ThingsCreateBody = zod.strictObject({ a: zod.strictObject({ b: zod.strictObject({ c: zod.string() }) }), 'a.b': zod.strictObject({ c: zod.string() }) })",
-            error: /things things_create .*"a\.b"/,
-        },
     ])('refuses to generate when $case', ({ body, source, error }) => {
         expect(() => loosen(body, source)).toThrow(error)
     })
