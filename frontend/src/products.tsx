@@ -3115,7 +3115,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
                 flag: FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING,
             },
         ],
-        tags: ['beta'],
         sceneKey: 'MCPAnalytics',
         sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
     },
