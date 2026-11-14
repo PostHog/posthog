@@ -1725,6 +1725,14 @@ def email_from_code_enabled(team: Team, user: User) -> bool:
     return email_flag_enabled(EMAIL_FROM_CODE_FLAG, team, user)
 
 
+def _points_back_to_posthog(url: str) -> bool:
+    try:
+        scheme = urlsplit(url).scheme
+    except ValueError:
+        return False
+    return bool(scheme) and url_has_allowed_host_and_scheme(url, allowed_hosts={urlsplit(settings.SITE_URL).netloc})
+
+
 class EmailDomainAgentSetupPermission(BasePermission):
     message = "This action is not available to API keys or OAuth tokens in this project."
     token_actions = frozenset({"domain_connect_check", "domain_connect_apply_url", "email_update"})
@@ -3343,11 +3351,7 @@ class IntegrationViewSet(
     def _check_scoped_domain_connect_request(context: str, redirect_uri: str | None) -> None:
         if context != "email":
             raise PermissionDenied("Scoped credentials only support email Domain Connect.")
-        posthog_host = urlsplit(settings.SITE_URL).netloc
-        if redirect_uri and not (
-            urlsplit(redirect_uri).scheme
-            and url_has_allowed_host_and_scheme(redirect_uri, allowed_hosts={posthog_host})
-        ):
+        if redirect_uri and not _points_back_to_posthog(redirect_uri):
             raise ValidationError("redirect_uri must point back to PostHog.")
 
     # Defined last: a method named `list` shadows the builtin for the annotations of every method

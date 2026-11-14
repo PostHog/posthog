@@ -406,6 +406,15 @@ class TestEmailSenderScopedAccess(EmailDomainApiTestCase):
                 status.HTTP_400_BAD_REQUEST,
             ),
             (
+                "token_malformed_url",
+                True,
+                "pak",
+                "https://us.posthog.com",
+                "us.posthog.com",
+                "https://[",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
                 "session",
                 True,
                 "session",
@@ -445,7 +454,7 @@ class TestEmailSenderScopedAccess(EmailDomainApiTestCase):
         expected_status: int,
     ) -> None:
         config_before = self.config()
-        region = "EU" if urlsplit(redirect_uri).hostname == "eu.posthog.com" else "US"
+        region = "EU" if redirect_uri.startswith("https://eu.posthog.com/") else "US"
 
         with email_from_code(flag), self.settings(SITE_URL=site_url, CLOUD_DEPLOYMENT=region):
             response = self.apply_url(
