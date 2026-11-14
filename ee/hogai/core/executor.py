@@ -229,7 +229,7 @@ class AgentExecutor:
             AssistantOutput generator
         """
         chunk_count = 0
-        completed = False
+        finished = False
         # Use start_span + use_span (without making the span "current" across yields).
         # `start_as_current_span` inside an async generator attaches the span to the running
         # task's contextvars; when the generator yields, the consumer task resumes with that
@@ -257,7 +257,7 @@ class AgentExecutor:
                         try:
                             chunk = await read_iter.__anext__()
                         except StopAsyncIteration:
-                            completed = True
+                            finished = True
                             break
                         message = await self._redis_stream_to_assistant_output(chunk)
 
@@ -270,6 +270,7 @@ class AgentExecutor:
                     if message:
                         yield message
             except Exception as e:
+                finished = True
                 with trace.use_span(span, end_on_exit=False):
                     posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
                     logger.exception("Error streaming conversation", error=e)
@@ -278,7 +279,7 @@ class AgentExecutor:
             with trace.use_span(span, end_on_exit=False):
                 span.set_attribute("posthog_ai.stream_conversation.chunks", chunk_count)
                 # A disconnected reader must leave replay available; the stream TTL bounds retention.
-                if completed:
+                if finished:
                     await self._redis_stream.delete_stream()
             span.end()
 

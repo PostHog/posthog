@@ -36,6 +36,35 @@ from ee.hogai.utils.types.base import ApprovalPayload, AssistantOutput
 
 
 class TestAgentExecutorReconnect(SimpleTestCase):
+    async def test_activity_retry_can_stream_after_terminal_error(self) -> None:
+        redis = fakeredis.FakeAsyncRedis()
+        with patch("ee.hogai.stream.redis_stream.get_async_client", return_value=redis):
+            executor = AgentExecutor(Conversation(id=uuid4(), team_id=1, user_id=1))
+        message = AssistantMessage(id=str(uuid4()), content="Retry complete")
+
+        async def failed_output() -> AsyncGenerator[AssistantOutput]:
+            yield (AssistantEventType.MESSAGE, AssistantMessage(content="Starting"))
+            raise ValueError("Activity failed")
+
+        async def retried_output() -> AsyncGenerator[AssistantOutput]:
+            yield (AssistantEventType.MESSAGE, message)
+
+        try:
+            with self.assertRaises(StreamError):
+                await executor._redis_stream.write_to_stream(failed_output())
+            reader = executor.stream_conversation()
+            await anext(reader)
+            failure = await anext(reader)
+            self.assertEqual(cast(AssistantMessage, failure[1]).type, "ai/failure")
+            await reader.aclose()
+            await executor._redis_stream.write_to_stream(retried_output())
+            self.assertEqual(
+                [event async for event in executor.stream_conversation()],
+                [(AssistantEventType.MESSAGE, message)],
+            )
+        finally:
+            await redis.close()
+
     @parameterized.expand(["close", "cancel"])
     async def test_reader_disconnect_preserves_replay(self, disconnect: str) -> None:
         redis = fakeredis.FakeAsyncRedis()
@@ -65,7 +94,7 @@ class TestAgentExecutorReconnect(SimpleTestCase):
                 [(AssistantEventType.MESSAGE, first), (AssistantEventType.MESSAGE, last)],
             )
         finally:
-            await redis.aclose()
+            await redis.close()
 
 
 class TestAgentExecutor(BaseTest):
