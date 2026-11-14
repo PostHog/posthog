@@ -169,7 +169,6 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
                 "emits_signals": snapshot.get("emits_signals"),
                 "query": snapshot.get("query"),
                 "sampling_rate": snapshot.get("sampling_rate"),
-                "sampling_mode": snapshot.get("sampling_mode"),
                 "up": row["up"],
                 "down": row["down"],
                 "total": row["total"],

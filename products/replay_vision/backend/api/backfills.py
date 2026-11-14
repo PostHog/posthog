@@ -292,7 +292,6 @@ class ReplayScannerBackfillViewSet(
             sampling_rate=snapshot.sampling_rate,
             sampling_salt=str(scanner.id),
             scanner_id=str(scanner.id),
-            sampling_mode=snapshot.sampling_mode,
             exclude_observed_by_scanner=str(scanner.id) if exclude_observed else None,
             max_execution_time_seconds=ENUMERATION_MAX_EXECUTION_SECONDS,
         ).count(query_type=BACKFILL_COUNT_QUERY_TYPE)

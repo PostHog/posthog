@@ -33,12 +33,6 @@ class TestScoutScannerCreditLimit(SimpleTestCase):
                 {"sampling_rate": 1.0},
                 False,
             ),
-            (
-                "change_sampling_mode_without_a_limit",
-                {"credit_limit": None, "sampling_mode": "focused"},
-                {"sampling_mode": "comprehensive"},
-                False,
-            ),
             ("change_model_without_a_limit", {"credit_limit": None, "model": "old"}, {"model": "new"}, False),
             (
                 "clear_targeting_without_a_limit",

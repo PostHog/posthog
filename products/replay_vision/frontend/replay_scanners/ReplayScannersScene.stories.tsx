@@ -39,7 +39,7 @@ import type {
     VisionQuotaApi,
 } from '../generated/api.schemas'
 import { replayScannerLogic } from './replayScannerLogic'
-import type { SamplingMode, ScannerConfig, ScannerType } from './types'
+import type { ScannerConfig, ScannerType } from './types'
 
 const alice: UserBasicApi = {
     id: 1,
@@ -71,7 +71,6 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         sampling_rate: 1,
         // The API always serializes this (non-null column with a default), so a fixture without it
         // would render the editor's form default instead of the scanner's own coverage.
-        sampling_mode: 'comprehensive',
         provider: 'google',
         model: 'gemini-3.8-flash',
         enabled: true,
@@ -1525,7 +1524,6 @@ export const ScannerScanDrought: StoryObj = {
                                 emits_signals: false,
                                 query: null,
                                 sampling_rate: 1,
-                                sampling_mode: 'comprehensive',
                                 up: 6,
                                 down: 2,
                                 total: 142,
@@ -2157,7 +2155,6 @@ const goalDraft: DraftScannerResponseApi = {
         ],
     },
     query_additions: null,
-    sampling_mode: 'comprehensive',
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
     credit_limit: 5000,
@@ -2179,7 +2176,6 @@ const seedGoalOverviewDraft: Decorator = (StoryFn) => {
         scanner_type: goalDraft.scanner_type as ScannerType,
         scanner_config: goalDraft.scanner_config as ScannerConfig,
         query: goalDraft.query as RecordingsQuery,
-        sampling_mode: goalDraft.sampling_mode as SamplingMode,
         sampling_rate: goalDraft.sampling_rate ?? 1,
     })
     return <StoryFn />
@@ -2228,7 +2224,6 @@ export const ScannerEditorGoalOverviewFromReplayFilters: StoryObj = {
                 scanner_type: goalDraftFromReplayFilters.scanner_type as ScannerType,
                 scanner_config: goalDraftFromReplayFilters.scanner_config as ScannerConfig,
                 query: goalDraftFromReplayFilters.query as RecordingsQuery,
-                sampling_mode: goalDraftFromReplayFilters.sampling_mode as SamplingMode,
                 sampling_rate: goalDraftFromReplayFilters.sampling_rate ?? 1,
             })
             return <StoryFn />
@@ -2314,7 +2309,6 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
                 scanner_type: draft.scanner_type as ScannerType,
                 scanner_config: draft.scanner_config as ScannerConfig,
                 query: draft.query as RecordingsQuery,
-                sampling_mode: draft.sampling_mode as SamplingMode,
                 sampling_rate: draft.sampling_rate ?? 1,
             })
             return <StoryFn />
@@ -2365,7 +2359,6 @@ export const ScannerEditorGoalOverviewLongFilters: StoryObj = {
                 scanner_type: draft.scanner_type as ScannerType,
                 scanner_config: draft.scanner_config as ScannerConfig,
                 query: draft.query as RecordingsQuery,
-                sampling_mode: draft.sampling_mode as SamplingMode,
                 sampling_rate: draft.sampling_rate ?? 1,
             })
             return <StoryFn />
@@ -2555,7 +2548,6 @@ export const ScannerEditorGoalOverviewFreeOnly: StoryObj = {
                 scanner_type: goalDraft.scanner_type as ScannerType,
                 scanner_config: goalDraft.scanner_config as ScannerConfig,
                 query: goalDraft.query as RecordingsQuery,
-                sampling_mode: goalDraft.sampling_mode as SamplingMode,
                 sampling_rate: 0.0001,
                 free_only: true,
                 credit_limit: null,

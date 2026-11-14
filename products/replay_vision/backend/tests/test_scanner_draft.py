@@ -516,7 +516,6 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             "rationale": "A classifier fits because you want the mix of visit intents, not a single yes/no.",
             "query": {"kind": "RecordingsQuery", "filter_test_accounts": True},
             "query_additions": None,
-            "sampling_mode": "comprehensive",
             "sampling_rate": 1.0,
             "model": "gemini-3-flash-preview",
             "estimated_monthly_observations": 300,
@@ -1652,65 +1651,39 @@ class TestFinalize:
         assert "properties" not in draft.query
         assert warn.call_args.kwargs["scans_every_session"] is True
 
-    def test_carries_the_models_sampling_mode_without_costing(self):
-        draft = _finalize(_draft(sampling_mode="focused"), allowed_pages=[], allowed_events=[], team_id=1)
-
-        assert draft.sampling_mode == "focused"
-        assert draft.sampling_rate is None
-        assert draft.estimated_monthly_observations is None
-
 
 class TestSolveBudget(_VisionAPITestCase):
-    def _solve(self, *, budget, model_mode="focused", monthly_by_mode=None, credits_per_observation=1):
-        # Counting is ClickHouse's job with its own tests; these assert the dial arithmetic.
-        monthly_by_mode = monthly_by_mode or {}
-
-        def fake_estimate(*, sampling_mode, **kwargs):
-            matched = monthly_by_mode[str(sampling_mode)]
-            return ScannerVolumeEstimate(matched_sessions=matched, effective_window_days=30)
-
-        with patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=fake_estimate):
+    def _solve(self, *, budget, monthly, credits_per_observation=1):
+        # Counting is ClickHouse's job with its own tests; these assert the rate arithmetic.
+        with patch(
+            f"{_MODULE}.estimate_scanner_session_volume",
+            return_value=ScannerVolumeEstimate(matched_sessions=monthly, effective_window_days=30),
+        ):
             return _solve_budget(
                 team=self.team,
                 user=self.user,
                 query=None,
                 # Default 1 credit per observation, so the credit budget equals the recording budget
-                # and these assertions stay about the dial arithmetic, not the price conversion.
+                # and these assertions stay about the rate arithmetic, not the price conversion.
                 monthly_credit_budget=budget,
                 credits_per_observation=credits_per_observation,
-                model_mode=model_mode,
             )
 
     def test_a_budget_that_covers_everything_opens_the_floodgates(self):
-        # The user asked for more than exists, so nothing is filtered: a quality mode would only
-        # hide sessions the budget could have paid for — even when the model chose one.
-        solution = self._solve(budget=1000, model_mode="focused", monthly_by_mode={"comprehensive": 50})
+        solution = self._solve(budget=1000, monthly=50)
 
-        assert solution.sampling_mode == "comprehensive"
         assert solution.sampling_rate == 1.0
         assert solution.estimated_monthly_observations == 50
 
-    def test_a_budget_below_the_volume_keeps_the_models_mode_and_solves_the_rate(self):
-        solution = self._solve(
-            budget=1_000, model_mode="focused", monthly_by_mode={"comprehensive": 100_000, "focused": 69_000}
-        )
+    def test_a_budget_below_the_volume_solves_the_rate(self):
+        solution = self._solve(budget=1_000, monthly=69_000)
 
-        assert solution.sampling_mode == "focused"
         # Floored to the rate precision, never rounded up: up would overspend the stated budget.
         assert solution.sampling_rate == 0.0144
         assert solution.estimated_monthly_observations <= 1_000
 
-    def test_a_mode_that_already_fits_the_budget_needs_no_sampling(self):
-        solution = self._solve(
-            budget=1_000, model_mode="focused", monthly_by_mode={"comprehensive": 5_000, "focused": 800}
-        )
-
-        assert solution.sampling_mode == "focused"
-        assert solution.sampling_rate == 1.0
-        assert solution.estimated_monthly_observations == 800
-
     def test_a_tiny_budget_clamps_at_the_minimum_rate(self):
-        solution = self._solve(budget=1, model_mode="comprehensive", monthly_by_mode={"comprehensive": 10_000_000})
+        solution = self._solve(budget=1, monthly=10_000_000)
 
         assert solution.sampling_rate == MIN_SAMPLING_RATE
         # The rate cannot go below the floor, so the projection lands above the budget rather than on
@@ -1721,11 +1694,8 @@ class TestSolveBudget(_VisionAPITestCase):
     def test_a_pricier_model_buys_fewer_recordings_for_the_same_budget(self):
         # 1000 credits at 5 credits/observation buys 200 recordings; the matched pool is larger, so
         # the rate solves down to fit the 200 the budget can actually pay for.
-        solution = self._solve(
-            budget=1_000, credits_per_observation=5, model_mode="comprehensive", monthly_by_mode={"comprehensive": 800}
-        )
+        solution = self._solve(budget=1_000, credits_per_observation=5, monthly=800)
 
-        assert solution.sampling_mode == "comprehensive"
         assert solution.sampling_rate < 1.0
         assert solution.estimated_monthly_observations <= 200
 
@@ -1761,7 +1731,6 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         draft = self._run(estimate_error=True)
 
         assert draft.name
-        assert draft.sampling_mode is None
         assert draft.sampling_rate is None
         assert draft.estimated_monthly_observations is None
         # The credit cap and model are the guardrail, so they survive a costing failure.
@@ -1791,7 +1760,7 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         assert draft.query == {"kind": "RecordingsQuery", "filter_test_accounts": True}
 
     def _estimate_by_query(self, dead_when):
-        def estimate(*, team, query, user, sampling_mode, budget):
+        def estimate(*, team, query, user, budget):
             matched = 0 if dead_when(query) else 300
             return ScannerVolumeEstimate(matched_sessions=matched, effective_window_days=30)
 
@@ -1907,21 +1876,21 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
     )
     def test_a_chosen_query_is_the_starting_point(self, _name, chosen, drafted_events, matched, extended, refusal):
         EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
-        checked: list[str] = []
+        checked: list[RecordingsQuery] = []
         estimated: list[RecordingsQuery] = []
 
-        def has_match(*, team, user, query, sampling_mode):
-            checked.append(sampling_mode)
+        def has_match(*, team, user, query):
+            checked.append(query)
             if matched is None:
                 raise RuntimeError("clickhouse timeout")
             return matched
 
-        def estimate(*, team, query, user, sampling_mode, budget):
+        def estimate(*, team, query, user, budget):
             estimated.append(query)
             return ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)
 
         draft = self._drafted_with(
-            _draft(filter_events=drafted_events, rationale="Watches billing sessions.", sampling_mode="focused"),
+            _draft(filter_events=drafted_events, rationale="Watches billing sessions."),
             estimate,
             chosen_query=chosen,
             has_match=has_match,
@@ -1938,7 +1907,7 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
             assert draft.query == chosen
             assert draft.query_additions is None
         assert draft.rationale.endswith("This watches the recordings you picked.") == (refusal is not None)
-        assert checked == (["focused"] if drafted_events and refusal != "or_operand" else [])
+        assert len(checked) == (1 if drafted_events and refusal != "or_operand" else 0)
         assert len(estimated) == 1
         assert bool(estimated[0].events) == extended
 
@@ -2107,7 +2076,7 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         experiment_id = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
         counted: list[RecordingsQuery] = []
 
-        def estimate(*, team, query, user, sampling_mode, budget):
+        def estimate(*, team, query, user, budget):
             counted.append(query)
             return ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)
 
@@ -2141,11 +2110,10 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
             )
         generate.assert_not_called()
 
-    def test_solved_dials_reach_the_draft(self):
+    def test_solved_rate_reaches_the_draft(self):
         draft = self._run(pages=("/billing",), generate=_draft(filter_pages=["/billing"]))
 
         assert draft.query is not None
-        assert draft.sampling_mode == "comprehensive"
         assert draft.sampling_rate == 1.0
         assert draft.estimated_monthly_observations == 300
 

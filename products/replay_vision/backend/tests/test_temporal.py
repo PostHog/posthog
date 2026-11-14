@@ -300,7 +300,6 @@ class TestCreateObservationActivity:
         # Without these the config-versions history can't explain a sampling- or filter-only bump.
         assert observation.scanner_snapshot["query"] == scanner.query
         assert observation.scanner_snapshot["sampling_rate"] == scanner.sampling_rate
-        assert observation.scanner_snapshot["sampling_mode"] == str(scanner.sampling_mode)
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
 

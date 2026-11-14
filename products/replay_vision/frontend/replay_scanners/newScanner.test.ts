@@ -10,7 +10,6 @@ describe('newScanner', () => {
             name: 'New monitor',
             // Narrow by default so the budget step's first estimate isn't a whole-project number.
             sampling_rate: 0.2,
-            sampling_mode: 'balanced',
             description: '',
             tags: [],
         })

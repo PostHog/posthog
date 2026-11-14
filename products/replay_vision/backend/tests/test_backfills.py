@@ -517,6 +517,42 @@ class TestBackfillTickActivities:
         assert result.next_cursor_end_time is None
         assert result.skipped_delta == 0
 
+    @pytest.mark.parametrize(
+        "dispatched,expected_ids,queried",
+        [
+            # A full page whose last quoted session dispatches still has to complete the backfill.
+            pytest.param(2, ["a"], True, id="quote_spent_by_this_batch"),
+            pytest.param(3, [], False, id="quote_already_spent"),
+        ],
+    )
+    def test_backfill_stops_at_its_quoted_count(self, dispatched: int, expected_ids: list[str], queried: bool) -> None:
+        scanner = _make_scanner()
+        cursor_end_time = timezone.now() - dt.timedelta(minutes=30)
+        backfill = _make_backfill(
+            scanner,
+            total_count=3,
+            dispatched_count=dispatched,
+            cursor_end_time=cursor_end_time,
+            cursor_session_id="cursor-session",
+        )
+        fetched = [
+            CandidateSession(session_id=session_id, session_end=timezone.now() - dt.timedelta(hours=hours))
+            for session_id, hours in (("a", 3), ("b", 2), ("c", 1))
+        ]
+        with patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls:
+            query_cls.return_value.run.return_value = fetched
+            result = find_backfill_candidates_activity(
+                FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=3)
+            )
+        assert [c.session_id for c in result.candidates] == expected_ids
+        assert query_cls.return_value.run.called is queried
+        assert result.more_work_below_cursor is False
+        # The advance matches on these, so a completing tick that drops them leaves the backfill running.
+        assert (result.started_from_cursor_end_time, result.started_from_cursor_session_id) == (
+            cursor_end_time,
+            "cursor-session",
+        )
+
     def test_unrunnable_exposure_filter_cancels_the_backfill(self) -> None:
         # The candidate query raises PermissionDenied when the launcher was deleted or lost
         # experiment access. Left RUNNING, the backfill would fail every minute forever while its

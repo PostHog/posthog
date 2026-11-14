@@ -27,7 +27,6 @@ function marker(version: number): ObservationVersionMarkerApi {
         emits_signals: false,
         query: null,
         sampling_rate: 1,
-        sampling_mode: 'comprehensive',
         up: 0,
         down: 0,
         total: 5,
