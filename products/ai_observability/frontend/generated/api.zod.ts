@@ -2256,6 +2256,20 @@ export const EvaluationsTestOnSampleCreateBody = /* @__PURE__ */ zod
 /**
  * Team-level clustering configuration (event filters for automated pipelines).
  */
+export const LlmAnalyticsClusteringConfigRetryCreateBody = /* @__PURE__ */ zod.object({
+    job_id: zod.uuid().describe('Failed clustering job to retry.'),
+})
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const LlmAnalyticsClusteringConfigSetEnabledCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Enable or disable automated clustering for this project.'),
+})
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
 export const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody = /* @__PURE__ */ zod.object({
     event_filters: zod
         .array(zod.record(zod.string(), zod.unknown()))

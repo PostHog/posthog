@@ -98,8 +98,9 @@ class TestClusteringJobViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, expected_status)
 
-    def test_create_job_with_filters(self):
-        filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact", "type": "event"}]
+    @parameterized.expand([("model", "gpt-4"), ("null_value", None)])
+    def test_create_job_with_filters(self, _name, value):
+        filters = [{"key": "$ai_model", "value": value, "label": None, "operator": "exact", "type": "event"}]
         response = self.client.post(
             self._url(),
             {"name": "GPT-4 Only", "analysis_level": "generation", "event_filters": filters, "enabled": True},
@@ -111,7 +112,7 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(job.analysis_level, "generation")
 
     def test_create_enforces_max_jobs_per_team(self):
-        from products.ai_observability.backend.api.clustering_job import MAX_JOBS_PER_TEAM
+        from products.ai_observability.backend.logic.clustering.constants import MAX_JOBS_PER_TEAM
 
         for i in range(MAX_JOBS_PER_TEAM):
             self._create_job(name=f"Job {i}")
@@ -351,35 +352,16 @@ class TestClusteringJobSerializerValidation(SimpleTestCase):
         assert not serializer.is_valid()
         assert "event_filters" in serializer.errors
 
-    def test_accepts_event_filter_with_null_value_and_label(self) -> None:
-        # A non-cohort filter never dereferences the team, so a stub get_team keeps
-        # this DB-free while still reaching field validation of the null values.
-        filters = [{"key": "$ai_model", "operator": "exact", "type": "event", "value": None, "label": None}]
-        serializer = ClusteringJobSerializer(
-            data={"event_filters": filters}, partial=True, context={"get_team": lambda: None}
-        )
-        assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["event_filters"] == filters
-
 
 class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):
-    """Exercises the post_save signal in models/clustering_job.py that seeds the three
-    Default - <level> rows when a new Team is created."""
-
-    def test_creates_defaults_for_all_three_levels_on_team_create(self):
+    def test_does_not_enable_clustering_on_team_create(self):
         from posthog.models import Organization, Project, Team
 
         org = Organization.objects.create(name="signal-test")
         project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=org)
         team = Team.objects.create(id=project.id, project=project, organization=org)
 
-        jobs = ClusteringJob.objects.filter(team=team).order_by("analysis_level")
-        specs = {(j.name, j.analysis_level, j.enabled, tuple(j.event_filters)) for j in jobs}
-        assert specs == {
-            ("Default - evaluations", "evaluation", True, ()),
-            ("Default - generations", "generation", True, ()),
-            ("Default - traces", "trace", True, ()),
-        }
+        assert not ClusteringJob.objects.filter(team=team).exists()
 
     def test_no_extra_rows_on_team_update(self):
         from posthog.models import Organization, Project, Team

@@ -58,6 +58,35 @@ describe('ProductEmptyStateGate', () => {
     afterEach(() => cleanup())
 
     it.each([
+        ['needs-setup', 'needs-setup', '', 'custom'],
+        ['waiting-for-data', 'waiting-for-data', '', 'custom'],
+        ['needs-setup', 'waiting-for-data', '', 'default'],
+        ['waiting-for-data', 'needs-setup', '', 'default'],
+        ['loading', 'waiting-for-data', '', 'loading'],
+        ['has-data', 'waiting-for-data', '', 'scene'],
+        ['has-data', 'needs-setup', '?empty_state=1', 'custom'],
+        ['has-data', 'waiting-for-data', '?empty_state=waiting-for-data', 'custom'],
+    ] as const)('renders %s with a %s override and %s preview as %s', (status, componentMode, search, expected) => {
+        const setup = productSetupStatusLogic({ productKey: ProductKey.EXPERIMENTS })
+        setup.actions.setDetectedStatus('loading')
+        setup.actions.setDetectedStatus(status)
+        router.actions.push(`/experiments${search}`)
+        render(
+            <ProductEmptyStateGate
+                emptyState={{
+                    ...emptyState,
+                    components: { [componentMode]: () => <div>Custom empty state</div> },
+                }}
+            >
+                <div>the real scene</div>
+            </ProductEmptyStateGate>
+        )
+        expect(!!screen.queryByText('Custom empty state')).toBe(expected === 'custom')
+        expect(!!screen.queryByText('Set up experiments')).toBe(expected === 'default')
+        expect(!!screen.queryByText('the real scene')).toBe(expected === 'scene')
+    })
+
+    it.each([
         ['metrics', 'on'],
         ['relationships', 'off'],
         ['certifications', 'off'],

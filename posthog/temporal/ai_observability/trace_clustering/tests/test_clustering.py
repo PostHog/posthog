@@ -35,6 +35,26 @@ from posthog.temporal.ai_observability.trace_clustering.clustering import (  # n
 
 
 class TestPerformHDBSCANClustering:
+    def test_minimum_allows_two_groups_but_does_not_guarantee_them(self):
+        from products.ai_observability.backend.logic.clustering.constants import MIN_CLUSTERING_ITEMS
+
+        half = MIN_CLUSTERING_ITEMS // 2
+        embeddings = np.concatenate([np.full((half, 2), -10.0), np.full((half, 2), 10.0)])
+        grouped = perform_hdbscan_clustering(embeddings)
+        assert len(set(grouped.labels) - {-1}) == 2
+        identical = perform_hdbscan_clustering(np.zeros((MIN_CLUSTERING_ITEMS, 2)))
+        assert set(identical.labels) == {-1}
+
+    @skip_without_umap
+    def test_clustering_and_map_support_five_items(self):
+        embeddings = np.random.default_rng(42).normal(size=(5, 16))
+        reduced, _ = reduce_dimensions_for_clustering(embeddings)
+        result = perform_hdbscan_clustering(reduced)
+        coordinates, _ = compute_2d_coordinates(reduced, np.array(result.centroids).reshape(-1, reduced.shape[1]))
+        assert len(result.labels) == 5
+        assert coordinates.shape == (5, 2)
+        assert np.isfinite(coordinates).all()
+
     def test_basic_clustering_returns_valid_structure(self):
         # Create embeddings with 2 clear clusters
         np.random.seed(42)
@@ -148,6 +168,17 @@ class TestCompute2DCoordinates:
 
         assert trace_coords.shape == (10, 2)
         assert centroid_coords.shape == (0, 2)
+
+    @pytest.mark.parametrize("centroid_count", [0, 1])
+    def test_tsne_handles_minimum_clustering_sample(self, centroid_count):
+        embeddings = np.random.default_rng(42).normal(size=(5, 20))
+        centroids = embeddings[:centroid_count]
+
+        trace_coords, centroid_coords = compute_2d_coordinates(embeddings, centroids, method="tsne")
+
+        assert trace_coords.shape == (5, 2)
+        assert centroid_coords.shape == (centroid_count, 2)
+        assert np.isfinite(trace_coords).all()
 
     def test_handles_small_sample_size(self):
         embeddings = np.array([[1, 2, 3], [4, 5, 6]])

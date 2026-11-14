@@ -4367,10 +4367,107 @@ export interface EvaluationTestOnSampleRequestApi {
 export type ClusteringConfigApiEventFiltersItem = { [key: string]: unknown }
 
 export interface ClusteringConfigApi {
+    /** Whether this project has opted in to automated clustering. */
+    enabled: boolean
     /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
     event_filters: ClusteringConfigApiEventFiltersItem[]
     readonly created_at: string
     readonly updated_at: string
+}
+
+/**
+ * * `trace` - trace
+ * * `generation` - generation
+ * * `evaluation` - evaluation
+ */
+export type ClusteringAnalysisLevelEnumApi =
+    (typeof ClusteringAnalysisLevelEnumApi)[keyof typeof ClusteringAnalysisLevelEnumApi]
+
+export const ClusteringAnalysisLevelEnumApi = {
+    Trace: 'trace',
+    Generation: 'generation',
+    Evaluation: 'evaluation',
+} as const
+
+/**
+ * * `queued` - Queued
+ * * `waiting` - Waiting for data
+ * * `preparing` - Preparing data
+ * * `clustering` - Finding clusters
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `canceled` - Stopped
+ */
+export type ClusteringRunStatusEnumApi = (typeof ClusteringRunStatusEnumApi)[keyof typeof ClusteringRunStatusEnumApi]
+
+export const ClusteringRunStatusEnumApi = {
+    Queued: 'queued',
+    Waiting: 'waiting',
+    Preparing: 'preparing',
+    Clustering: 'clustering',
+    Completed: 'completed',
+    Failed: 'failed',
+    Canceled: 'canceled',
+} as const
+
+export interface ClusteringJobProgressApi {
+    /** The clustering job whose first run is tracked. */
+    job_id: string
+    /** Job name. */
+    name: string
+    /** Items grouped by this job.
+     *
+     * * `trace` - trace
+     * * `generation` - generation
+     * * `evaluation` - evaluation */
+    analysis_level: ClusteringAnalysisLevelEnumApi
+    /** Whether the job only includes items matching saved filters. */
+    has_filters: boolean
+    /** Minimum eligible items needed to attempt clustering. */
+    minimum: number
+    /** Number of recent days searched for eligible items. */
+    lookback_days: number
+    /** First-run processing state, or null before a run has been requested.
+     *
+     * * `queued` - Queued
+     * * `waiting` - Waiting for data
+     * * `preparing` - Preparing data
+     * * `clustering` - Finding clusters
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `canceled` - Stopped */
+    status: ClusteringRunStatusEnumApi | null
+    /**
+     * Eligible items found, capped at the minimum; null while checking.
+     * @nullable
+     */
+    eligible_count: number | null
+    /** Items prepared for clustering in this run. */
+    prepared_count: number
+    /**
+     * Groups found, excluding outliers; null until finished.
+     * @nullable
+     */
+    cluster_count: number | null
+    /** Stable failure code, without internal error details. */
+    failure_reason: string
+    /**
+     * When the worker last updated this run.
+     * @nullable
+     */
+    updated_at: string | null
+    /** The completed result to wait for in clustering queries. */
+    result_run_id: string
+}
+
+export interface ClusteringRetryApi {
+    /** Failed clustering job to retry. */
+    job_id: string
+}
+
+export interface ClusteringConfigSetEnabledApi {
+    /** Enable or disable automated clustering for this project. */
+    enabled: boolean
 }
 
 export type ClusteringConfigSetEventFiltersApiEventFiltersItem = { [key: string]: unknown }
@@ -4380,26 +4477,13 @@ export interface ClusteringConfigSetEventFiltersApi {
     event_filters: ClusteringConfigSetEventFiltersApiEventFiltersItem[]
 }
 
-/**
- * * `trace` - trace
- * * `generation` - generation
- * * `evaluation` - evaluation
- */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
-
-export const AnalysisLevelEnumApi = {
-    Trace: 'trace',
-    Generation: 'generation',
-    Evaluation: 'evaluation',
-} as const
-
 export type ClusteringJobApiEventFiltersItem = { [key: string]: unknown }
 
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
@@ -4422,7 +4506,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean

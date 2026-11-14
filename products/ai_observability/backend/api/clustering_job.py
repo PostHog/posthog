@@ -1,6 +1,7 @@
-from typing import Any
+from typing import Any, cast
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -10,15 +11,18 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models.user import User
 from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.cohorts.backend.models.cohort import Cohort
 
+from ..facade.api import validate_clustering_filters
+from ..logic.clustering.constants import MAX_JOBS_PER_TEAM
 from ..models.clustering_job import ClusteringJob
+from ..models.clustering_run import ACTIVE_CLUSTERING_RUN_STATUSES, ClusteringRun, ClusteringRunStatus
 from .metrics import llma_track_latency
 
-MAX_JOBS_PER_TEAM = 10
 _COHORT_FILTER_TYPES = ("cohort", "static-cohort", "precalculated-cohort")
 
 
@@ -71,6 +75,7 @@ class ClusteringJobSerializer(serializers.ModelSerializer):
         handled defensively in the sampling activity itself.
         """
         team = self.context["get_team"]()
+        validate_clustering_filters(team.id, self.context["request"].user, value)
         referenced_ids: list[int] = []
         for f in value:
             if f.get("type") not in _COHORT_FILTER_TYPES:
@@ -135,6 +140,8 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
     def perform_create(self, serializer):
+        from ..facade.api import request_first_clustering_runs
+
         instance = serializer.save(team_id=self.team_id)
 
         # Disable the migration-created default job for the same level.
@@ -149,6 +156,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             .exclude(id=instance.id)
             .update(enabled=False)
         )
+        request_first_clustering_runs(self.team_id, cast(User, self.request.user))
 
         report_user_action(
             self.request.user,
@@ -175,7 +183,20 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
     def perform_update(self, serializer):
-        instance = serializer.save()
+        from ..facade.api import request_first_clustering_runs
+
+        with transaction.atomic():
+            scope_changed = any(
+                field in serializer.validated_data
+                and serializer.validated_data[field] != getattr(serializer.instance, field)
+                for field in ("event_filters", "analysis_level")
+            )
+            instance = serializer.save()
+            if scope_changed:
+                ClusteringRun.objects.for_team(self.team_id).filter(
+                    job=instance, status__in=ACTIVE_CLUSTERING_RUN_STATUSES
+                ).update(status=ClusteringRunStatus.CANCELED, finished_at=timezone.now(), updated_at=timezone.now())
+            request_first_clustering_runs(self.team_id, cast(User, self.request.user))
         report_user_action(
             self.request.user,
             "llma clustering job updated",

@@ -82,7 +82,11 @@ from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
 from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task, score_aeo_sentiment_backlog_task
-from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
+from products.ai_observability.backend.facade.tasks import (
+    dispatch_queued_clustering_runs,
+    expire_datasets,
+    expire_offline_evaluation_payloads,
+)
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
 from products.approvals.backend.tasks import (
@@ -290,6 +294,7 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    sender.add_periodic_task(10.0, dispatch_queued_clustering_runs.s(), name="dispatch-clustering-runs", expires=10)
     add_periodic_task_with_expiry(
         sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
     )

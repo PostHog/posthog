@@ -211,6 +211,9 @@ export const tracePageLogic = kea<tracePageLogicType>([
                 actions.setMode('spans')
                 actions.setDetailTab('messages')
             }
+            if (isNewTrace && tab === 'thread') {
+                actions.setMode('thread')
+            }
             // The page writes its URL on each step, so a later pass here would undo the tab the person picked.
             if (isNewTrace && tab === 'evals') {
                 actions.setDetailTab('evals')
@@ -222,7 +225,7 @@ export const tracePageLogic = kea<tracePageLogicType>([
             actions.setTraceId(traceId)
             // An eval link with no event comes from a trace-level run, and only the root shows that run.
             actions.requestStep(event || (tab === 'evals' ? traceId : null), traceId)
-            actions.setOpeningMode(tab === 'summary' ? 'summary' : null)
+            actions.setOpeningMode(tab === 'summary' || tab === 'thread' ? tab : null)
             actions.setSeedQuery(searchParamFromUrl())
             const timestampHint = toTimestampHint(timestamp, exception_ts)
             if (timestampHint || isNewTrace) {

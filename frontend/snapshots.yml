@@ -316,6 +316,10 @@ snapshots:
         hash: v1.k794b7964.0cb579a6053bad39bf97315f2786192cca1ac72365b562366f060f1933a960aa.uRoL16z6RCdNVzHfZfmhsg8C60HSgv7yElbfLchK4SQ
     charts-scatterchart--default--light:
         hash: v1.k794b7964.c7eadd07aadab92bf308c2dd24717d65acca0ee337d84172093e3cba44204851.YOTRZQoztsmGLiPeuUCYe_fdjY0Sml7TtTMkvD73Yfw
+    charts-scatterchart--dimmed-points--dark:
+        hash: v1.k794b7964.f085ed2a89488b822a3cf3386bfa1458b0401972ebeb0e36009e0edb1f87886a.MeOrZEz5THH_mWEZJX3gaxcDXYBSYtu1cZ25xqdjChA
+    charts-scatterchart--dimmed-points--light:
+        hash: v1.k794b7964.18d2679553595a76cedbc09ce026e25cb072e0ca1fe227d67027edaa62d42293.aNKMgNGUb5ZU9J0mmpT80hcmkc6W4MAdm-10mwYtovk
     charts-scatterchart--host-chrome--dark:
         hash: v1.k794b7964.0cb579a6053bad39bf97315f2786192cca1ac72365b562366f060f1933a960aa.XqEqyyhRx6TR3_j7P74hBJDh3YntsUt4Ob0q7AB41C0
     charts-scatterchart--host-chrome--light:
@@ -2493,13 +2497,13 @@ snapshots:
     components-product-empty-state--business-knowledge-needs-setup--light:
         hash: v1.k794b7964.776d34a79a74cc7749d2cda45cba39ee5a782874831cc676a31cf19c95ef26a6.40T6SdDxp1G3BQCmIFRC9-Vv4bAXYdarvGNhH11xa0k
     components-product-empty-state--clusters-needs-setup--dark:
-        hash: v1.k794b7964.170fa1e2a0c94344278934b9b158cd07d8e3c585695e0791c3221f12a81b7d9a.BeVK0Tvo7z2gIsiLlKuju5DVLRWV0fMi4q7O7wu-AsM
+        hash: v1.k794b7964.f7bc95bdeedcc62271694fb1e33fffd2b35a0343f7cda4e4131ece06cf8105a2.qUBaZ8w9s5h0lNA5Yp1qjyiRvAeq1c6VObaU6VYgXm4
     components-product-empty-state--clusters-needs-setup--light:
-        hash: v1.k794b7964.369c74b21b3ff1219eb3d2e3d054bb35d944bf1b714601166b8e78b4b32e0ea5.Et4qBlU2asXj7y-xFHTRW0-ze9b0pimwjSLisUr2o24
+        hash: v1.k794b7964.07a56dcc6aa788085ad26fa880a462d31614991beba16496400c6ed3116f4435.Tj0ucklhAwxApJEpxR9uzMfwwhGgNZNFrR_CNL8PW9A
     components-product-empty-state--clusters-waiting-for-data--dark:
-        hash: v1.k794b7964.31f281a9fc1bdc93a030ebb4d46e4c0ccaca792f97056deb0737f42702ce9a2c.tQUs-amee_6yZo8CLunvEST_lcrHjOeRgiEdrnGl9EQ
+        hash: v1.k794b7964.931cdfabc67f2b6576ffd8a2656066cd7597121c9b6788a5b972f506c41a460e.2tif0T3hvy2-RcqnQuKrMRbGems5cmwyRpBr-wktVjo
     components-product-empty-state--clusters-waiting-for-data--light:
-        hash: v1.k794b7964.e431bf3cac3873ded2d5d82f14dd2625d8eb698d8d6380195f8bf2ed90700f3c.3vB3F3yx6XEVs1YseTitdfUPn2qRhTamYf7EdpTiJzo
+        hash: v1.k794b7964.730f81c2668eedf287c488fe3668189fbd375b9d92b89f0710c832315dbed441.644_V1GaKL03DdEinFgLNzr6yaWH7i_14FmocHajPdA
     components-product-empty-state--cohorts-needs-setup--dark:
         hash: v1.k794b7964.02aa27dcb18062c65248d0ee3f28f83d4660801bd64ccbf29732923ebd939ee1.XDBAzeXvKmMML6X8yNm9j8JH-h-5p8LD0rTmtnUFP10
     components-product-empty-state--cohorts-needs-setup--light:

@@ -141,6 +141,18 @@ See [AI data processing consent](#ai-data-processing-consent).
 
 The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `llma-trace-summarization-coordinator-schedule`.
 
+### First run after enabling clustering
+
+Clustering is opt-in. Enabling it queues an `ai-observability-clustering-first-run` workflow for each enabled job, without waiting for a scheduled cycle. The workflow checks for at least 10 eligible items in the job's window: 7 days for traces and generations, or 3 days for evaluations. Generation sampling takes the last generation from each trace. Evaluation sampling excludes numeric and categorical results. Saved job filters apply to these checks.
+
+Jobs below the minimum wait and check again every 30 minutes, even when the page is closed. Jobs with enough data prepare up to 100 items through the existing summarization or evaluation sampling workflow, wait for embeddings, then start clustering. Ten items allow the algorithm to run; they do not guarantee groups. HDBSCAN can classify all items as outliers.
+
+`ClusteringRun` stores each first attempt and retry. A Celery dispatcher checks queued records every 10 seconds and retries deliveries after a minute, using the same Temporal workflow ID. Enabling clustering returns after persisting the request and adds defaults only within the project's 10-job limit. Each project can start at most 10 first-run attempts per hour across job creation, enable, and retry; deleting jobs does not reset this budget. Repeated enable requests reuse active attempts, and retry creates a new attempt after a failure. Changing a job's filters or analysis level cancels its active attempt and queues a replacement within the same budget.
+
+Runs retain the requesting user and a snapshot of their filters. Filter references must be accessible to that user before admission and at each stage check. Progress is hidden from readers who cannot access those filters. The `progress` action reads the stored records without querying ClickHouse or starting work. Completed records include the result ID so the page can keep checking for up to five minutes after completion while the emitted result reaches ClickHouse.
+
+Scheduled coordinators exclude jobs with active first runs and resume processing them once those runs finish. Turning clustering off preserves previous results and stops the first-run workflow at its next stage check. Canceling the workflow in Temporal also marks the attempt canceled.
+
 ### Team Discovery
 
 Teams are discovered dynamically via `team_discovery.py`: guaranteed teams (in `GUARANTEED_TEAM_IDS`) plus a configurable random sample of teams with AI events.

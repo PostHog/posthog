@@ -15468,20 +15468,6 @@ export namespace Schemas {
       last_seen: string | null;
     }
 
-    /**
-     * * `trace` - trace
-     * * `generation` - generation
-     * * `evaluation` - evaluation
-     */
-    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
-
-
-    export const AnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-      Evaluation: 'evaluation',
-    } as const;
-
     export interface AnalyticsAlertFiringSignalExtra {
       alert_id: string;
       alert_name: string;
@@ -28293,13 +28279,34 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    /**
+     * * `trace` - trace
+     * * `generation` - generation
+     * * `evaluation` - evaluation
+     */
+    export type ClusteringAnalysisLevelEnum = typeof ClusteringAnalysisLevelEnum[keyof typeof ClusteringAnalysisLevelEnum];
+
+
+    export const ClusteringAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
+
     export type ClusteringConfigEventFiltersItem = { [key: string]: unknown };
 
     export interface ClusteringConfig {
+      /** Whether this project has opted in to automated clustering. */
+      enabled: boolean;
       /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
       event_filters: ClusteringConfigEventFiltersItem[];
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface ClusteringConfigSetEnabled {
+      /** Enable or disable automated clustering for this project. */
+      enabled: boolean;
     }
 
     export type ClusteringConfigSetEventFiltersEventFiltersItem = { [key: string]: unknown };
@@ -28315,12 +28322,84 @@ export namespace Schemas {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: AnalysisLevelEnum;
+      analysis_level: ClusteringAnalysisLevelEnum;
       /** PostHog property filters that scope this clustering job. Empty array means no filters. */
       event_filters?: ClusteringJobEventFiltersItem[];
       enabled?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * * `queued` - Queued
+     * * `waiting` - Waiting for data
+     * * `preparing` - Preparing data
+     * * `clustering` - Finding clusters
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `canceled` - Stopped
+     */
+    export type ClusteringRunStatusEnum = typeof ClusteringRunStatusEnum[keyof typeof ClusteringRunStatusEnum];
+
+
+    export const ClusteringRunStatusEnum = {
+      Queued: 'queued',
+      Waiting: 'waiting',
+      Preparing: 'preparing',
+      Clustering: 'clustering',
+      Completed: 'completed',
+      Failed: 'failed',
+      Canceled: 'canceled',
+    } as const;
+
+    export interface ClusteringJobProgress {
+      /** The clustering job whose first run is tracked. */
+      job_id: string;
+      /** Job name. */
+      name: string;
+      /** Items grouped by this job.
+       *
+       * * `trace` - trace
+       * * `generation` - generation
+       * * `evaluation` - evaluation */
+      analysis_level: ClusteringAnalysisLevelEnum;
+      /** Whether the job only includes items matching saved filters. */
+      has_filters: boolean;
+      /** Minimum eligible items needed to attempt clustering. */
+      minimum: number;
+      /** Number of recent days searched for eligible items. */
+      lookback_days: number;
+      /** First-run processing state, or null before a run has been requested.
+       *
+       * * `queued` - Queued
+       * * `waiting` - Waiting for data
+       * * `preparing` - Preparing data
+       * * `clustering` - Finding clusters
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `canceled` - Stopped */
+      status: ClusteringRunStatusEnum | null;
+      /**
+         * Eligible items found, capped at the minimum; null while checking.
+         * @nullable
+         */
+      eligible_count: number | null;
+      /** Items prepared for clustering in this run. */
+      prepared_count: number;
+      /**
+         * Groups found, excluding outliers; null until finished.
+         * @nullable
+         */
+      cluster_count: number | null;
+      /** Stable failure code, without internal error details. */
+      failure_reason: string;
+      /**
+         * When the worker last updated this run.
+         * @nullable
+         */
+      updated_at: string | null;
+      /** The completed result to wait for in clustering queries. */
+      result_run_id: string;
     }
 
     /**
@@ -28334,6 +28413,11 @@ export namespace Schemas {
       Hdbscan: 'hdbscan',
       Kmeans: 'kmeans',
     } as const;
+
+    export interface ClusteringRetry {
+      /** Failed clustering job to retry. */
+      job_id: string;
+    }
 
     export type ClusteringRunRequestEventFiltersItem = { [key: string]: unknown };
 
@@ -87259,7 +87343,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: AnalysisLevelEnum;
+      analysis_level?: ClusteringAnalysisLevelEnum;
       /** PostHog property filters that scope this clustering job. Empty array means no filters. */
       event_filters?: PatchedClusteringJobEventFiltersItem[];
       enabled?: boolean;

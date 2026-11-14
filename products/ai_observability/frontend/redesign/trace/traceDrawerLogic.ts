@@ -337,7 +337,7 @@ export const traceDrawerLogic = kea<traceDrawerLogicType>([
             if (cache.stepsTaken === undefined) {
                 cache.stepsTaken = 0
                 actions.setOpeningMode(config.openingMode ?? null)
-                actions.setMode('spans')
+                actions.setMode(config.openingMode === 'thread' ? 'thread' : 'spans')
                 actions.setDetailTab(config.detailTab ?? 'messages')
                 traceViewTracking.drawerOpened(props.listId)
                 recordTraceViewed()

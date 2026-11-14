@@ -56,6 +56,8 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.ai_observability.backend.logic.clustering.constants import EVALUATION_LOOKBACK_DAYS
+
 logger = structlog.get_logger(__name__)
 
 
@@ -232,9 +234,11 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
 
     # The coordinator can run a team after it is deleted, so skip the run instead of failing it.
     try:
-        team = Team.objects.get(id=inputs.team_id)
+        team = Team.objects.get(
+            id=inputs.team_id, clustering_config__enabled=True, organization__is_ai_data_processing_approved=True
+        )
     except Team.DoesNotExist:
-        logger.info("Team not found, skipping eval clustering run", team_id=inputs.team_id, job_id=inputs.job_id)
+        logger.info("Team not eligible for clustering, skipping eval run", team_id=inputs.team_id, job_id=inputs.job_id)
         return EvaluationClusteringComputeResult(
             clustering_run_id=clustering_run_id,
             eval_ids=[],
@@ -243,7 +247,7 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
             distances=[],
             coords_2d=[],
             centroid_coords_2d=[],
-            skip_reason="team_not_found",
+            skip_reason="team_not_eligible",
         )
 
     # Bound the random embedding sample to the same window Stage B's metadata
@@ -522,4 +526,4 @@ def compute_item_labeling_metadata(compute_result: EvaluationClusteringComputeRe
 # Metadata-query window: eval embeddings accumulated over ~24h, so the metadata
 # fetch needs a slightly wider window than the Stage A sampler window. Using 3
 # days from now buys extra safety for late-arriving evals.
-METADATA_LOOKBACK = timedelta(days=3)
+METADATA_LOOKBACK = timedelta(days=EVALUATION_LOOKBACK_DAYS)

@@ -32,7 +32,7 @@ export interface ProductEmptyStateGateProps {
 /**
  * Gates scene content on the product's setup status:
  * - `loading` → hold a spinner (never flash the real scene before we know)
- * - `needs-setup` / `waiting-for-data` → the ProductEmptyState setup screen
+ * - `needs-setup` / `waiting-for-data` → the product's component for that mode, or the setup screen
  * - `has-data` / `unknown` (or the user skipped) → the scene, untouched
  *
  * Mounts the product's detection logic, which pushes its normalized status into
@@ -88,9 +88,15 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     const gateRender = activeProductEmptyStateGateRender({ config, forcedMode, status, skipped })
 
     if (gateRender === 'setup') {
+        const resolvedMode = forcedMode ?? mode
+        const CustomEmptyState = emptyState.components?.[resolvedMode]
         return (
             <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
-                <ProductEmptyState config={config} mode={forcedMode ?? mode} preview={!!forcedMode} />
+                {CustomEmptyState ? (
+                    <CustomEmptyState />
+                ) : (
+                    <ProductEmptyState config={config} mode={resolvedMode} preview={!!forcedMode} />
+                )}
             </ProductSceneFrame>
         )
     }
