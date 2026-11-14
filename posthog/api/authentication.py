@@ -1501,6 +1501,10 @@ def social_email_verified_by_provider(
     if social is not None or _is_signed_in_github_account_link(strategy, backend):
         return
 
+    if backend.name == "oidc":
+        # MultitenantOIDCAuth validates the subject and verified organization domain instead of this claim.
+        return
+
     response = response or {}
     email = (details or {}).get("email") or ""
     if isinstance(backend, GithubOAuth2):

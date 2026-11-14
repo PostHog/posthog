@@ -235,8 +235,8 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
         if not isinstance(userinfo, dict) or userinfo.get("sub") != id_token.get("sub"):
             raise AuthFailed(self, "The OIDC user does not match the ID token.")
         email = userinfo.get("email")
-        if userinfo.get("email_verified") is not True or not isinstance(email, str):
-            raise AuthFailed(self, "OIDC requires a verified email address from the identity provider.")
+        if not isinstance(email, str):
+            raise AuthFailed(self, "OIDC requires an email address from the identity provider.")
         if not (
             IdentityProviderConfig.objects.get_queryset()
             .oidc_for_email(email)
