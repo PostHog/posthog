@@ -93,21 +93,59 @@ def _compact(seq: list[Any]) -> list[Any]:
     return list(seq[-MAX_SERIES_POINTS:])
 
 
+@frozen
+class AlertedSeries:
+    """The series a saved check judged, which the alert can have been repointed away from since.
+
+    ``series_index`` is the query series. On a breakdown insight, ``breakdown_label`` names the
+    breakdown value that fired and ``breakdown_index`` is its position in the results, the
+    fallback for a check saved before the label was.
+    """
+
+    series_index: int
+    breakdown_label: str | None = None
+    breakdown_index: int | None = None
+
+
+def _alerted_breakdown(sim: dict[str, Any], alerted: AlertedSeries | None) -> dict[str, Any] | str:
+    """The fired breakdown value's own series from a simulation, which keeps every value apart.
+
+    A simulation of a breakdown insight has no top-level series, so without this the agent
+    and the chart get nothing. Returns ``sim`` unchanged when the insight has no breakdown.
+    """
+    results = sim.get("breakdown_results")
+    if not results:
+        return sim
+    position = alerted.breakdown_index if alerted is not None else None
+    label = alerted.breakdown_label if alerted is not None else None
+    if label is not None:
+        # Two query series can share a breakdown label, so the saved position settles a tie.
+        matches = [index for index, result in enumerate(results) if result.get("label") == label]
+        index = position if position in matches else (matches[0] if matches else None)
+    else:
+        index = position if position is not None and 0 <= position < len(results) else None
+    if index is None:
+        # No label here: the chart path logs this string, and a breakdown value can be customer data.
+        return "The breakdown value that fired is not in the insight's results now."
+    return {**results[index], "interval": sim.get("interval")}
+
+
 def _run_detector_simulation(
     *,
     alert: AlertConfiguration,
     team: Team,
     date_from: str | None,
-    series_index: int | None = None,
+    alerted: AlertedSeries | None = None,
     score: bool = True,
 ) -> dict[str, Any] | str:
     """Thin wrapper around ``simulate_detector_on_insight`` that returns either the sim
     dict or a short error string. Kept as a sync helper so it can be pushed to a thread
     via ``sync_to_async`` from the async tool handlers.
 
-    ``series_index`` overrides the alert's current selection with the one a saved check
-    judged, so an investigation charts the series that fired. ``score=False`` returns the
-    series unscored, for a check whose verdict is already saved.
+    ``alerted`` overrides the alert's current selection with the series a saved check
+    judged, so an investigation charts the series that fired, and on a breakdown insight the
+    breakdown value that fired. ``score=False`` returns the series unscored, for a check whose
+    verdict is already saved.
 
     An AI-detector or forecast alert is never re-scored here: the verdict that fired is already on
     the check, and every extra scoring pass would be another gateway call that the agent could
@@ -119,14 +157,14 @@ def _run_detector_simulation(
     from products.alerts.backend.facade.api import calls_ai_gateway
 
     try:
-        return simulate_detector_on_insight(
+        sim = simulate_detector_on_insight(
             insight=alert.insight,
             team=team,
             detector_config=alert.detector_config or {"type": "zscore", "threshold": 0.95},
             # Mirror the alert-check path (TrendsDetectorExtractor.extract): the monitored series
             # is chosen by config.series_index. Without this the simulation defaults to series 0,
             # so the investigation analyzes a different series than the one that actually fired.
-            series_index=series_index if series_index is not None else (alert.config or {}).get("series_index", 0),
+            series_index=alerted.series_index if alerted is not None else (alert.config or {}).get("series_index", 0),
             # Pass the full alert config too: HogQLDetectorExtractor.simulate reads config.column to
             # pick which numeric column to score. Without it a SQL insight with several numeric
             # columns fails with "more than one of them is numeric", so the investigation gets no
@@ -139,6 +177,7 @@ def _run_detector_simulation(
         )
     except Exception as err:
         return str(err)
+    return _alerted_breakdown(sim, alerted)
 
 
 @frozen
@@ -148,6 +187,7 @@ class InvestigationToolkit:
 
     team: Team
     alert: AlertConfiguration | None = None
+    alerted: AlertedSeries | None = None
 
     async def run_hogql_query(self, args: RunHogQLQueryArgs) -> str:
         sql = args.query.strip()
@@ -205,6 +245,7 @@ class InvestigationToolkit:
             alert=self.alert,
             team=self.team,
             date_from=args.date_from,
+            alerted=self.alerted,
         )
         if isinstance(sim, str):
             return f"Error fetching series: {sim}"
@@ -235,6 +276,7 @@ class InvestigationToolkit:
             alert=self.alert,
             team=self.team,
             date_from=args.date_from,
+            alerted=self.alerted,
         )
         if isinstance(sim, str):
             return f"Error running simulation: {sim}"
