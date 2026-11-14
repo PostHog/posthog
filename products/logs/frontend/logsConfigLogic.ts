@@ -20,7 +20,21 @@ export const DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = [DEFAULT_LOGS_DISTINCT_ID
 // detection checks keys in list order and the first match wins.
 export const DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ['sessionId']
 
-export const DEFAULT_LOGS_PATTERN_MESSAGE_KEYS = ['message', 'msg', 'event']
+// Mirrors DEFAULT_LOGS_PATTERN_MESSAGE_KEYS in products/logs/backend/models.py.
+export const DEFAULT_LOGS_PATTERN_MESSAGE_KEYS = [
+    'message',
+    'msg',
+    'log',
+    'msg_',
+    '_msg',
+    'content',
+    'event',
+    'fields.message',
+    'error',
+    'fields.error',
+]
+
+export const MAX_LOGS_PATTERN_MESSAGE_KEYS = 20
 
 async function saveLogsConfig(teamId: number | null, patch: Partial<TeamLogsConfigApi>): Promise<TeamLogsConfigApi> {
     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsLogsConfigPartialUpdate() from 'products/logs/frontend/generated/api' instead.
@@ -165,8 +179,8 @@ export const logsConfigLogic = kea<logsConfigLogicType>([
             errors: ({ keys }) => {
                 const cleaned = keys.map((key) => key.trim())
                 const error =
-                    cleaned.length > 10
-                        ? 'Use at most 10 keys.'
+                    cleaned.length > MAX_LOGS_PATTERN_MESSAGE_KEYS
+                        ? `Use at most ${MAX_LOGS_PATTERN_MESSAGE_KEYS} keys.`
                         : cleaned.some((key) => !key)
                           ? 'Keys cannot be blank.'
                           : cleaned.some((key) => key.length > 200)
