@@ -362,7 +362,7 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
         return false
     }
     try {
-        await release(controller, profile.baseline.evidenceBucket, manifest)
+        await release(controller, manifest)
         return true
     } catch (error) {
         controller.warn(
