@@ -143,6 +143,7 @@ from products.cohorts.backend.models.util import (
     get_all_cohort_dependencies,
     get_friendly_error_message,
     legacy_groups_to_filters,
+    population_timestamp_now,
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
@@ -2319,8 +2320,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         else:
             claim_mode = CohortPopulationMode.APPEND
 
+        # The request time is the floor a replace keeps members from: an add made after it, while the population
+        # waits in the queue or between attempts, survives the prune.
+        claimed_at = population_timestamp_now()
         claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(
-            is_calculating=True, pending_population_mode=claim_mode, population_marker=None
+            is_calculating=True,
+            pending_population_mode=claim_mode,
+            population_marker=None,
+            population_claimed_at=claimed_at,
         )
         if not claimed:
             raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
@@ -2328,6 +2335,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         cohort.is_calculating = True
         cohort.pending_population_mode = claim_mode
         cohort.population_marker = None
+        cohort.population_claimed_at = claimed_at
 
     def _enqueue_query_population(self, cohort: Cohort) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_query
@@ -2337,11 +2345,15 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         except Exception as e:
             # Without a release, every retry is rejected for a run that was never queued.
             Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id).update(
-                is_calculating=False, pending_population_mode=None, population_marker=None
+                is_calculating=False,
+                pending_population_mode=None,
+                population_marker=None,
+                population_claimed_at=None,
             )
             cohort.is_calculating = False
             cohort.pending_population_mode = None
             cohort.population_marker = None
+            cohort.population_claimed_at = None
             capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
             raise ValidationError(
                 {"query": ["Couldn't start populating this cohort. Try again in a few minutes."]}

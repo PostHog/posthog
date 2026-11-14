@@ -240,6 +240,7 @@ _COHORT_RECALCULATION_FIELDS = frozenset(
         "last_import_unmatched_count",
         "pending_population_mode",
         "population_marker",
+        "population_claimed_at",
         # NOTE: `groups` is the legacy cohort-condition field (deprecated in favour of
         # `filters`).  calculate_people_ch() always saves it in update_fields even when
         # unchanged (see cohort.py:347).  Real definition changes go through a full save

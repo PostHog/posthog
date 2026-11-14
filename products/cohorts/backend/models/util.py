@@ -1641,7 +1641,7 @@ def clear_population_run_fields(cohort: Cohort, *, marker: datetime | None, mode
     owned = Cohort.objects.filter(pk=cohort.pk, population_marker=marker, pending_population_mode=mode)
     if marker is None and mode is None:
         return owned.exists()
-    if not owned.update(pending_population_mode=None, population_marker=None):
+    if not owned.update(pending_population_mode=None, population_marker=None, population_claimed_at=None):
         return False
     cohort.pending_population_mode = None
     cohort.population_marker = None

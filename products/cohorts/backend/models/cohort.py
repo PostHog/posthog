@@ -68,7 +68,9 @@ class CohortPopulationMode(models.TextChoices):
 
 
 # Columns a static population owns while it runs. Only the claim and the population itself write them.
-STATIC_POPULATION_RUN_FIELDS = frozenset({"is_calculating", "pending_population_mode", "population_marker"})
+STATIC_POPULATION_RUN_FIELDS = frozenset(
+    {"is_calculating", "pending_population_mode", "population_marker", "population_claimed_at"}
+)
 
 
 class CohortConditionFlags(TypedDict):
@@ -162,6 +164,7 @@ COHORT_RECALCULATION_FIELDS = frozenset(
         "last_import_unmatched_count",
         "pending_population_mode",
         "population_marker",
+        "population_claimed_at",
     }
 )
 
@@ -319,6 +322,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         null=True,
         blank=True,
         help_text="ClickHouse _timestamp of the current replace attempt. Every attempt stores a newer value, and an attempt that finds a different value stored stops writing. Null when no replace is in flight.",
+    )
+    population_claimed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the current static population was requested. A replace keeps the members added at or after this time. Null when no population is pending.",
     )
 
     is_static = models.BooleanField(default=False)

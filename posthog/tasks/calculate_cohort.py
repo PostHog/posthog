@@ -305,7 +305,7 @@ def _end_pending_population(cohort_id: int) -> None:
     # later edit. The is_calculating filter skips a cohort a request claimed again after the reset,
     # whose fields now belong to that request.
     Cohort.objects.filter(pk=cohort_id, is_calculating=False).update(
-        pending_population_mode=None, population_marker=None
+        pending_population_mode=None, population_marker=None, population_claimed_at=None
     )
 
 
@@ -331,6 +331,7 @@ def reset_stuck_sourceless_static_cohorts() -> None:
                     # This reset never dispatches a population, so it ends any pending one.
                     pending_population_mode=None,
                     population_marker=None,
+                    population_claimed_at=None,
                 )
             )
             if not reset:
