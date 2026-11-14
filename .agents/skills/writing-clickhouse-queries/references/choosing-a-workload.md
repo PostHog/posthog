@@ -54,7 +54,9 @@ The host comes from the environment of the pod that runs the code, in [`get_kwar
 - `ONLINE` connects to `CLICKHOUSE_HOST`.
 - `OFFLINE` connects to `CLICKHOUSE_OFFLINE_CLUSTER_HOST` when the deployment sets it, and to `CLICKHOUSE_HOST` when it does not.
 - `LOGS` and `ENDPOINTS` connect to their own hosts.
-- `ONLINE` and `OFFLINE` queries with a `team_id`, for a project that reads the native events table, connect to `CLICKHOUSE_EVENTS_ONLINE_HOST` and `CLICKHOUSE_EVENTS_OFFLINE_HOST` when the deployment sets them.
+- `ONLINE` and `OFFLINE` HogQL queries with a `team_id`, for a project that reads the native events table, connect to `CLICKHOUSE_EVENTS_ONLINE_HOST` and `CLICKHOUSE_EVENTS_OFFLINE_HOST` when the deployment sets them.
+  The events cluster holds only the events tables, so raw `sync_execute` SQL keeps the hosts above.
+  Only code inside `events_cluster_connection()` connects there, and it wraps SQL printed from HogQL.
 
 A background worker deployment can point `CLICKHOUSE_HOST` at the offline replicas and set `CLICKHOUSE_DEFAULT_WORKLOAD=OFFLINE`.
 Then `ONLINE` and `OFFLINE` from those pods both run on the offline replicas.

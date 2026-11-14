@@ -62,6 +62,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import (
     ClickHouseCredentials,
     ClickHouseUser,
+    events_cluster_connection,
     events_cluster_http_url,
     get_clickhouse_creds,
     get_kwargs_for_client,
@@ -840,6 +841,7 @@ def _fetch_query_log_exception(ch_query_id: str, workload: Workload, team_id: in
     return None
 
 
+@events_cluster_connection()
 def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     """Stream the frame's ClickHouse result into the object store; return the object key.
 

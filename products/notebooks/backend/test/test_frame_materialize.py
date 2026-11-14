@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 
+from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 from temporalio import activity, exceptions
 from temporalio.client import WorkflowFailureError
@@ -26,6 +27,7 @@ from posthog.clickhouse.client.execute import _KILL_SWITCH_SETTINGS, KillSwitchL
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.models.instance_setting import override_instance_config
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, ClickHouseTooManyRowsOrBytesError
@@ -308,6 +310,22 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         data = object_storage.read_bytes(key)
         assert data is not None
         self.assertEqual(pa.ipc.open_stream(data).read_all().num_rows, 0)
+
+    def test_a_native_events_project_frame_connects_to_the_events_cluster(self):
+        inputs, _ = _registered_inputs(
+            self.team.id, self.notebook.short_id, self.user.id, query="select 1 as n", ch_writes=True
+        )
+
+        with (
+            self.settings(
+                OBJECT_STORAGE_ENABLED=True,
+                CLICKHOUSE_EVENTS_ONLINE_HOST="events-cluster.invalid",
+                CLICKHOUSE_EVENTS_OFFLINE_HOST="events-cluster.invalid",
+            ),
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)),
+        ):
+            with self.assertRaisesRegex(NetworkError, "events-cluster.invalid"):
+                frame_materialize.materialize_frame(inputs)
 
     def test_insert_sql_binds_s3_args_as_parameters(self):
         # The s3() endpoint/bucket/key/credentials are bound as query params, not spliced as
