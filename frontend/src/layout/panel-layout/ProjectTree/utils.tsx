@@ -499,6 +499,18 @@ const TODAY_UNFILED_FOLDERS: ReadonlySet<string> = new Set(['Unfiled/Canvases'])
  * the file system hide behind its flag: other flagged types kept their rows before, and their pages gate
  * themselves, so hiding them here would change the tree for everyone.
  */
+export function isFileTypeFilterEnabled(
+    productType: { value: string; flag?: string },
+    featureFlags: Record<string, unknown>
+): boolean {
+    return (
+        isFileSystemEntryTypeEnabled({ type: productType.value }, featureFlags) &&
+        (!productType.flag || !!featureFlags[productType.flag])
+    )
+}
+
+const LAUNCH_FLAGS: ReadonlySet<string> = new Set([FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.WORKFLOWS_LIST_V2])
+
 export function isFileSystemEntryTypeEnabled(
     entry: Pick<FileSystemEntry, 'type'> & { path?: string },
     featureFlags: Record<string, unknown>
@@ -507,10 +519,13 @@ export function isFileSystemEntryTypeEnabled(
         return !TODAY_UNFILED_FOLDERS.has(entry.path ?? '') || !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     }
     const baseType = entry.type?.split('/')[0] ?? ''
+    if (baseType === 'workflows' && featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]) {
+        return false
+    }
     const flag = Object.hasOwn(fileSystemTypes, baseType)
         ? (fileSystemTypes[baseType as keyof typeof fileSystemTypes] as { flag?: string }).flag
         : undefined
-    return flag !== FEATURE_FLAGS.TODAY_RAIL_NAV || !!featureFlags[flag]
+    return !flag || !LAUNCH_FLAGS.has(flag) || !!featureFlags[flag]
 }
 
 export function splitPath(path: string | null | undefined): string[] {

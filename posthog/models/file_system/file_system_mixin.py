@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 from django.db import transaction
 from django.db.models import CharField, Exists, F, Model, OuterRef, Q, QuerySet
@@ -45,6 +45,8 @@ class FileSystemSyncMixin(Model):
     class Meta:
         abstract = True
 
+    fields_the_file_row_reads: ClassVar[frozenset[str] | None] = None
+
     def __init__(self, *args: Any, _create_in_folder: object = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._create_in_folder = _create_in_folder
@@ -54,9 +56,13 @@ class FileSystemSyncMixin(Model):
         super().__init_subclass__(**kwargs)
 
         @receiver(post_save, sender=cls, weak=False)
-        def _file_system_post_save(sender, instance: "FileSystemSyncMixin", created, **kwargs):
-            if _file_system_sync_enabled.get():
-                instance.sync_file_system()
+        def _file_system_post_save(sender, instance: "FileSystemSyncMixin", created, update_fields=None, **kwargs):
+            if not _file_system_sync_enabled.get():
+                return
+            if update_fields is not None and instance.fields_the_file_row_reads is not None:
+                if not instance.fields_the_file_row_reads & update_fields:
+                    return
+            instance.sync_file_system()
 
         @receiver(post_delete, sender=cls, weak=False)
         def _file_system_post_delete(sender, instance: "FileSystemSyncMixin", **kwargs):

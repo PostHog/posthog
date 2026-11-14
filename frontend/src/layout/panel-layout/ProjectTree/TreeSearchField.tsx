@@ -12,6 +12,7 @@ import { FileSystemType } from '~/types'
 
 import { iconForType } from './defaultTree'
 import { projectTreeLogic } from './projectTreeLogic'
+import { isFileTypeFilterEnabled } from './utils'
 
 const missingProductTypes: { value: string; label: string; icon?: React.ReactNode; flag?: string }[] = [
     { value: 'destination', label: 'Destinations', icon: <IconPlug /> },
@@ -95,9 +96,8 @@ export function TreeSearchField({ root, placeholder, treeRef, isActive }: TreeSe
                                   hint: 'Search by type',
                                   icon: <IconCdCase />,
                               },
-                              productTypesMapped.filter(
-                                  (productType) =>
-                                      !productType.flag || featureFlags[productType.flag as keyof typeof featureFlags]
+                              productTypesMapped.filter((productType) =>
+                                  isFileTypeFilterEnabled(productType, featureFlags)
                               ),
                               'enter a type',
                           ],

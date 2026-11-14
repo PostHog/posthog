@@ -4,6 +4,7 @@ import uuid as uuid_mod
 import hashlib
 import dataclasses
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager, nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -49,6 +50,7 @@ from posthog.api.app_metrics2 import (
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
@@ -68,6 +70,7 @@ from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
+from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
@@ -1572,6 +1575,20 @@ class WorkflowStatsRowSerializer(serializers.Serializer):
     workflow_id = serializers.CharField(help_text="The workflow these counts are for.")
     succeeded = serializers.IntegerField(help_text="Successful invocations in the window.")
     failed = serializers.IntegerField(help_text="Failed invocations in the window.")
+
+
+class HogFlowBulkDeleteRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(), help_text="IDs of the archived workflows to delete permanently."
+    )
+
+
+class HogFlowBulkDeleteResponseSerializer(serializers.Serializer):
+    deleted = serializers.IntegerField(help_text="Number of workflows deleted.")
+    deleted_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="IDs of the deleted workflows. A workflow that is not archived, or that you cannot edit, is skipped.",
+    )
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
@@ -3547,6 +3564,9 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
+    _create_in_folder = serializers.CharField(
+        required=False, allow_blank=True, write_only=True, help_text="Project folder for a newly created workflow."
+    )
     origin_product = serializers.ChoiceField(
         choices=HogFlowOriginProduct.choices,
         required=False,
@@ -3906,6 +3926,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     class Meta:
         fields = [
             "id",
+            "_create_in_folder",
             "name",
             "description",
             "tags",
@@ -3964,6 +3985,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "last_run",
         ]
 
+    def validate__create_in_folder(self, value: str) -> str:
+        return validate_file_system_path(value) if value else value
+
     def validate_origin_product(self, value: str | None) -> str | None:
         if value == HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS:
             raise serializers.ValidationError("A code send key's workflow is made by its first send.")
@@ -3972,6 +3996,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
         is_draft = self.context.get("is_draft")
+        validate_file_system_placement(
+            data.get("_create_in_folder"), data.get("name", instance.name if instance else None)
+        )
 
         # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
         # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret
@@ -5970,6 +5997,13 @@ class HogFlowViewSet(
         except Exception as e:
             logger.warning("Failed to capture workflow usage event", event=event, error=str(e))
 
+    def _folder_flag_answered_before_the_save_locks(
+        self, creator: User | None, validated_data: dict[str, Any]
+    ) -> AbstractContextManager[None]:
+        if creator is None or "_create_in_folder" not in validated_data:
+            return nullcontext()
+        return resolved_workflows_list_v2(self.team, [creator])
+
     def perform_create(self, serializer):
         if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlowState.ACTIVE:
             raise exceptions.ValidationError(
@@ -5977,12 +6011,14 @@ class HogFlowViewSet(
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        result = create_workflow(
-            team_id=self.team_id,
-            user_id=self._actor_id(),
-            validated_data=serializer.validated_data,
-            before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
-        )
+        creator = cast(User, self.request.user) if self.request.user.is_authenticated else None
+        with self._folder_flag_answered_before_the_save_locks(creator, serializer.validated_data):
+            result = create_workflow(
+                team_id=self.team_id,
+                user_id=self._actor_id(),
+                validated_data=serializer.validated_data,
+                before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
+            )
         serializer.instance = self._written_workflow(result)
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
         self._emit_resource_edited(serializer.instance)
@@ -6037,22 +6073,24 @@ class HogFlowViewSet(
             # existing raw-API automation is unaffected.
             route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
 
+        creator = serializer.instance.created_by
         try:
-            result = update_workflow(
-                team_id=self.team_id,
-                user_id=self._actor_id(),
-                hog_flow_id=serializer.instance.id,
-                validated_data=serializer.validated_data,
-                route_to_draft=route_to_draft,
-                base_updated_at=self.request.data.get("base_updated_at"),
-                base_live_updated_at=self.request.data.get("base_live_updated_at"),
-                includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
-                and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
-                validated_status=serializer.instance.status,
-                validated_disabled_from_active=serializer.instance.disabled_from_active,
-                requested_exit_condition=serializer.initial_data.get("exit_condition"),
-                before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
-            )
+            with self._folder_flag_answered_before_the_save_locks(creator, serializer.validated_data):
+                result = update_workflow(
+                    team_id=self.team_id,
+                    user_id=self._actor_id(),
+                    hog_flow_id=serializer.instance.id,
+                    validated_data=serializer.validated_data,
+                    route_to_draft=route_to_draft,
+                    base_updated_at=self.request.data.get("base_updated_at"),
+                    base_live_updated_at=self.request.data.get("base_live_updated_at"),
+                    includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
+                    and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
+                    validated_status=serializer.instance.status,
+                    validated_disabled_from_active=serializer.instance.disabled_from_active,
+                    requested_exit_condition=serializer.initial_data.get("exit_condition"),
+                    before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
+                )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
         serializer.instance = self._written_workflow(result)
@@ -7592,6 +7630,7 @@ class HogFlowViewSet(
         rows.sort(key=lambda row: cast(int, row["failed"]), reverse=True)
         return Response(WorkflowStatsRowSerializer(rows, many=True).data)
 
+    @extend_schema(request=HogFlowBulkDeleteRequestSerializer, responses={200: HogFlowBulkDeleteResponseSerializer})
     @action(methods=["POST"], detail=False)
     def bulk_delete(self, request: Request, **kwargs):
         ids = request.data.get("ids", [])
@@ -7615,8 +7654,11 @@ class HogFlowViewSet(
                 "hog_flow_deleted", _DeletedWorkflow(id=flow_id, name=name), {"via": "bulk_delete"}
             )
 
-        deleted_count = len(deleted)
-        return Response({"deleted": deleted_count})
+        return Response(
+            HogFlowBulkDeleteResponseSerializer(
+                {"deleted": len(deleted), "deleted_ids": [flow_id for flow_id, _ in deleted]}
+            ).data
+        )
 
     # Cap the per-workflow breakdown to bound the response; worst-first sorting means the cut
     # tail is the healthiest workflows, and search reaches past the cap.

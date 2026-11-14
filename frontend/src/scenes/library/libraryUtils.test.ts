@@ -37,13 +37,13 @@ describe('libraryUtils', () => {
 
     test.each([
         ['/feature-flags/920847', 'feature_flag'],
-        ['/workflows/abc/workflow', 'workflows'],
+        ['/workflows/abc/workflow', 'hog_flow'],
         ['/replay/playlists/abc', 'session_recording_playlist'],
         ['/feature-flags', 'feature_flag'],
         ['/dashboard', null],
         ['/data-management/actions', 'action'],
         ['/feature-flags/templates', null],
-        ['/workflows/library/templates/new', null],
+        ['/workflows/library/templates/abc', 'message_template'],
         ['/notebooks/abc', null],
     ])('finds the object type of %s', (path, type) => {
         expect(libraryTypeForPath(path)).toBe(type)

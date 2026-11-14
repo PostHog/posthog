@@ -449,7 +449,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                                 try {
                                     await api.hogFlows.deleteHogFlow(workflow.id)
                                     lemonToast.success(`Workflow "${workflow.name}" deleted`)
-                                    deleteFromTree('hog_flow/', workflow.id)
+                                    deleteFromTree('hog_flow', workflow.id)
                                     actions.loadWorkflows()
                                 } catch (error: any) {
                                     lemonToast.error(
@@ -570,8 +570,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
                         try {
                             const result = await api.hogFlows.bulkDeleteHogFlows(ids)
                             lemonToast.success(`${result.deleted} workflow${result.deleted === 1 ? '' : 's'} deleted`)
-                            for (const id of ids) {
-                                deleteFromTree('hog_flow/', id)
+                            const deletedIds = result.deleted_ids ?? (result.deleted === ids.length ? ids : [])
+                            for (const id of deletedIds) {
+                                deleteFromTree('hog_flow', id)
                             }
                             actions.clearArchivedWorkflowSelection()
                             actions.loadWorkflows()

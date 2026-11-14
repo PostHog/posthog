@@ -1,3 +1,4 @@
+import re
 import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
@@ -5,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, OperationalError, close_old_connections, connection, transaction
 from django.test.utils import CaptureQueriesContext
@@ -13,6 +14,7 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.api.file_system.access_levels import filter_workflow_files_by_access_level
 from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
@@ -24,8 +26,14 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.testing import create_access_control, delete_access_control
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.transactional_email import lock_transactional_workflow_id
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.tests.api.test_hog_flow import _email_function_template, _valid_email_inputs
+from products.workflows.backend.tests.api.test_hog_flow_revisions import _trigger_action
 
 DENIED_FLOW_ID = UUID("abcdef12-3456-4890-abcd-ef1234567890")
 
@@ -41,6 +49,12 @@ DESIGN = {
         ]
     }
 }
+WORKFLOW_PAYLOAD: dict[str, Any] = {
+    "name": "Synthetic welcome",
+    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+    "edges": [],
+}
+RENAME_TRIGGER = {"operations": [{"op": "update_action", "id": "trigger", "patch": {"name": "Renamed"}}]}
 DESIGN_EDIT = {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>New</p>"}}}]}
 
 
@@ -507,13 +521,12 @@ class TestWorkflowFolders(APIBaseTest):
         template_after_delete = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
         self.client.delete(f"{files_url}{entry['id']}/")
         self.client.force_login(creator)
-        with patch("posthog.models.file_system.constants._evaluate_workflows_list_v2") as flag_evaluation:
-            restored = self.client.post(
-                f"{files_url}undo_delete/",
-                {"items": [{"type": "message_template", "ref": template["id"], "path": "Restored/Creator email"}]},
-                format="json",
-            )
-        self.assertEqual(flag_evaluation.call_count, 0)
+        remote_requests = self._local_flag_answer(None)
+        restored = self.client.post(
+            f"{files_url}undo_delete/",
+            {"items": [{"type": "message_template", "ref": template["id"], "path": "Restored/Creator email"}]},
+            format="json",
+        )
         self.client.force_login(self.user)
         template_after_restore = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
 
@@ -523,8 +536,9 @@ class TestWorkflowFolders(APIBaseTest):
                 template_after_delete.status_code,
                 restored.status_code,
                 template_after_restore.status_code,
+                "workflows-list-v2" in remote_requests,
             ],
-            [403, 200, 400, 404],
+            [403, 200, 400, 404, False],
             [deleted.content, restored.content],
         )
 
@@ -572,6 +586,108 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(
             sorted(row["path"] for row in rows if not row["shortcut"]), sorted([entry["path"], "Copies/Shared email"])
         )
+
+    def test_private_workflow_files_follow_member_grants(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        workflow = HogFlow.objects.create(team=self.team, name="Private renewal", created_by=self.user)
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        entry = FileSystem.objects.get(team=self.team, type="hog_flow", ref=str(workflow.id))
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", resource_id=str(workflow.id), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, "granted@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(workflow.id),
+            access_level="editor",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        rows = self.client.get(files_url, {"type": "hog_flow"}).json()["results"]
+        self.assertEqual([row["id"] for row in rows], [str(entry.id)])
+        moved = self.client.post(
+            f"{files_url}{entry.id}/move/", {"new_path": "Campaigns/Private renewal"}, format="json"
+        )
+        self.assertEqual(moved.status_code, 200, moved.content)
+
+        filed_later = HogFlow.objects.create(team=self.team, name="Private launch", created_by=self.user)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", resource_id=str(filed_later.id), access_level="none"
+        )
+        FileSystem.objects.filter(team=self.team, type="hog_flow", ref=str(filed_later.id)).delete()
+        visible = filter_workflow_files_by_access_level(
+            FileSystem.objects.filter(team=self.team),
+            UserAccessControl(user=member, team=self.team),
+            self.team.project_id,
+        )
+        FileSystem.objects.create(
+            team=self.team, path="Private launch", depth=1, type="hog_flow", ref=str(filed_later.id)
+        )
+        self.assertEqual(list(visible.filter(type="hog_flow").values_list("ref", flat=True)), [str(workflow.id)])
+
+        revoked = User.objects.create_and_join(self.organization, "revoked@example.com", "invented-password")
+        stale = FileSystemShortcut.objects.create(
+            team=self.team, user=revoked, path="Private renewal", type="hog_flow", ref=str(workflow.id)
+        )
+        self.client.force_login(revoked)
+        removed = self.client.delete(f"/api/projects/{self.team.id}/file_system_shortcut/{stale.id}/")
+        self.assertEqual(removed.status_code, 204, removed.content)
+
+        placed = self.client.post(
+            files_url, {"path": "Private renewal copy", "type": "hog_flow", "ref": workflow.id.hex}, format="json"
+        )
+        self.assertEqual(placed.status_code, 403, placed.content)
+        alias = FileSystem.objects.create(
+            team=self.team, path="Private renewal copy", depth=1, type="hog_flow", ref=workflow.id.hex, shortcut=False
+        )
+        alias_deleted = self.client.delete(f"{files_url}{alias.id}/")
+        self.assertEqual(alias_deleted.status_code, 404, alias_deleted.content)
+        self.assertTrue(HogFlow.objects.filter(pk=workflow.id).exists())
+
+    @parameterized.expand(
+        [
+            ("api_alias_deleted", "api", "alias"),
+            ("legacy_alias_deleted", "upper_hex", "alias"),
+            ("canonical_deleted_beside_upper_hex_alias", "upper_hex", "canonical"),
+            ("canonical_deleted_beside_braced_alias", "braced", "canonical"),
+            ("canonical_deleted_beside_urn_alias", "urn", "canonical"),
+        ]
+    )
+    def test_deleting_one_spelling_of_a_workflow_ref_keeps_the_workflow_and_the_other_file(
+        self, _name: str, spelling: str, deleted_row: str
+    ) -> None:
+        workflow = HogFlow.objects.create(team=self.team, name="Renewal", created_by=self.user)
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        canonical_id = FileSystem.objects.get(team=self.team, type="hog_flow", ref=str(workflow.id)).id
+        if spelling == "api":
+            created = self.client.post(
+                files_url, {"path": "Renewal copy", "type": "hog_flow", "ref": workflow.id.hex}, format="json"
+            )
+            self.assertEqual(created.status_code, 201, created.content)
+            self.assertEqual(created.json()["ref"], str(workflow.id))
+            alias_id = created.json()["id"]
+        else:
+            stored_ref = {
+                "upper_hex": workflow.id.hex.upper(),
+                "braced": f"{{{workflow.id}}}",
+                "urn": f"urn:uuid:{workflow.id}",
+            }[spelling]
+            alias_id = FileSystem.objects.create(
+                team=self.team, path="Renewal copy", depth=1, type="hog_flow", ref=stored_ref, shortcut=False
+            ).id
+        deleted_id, kept_id = (alias_id, canonical_id) if deleted_row == "alias" else (canonical_id, alias_id)
+
+        deleted = self.client.delete(f"{files_url}{deleted_id}/")
+
+        self.assertEqual(deleted.status_code, 204, deleted.content)
+        self.assertTrue(HogFlow.objects.filter(pk=workflow.id).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=kept_id).exists())
 
     @parameterized.expand(
         [
@@ -1020,16 +1136,30 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("workflow_too_deep", "hog_flows", "/".join(["Level"] * 51)),
+            ("workflow_too_long", "hog_flows", "a" * 4001),
             ("template_too_deep", "messaging_templates", "/".join(["Level"] * 51)),
             ("template_too_long", "messaging_templates", "a" * 4001),
+            ("workflow_name_past_the_depth", "hog_flows", "/".join(["Level"] * 50)),
+            ("workflow_name_past_the_length", "hog_flows", "a" * 4000),
             ("template_name_past_the_depth", "messaging_templates", "/".join(["Level"] * 50)),
             ("template_name_past_the_length", "messaging_templates", "a" * 4000),
+            ("unnamed_workflow_past_the_depth", "hog_flows", "/".join(["Level"] * 50), None),
+            ("unnamed_workflow_past_the_length", "hog_flows", "a" * 3999, ""),
         ]
     )
     def test_create_in_folder_rejects_paths_past_the_tree_limits(
         self, _name: str, resource: str, folder: str, name: str | None = "Bounded"
     ) -> None:
-        payload = {"name": name, "type": "email"}
+        payloads: dict[str, dict[str, Any]] = {
+            "hog_flows": {
+                "name": name,
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            "messaging_templates": {"name": name, "type": "email"},
+        }
+        payload = payloads[resource]
 
         created = self.client.post(
             f"/api/projects/{self.team.id}/{resource}/", {**payload, "_create_in_folder": folder}, format="json"
@@ -1039,11 +1169,27 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(created.json()["attr"], "_create_in_folder")
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
 
-    def test_filing_a_template_without_renaming_it_checks_the_path_with_its_stored_name(self) -> None:
-        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
-        template = self.client.post(templates_url, {"name": "n" * 400, "type": "email"}, format="json").json()
+    @parameterized.expand(
+        [
+            ("template", "messaging_templates", {"type": "email"}),
+            (
+                "workflow",
+                "hog_flows",
+                {
+                    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                    "edges": [],
+                },
+            ),
+        ]
+    )
+    def test_filing_without_renaming_checks_the_path_with_the_stored_name(
+        self, _name: str, resource: str, payload: dict[str, Any]
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/{resource}/"
+        created = self.client.post(url, {"name": "n" * 400, **payload}, format="json")
+        self.assertEqual(created.status_code, 201, created.content)
 
-        filed = self.client.patch(f"{templates_url}{template['id']}/", {"_create_in_folder": "a" * 3990}, format="json")
+        filed = self.client.patch(f"{url}{created.json()['id']}/", {"_create_in_folder": "a" * 3990}, format="json")
 
         self.assertEqual(filed.status_code, 400, filed.content)
         self.assertEqual(filed.json()["attr"], "_create_in_folder")
@@ -1208,6 +1354,94 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.content)
         self.assertEqual(file_tree(), tree)
 
+    @parameterized.expand(
+        [
+            ("create", "draft", "post", "", WORKFLOW_PAYLOAD, 403),
+            ("rename", "draft", "patch", "{id}/", {"name": "Synthetic renamed"}, 403),
+            ("graph", "draft", "patch", "{id}/graph", RENAME_TRIGGER, 403),
+            ("publish", "staged", "post", "{id}/publish", {"confirm": True, "confirm_token": "{token}"}, 403),
+            ("discard_draft", "draft", "post", "{id}/discard_draft", {}, 403),
+            ("restore_revision", "draft", "post", "{id}/revisions/1/restore", {}, 403),
+            (
+                "apply_utm_defaults",
+                "email",
+                "post",
+                "apply_utm_defaults",
+                {"dry_run": False, "enable_where_off": True},
+                403,
+            ),
+            ("delete", "archived", "delete", "{id}/", None, 403),
+            ("bulk_delete", "archived", "post", "bulk_delete", {"ids": ["{id}"]}, 200),
+        ]
+    )
+    def test_a_workflow_save_by_a_workflow_viewer_writes_no_file_row(
+        self,
+        _name: str,
+        setup: str,
+        method: str,
+        suffix: str,
+        payload: dict[str, Any] | None,
+        expected_status: int,
+    ) -> None:
+        workflows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        token = ""
+        if setup == "staged":
+            sync_template_to_db(MOCK_NODE_TEMPLATES[0])
+            webhook: dict[str, Any] = {"id": "webhook", "name": "Webhook", "type": "function"}
+            webhook["config"] = {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+            live = {"name": "Synthetic welcome", "actions": [_trigger_action(), webhook]}
+            created = self.client.post(workflows_url, live, format="json")
+            self.assertEqual(created.status_code, 201, created.content)
+            workflow_id = created.json()["id"]
+            activated = self.client.patch(f"{workflows_url}{workflow_id}/", {"status": "active"}, format="json")
+            self.assertEqual(activated.status_code, 200, activated.content)
+            url_edit = {"config": {"inputs": {"url": {"value": "https://changed.example.com"}}}}
+            stage = {"operations": [{"op": "update_action", "id": "webhook", "patch": url_edit}]}
+            staged = self.client.patch(
+                f"{workflows_url}{workflow_id}/graph", stage, format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+            self.assertEqual(staged.status_code, 200, staged.content)
+            in_flight = {"count": 0, "by_action": {}, "position_unknown": 0}
+            with patch(
+                "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+                return_value=MagicMock(status_code=200, json=lambda: in_flight),
+            ):
+                preview = self.client.post(f"{workflows_url}{workflow_id}/publish", {}, format="json")
+            self.assertEqual(preview.status_code, 200, preview.content)
+            token = preview.json()["confirm_token"]
+        else:
+            created = self.client.post(workflows_url, WORKFLOW_PAYLOAD, format="json")
+            self.assertEqual(created.status_code, 201, created.content)
+            workflow_id = created.json()["id"]
+        if setup == "email":
+            sync_template_to_db(_email_function_template())
+            TeamWorkflowsConfig.objects.update_or_create(
+                team=self.team,
+                defaults={"email_utm_tags_enabled": True, "email_utm_params": {"utm_source": "newsletter"}},
+            )
+            email: dict[str, Any] = {"id": "email_1", "name": "Send email", "type": "function_email"}
+            email["config"] = {"template_id": "template-email", "inputs": _valid_email_inputs()}
+            HogFlow.objects.filter(id=workflow_id).update(actions=[*WORKFLOW_PAYLOAD["actions"], email])
+        if setup == "archived":
+            HogFlow.objects.filter(id=workflow_id).update(status=HogFlow.State.ARCHIVED)
+        FileSystem.objects.filter(team=self.team, type="hog_flow", ref=workflow_id).update(
+            path="Campaigns/Approved workflow", depth=2
+        )
+
+        def file_tree() -> set[tuple[str, str, str | None]]:
+            files = FileSystem.objects.filter(team=self.team, type__in=["hog_flow", "folder"])
+            return set(files.values_list("type", "path", "ref"))
+
+        self._log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant()
+        before = file_tree()
+        filled = json.dumps(payload).replace("{id}", workflow_id).replace("{token}", token)
+        body = json.loads(filled) if payload is not None else None
+        url = workflows_url + suffix.format(id=workflow_id)
+        response = getattr(self.client, method)(url, body, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(file_tree(), before)
+
     def _log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -1342,8 +1576,146 @@ class TestWorkflowFolders(APIBaseTest):
 
         self.assertEqual(surface_reads_deleting("Mixed", True), surface_reads_deleting("Single", False))
 
+    def test_list_v2_off_writes_no_rows_and_hides_the_ones_filed_earlier(self) -> None:
+        trigger = [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}]
+        hog_flows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        filed = HogFlow.objects.create(team=self.team, name="Synthetic welcome", created_by=self.user)
+        self.client.post(templates_url, {"name": "Synthetic email", "type": "email"}, format="json")
+        workflow_files = FileSystem.objects.filter(team=self.team, type__in=["hog_flow", "message_template"])
+        self.assertEqual(workflow_files.count(), 2)
+        FileSystem.objects.create(team=self.team, path="Unfiled/Workflows", depth=2, type="folder")
+        FileSystem.objects.create(team=self.team, path="Unfiled/Email templates", depth=2, type="folder")
+        notebook = FileSystem.objects.create(
+            team=self.team, path="Unfiled/Synthetic notebook", depth=2, type="notebook", ref="invented"
+        )
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            unfiled_workflow = self.client.post(
+                hog_flows_url,
+                {"name": "Synthetic dark", "_create_in_folder": "Campaigns", "actions": trigger, "edges": []},
+                format="json",
+            )
+            unfiled_template = self.client.post(
+                templates_url, {"name": "Synthetic dark email", "type": "email"}, format="json"
+            )
+            filed.name = "Synthetic renamed"
+            filed.save()
+            for params in ({}, {"search": "Synthetic"}, {"parent": "Unfiled", "depth": "2"}):
+                response = self.client.get(files_url, params)
+                self.assertEqual(response.status_code, 200)
+                rows = response.json()["results"]
+                self.assertFalse(any(row["type"] in ("hog_flow", "message_template") for row in rows))
+                self.assertFalse(any(row["path"] in ("Unfiled/Workflows", "Unfiled/Email templates") for row in rows))
+                self.assertTrue(any(row["id"] == str(notebook.id) for row in rows))
+            ranked = self.client.get(f"{files_url}search/", {"search": "Synthetic"}).json()["results"]
+            self.assertEqual([result["entry"]["id"] for result in ranked], [str(notebook.id)])
+            self.assertEqual(self.client.get(f"{files_url}unfiled/").status_code, 200)
+
+        self.assertEqual(unfiled_workflow.status_code, 201, unfiled_workflow.content)
+        self.assertEqual(unfiled_template.status_code, 201, unfiled_template.content)
+        self.assertEqual(
+            sorted(workflow_files.values_list("path", flat=True)),
+            ["Unfiled/Email templates/Synthetic email", "Unfiled/Workflows/Synthetic renamed"],
+        )
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path="Campaigns").exists())
+
+    def test_other_workflow_product_surfaces_are_not_filed_as_workflows(self) -> None:
+        for origin_product in ("broadcasts", "loops"):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/",
+                {
+                    "name": "Other surface",
+                    "origin_product": origin_product,
+                    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                    "edges": [],
+                },
+                format="json",
+            )
+            self.assertEqual(created.status_code, 201, created.content)
+            files_url = f"/api/projects/{self.team.id}/file_system/"
+            self.client.get(f"{files_url}unfiled/", {"type": "hog_flow"})
+            self.assertEqual(
+                self.client.get(files_url, {"type": "hog_flow", "ref": created.json()["id"]}).json()["results"], []
+            )
+
+    def test_disabled_files_survive_recursive_folder_deletion(self) -> None:
+        workflow = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {
+                "name": "Hidden workflow",
+                "_create_in_folder": "Campaigns",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        ).json()
+        template = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Hidden email", "type": "email", "_create_in_folder": "Campaigns"},
+            format="json",
+        ).json()
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        FileSystem.objects.create(team=self.team, path="Campaigns", depth=1, type="folder")
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            folder = self.client.get(files_url, {"path": "Campaigns"}).json()["results"][0]
+            preview = self.client.post(f"{files_url}{folder['id']}/count/").json()
+            self.assertEqual(preview["count"], 0)
+            refused = self.client.delete(f"{files_url}{folder['id']}/?recursive=false")
+            self.assertEqual(refused.status_code, 409, refused.content)
+            deleted = self.client.delete(f"{files_url}{folder['id']}/?recursive=true")
+            self.assertEqual(deleted.status_code, 204, deleted.content)
+            self.assertEqual(
+                self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/").status_code, 200
+            )
+            self.assertEqual(
+                self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/").status_code, 200
+            )
+        paths = {row["path"] for row in self.client.get(files_url).json()["results"]}
+        self.assertTrue({"Campaigns", "Campaigns/Hidden workflow", "Campaigns/Hidden email"} <= paths)
+
+    def _workflow_file_in_folder(self, status: str) -> tuple[str, dict[str, Any]]:
+        folder = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/", {"path": "Campaigns", "type": "folder"}, format="json"
+        )
+        self.assertEqual(folder.status_code, 201, folder.content)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {
+                "name": "Welcome",
+                "_create_in_folder": "Campaigns",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        workflow_id = created.json()["id"]
+        HogFlow.objects.filter(id=workflow_id).update(status=status)
+        files = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": workflow_id}
+        ).json()["results"]
+        return workflow_id, files[0]
+
+    @parameterized.expand([("active", "file"), ("draft", "folder")])
+    def test_project_tree_refuses_to_delete_a_workflow_that_is_not_archived(self, status: str, target: str) -> None:
+        workflow_id, file = self._workflow_file_in_folder(status)
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        folder = self.client.get(files_url, {"path": "Campaigns"}).json()["results"][0]
+
+        target_id = file["id"] if target == "file" else folder["id"]
+        refused = self.client.delete(f"{files_url}{target_id}/?recursive=true")
+
+        self.assertEqual(refused.status_code, 409, refused.content)
+        self.assertEqual(refused.json()["detail"], "Archive this workflow before you delete it.")
+        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/").status_code, 200)
+        self.assertEqual(self.client.get(f"{files_url}{file['id']}/").json()["path"], "Campaigns/Welcome")
+
     @parameterized.expand(
         [
+            ("workflow_file_system_scopes_only", "hog_flows", ["file_system:read", "file_system:write"], 403, 200),
+            ("workflow_with_write_scope", "hog_flows", ["file_system:write", "hog_flow:write"], 200, 404),
             (
                 "template_file_system_scopes_only",
                 "messaging_templates",
@@ -1357,14 +1729,17 @@ class TestWorkflowFolders(APIBaseTest):
     def test_tree_delete_of_a_workflow_object_needs_the_workflow_write_scope(
         self, _name: str, endpoint: str, scopes: list[str], delete_status: int, object_status: int
     ) -> None:
-        object_id = self.client.post(
-            f"/api/projects/{self.team.id}/messaging_templates/",
-            {"name": "Scoped email", "type": "email"},
-            format="json",
-        ).json()["id"]
-        file = self.client.get(
-            f"/api/projects/{self.team.id}/file_system/", {"type": "message_template", "ref": object_id}
-        ).json()["results"][0]
+        if endpoint == "hog_flows":
+            object_id, file = self._workflow_file_in_folder("archived")
+        else:
+            object_id = self.client.post(
+                f"/api/projects/{self.team.id}/messaging_templates/",
+                {"name": "Scoped email", "type": "email"},
+                format="json",
+            ).json()["id"]
+            file = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/", {"type": "message_template", "ref": object_id}
+            ).json()["results"][0]
         key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
@@ -1579,6 +1954,14 @@ class TestWorkflowFolders(APIBaseTest):
         template = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template_id}/")
         self.assertEqual(template.status_code, template_status, template.content)
 
+    def test_deleting_workflow_through_the_project_tree_records_activity(self) -> None:
+        workflow_id, file = self._workflow_file_in_folder("archived")
+        with self.captureOnCommitCallbacks(execute=True):
+            deleted = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file['id']}/")
+        self.assertEqual(deleted.status_code, 200, deleted.content)
+        activity = self.client.get(f"/api/projects/{self.team.id}/activity_log", {"scope": "HogFlow"}).json()["results"]
+        self.assertTrue(any(entry["item_id"] == workflow_id and entry["activity"] == "deleted" for entry in activity))
+
     @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
     def test_email_template_can_be_created_and_moved_in_the_project_tree(self, _name: str, local: bool | None) -> None:
         self._local_flag_answer(local)
@@ -1599,6 +1982,94 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(moved.status_code, 200, moved.content)
         reloaded = self.client.get(f"{files_url}{entry['id']}/")
         self.assertEqual(reloaded.json()["path"], "Campaigns/Retention/Welcome email")
+
+    @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
+    def test_new_workflow_is_created_in_the_requested_project_folder(self, _name: str, local: bool | None) -> None:
+        self._local_flag_answer(local)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {
+                "name": "Renewal",
+                "_create_in_folder": "Campaigns/Retention",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        self._local_flag_answer(True)
+        files = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": created.json()["id"]}
+        ).json()["results"]
+        self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
+
+    @parameterized.expand(
+        [
+            ("flag_on", True, False),
+            ("local_evaluation_inconclusive", None, False),
+            ("active_workflow_staging_a_draft", None, True),
+        ]
+    )
+    def test_filing_an_unfiled_workflow_on_update_puts_it_in_the_requested_folder(
+        self, _name: str, local: bool | None, stages_a_draft: bool
+    ) -> None:
+        workflows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        trigger = {"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}
+        workflow_id = self.client.post(
+            workflows_url, {"name": "Renewal", "actions": [trigger], "edges": []}, format="json"
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="hog_flow", ref=workflow_id).delete()
+        if stages_a_draft:
+            HogFlow.objects.filter(id=workflow_id).update(status=HogFlow.State.ACTIVE)
+        self._local_flag_answer(local)
+
+        filed = self.client.patch(
+            f"{workflows_url}{workflow_id}/",
+            {"_create_in_folder": "Campaigns/Retention", **({"variables": []} if stages_a_draft else {})},
+            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp" if stages_a_draft else "web",
+        )
+
+        self.assertEqual(filed.status_code, 200, filed.content)
+        self._local_flag_answer(True)
+        files = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": workflow_id}
+        ).json()["results"]
+        self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
+        self.assertEqual(HogFlow.objects.get(id=workflow_id).draft is not None, stages_a_draft)
+
+    @parameterized.expand(
+        [
+            ("staged_draft_on_a_filed_workflow", None, {"variables": []}, True, []),
+            ("renamed_broadcast_without_a_file", "broadcasts", {"name": "Renamed"}, False, ["SELECT"]),
+        ]
+    )
+    def test_a_workflow_save_that_leaves_its_file_alone_writes_no_file_row(
+        self, _name: str, origin_product: str | None, body: dict, active: bool, file_statements: list[str]
+    ) -> None:
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Synthetic flow",
+            created_by=self.user,
+            origin_product=origin_product,
+            status=HogFlow.State.ACTIVE if active else HogFlow.State.DRAFT,
+            actions=[{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+        )
+        files_before = list(FileSystem.objects.filter(team=self.team).values_list("path", "type", "ref"))
+
+        with CaptureQueriesContext(connection) as queries:
+            saved = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/", body, format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+
+        self.assertEqual(saved.status_code, 200, saved.content)
+        self.assertEqual(
+            [query["sql"].split()[0] for query in queries.captured_queries if '"posthog_filesystem"' in query["sql"]],
+            file_statements,
+        )
+        self.assertEqual(
+            list(FileSystem.objects.filter(team=self.team).values_list("path", "type", "ref")), files_before
+        )
 
     @parameterized.expand(
         [
@@ -1627,6 +2098,104 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertFalse({str(filed.id), str(unfiled.id)} & {row.get("ref") for row in rows})
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="hog_flow", ref=str(unfiled.id)).exists())
         self.assertNotIn("workflows-list-v2", remote_requests)
+
+    def test_workflow_move_survives_reload_and_rename(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {
+                "name": "Welcome",
+                "actions": [
+                    {"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}},
+                    {"id": "exit", "name": "Exit", "type": "exit", "config": {}},
+                ],
+                "edges": [{"from": "trigger", "to": "exit", "type": "continue"}],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        workflow_id = created.json()["id"]
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        files = self.client.get(files_url, {"type": "hog_flow"}).json()["results"]
+        entry = next(item for item in files if item["ref"] == workflow_id)
+        moved = self.client.post(f"{files_url}{entry['id']}/move/", {"new_path": "Campaigns/Welcome"}, format="json")
+        self.assertEqual(moved.status_code, 200, moved.content)
+        renamed = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/", {"name": "Welcome back"}, format="json"
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.content)
+        reloaded = self.client.get(f"{files_url}{entry['id']}/")
+        self.assertEqual(reloaded.json()["path"], "Campaigns/Welcome back")
+        self.assertEqual(reloaded.json()["ref"], workflow_id)
+
+    def test_flag_off_file_reads_never_scan_file_rows_once_per_outer_row(self) -> None:
+        trigger = [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}]
+        workflow = HogFlow.objects.create(team=self.team, name="Synthetic filed", created_by=self.user, actions=trigger)
+        broadcast = HogFlow.objects.create(
+            team=self.team,
+            name="Synthetic broadcast",
+            created_by=self.user,
+            origin_product="broadcasts",
+            actions=trigger,
+        )
+        for path, depth in (("Unfiled", 1), ("Unfiled/Insights", 2), ("Unfiled/Workflows", 2)):
+            FileSystem.objects.get_or_create(team=self.team, path=path, depth=depth, type="folder")
+        for i in range(3):
+            FileSystem.objects.create(
+                team=self.team, path=f"Unfiled/Insights/Synthetic {i}", depth=3, type="insight", ref=f"invented{i}"
+            )
+        folder = FileSystem.objects.get(team=self.team, path="Unfiled", type="folder")
+        file_reads: list[tuple[str, str, Any]] = []
+        label = ""
+
+        def keep_file_reads(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
+            if '"posthog_filesystem"' in sql and sql.lstrip().upper().startswith("SELECT"):
+                file_reads.append((label, sql, params))
+            return execute(sql, params, many, context)
+
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        reads: list[tuple[str, str, str, dict[str, Any]]] = [
+            ("root", "get", files_url, {"depth": 1}),
+            ("folder", "get", files_url, {"parent": "Unfiled", "depth": 2}),
+            ("typed", "get", files_url, {"type": "insight"}),
+            ("list_search", "get", files_url, {"search": "Unfiled"}),
+            ("recents", "get", files_url, {"order_by": "-last_viewed_at"}),
+            ("search", "get", f"{files_url}search/", {"search": "Synthetic"}),
+            ("unfiled", "get", f"{files_url}unfiled/", {}),
+            ("count", "post", f"{files_url}{folder.id}/count/", {}),
+            ("workflow_save", "patch", f"/api/projects/{self.team.id}/hog_flows/{workflow.id}/", {"name": "Renamed"}),
+            ("broadcast_save", "patch", f"/api/projects/{self.team.id}/hog_flows/{broadcast.id}/", {"name": "Renamed"}),
+        ]
+        with patch("posthoganalytics.feature_enabled", return_value=False), connection.execute_wrapper(keep_file_reads):
+            for label, method, url, body in reads:
+                response = (
+                    getattr(self.client, method)(url, body, format="json")
+                    if method != "get"
+                    else self.client.get(url, body)
+                )
+                self.assertEqual(response.status_code, 200, (label, response.content))
+
+        def per_row_prefix_scans(node: dict[str, Any], in_subplan: bool = False) -> list[str]:
+            in_subplan = in_subplan or (
+                node.get("Parent Relationship") == "SubPlan" and not node.get("Subplan Name", "").startswith("hashed")
+            )
+            found = []
+            if in_subplan and node.get("Relation Name") == "posthog_filesystem":
+                conditions = " ".join(node.get(key, "") for key in ("Filter", "Index Cond", "Recheck Cond"))
+                if re.search(r"~~\*?\s+(?!')", conditions):
+                    found.append(conditions)
+            for child in node.get("Plans", []):
+                found.extend(per_row_prefix_scans(child, in_subplan))
+            return found
+
+        offenders: list[tuple[str, str]] = []
+        with connection.cursor() as cursor:
+            for read_label, sql, params in file_reads:
+                cursor.execute(f"EXPLAIN (FORMAT JSON) {sql}", params)
+                plan = cursor.fetchone()[0]
+                plan = json.loads(plan) if isinstance(plan, str) else plan
+                offenders.extend((read_label, scan) for scan in per_row_prefix_scans(plan[0]["Plan"]))
+        self.assertLessEqual({"root", "folder", "unfiled", "workflow_save"}, {read[0] for read in file_reads})
+        self.assertEqual(offenders, [])
 
     @parameterized.expand(
         [
@@ -1881,6 +2450,72 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
 
         self.assertEqual(created.status_code, 201, created.content)
         self.assertEqual(self.client.get(f"{templates_url}{created.json()['id']}/").status_code, 200)
+
+    def test_a_failed_file_cleanup_still_deletes_the_workflow(self) -> None:
+        workflows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        created = self.client.post(
+            workflows_url,
+            {
+                "name": "Welcome",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        workflow_url = f"{workflows_url}{created.json()['id']}/"
+        self._refuse_file_rows("DELETE")
+
+        deleted = self.client.delete(workflow_url)
+
+        self.assertEqual(deleted.status_code, 204, deleted.content)
+        self.assertEqual(self.client.get(workflow_url).status_code, 404)
+
+    def test_tree_delete_refuses_while_a_save_holds_the_workflow(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {
+                "name": "Welcome",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        object_url = f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/"
+        HogFlow.objects.filter(id=created.json()["id"]).update(status=HogFlow.State.ARCHIVED)
+        object_id = created.json()["id"]
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        file_id = self.client.get(files_url, {"type": "hog_flow", "ref": object_id}).json()["results"][0]["id"]
+        locked = Event()
+        release = Event()
+
+        def hold_the_row_like_a_save() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute("SELECT 1 FROM posthog_hogflow WHERE id = %s FOR UPDATE", [object_id])
+                    locked.set()
+                    release.wait(timeout=10)
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            holder = executor.submit(hold_the_row_like_a_save)
+            self.assertTrue(locked.wait(timeout=5))
+            try:
+                refused = self.client.delete(f"{files_url}{file_id}/")
+            finally:
+                release.set()
+            holder.result(timeout=15)
+
+        self.assertEqual(refused.status_code, 409, refused.content)
+        self.assertEqual(refused.json()["detail"], "This workflow is being saved. Try again in a moment.")
+        self.assertEqual(self.client.get(f"{files_url}{file_id}/").status_code, 200)
+
+        deleted = self.client.delete(f"{files_url}{file_id}/")
+        self.assertEqual(deleted.status_code, 200, deleted.content)
+        self.assertEqual(self.client.get(object_url).status_code, 404)
 
     @parameterized.expand([("delete",), ("file",), ("rename",), ("move",), ("restore",)])
     def test_a_template_tree_write_refuses_while_a_save_holds_the_template(self, write: str) -> None:

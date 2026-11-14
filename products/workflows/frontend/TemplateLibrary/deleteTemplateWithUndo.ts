@@ -1,0 +1,30 @@
+import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+
+import { messagingTemplatesPlacementRetrieve } from 'products/messaging/frontend/generated/api'
+
+import type { MessageTemplate } from './types'
+
+export async function deleteTemplateWithUndo({
+    teamId,
+    template,
+    callback,
+}: {
+    teamId: number | string
+    template: Pick<MessageTemplate, 'id' | 'name'>
+    callback: (undo: boolean) => void
+}): Promise<void> {
+    const filePathTheUndoRestores = await storedFilePathOf(teamId, template.id)
+    await deleteWithUndo({
+        endpoint: `environments/${teamId}/messaging_templates`,
+        object: { id: template.id, name: template.name },
+        restore: () =>
+            api.fileSystem.undoDelete([{ type: 'message_template', ref: template.id, path: filePathTheUndoRestores }]),
+        callback,
+    })
+}
+
+async function storedFilePathOf(teamId: number | string, templateId: string): Promise<string | undefined> {
+    const { path } = await messagingTemplatesPlacementRetrieve(String(teamId), templateId)
+    return path ?? undefined
+}

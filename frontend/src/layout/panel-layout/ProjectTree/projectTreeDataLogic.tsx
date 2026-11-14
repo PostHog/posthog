@@ -610,8 +610,10 @@ export interface projectTreeDataLogicActions {
     }
     syncTypeAndRef: (
         type: string,
-        ref: string
+        ref: string,
+        afterWrite?: boolean
     ) => {
+        afterWrite: boolean
         ref: string
         type: string
     }
@@ -675,6 +677,33 @@ export type projectTreeDataLogicType = MakeLogicType<
     Record<string, any>,
     projectTreeDataLogicMeta
 >
+
+function withoutRowsThatLeftTheirPath(results: FileSystemEntry[], rowsThatLeft: FileSystemEntry[]): FileSystemEntry[] {
+    return results.filter(
+        (entry) =>
+            !rowsThatLeft.some((row) =>
+                row.type === 'folder' ? isPathUnder(entry.path, row.path) : entry.id === row.id
+            )
+    )
+}
+
+function keepInFlightRefreshesFromRestoring(
+    cache: Record<string, any>,
+    rowAtItsOldPath: FileSystemEntry,
+    { refreshAgain }: { refreshAgain: boolean }
+): void {
+    if (!cache.itemRequests?.size) {
+        return
+    }
+    cache.rowsThatLeftTheirPath ??= []
+    cache.rowsThatLeftTheirPath.push(rowAtItsOldPath)
+    if (refreshAgain) {
+        cache.outdatedItemRequests ??= new Set<string>()
+        for (const requestKey of cache.itemRequests.keys()) {
+            cache.outdatedItemRequests.add(requestKey)
+        }
+    }
+}
 
 export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     path(['layout', 'panel-layout', 'ProjectTree', 'projectTreeDataLogic']),
@@ -764,7 +793,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         queueAction: (action: ProjectTreeAction, projectTreeLogicKey: string) => ({ action, projectTreeLogicKey }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
 
-        syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
+        syncTypeAndRef: (type: string, ref: string, afterWrite: boolean = false) => ({ type, ref, afterWrite }),
         deleteTypeAndRef: (type: string, ref: string) => ({ type, ref }),
 
         setLastNewFolder: (folder: string | null) => ({ folder }),
@@ -1780,6 +1809,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         movedItem: ({ item }) => {
+            keepInFlightRefreshesFromRestoring(cache, item, { refreshAgain: true })
             if (item.type === 'folder') {
                 // Matching paths can belong to folders in other environments that did not move.
                 actions.loadShortcuts()
@@ -1899,26 +1929,56 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 actions.loadFolderFailure(folder, String(error))
             }
         },
-        syncTypeAndRef: async ({ type, ref }) => {
+        syncTypeAndRef: async ({ type, ref, afterWrite }) => {
             const requestKey = JSON.stringify([type, ref])
             cache.itemRequests ??= new Map<string, Promise<void>>()
             if (cache.itemRequests.has(requestKey)) {
+                if (afterWrite) {
+                    cache.outdatedItemRequests ??= new Set<string>()
+                    cache.outdatedItemRequests.add(requestKey)
+                }
                 await cache.itemRequests.get(requestKey)
                 return
             }
-            const request = (async () => {
+            let request: Promise<void> | null = null
+            cache.rowsThatLeftTheirPath ??= []
+            const rowsThatLeftBefore: number = cache.rowsThatLeftTheirPath.length
+            request = (async () => {
                 const items = await api.fileSystem.list({ ...refTypeParams(type), ref })
+                if (cache.itemRequests.get(requestKey) !== request) {
+                    return
+                }
                 if (items.users?.length > 0) {
                     actions.addLoadedUsers(items.users)
                 }
-                actions.addLoadedResults(items as any as SearchResults)
+                const results = withoutRowsThatLeftTheirPath(
+                    items.results,
+                    cache.rowsThatLeftTheirPath.slice(rowsThatLeftBefore)
+                )
+                actions.addLoadedResults({ ...items, results } as any as SearchResults)
             })()
             cache.itemRequests.set(requestKey, request)
             try {
                 await request
             } finally {
-                cache.itemRequests.delete(requestKey)
+                if (cache.itemRequests.get(requestKey) === request) {
+                    cache.itemRequests.delete(requestKey)
+                    if (cache.outdatedItemRequests?.delete(requestKey)) {
+                        actions.syncTypeAndRef(type, ref, true)
+                    }
+                }
+                if (cache.itemRequests.size === 0) {
+                    cache.rowsThatLeftTheirPath = []
+                }
             }
+        },
+        deleteSavedItem: ({ savedItem }) => {
+            keepInFlightRefreshesFromRestoring(cache, savedItem, { refreshAgain: false })
+        },
+        deleteTypeAndRef: ({ type, ref }) => {
+            const requestKey = JSON.stringify([type, ref])
+            cache.itemRequests?.delete(requestKey)
+            cache.outdatedItemRequests?.delete(requestKey)
         },
         deleteItem: async ({ item, projectTreeLogicKey }) => {
             if (isGroupViewShortcut(item) && values.featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {

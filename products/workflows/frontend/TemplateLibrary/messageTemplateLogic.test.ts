@@ -1,9 +1,11 @@
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { ResourceEditedEvent } from '~/types'
@@ -462,6 +464,267 @@ describe('messageTemplateLogic', () => {
             if (editWhileConverting) {
                 expect(logic.values.template.name).toEqual('Renamed while converting')
             }
+        })
+    })
+
+    describe('project tree', () => {
+        const treeEntry = (name: string): Record<string, unknown> => ({
+            id: 'file-1',
+            path: `Unfiled/Email templates/${name}`,
+            type: 'message_template',
+            ref: 'existing-id',
+        })
+        const treeDeleteBoundary = (deletedFileIds: string[]): Parameters<typeof useMocks>[0] => ({
+            post: {
+                '/api/projects/:team_id/file_system/:id/count/': { count: 1, entries: [], has_more: false },
+            },
+            delete: {
+                '/api/projects/:team_id/file_system/:id/': ({ params }) => {
+                    deletedFileIds.push(String(params.id))
+                    return [200, { deleted: [] }]
+                },
+            },
+        })
+
+        let storedName: string
+
+        beforeEach(async () => {
+            storedName = 'Existing'
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/file_system/': ({ request }) =>
+                        new URL(request.url).searchParams.get('ref') === 'existing-id'
+                            ? [200, { results: [treeEntry(storedName)], count: 1 }]
+                            : [200, { results: [], count: 0 }],
+                    '/api/projects/:team_id/messaging_templates/:id/placement/': {
+                        path: 'Unfiled/Email templates/Existing',
+                    },
+                },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        storedName = ((await request.json()) as { name: string }).name
+                        return [200, { id: 'existing-id', name: storedName }]
+                    },
+                },
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+            projectTreeDataLogic.mount()
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        })
+
+        afterEach(() => {
+            projectTreeDataLogic.unmount()
+        })
+
+        it('shows the new name in the tree once a save lands', async () => {
+            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']?.path).toBe(
+                'Unfiled/Email templates/Renamed'
+            )
+        })
+
+        it('shows the new name on a starred template the tree has not loaded', async () => {
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/file_system_shortcut/': {
+                        results: [{ id: 'shortcut-1', path: 'Existing', type: 'message_template', ref: 'existing-id' }],
+                    },
+                },
+            })
+            await expectLogic(projectTreeDataLogic, () => {
+                projectTreeDataLogic.actions.loadShortcuts()
+            }).toDispatchActions(['loadShortcutsSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.shortcutData.map((s) => s.path)).toEqual(['Renamed'])
+        })
+
+        it('shows the name from the last save when two saves overlap one tree refresh', async () => {
+            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
+            let holdNextRead = true
+            let releaseFirstRead: () => void = () => {}
+            const firstReadHeld = new Promise<void>((resolve) => {
+                releaseFirstRead = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/file_system/': async () => {
+                        const nameWhenRead = storedName
+                        if (holdNextRead) {
+                            holdNextRead = false
+                            await firstReadHeld
+                        }
+                        return [200, { results: [treeEntry(nameWhenRead)], count: 1 }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'First' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'Second' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            releaseFirstRead()
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']?.path).toBe(
+                'Unfiled/Email templates/Second'
+            )
+        })
+
+        it('shows a newly created template in the tree', async () => {
+            const storedTemplates: { id: string; name: string }[] = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/file_system/': ({ request }) => {
+                        const stored = storedTemplates.find(
+                            (t) => t.id === new URL(request.url).searchParams.get('ref')
+                        )
+                        return stored
+                            ? [
+                                  200,
+                                  { results: [{ ...treeEntry(stored.name), id: 'file-2', ref: stored.id }], count: 1 },
+                              ]
+                            : [200, { results: [], count: 0 }]
+                    },
+                },
+                post: {
+                    '/api/projects/:team_id/messaging_templates/': async ({ request }) => {
+                        const created = { id: 'created-id', name: ((await request.json()) as { name: string }).name }
+                        storedTemplates.push(created)
+                        return [201, created]
+                    },
+                },
+            })
+            const creator = messageTemplateLogic({ id: 'new' })
+            creator.mount()
+
+            await expectLogic(creator, () => {
+                creator.actions.saveTemplate({ id: 'new', name: 'Welcome' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.itemsByRef['message_template::created-id']?.path).toBe(
+                'Unfiled/Email templates/Welcome'
+            )
+            creator.unmount()
+        })
+
+        it('removes the template from the tree when it is deleted from the editor', async () => {
+            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
+            await expectLogic(logic, () => {
+                logic.actions.deleteTemplate()
+            }).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
+        })
+
+        it.each([
+            ['from the editor', 'editor'],
+            ['through its tree entry', 'tree entry'],
+            ['through its tree folder', 'tree folder'],
+        ])(
+            'keeps a template deleted %s out of the tree when the refresh from its last save lands late',
+            async (_name, via) => {
+                projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
+                let releaseTree: () => void = () => {}
+                const treeHeld = new Promise<void>((resolve) => {
+                    releaseTree = resolve
+                })
+                const deletedFileIds: string[] = []
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/file_system/': async () => {
+                            await treeHeld
+                            return [200, { results: [treeEntry(storedName)], count: 1 }]
+                        },
+                    },
+                    ...treeDeleteBoundary(deletedFileIds),
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
+                }).toDispatchActions(['saveTemplateSuccess'])
+                if (via === 'editor') {
+                    logic.actions.deleteTemplate()
+                } else if (via === 'tree entry') {
+                    projectTreeDataLogic.actions.deleteItem(treeEntry('Existing') as any, 'project-tree')
+                } else {
+                    projectTreeDataLogic.actions.deleteItem(
+                        { id: 'folder-1', path: 'Unfiled/Email templates', type: 'folder' } as any,
+                        'project-tree'
+                    )
+                    fireEvent.click(await screen.findByText('Delete folder'))
+                }
+                await waitFor(() =>
+                    expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
+                )
+                releaseTree()
+                await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+                expect({
+                    inTree: projectTreeDataLogic.values.itemsByRef['message_template::existing-id'],
+                    deletedFileIds,
+                }).toEqual({
+                    inTree: undefined,
+                    deletedFileIds: { editor: [], 'tree entry': ['file-1'], 'tree folder': ['folder-1'] }[via],
+                })
+            }
+        )
+
+        it('keeps the late refresh of a placement that survives a tree delete of another placement', async () => {
+            const sharedEntry = (name: string): Record<string, unknown> => ({
+                ...treeEntry(name),
+                id: 'file-2',
+                path: `Shared/${name}`,
+            })
+            projectTreeDataLogic.actions.addLoadedResults({
+                results: [treeEntry('Existing'), sharedEntry('Existing')],
+            } as any)
+            let releaseTree: () => void = () => {}
+            const treeHeld = new Promise<void>((resolve) => {
+                releaseTree = resolve
+            })
+            const deletedFileIds: string[] = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/file_system/': async () => {
+                        await treeHeld
+                        return [200, { results: [treeEntry(storedName), sharedEntry(storedName)], count: 2 }]
+                    },
+                },
+                ...treeDeleteBoundary(deletedFileIds),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            projectTreeDataLogic.actions.deleteItem(treeEntry('Existing') as any, 'project-tree')
+            await waitFor(() =>
+                expect(
+                    projectTreeDataLogic.values.folders['Unfiled/Email templates']?.map((entry) => entry.id)
+                ).toEqual([])
+            )
+            releaseTree()
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect({
+                unfiled: projectTreeDataLogic.values.folders['Unfiled/Email templates']?.map((entry) => entry.path),
+                shared: projectTreeDataLogic.values.folders['Shared']?.map((entry) => entry.path),
+            }).toEqual({ unfiled: [], shared: ['Shared/Renamed'] })
         })
     })
 })

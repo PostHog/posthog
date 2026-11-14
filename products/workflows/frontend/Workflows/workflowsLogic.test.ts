@@ -147,11 +147,32 @@ describe('workflowsLogic', () => {
                             { results: [workflow('archived'), { ...workflow('archived'), id: 'flow-2' }], count: 2 },
                         ]
                     },
+                    '/api/projects/:team_id/file_system/': {
+                        count: 3,
+                        users: [],
+                        results: ['flow-1', 'flow-2', 'flow-3'].map((ref) => ({
+                            id: `file-${ref}`,
+                            path: `Unfiled/Workflows/${ref}`,
+                            type: 'hog_flow',
+                            ref,
+                        })),
+                    },
                 },
                 patch: { [DETAIL_URL]: record(status, response) },
                 post: { [LIST_URL]: record(status, response), [`${LIST_URL}bulk_delete/`]: record(status, response) },
                 delete: { [DETAIL_URL]: record(status === 200 ? 204 : status, status === 200 ? null : response) },
             })
+        const mountTree = async (): Promise<ReturnType<typeof projectTreeDataLogic.build>> => {
+            const tree = projectTreeDataLogic()
+            tree.mount()
+            await expectLogic(tree).toDispatchActions(['loadFolderSuccess'])
+            return tree
+        }
+        const workflowsInTree = (tree: ReturnType<typeof projectTreeDataLogic.build>): string[] =>
+            Object.values(tree.values.folders)
+                .flat()
+                .filter((entry) => entry.type === 'hog_flow')
+                .map((entry) => entry.ref ?? '')
         const confirm = (title: string): void => {
             const onClick = dialogs.find((d) => d.title === title)?.primaryButton?.onClick
             if (!onClick) {
@@ -173,8 +194,7 @@ describe('workflowsLogic', () => {
 
         it('deletes a workflow only after its dialog is confirmed, then drops it from the tree and reloads', async () => {
             useListMocks()
-            const tree = projectTreeDataLogic()
-            tree.mount()
+            const tree = await mountTree()
             const successToast = jest.spyOn(lemonToast, 'success')
 
             await expectLogic(logic, () => logic.actions.deleteWorkflow(workflow('archived'))).toFinishAllListeners()
@@ -182,12 +202,11 @@ describe('workflowsLogic', () => {
             expect(dialogs[0].description).toContain('permanently delete "Churn win-back"')
 
             confirm('Delete workflow?')
-            await expectLogic(logic)
-                .toDispatchActions(tree, [tree.actionCreators.deleteTypeAndRef('hog_flow/', 'flow-1')])
-                .toDispatchActions(['loadWorkflowsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
 
             expect(writes).toEqual([{ method: 'DELETE', path: 'flow-1/' }])
             expect(successToast).toHaveBeenCalledWith('Workflow "Churn win-back" deleted')
+            expect(workflowsInTree(tree)).toEqual(['flow-2', 'flow-3'])
             tree.unmount()
         })
 
@@ -198,8 +217,6 @@ describe('workflowsLogic', () => {
             [['flow-1', 'flow-2', 'flow-3'], 3, '3 archived workflows', '3 workflows deleted'],
         ])('bulk deletes %j after confirming, clears the selection and reloads', async (ids, deleted, noun, toast) => {
             useListMocks(200, { deleted })
-            const tree = projectTreeDataLogic()
-            tree.mount()
             const successToast = jest.spyOn(lemonToast, 'success')
             logic.actions.selectAllArchivedWorkflows(ids)
 
@@ -212,16 +229,30 @@ describe('workflowsLogic', () => {
 
             confirm(`Delete ${noun}?`)
             await expectLogic(logic)
-                .toDispatchActions(
-                    tree,
-                    ids.map((id) => tree.actionCreators.deleteTypeAndRef('hog_flow/', id))
-                )
                 .toDispatchActions(['clearArchivedWorkflowSelection'])
                 .toMatchValues({ selectedArchivedCount: 0 })
                 .toDispatchActions(['loadWorkflowsSuccess'])
 
             expect(writes).toEqual([{ method: 'POST', path: 'bulk_delete/', body: { ids } }])
             expect(successToast).toHaveBeenCalledWith(toast)
+        })
+
+        it.each<[string[], { deleted: number; deleted_ids?: string[] }, string[]]>([
+            [['flow-1'], { deleted: 1, deleted_ids: ['flow-1'] }, ['flow-2', 'flow-3']],
+            [['flow-1', 'flow-2'], { deleted: 1, deleted_ids: ['flow-1'] }, ['flow-2', 'flow-3']],
+            [['flow-1', 'flow-2', 'flow-3'], { deleted: 3, deleted_ids: ['flow-1', 'flow-2', 'flow-3'] }, []],
+            [['flow-1', 'flow-2'], { deleted: 2 }, ['flow-3']],
+            [['flow-1', 'flow-2'], { deleted: 1 }, ['flow-1', 'flow-2', 'flow-3']],
+        ])('bulk deletes %j answered with %j and keeps %j in the tree', async (ids, response, kept) => {
+            useListMocks(200, response)
+            const tree = await mountTree()
+            logic.actions.selectAllArchivedWorkflows(ids)
+
+            logic.actions.deleteSelectedWorkflows()
+            confirm(dialogs[0].title as string)
+            await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+
+            expect(workflowsInTree(tree)).toEqual(kept)
             tree.unmount()
         })
 
