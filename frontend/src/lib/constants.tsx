@@ -641,6 +641,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
     WORKFLOWS_DESTINATION_SUGGESTION: 'workflows-destination-suggestion', // owner: #team-workflows, offers workflows instead of a new email tool destination
     WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS: 'workflows-email-delivery-webhooks', // owner: @silthus #team-workflows, delivery webhooks for transactional email
+    WORKFLOWS_EMAIL_DOCUMENT_EDITOR: 'workflows-email-document-editor', // owner: @dmarchuk #team-workflows, the TipTap email editor that replaces Unlayer
     WORKFLOWS_EMAIL_HEADER: 'workflows-email-header', // owner: @mayteio #team-workflows, one-line sender summary in workflow and broadcast email steps
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_GOAL_EVENT_ENTRIES: 'workflows-goal-event-entries', // owner: @silthus #team-workflows, shows and keeps every stored event entry in goal and wait step editors

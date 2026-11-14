@@ -1,12 +1,15 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Realm } from '~/types'
 
+import { NEW_TEMPLATE } from 'products/workflows/frontend/TemplateLibrary/constants'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import {
@@ -15,6 +18,7 @@ import {
     EmailTemplate,
     EmailTemplaterLogicProps,
     buildHtmlWrapDesign,
+    editorDesignForEmail,
     buildPersonPropertyMergeValue,
     emailTemplaterLogic,
 } from './emailTemplaterLogic'
@@ -55,6 +59,16 @@ const RENDER_IN_OUTLOOK_COLUMN = renderAround(`${UNLAYER_COLUMN_OPEN}<p>old</p>$
 const RENDER_WITH_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if mso]><p>footer</p><![endif]-->')
 const RENDER_WITH_NON_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if !mso]><!--><p>footer</p><!--<![endif]-->')
 
+jest.mock('products/workflows/frontend/EmailDocumentEditor/components/EmailHtmlBlockView', () => ({
+    EmailHtmlBlockView: () => null,
+}))
+jest.mock('products/workflows/frontend/EmailDocumentEditor/components/EmailImageBlockView', () => ({
+    EmailImageBlockView: () => null,
+}))
+jest.mock('products/workflows/frontend/EmailDocumentEditor/components/EmailVariableChip', () => ({
+    EmailVariableChip: () => null,
+}))
+
 describe('emailTemplaterLogic', () => {
     let logic: ReturnType<typeof emailTemplaterLogic.build>
 
@@ -66,6 +80,8 @@ describe('emailTemplaterLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
     })
 
     afterEach(() => {
@@ -213,6 +229,122 @@ describe('emailTemplaterLogic', () => {
         })
     })
 
+    describe('which editor opens', () => {
+        const documentDesign = {
+            ...buildHtmlWrapDesign('<p>doc</p>'),
+            emailDocument: { version: 1, doc: { type: 'doc', attrs: { page: {} }, content: [] } },
+        }
+        const documentEmail = { ...DEFAULT_EMAIL_TEMPLATE, html: '<p>doc</p>', design: documentDesign as any }
+        const blankEmail = { ...DEFAULT_EMAIL_TEMPLATE, html: '', text: '', design: null }
+
+        it.each([
+            { name: 'flag off: a blank email', flag: false, value: blankEmail, expected: false },
+            { name: 'flag off: an email saved by the new editor', flag: false, value: documentEmail, expected: false },
+            { name: 'flag on: a blank email', flag: true, value: blankEmail, expected: true },
+            { name: 'flag on: an email saved by the new editor', flag: true, value: documentEmail, expected: true },
+            {
+                name: 'flag on: an old-editor email converts',
+                flag: true,
+                value: DEFAULT_EMAIL_TEMPLATE,
+                expected: true,
+            },
+            {
+                name: 'flag on: an html-only email converts',
+                flag: true,
+                value: { ...DEFAULT_EMAIL_TEMPLATE, html: '<p>Written elsewhere</p>', design: null },
+                expected: true,
+            },
+            {
+                name: 'flag on: a document that no longer matches the html converts from the html',
+                flag: true,
+                value: { ...documentEmail, html: '<p>changed elsewhere</p>' },
+                expected: true,
+            },
+            {
+                name: 'flag on: an email the new editor cannot hold stays on the old editor',
+                flag: true,
+                value: {
+                    ...DEFAULT_EMAIL_TEMPLATE,
+                    html: '<p>Video</p>',
+                    design: {
+                        body: { rows: [{ cells: [1], columns: [{ contents: [{ type: 'video', values: {} }] }] }] },
+                    },
+                },
+                expected: false,
+            },
+        ])('$name', async ({ flag, value, expected }) => {
+            featureFlagLogic.actions.setFeatureFlags(flag ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR] : [], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: flag,
+            })
+            logic = emailTemplaterLogic(makeProps({ value }))
+            logic.mount()
+            logic.actions.setIsModalOpen(true)
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: expected })
+        })
+
+        it('converts an old-editor email only once its editor opens', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            logic = emailTemplaterLogic(makeProps({ value: DEFAULT_EMAIL_TEMPLATE }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ emailConversion: null })
+
+            logic.actions.setIsModalOpen(true)
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
+        })
+
+        it('keeps someone who chose the old editor there until they switch back', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            logic = emailTemplaterLogic(makeProps({ value: DEFAULT_EMAIL_TEMPLATE }))
+            logic.mount()
+            logic.actions.setIsModalOpen(true)
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
+
+            logic.actions.setPrefersOldEmailEditor(true)
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: false })
+
+            logic.actions.setPrefersOldEmailEditor(false)
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
+        })
+
+        it('does not load the new template sample over the new editor starter', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps({ value: NEW_TEMPLATE.content.email as any }))
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn(), exportHtml: jest.fn() },
+            } as any)
+            logic.actions.onEmailEditorReady()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDesign).not.toHaveBeenCalled()
+        })
+
+        it('keeps the destination email type on the old editor', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            logic = emailTemplaterLogic(makeProps({ value: blankEmail, type: 'email' }))
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ usesDocumentEditor: false })
+        })
+
+        it('refreshes the old-editor wrap of a document whose html changed elsewhere', () => {
+            expect(editorDesignForEmail({ html: '<p>changed</p>', design: documentDesign as any })).toEqual(
+                buildHtmlWrapDesign('<p>changed</p>')
+            )
+        })
+    })
+
     describe('modal content tab default', () => {
         it.each([
             {
@@ -335,7 +467,7 @@ describe('emailTemplaterLogic', () => {
                 },
             } as MessageTemplate)
 
-            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'))
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'), '<p>new</p>')
         })
     })
 

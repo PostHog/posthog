@@ -360,14 +360,22 @@ def _is_unlayer_render_of(html: str, block_html: str) -> bool:
 def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:
     if not design:
         return True
+    # The new email editor stores the html it rendered with its document. Once the html has moved on, the design next
+    # to that document shows an older email, so it's replaced by the current html.
+    document = design.get("emailDocument") if isinstance(design, dict) else None
+    if isinstance(document, dict) and isinstance(document.get("html"), str):
+        return document["html"] != html
     try:
         wrapped_html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
     except (KeyError, IndexError, TypeError):
         return False
+    # The new email editor stores its document next to the wrap. When the html has moved on, that document is stale,
+    # and the refresh below drops it along with the old wrap.
+    design_without_document = {key: value for key, value in design.items() if key != "emailDocument"}
     return (
         isinstance(wrapped_html, str)
         and wrapped_html != html
-        and design == build_html_wrap_design(wrapped_html)
+        and design_without_document == build_html_wrap_design(wrapped_html)
         and not _is_unlayer_render_of(html, wrapped_html)
     )
 
