@@ -2731,39 +2731,6 @@ describe('Cyclotron V2', () => {
 
             expect((await churnCountForQueue(QUEUE)) - before).toBe(expected)
         })
-
-        it.each([
-            ['for now, as a fetch yield does', QUEUE, 0, undefined, 0, 0],
-            ['250 ms ahead, as a reserved send slot can', QUEUE, 250, undefined, 0, 1],
-            ['a second ahead', QUEUE, 1_000, undefined, 0, 1],
-            ['8 s after its dequeue, having waited 5 s for its batch', QUEUE, 8_000, undefined, 5_000, 1],
-            ['15 s after its dequeue, having waited 5 s for its batch', QUEUE, 15_000, undefined, 5_000, 0],
-            ['five minutes ahead', QUEUE, 300_000, undefined, 0, 0],
-            ['on the email queue after its retry fell due during its batch', 'email', 250, undefined, 1_000, 1],
-            ['from the email queue back to its flow', 'email', 0, QUEUE, 0, 0],
-        ])(
-            'counts a weeks-old job at the counter clamp rescheduled %s',
-            async (_label, queue, parkMs, nextQueue, batchWaitMs, expected) => {
-                const before = await churnCountForQueue(queue)
-                const id = await manager.createJob({ teamId: 1, queueName: queue })
-                await assertPool.query(
-                    `UPDATE cyclotron_jobs SET transition_count = $1, created = NOW() - interval '400 hours' WHERE id = $2`,
-                    [CYCLOTRON_COUNTER_MAX, id]
-                )
-
-                const [job] = await dequeueOneBatch(createWorker(queue))
-                const dequeuedAt = Date.now()
-                const realNow = Date.now
-                const clock = jest.spyOn(Date, 'now').mockImplementation(() => realNow() + batchWaitMs)
-                try {
-                    await job.reschedule({ scheduledAt: new Date(dequeuedAt + parkMs), queueName: nextQueue })
-                } finally {
-                    clock.mockRestore()
-                }
-
-                expect((await churnCountForQueue(queue)) - before).toBe(expected)
-            }
-        )
     })
 
     describe('polling cost with a backlog scheduled for later', () => {

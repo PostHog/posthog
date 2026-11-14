@@ -46,30 +46,18 @@ export interface RawJobRow {
     lock_id: string
 }
 
-const CHURN_PARK_MS = (2 * 3_600_000) / CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR
-
 const highTransitionDequeuesCounter = new Counter({
     name: 'cdp_cyclotron_v2_high_transition_dequeues',
-    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age, or at the counter cap and rescheduled to run within ${CHURN_PARK_MS / 1000}s of its dequeue, meaning they are cycling without completing.`,
+    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age, meaning they are cycling without completing.`,
     labelNames: ['queue'] as const,
 })
 
 function isChurning(row: RawJobRow): boolean {
-    if (row.transition_count < CYCLOTRON_TRANSITION_CHURN_THRESHOLD || row.transition_count >= CYCLOTRON_COUNTER_MAX) {
+    if (row.transition_count < CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
         return false
     }
     const ageHours = (Date.now() - new Date(row.created).getTime()) / 3_600_000
     return row.transition_count >= CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR * ageHours
-}
-
-function isChurningAtCap(row: RawJobRow, dequeuedAt: number, scheduled: Date, nextQueue: string): boolean {
-    if (row.transition_count < CYCLOTRON_COUNTER_MAX) {
-        return false
-    }
-    const cycleMs = scheduled.getTime() - dequeuedAt
-    const parked = scheduled.getTime() > Date.now()
-    const retriesOnEmailQueue = row.queue_name === 'email' && nextQueue === 'email'
-    return cycleMs < CHURN_PARK_MS && (parked || retriesOnEmailQueue)
 }
 
 // The loop swallows the error and retries, so without this counter a queue whose every
@@ -447,7 +435,6 @@ export class CyclotronV2Worker {
         const releaseWriteHeartbeatLimitMs = this.releaseWriteHeartbeatLimitMs
         let releaseStartedAt: number | null = null
         let releaseWritten = false
-        const dequeuedAt = Date.now()
 
         if (isChurning(row)) {
             highTransitionDequeuesCounter.labels({ queue: row.queue_name }).inc()
@@ -517,9 +504,6 @@ export class CyclotronV2Worker {
             reschedule: releaseWrite('reschedule', async (input?: CyclotronV2RescheduleOptions) => {
                 const options = input ? CyclotronV2RescheduleOptionsSchema.parse(input) : undefined
                 const scheduled = options?.scheduledAt ?? new Date()
-                if (isChurningAtCap(row, dequeuedAt, scheduled, options?.queueName ?? row.queue_name)) {
-                    highTransitionDequeuesCounter.labels({ queue: row.queue_name }).inc()
-                }
 
                 const setClauses = [
                     `status = 'available'`,
