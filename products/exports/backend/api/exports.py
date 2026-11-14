@@ -65,6 +65,15 @@ FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], in
 }
 
 
+def _is_logs_query(source: object) -> bool:
+    # Container nodes such as DataTableNode wrap the query they run under "source".
+    while isinstance(source, dict):
+        if source.get("kind") == "LogsQuery":
+            return True
+        source = source.get("source")
+    return False
+
+
 def get_full_video_exports_limit_for_organization(organization: Organization | None) -> int:
     """Monthly full video export limit for the organization's plan tier."""
     tier = organization.get_plan_tier() if organization is not None else "free"
@@ -284,7 +293,18 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 {"export_context": ["Exports from API endpoints do not support this authentication method."]}
             )
         self._assert_may_export_session_recording(validated_data)
+        self._assert_may_export_logs(validated_data)
         return self._create_asset(validated_data, user=request.user, reason=None)
+
+    def _assert_may_export_logs(self, validated_data: dict) -> None:
+        """Exporting a logs query must need the access that viewing logs needs."""
+        user_access_control = self.user_access_control
+        if user_access_control is None or not _is_logs_query(
+            (validated_data.get("export_context") or {}).get("source")
+        ):
+            return
+        if not user_access_control.check_access_level_for_resource("logs", required_level="viewer"):
+            raise PermissionDenied("You do not have access to logs.")
 
     def _assert_may_export_session_recording(self, validated_data: dict) -> None:
         """Rendering a recording export must need the access that viewing the recording needs."""

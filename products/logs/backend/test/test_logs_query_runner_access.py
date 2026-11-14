@@ -7,7 +7,10 @@ from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, Property
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.models.user import User
+
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.logs.backend.logs_query_runner import LogsQueryRunner
 
 
@@ -46,6 +49,16 @@ class TestLogsQueryRunnerAccess(APIBaseTest):
         runner = _build_runner(self.team, limit_context=LimitContext.EXPORT)
 
         assert runner.validate_query_runner_access(self.user) is True
+
+    def test_validate_query_runner_access_in_export_context_requires_logs_access(self):
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        AccessControl.objects.create(resource="logs", team=self.team, access_level="none")
+        member = User.objects.create_and_join(self.organization, "logs-none@posthog.com", "password")
+        runner = _build_runner(self.team, limit_context=LimitContext.EXPORT)
+
+        with self.assertRaises(UserAccessControlError):
+            runner.validate_query_runner_access(member)
 
     def test_run_with_user_in_export_context_skips_block(self):
         runner = _build_runner(self.team, limit_context=LimitContext.EXPORT)

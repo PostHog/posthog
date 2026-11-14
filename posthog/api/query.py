@@ -245,6 +245,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
     "ErrorTrackingReleasesQuery": ["query:read", "error_tracking:read"],
     "ErrorTrackingIssueEventsQuery": ["query:read", "error_tracking:read"],
+    "LogsQuery": ["query:read", "logs:read"],
     "MetricsQuery": ["metrics:read"],
     "MetricsHistogramQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read

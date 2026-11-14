@@ -756,13 +756,13 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
     def validate_query_runner_access(self, user: "User") -> bool:
         # LogsQuery is registered in get_query_runner solely for server-side CSV export.
         # The export runs via ExportedAsset + Celery and attributes the read to the export
-        # owner (LimitContext.EXPORT), which must be allowed through. Block everything else —
+        # owner (LimitContext.EXPORT), who needs logs viewer access. Block everything else —
         # i.e. user-initiated queries via the generic /api/projects/:id/query/ endpoint —
         # until the LogsQuery schema is stable and ready to be a public API.
-        if self.limit_context == LimitContext.EXPORT:
-            return True
+        from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 
-        from products.access_control.backend.facade.user_access_control import UserAccessControlError
+        if self.limit_context == LimitContext.EXPORT:
+            return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource("logs", "viewer")
 
         raise UserAccessControlError("logs", "viewer")
 
