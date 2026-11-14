@@ -531,7 +531,7 @@ class TestDockerSandboxUnit:
                 command = mock_execute.call_args[0][0]
 
         assert f"cd {shlex.quote(expected_parent)} &&" in command
-        assert command.endswith(f"{shlex.quote(expected_url)} {shlex.quote(expected_dir)}")
+        assert f"{shlex.quote(expected_url)} {shlex.quote(expected_dir)} &&" in command
 
     def test_clone_repository_branch_flag(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)
