@@ -8,7 +8,7 @@ import type {
 } from '@posthog/mcp/src/cli/library-types'
 
 import type { Context } from '@/core/context'
-import { EXIT_FAILURE, HogError } from '@/core/errors'
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { ApiError, stepUpRequired } from './api'
@@ -167,13 +167,13 @@ export function missingScopesError(
 ): HogError {
     const message = `Your credentials need ${scopes.join(', ')} to call ${tool}.`
     if (credentials?.source === 'workload') {
-        return new HogError('missing_scopes', message, workloadScopesHint(scopes))
+        return new HogError('missing_scopes', message, workloadScopesHint(scopes), EXIT_NEEDS_PERSON)
     }
     const loginCanAdd = canStepUp(credentials)
     if (loginCanAdd && scopes.every(isScopeName)) {
         return stepUpRequired(scopes, { message, host: credentials?.key.host })
     }
-    return new HogError('missing_scopes', message, loginCanAdd ? SCOPES_HINT : addToKeyHint(scopes))
+    return new HogError('missing_scopes', message, loginCanAdd ? SCOPES_HINT : addToKeyHint(scopes), EXIT_NEEDS_PERSON)
 }
 
 export function toHogError(error: ApiToolError, tool?: string, credentials?: Credentials): HogError {
@@ -182,7 +182,7 @@ export function toHogError(error: ApiToolError, tool?: string, credentials?: Cre
         case 'permission_denied':
             return error.missingScope && tool
                 ? missingScopesError(tool, [error.missingScope], credentials)
-                : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT, undefined, detail)
+                : new ApiError(403, 'permission_denied', error.message, { hint: SCOPES_HINT, serverDetail: detail })
         case 'validation_error':
         case 'invalid_input':
             return new HogError(
@@ -202,7 +202,7 @@ export function toHogError(error: ApiToolError, tool?: string, credentials?: Cre
                 'An organization admin can allow AI data processing in PostHog under Organization settings.'
             )
         case 'rate_limited':
-            return new ApiError(429, undefined, error.code, error.message, 'Wait a minute, then run it again.')
+            return new ApiError(429, error.code, error.message, { hint: 'Wait a minute, then run it again.' })
         case 'unreachable':
             return new HogError(error.code, error.message, 'Check the host and your network connection.')
         case 'api_error': {
@@ -211,7 +211,7 @@ export function toHogError(error: ApiToolError, tool?: string, credentials?: Cre
                 404: 'Check the IDs in the input, and the project ID.',
             }
             const status = error.status ?? 500
-            return new ApiError(status, undefined, `http_${status}`, error.message, hints[status], undefined, detail)
+            return new ApiError(status, `http_${status}`, error.message, { hint: hints[status], serverDetail: detail })
         }
         case 'tool_error':
             return new HogError(error.code, error.message)

@@ -13,7 +13,11 @@ import {
 } from 'lib/components/PropertyFilters/components/filterRowFrame'
 import { PropertyFilterRowOperator } from 'lib/components/PropertyFilters/components/PropertyFilterRowOperator'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { isBehavioralPropertyFilter, isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
+import {
+    isBehavioralPropertyFilter,
+    isPropertyFilterAwaitingValue,
+    isPropertyGroupFilterLike,
+} from 'lib/components/PropertyFilters/utils'
 import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     AllowedProperties,
@@ -25,7 +29,6 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { isOperatorFlag } from 'lib/utils/operators'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -164,13 +167,7 @@ export function PropertyFilters({
 
     const rows = displayedFilters.map((item: PropertyFilterRow, index: number) => {
         // Moving a new property into a separate chip row remounts its value editor.
-        const openValueEditor =
-            !!renderControls &&
-            !isPropertyGroupFilterLike(item) &&
-            !!item.key &&
-            'operator' in item &&
-            (!item.operator || !isOperatorFlag(item.operator)) &&
-            (item.value === undefined || item.value === null || item.value === '')
+        const openValueEditor = !!renderControls && isPropertyFilterAwaitingValue(item)
         // A group row has no key/value to summarize on a closed popover button, so show it directly.
         const rowDisablePopover = disablePopover || orFiltering || isPropertyGroupFilterLike(item)
         return (

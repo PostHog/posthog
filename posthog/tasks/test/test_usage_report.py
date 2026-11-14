@@ -92,6 +92,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.usage_counters import UsageCounter, UsageCounterQuery, UsageCounterService
 from posthog.utils import get_previous_day
 
+from products.ai_observability.backend.facade.limits import get_ai_event_limits
 from products.batch_exports.backend.facade import testing as batch_exports_testing
 from products.batch_exports.backend.facade.enums import (
     BatchExportDestinationType,
@@ -4208,6 +4209,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                     "$ai_input_cost_usd": 0.01,
                     "$ai_output_cost_usd": 0.01,
                     "$ai_total_cost_usd": 0.02,
+                    "$ai_event_bytes": get_ai_event_limits().included_bytes_per_event + 750_000,
                 },
                 timestamp=now() - relativedelta(hours=i),
                 team=self.org_1_team_1,
@@ -4249,6 +4251,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_output_cost_usd": 0.01,
                 "$ai_total_cost_usd": 0.02,
                 "$group_1": "https://us.posthog.com",
+                "$ai_event_bytes": 9_000_000,
             },
             timestamp=now() - relativedelta(days=2),
             team=self.org_1_team_1,
@@ -4274,6 +4277,28 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["ai_event_count_in_period"] == 7
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
+        assert org_1_report["ai_overage_bytes_in_period"] == 3_750_000
+        assert org_1_report["ai_overage_mb_in_period"] == 3
+        assert org_1_report["teams"]["3"]["ai_overage_mb_in_period"] == 3
+
+    @patch("retry.api.time.sleep")
+    @patch("posthog.tasks.usage_report.capture_exception")
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_failing_query_reports_no_overage_instead_of_failing_the_run(
+        self, mock_execute: MagicMock, mock_capture: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import QUERY_RETRIES, get_teams_with_ai_overage_bytes_in_period
+
+        error = RuntimeError("clickhouse unavailable")
+        mock_execute.side_effect = error
+
+        result = get_teams_with_ai_overage_bytes_in_period(
+            datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
+        )
+
+        assert result == []
+        assert mock_execute.call_count == QUERY_RETRIES
+        mock_capture.assert_called_once_with(error)
 
     @parameterized.expand([("posthog_ai",), ("workflows",)])
     @patch("posthog.tasks.usage_report.get_instance_region")
@@ -7090,6 +7115,49 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             baseline_count + 8,
             "verified events with no request_id are not blanket-deduped; both stay counted",
         )
+
+    def test_ai_overage_bytes_sum_each_ai_event_above_the_included_bytes(self) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_overage_bytes_in_period
+
+        limits = get_ai_event_limits()
+        included = limits.included_bytes_per_event
+        int64_max = 2**63 - 1
+        other_team = Team.objects.create(organization=self.team.organization)
+        in_period = self.begin + relativedelta(hours=1)
+        events = [
+            (self.team, "$ai_generation", {"$ai_event_bytes": included - 1}, in_period),
+            (self.team, "$ai_generation", {"$ai_event_bytes": included}, in_period),
+            (self.team, "$ai_generation", {"$ai_event_bytes": included + 1}, in_period),
+            (self.team, "$ai_span", {"$ai_event_bytes": included + 2_500_000}, in_period),
+            (self.team, "$ai_trace", {}, in_period),
+            (self.team, "$ai_generation", {"$ai_event_bytes": int64_max}, in_period),
+            (self.team, "$ai_generation", {"$ai_event_bytes": int64_max}, in_period),
+            (self.team, "$ai_generation", {"$ai_event_bytes": -int64_max - 1}, in_period),
+            (
+                self.team,
+                "$ai_generation",
+                {"$ai_event_bytes": included + 200_000, "$ai_gateway_verified": True, "$ai_gateway_request_id": "gw"},
+                in_period,
+            ),
+            (self.team, "$pageview", {"$ai_event_bytes": included + 900_000}, in_period),
+            (self.team, "$ai_generation", {"$ai_event_bytes": included + 900_000}, self.end),
+            (other_team, "$ai_embedding", {"$ai_event_bytes": included + 50_000}, in_period),
+            (self.analytics_team, "$ai_generation", {"$ai_event_bytes": included}, in_period),
+        ]
+        for index, (team, event, properties, timestamp) in enumerate(events):
+            _create_event(
+                event=event,
+                team=team,
+                distinct_id=f"overage_user_{index}",
+                timestamp=timestamp,
+                properties=properties,
+            )
+        flush_persons_and_events()
+
+        assert dict(get_teams_with_ai_overage_bytes_in_period(self.begin, self.end)) == {
+            self.team.id: 1 + 2_500_000 + 200_000 + 2 * (limits.max_event_bytes_ceiling - included),
+            other_team.id: 50_000,
+        }
 
     def test_gateway_generation_sponsors_bounded_unique_relay_events(self) -> None:
         from posthog.tasks.usage_report import (

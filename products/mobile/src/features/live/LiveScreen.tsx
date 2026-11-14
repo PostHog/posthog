@@ -53,6 +53,7 @@ import { statusText } from './liveFormat'
 
 /** A pushed screen has no bottom bar, so the toast sits low. */
 const TOAST_BOTTOM = 48
+const LIVE_TAB_CONTENT_TOP = TABS_HEADER_BOTTOM + 4
 
 export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrome }): ReactElement {
     const styles = useStyles()
@@ -81,7 +82,7 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
     } else if (tab) {
         body = (
             <View
-                style={[styles.fill, { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: tabBottom }]}
+                style={[styles.fill, { paddingTop: topOffset(insets, LIVE_TAB_CONTENT_TOP), paddingBottom: tabBottom }]}
             >
                 <TabHeaderPublisher tab="live" status={null} />
                 <ViewsReauthState access={access} />
@@ -154,7 +155,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
     const [sheetOpen, setSheetOpen] = useState(false)
     const [sheetEvent, setSheetEvent] = useState<LiveEventRow | null>(null)
     const { snapshot, state } = feed
-    const contentTop = topOffset(insets, tab ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
+    const contentTop = topOffset(insets, tab ? LIVE_TAB_CONTENT_TOP : SCREEN_CONTENT_TOP)
     const contentBottom = tab ? tabBottom : bottomOffset(insets, 48)
 
     const openEvent = useCallback((event: LiveEventRow) => {
