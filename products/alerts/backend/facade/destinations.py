@@ -7,7 +7,7 @@ objects stay inside the product.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Final, Literal
@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationGroup,
+    AlertEventKind,
     DeliveryPath,
     DestinationType,
     EventKindSpec,
@@ -30,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
 
 from .. import activity_logging
 from ..logic import (
+    customize_destinations,
     delivery_destinations,
     delivery_path,
     destination_bucket_report,
@@ -41,10 +43,12 @@ from ..logic import (
 )
 from .contracts import (
     AlertInternalEvent,
+    CustomizableDestination,
     DeliveryPathChoice,
     DestinationBucket,
     DestinationEligibility,
     DestinationHoldBack,
+    ResetDestination,
 )
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
@@ -415,4 +419,51 @@ def choose_delivery_path(
     """The platform's delivery path chooser, which `products.alerts` registers when Django starts."""
     return delivery_path.delivery_path(
         source=source, team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def customize_source_destination(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    allowed_event_ids: Collection[str],
+    allowed_destination_types: Collection[DestinationType],
+    destination_id: UUID | None,
+    hog_function_ids: Collection[UUID],
+    build_configs: Callable[[AlertDestinationData], Sequence[AlertDestinationConfig]],
+    created_by_id: int,
+) -> CustomizableDestination:
+    """Moves a stock destination from its `AlertDestination` row to HogFunctions a person can edit.
+    `build_configs` is the source's own builder for a new destination of that type. Raises
+    `AlertDestinationValidationError` when the destination is not the alert's or has changed."""
+    return customize_destinations.customize_source_destination(
+        team_id=team_id,
+        alert_id=alert_id,
+        allowed_event_ids=allowed_event_ids,
+        allowed_destination_types=allowed_destination_types,
+        destination_id=destination_id,
+        hog_function_ids=hog_function_ids,
+        build_configs=build_configs,
+        created_by_id=created_by_id,
+    )
+
+
+def reset_source_destination(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    allowed_event_ids: Collection[str],
+    allowed_destination_types: Collection[DestinationType],
+    hog_function_ids: Collection[UUID],
+    row_event_kinds: Callable[[DestinationType], Collection[AlertEventKind]],
+) -> ResetDestination:
+    """Retires a destination's HogFunctions and gives it an `AlertDestination` row with the standard message.
+    Raises `AlertDestinationValidationError` when the platform does not evaluate the alert."""
+    return customize_destinations.reset_source_destination(
+        team_id=team_id,
+        alert_id=alert_id,
+        allowed_event_ids=allowed_event_ids,
+        allowed_destination_types=allowed_destination_types,
+        hog_function_ids=hog_function_ids,
+        row_event_kinds=row_event_kinds,
     )

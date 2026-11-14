@@ -858,6 +858,38 @@ def destination_types_by_configuration(
     return alert_destinations.destination_types_by_configuration(team_id=team_id, configuration_ids=configuration_ids)
 
 
+def take_source_destination_row(
+    *, team_id: int, public_id: UUID, destination_id: UUID
+) -> StoredAlertDestination | None:
+    """Deletes one of the alert's rows and returns what it held. None when another request took it first."""
+    return alert_destinations.take_source_destination_row(
+        team_id=team_id, public_id=public_id, destination_id=destination_id
+    )
+
+
+def restore_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    enabled: bool,
+    retired_hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+) -> StoredAlertDestination:
+    """Adds the row that sends a destination's standard message once the caller has retired its
+    HogFunctions. Raises `AlertDestinationValidationError` when the platform does not evaluate the alert."""
+    return alert_destinations.restore_source_destination(
+        team_id=team_id,
+        public_id=public_id,
+        data=data,
+        event_kinds=event_kinds,
+        enabled=enabled,
+        retired_hog_function_ids=retired_hog_function_ids,
+        hog_function_groups=hog_function_groups,
+    )
+
+
 def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
     """Deletes the `AlertDestination` rows that copy any of these HogFunctions, and returns how many."""
     return alert_destinations.delete_rows_copying(team_id=team_id, hog_function_ids=hog_function_ids)
