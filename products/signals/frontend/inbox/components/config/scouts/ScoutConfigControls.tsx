@@ -66,7 +66,7 @@ const SCOUT_MODEL_IDS = [
 
 // Labels come from the generated catalog, so every surface names a model the same way.
 const SCOUT_MODEL_OPTIONS: { value: string | null; label: string }[] = [
-    { value: null, label: 'Default' },
+    { value: null, label: 'Auto' },
     ...SCOUT_MODEL_IDS.map((id) => ({ value: id, label: MODELS.find((model) => model.id === id)?.label ?? id })),
 ]
 
@@ -283,7 +283,8 @@ export function ScoutConfigForm({
                     <div className="flex flex-col min-w-0">
                         <span className="text-xs text-default">Model</span>
                         <span className="text-[11.5px] text-muted">
-                            The model this scout runs on. Pick a more capable model for harder tasks.
+                            Auto lets PostHog pick the model for each run, and the choice can change over time. Pick a
+                            model to use it for every run.
                         </span>
                     </div>
                     <LemonSelect
