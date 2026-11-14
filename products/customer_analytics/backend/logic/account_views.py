@@ -8,6 +8,11 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
+
 from products.customer_analytics.backend.facade.enums import AccountViewVisibility
 from products.customer_analytics.backend.models.account_view import AccountView
 from products.notebooks.backend.facade import content as notebook_content
@@ -28,6 +33,7 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Meetings": "Meetings",
     "SessionReplays": "Session replays",
     "DotMatrix": "Dot matrix",
+    "SqlQuery": "SQL query",
 }
 ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
@@ -56,6 +62,48 @@ ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS = {
     "known_emails",
 }
 ACCOUNT_VIEW_MAX_PROPERTIES = 50
+
+
+def is_account_sql_query_filter(expression: ast.Expr | None, aliases: set[str]) -> bool:
+    if isinstance(expression, ast.And):
+        return any(is_account_sql_query_filter(item, aliases) for item in expression.exprs)
+    if isinstance(expression, ast.Or):
+        return bool(expression.exprs) and all(is_account_sql_query_filter(item, aliases) for item in expression.exprs)
+    if isinstance(expression, ast.CompareOperation) and expression.op == ast.CompareOperationOp.Eq:
+        for field, placeholder in [(expression.left, expression.right), (expression.right, expression.left)]:
+            if (
+                isinstance(field, ast.Field)
+                and ".".join(str(part) for part in field.chain) not in aliases
+                and isinstance(placeholder, ast.Placeholder)
+                and placeholder.chain == ["account_external_id"]
+            ):
+                return True
+    return False
+
+
+class AccountSqlQueryAliasCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.aliases: set[str] = set()
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        self.aliases.add(node.alias)
+        super().visit_alias(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.aliases.update(node.ctes or {})
+        super().visit_select_query(node)
+
+
+class AccountSqlQueryScopeValidator(TraversingVisitor):
+    def __init__(self, aliases: set[str]) -> None:
+        super().__init__()
+        self.aliases = aliases
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if not node.select_from or not is_account_sql_query_filter(node.where, self.aliases):
+            raise InvalidAccountViewContent(["SQL query must filter by {account_external_id} in every SELECT's WHERE."])
+        super().visit_select_query(node)
 
 
 class InvalidAccountViewContent(ValueError):
@@ -193,9 +241,47 @@ def validate_dot_matrix_widget_config(config: dict[str, object]) -> list[str]:
     )
 
 
+def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
+    if not set(config) <= {"query", "visualization"}:
+        return ["SQL query config must contain only a query and optional visualization settings."]
+    query = config.get("query")
+    if not isinstance(query, str) or not query.strip():
+        return ["SQL query config needs a query."]
+    try:
+        select = parse_select(query)
+    except ExposedHogQLError:
+        return ["Enter a valid SQL query."]
+    try:
+        aliases = AccountSqlQueryAliasCollector()
+        aliases.visit(select)
+        AccountSqlQueryScopeValidator(aliases.aliases).visit(select)
+    except InvalidAccountViewContent as error:
+        return error.errors
+    if "visualization" in config:
+        from pydantic import ValidationError
+
+        from posthog.schema import DataVisualizationNode
+
+        visualization = config["visualization"]
+        if not isinstance(visualization, dict) or not set(visualization) <= {
+            "display",
+            "chartSettings",
+            "tableSettings",
+        }:
+            return ["SQL visualization settings are invalid."]
+        try:
+            DataVisualizationNode.model_validate(
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": query}, **visualization}
+            )
+        except ValidationError:
+            return ["SQL visualization settings are invalid."]
+    return []
+
+
 ACCOUNT_VIEW_CONFIG_VALIDATORS: dict[str, Callable[[dict[str, Any]], list[str]]] = {
     "Properties": validate_properties_widget_config,
     "DotMatrix": validate_dot_matrix_widget_config,
+    "SqlQuery": validate_sql_query_widget_config,
 }
 
 

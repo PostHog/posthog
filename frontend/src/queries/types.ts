@@ -21,6 +21,8 @@ import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    onLoadingChange?: (loading: boolean) => void
+    externalLoadingIndicator?: boolean
     onSelectBIMark?: (record: Record<string, unknown>) => void
     isBIMarkActiveFilter?: (record: Record<string, unknown>) => boolean
     getBIMarkDashboardUrl?: (record: Record<string, unknown>) => string
@@ -79,6 +81,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableMaxPaginationLimit?: number
     /** Stop Data Table pagination after this many accumulated rows. */
     dataTableMaxPaginationRows?: number
+    dataTableCaptureQueryTelemetry?: boolean
     /** Keep the Data Table toolbar fixed while its table content scrolls. */
     dataTableAllowContentScroll?: boolean
     /** Virtualize rows in an embedded SQL result table with a bounded height. */

@@ -182,6 +182,9 @@ For non-nullable materialized columns, patterns above 16,384 characters skip the
 
 ## ClickHouse query errors
 
+HogQL query API errors include metadata diagnostics with the same `values` bindings used for execution.
+A missing column reports that column's error even when the query contains placeholders.
+
 `posthog/errors.py` maps ClickHouse error codes to exceptions. Query APIs expose `ExposedCHQueryError` messages and hide `InternalCHQueryError` messages.
 For additional user-correctable errors, set `ErrorCodeMeta.user_safe` to a fixed explanation with a next step.
 Parsing, array, regular expression, scalar subquery, JOIN, and LIMIT errors use these explanations where raw details cannot be exposed safely.

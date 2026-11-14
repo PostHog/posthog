@@ -1,9 +1,10 @@
-import { parseSelect } from './hogqlParserSingleton'
+import { parseSelect } from 'lib/monaco/hogqlParser'
+
 import { SELECTION_NOT_A_QUERY, findSelectionProblem } from './saveCandidateProblems'
 import { SELECTION_LABEL, SaveCandidates } from './SaveTargetCycler'
 
-jest.mock('./hogqlParserSingleton', () => {
-    const actual = jest.requireActual('./hogqlParserSingleton')
+jest.mock('lib/monaco/hogqlParser', () => {
+    const actual = jest.requireActual('lib/monaco/hogqlParser')
     return { ...actual, parseSelect: jest.fn(actual.parseSelect) }
 })
 

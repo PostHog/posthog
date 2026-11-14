@@ -1,3 +1,4 @@
+import { parseSelect } from 'lib/monaco/hogqlParser'
 import { createWorker } from 'lib/utils/createWorker'
 
 import {
@@ -7,7 +8,6 @@ import {
     innermostSelectRangeFromAst,
     tablesAndColumnsFromAst,
 } from './hogqlAst'
-import { parseSelect } from './hogqlParserSingleton'
 import type { HogqlParserQuestion, HogqlParserRequest, HogqlParserResponse } from './hogqlParserWorker'
 
 // Runs the HogQL parse in a worker so a long query does not freeze the editor. Falls back to
