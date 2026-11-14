@@ -1,35 +1,25 @@
 from django.db import migrations
-from django.db.models import Q
 
+# Stored scanner queries are validated against the recordings query schema, which no longer has the relevance sort or
+# filter, so a leftover key would fail every read of the scanner. Removing keys inside one UPDATE keeps concurrent edits.
+DROP_RETIRED_SCANNER_QUERY_FIELDS = """
+UPDATE replay_vision_replayscanner
+SET query = CASE WHEN query->>'order' = 'surfacing_score' THEN query - 'order' ELSE query END - 'recommended_only'
+WHERE query->>'order' = 'surfacing_score' OR query ? 'recommended_only'
+"""
 
-def _without_retired_fields(query: dict) -> dict:
-    cleaned = {key: value for key, value in query.items() if key != "recommended_only"}
-    if cleaned.get("order") == "surfacing_score":
-        cleaned.pop("order")
-    return cleaned
-
-
-# Stored scanner queries are validated against the recordings query schema, which no longer has the
-# relevance sort or filter, so a leftover key would fail every read of the scanner.
-def drop_retired_relevance_fields(apps, schema_editor):
-    ReplayScanner = apps.get_model("replay_vision", "ReplayScanner")
-    scanners = ReplayScanner._base_manager.filter(
-        Q(query__order="surfacing_score") | Q(query__has_key="recommended_only")
-    )
-    for scanner in scanners.only("id", "query").iterator(chunk_size=500):
-        scanner.query = _without_retired_fields(scanner.query)
-        scanner.save(update_fields=["query"])
-
-    ReplayScannerBackfill = apps.get_model("replay_vision", "ReplayScannerBackfill")
-    backfills = ReplayScannerBackfill._base_manager.filter(
-        Q(scanner_snapshot__query__order="surfacing_score") | Q(scanner_snapshot__query__has_key="recommended_only")
-    )
-    for backfill in backfills.only("id", "scanner_snapshot").iterator(chunk_size=500):
-        backfill.scanner_snapshot = {
-            **backfill.scanner_snapshot,
-            "query": _without_retired_fields(backfill.scanner_snapshot["query"]),
-        }
-        backfill.save(update_fields=["scanner_snapshot"])
+DROP_RETIRED_BACKFILL_QUERY_FIELDS = """
+UPDATE replay_vision_replayscannerbackfill
+SET scanner_snapshot = jsonb_set(
+    scanner_snapshot,
+    '{query}',
+    CASE
+        WHEN scanner_snapshot->'query'->>'order' = 'surfacing_score' THEN (scanner_snapshot->'query') - 'order'
+        ELSE scanner_snapshot->'query'
+    END - 'recommended_only'
+)
+WHERE scanner_snapshot->'query'->>'order' = 'surfacing_score' OR scanner_snapshot->'query' ? 'recommended_only'
+"""
 
 
 class Migration(migrations.Migration):
@@ -38,5 +28,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(drop_retired_relevance_fields, migrations.RunPython.noop, elidable=True),
+        migrations.RunSQL(DROP_RETIRED_SCANNER_QUERY_FIELDS, migrations.RunSQL.noop, elidable=True),
+        migrations.RunSQL(DROP_RETIRED_BACKFILL_QUERY_FIELDS, migrations.RunSQL.noop, elidable=True),
     ]
