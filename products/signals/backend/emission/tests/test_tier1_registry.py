@@ -167,6 +167,9 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.SENTINELONE, "threats", "sentinelone", "scanner_finding"),
     (ExternalDataSourceType.JFROGARTIFACTORY, "xray_violations", "jfrog_xray", "scanner_finding"),
     (ExternalDataSourceType.DYNATRACE, "security_problems", "dynatrace_security", "scanner_finding"),
+    # App reviews and error-report feedback
+    (ExternalDataSourceType.APPSTORECONNECT, "customer_reviews", "app_store_connect", "review"),
+    (ExternalDataSourceType.SENTRY, "project_user_feedback", "sentry_feedback", "feedback"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]

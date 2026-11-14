@@ -1178,6 +1178,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `sentinelone` - SentinelOne
  * * `jfrog_xray` - JFrog Xray
  * * `dynatrace_security` - Dynatrace Application Security
+ * * `app_store_connect` - App Store Connect
+ * * `sentry_feedback` - Sentry user feedback
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1327,6 +1329,8 @@ export const SignalSourceProductEnumApi = {
     Sentinelone: 'sentinelone',
     JfrogXray: 'jfrog_xray',
     DynatraceSecurity: 'dynatrace_security',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -1526,7 +1530,9 @@ export interface InboxOnboardingSourceApi {
      * * `aws_macie` - AWS Macie
      * * `sentinelone` - SentinelOne
      * * `jfrog_xray` - JFrog Xray
-     * * `dynatrace_security` - Dynatrace Application Security */
+     * * `dynatrace_security` - Dynatrace Application Security
+     * * `app_store_connect` - App Store Connect
+     * * `sentry_feedback` - Sentry user feedback */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -4473,6 +4479,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `sentinelone` - sentinelone
  * * `jfrog_xray` - jfrog_xray
  * * `dynatrace_security` - dynatrace_security
+ * * `app_store_connect` - app_store_connect
+ * * `sentry_feedback` - sentry_feedback
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4622,6 +4630,8 @@ export const SignalSourceProductApi = {
     Sentinelone: 'sentinelone',
     JfrogXray: 'jfrog_xray',
     DynatraceSecurity: 'dynatrace_security',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -5690,6 +5700,19 @@ export interface CursorIssueSignalExtraApi {
     timestamp: string | null
 }
 
+export interface AppStoreConnectReviewSignalExtraApi {
+    app_id: string | null
+    rating: string | null
+    territory: string | null
+    created_date: string | null
+}
+
+export interface SentryFeedbackSignalExtraApi {
+    project_slug: string | null
+    event_id: string | null
+    date_created: string | null
+}
+
 export interface SonarcloudScannerFindingSignalExtraApi {
     severity: string | null
     type: string | null
@@ -6189,6 +6212,8 @@ export type SignalExtraApi =
     | AzureApplicationInsightsIssueSignalExtraApi
     | AppsignalIssueSignalExtraApi
     | CursorIssueSignalExtraApi
+    | AppStoreConnectReviewSignalExtraApi
+    | SentryFeedbackSignalExtraApi
     | SonarcloudScannerFindingSignalExtraApi
     | CheckmarxScannerFindingSignalExtraApi
     | VeracodeScannerFindingSignalExtraApi
@@ -6426,7 +6451,9 @@ export interface SignalNodeApi {
      * * `aws_macie` - aws_macie
      * * `sentinelone` - sentinelone
      * * `jfrog_xray` - jfrog_xray
-     * * `dynatrace_security` - dynatrace_security */
+     * * `dynatrace_security` - dynatrace_security
+     * * `app_store_connect` - app_store_connect
+     * * `sentry_feedback` - sentry_feedback */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *

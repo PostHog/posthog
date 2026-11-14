@@ -163,6 +163,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.aha_ideas import AHA_CONFIG
     from products.signals.backend.emission.airbrake_groups import AIRBRAKE_CONFIG
     from products.signals.backend.emission.amazon_cloudwatch_alarm_history import AMAZON_CLOUDWATCH_ALARM_HISTORY_CONFIG
+    from products.signals.backend.emission.app_store_connect_customer_reviews import APP_STORE_CONNECT_CONFIG
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
     from products.signals.backend.emission.appsignal_anomaly_incidents import APPSIGNAL_ANOMALY_CONFIG
@@ -276,6 +277,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.semgrep_sca_findings import SEMGREP_SCA_CONFIG
     from products.signals.backend.emission.sentinelone_threats import SENTINELONE_CONFIG
     from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
+    from products.signals.backend.emission.sentry_user_feedback import SENTRY_FEEDBACK_CONFIG
     from products.signals.backend.emission.servicenow_incidents import SERVICENOW_CONFIG
     from products.signals.backend.emission.shortcut_stories import SHORTCUT_CONFIG
     from products.signals.backend.emission.sleekplan_posts import SLEEKPLAN_CONFIG
@@ -489,6 +491,10 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.SENTINELONE, "threats", SENTINELONE_CONFIG)
     register_signal_source(ExternalDataSourceType.JFROGARTIFACTORY, "xray_violations", JFROG_XRAY_CONFIG)
     register_signal_source(ExternalDataSourceType.DYNATRACE, "security_problems", DYNATRACE_SECURITY_CONFIG)
+    # App reviews and error-report feedback. Sentry feedback is its own product so the Sentry
+    # issues toggle stays independent.
+    register_signal_source(ExternalDataSourceType.APPSTORECONNECT, "customer_reviews", APP_STORE_CONNECT_CONFIG)
+    register_signal_source(ExternalDataSourceType.SENTRY, "project_user_feedback", SENTRY_FEEDBACK_CONFIG)
 
 
 _register_all_emitters()

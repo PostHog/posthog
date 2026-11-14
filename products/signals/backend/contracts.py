@@ -1826,6 +1826,34 @@ class CursorIssueSignalInput(SignalInputBase):
     extra: CursorIssueSignalExtra
 
 
+# ── App reviews and error-report feedback ──────────────────────────────────────
+
+
+class AppStoreConnectReviewSignalExtra(SignalExtraBase):
+    app_id: str | None
+    rating: str | None
+    territory: str | None
+    created_date: str | None
+
+
+class AppStoreConnectReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.APP_STORE_CONNECT]
+    extra: AppStoreConnectReviewSignalExtra
+
+
+class SentryFeedbackSignalExtra(SignalExtraBase):
+    project_slug: str | None
+    event_id: str | None
+    date_created: str | None
+
+
+class SentryFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SENTRY_FEEDBACK]
+    extra: SentryFeedbackSignalExtra
+
+
 # ── Code, secret and cloud security scanners ───────────────────────────────────
 
 
@@ -2620,6 +2648,8 @@ SignalInput = Annotated[
     | AzureApplicationInsightsIssueSignalInput
     | AppsignalIssueSignalInput
     | CursorIssueSignalInput
+    | AppStoreConnectReviewSignalInput
+    | SentryFeedbackSignalInput
     | SonarcloudScannerFindingSignalInput
     | CheckmarxScannerFindingSignalInput
     | VeracodeScannerFindingSignalInput
@@ -2770,6 +2800,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AzureApplicationInsightsIssueSignalInput,
     AppsignalIssueSignalInput,
     CursorIssueSignalInput,
+    AppStoreConnectReviewSignalInput,
+    SentryFeedbackSignalInput,
     SonarcloudScannerFindingSignalInput,
     CheckmarxScannerFindingSignalInput,
     VeracodeScannerFindingSignalInput,
