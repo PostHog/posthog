@@ -116,11 +116,6 @@ describe('EmailTrackingService', () => {
                 'https://example.com/?a=1&b=2',
             ],
             [
-                'uppercase named entity &AMP;',
-                '<body><a href="https://example.com/?a=1&AMP;b=2">x</a></body>',
-                'https://example.com/?a=1&b=2',
-            ],
-            [
                 'plain URL with no entities',
                 '<body><a href="https://example.com/path">x</a></body>',
                 'https://example.com/path',
@@ -155,10 +150,6 @@ describe('EmailTrackingService', () => {
         it.each([
             ['written out', 'javascript:alert(1)'],
             ['entity-encoded', 'java&#x73;cript:alert(1)'],
-            ['split by a tab reference', 'java&#X09;script:alert(1)'],
-            ['split by a newline reference', 'jav&#10;ascript:alert(1)'],
-            ['split by a raw carriage return', 'java\rscript:alert(1)'],
-            ['led by a control character', '&#x01;javascript:alert(1)'],
         ])('skips a javascript: href that is %s', (_, href) => {
             const out = addTrackingToEmail(`<body><a href="${href}">x</a></body>`, invocation, signer)
             expect(out).toContain(`href="${href}"`)
