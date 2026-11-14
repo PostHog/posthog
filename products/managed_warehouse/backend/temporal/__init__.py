@@ -20,10 +20,12 @@ from products.managed_warehouse.backend.temporal.ducklake_copy_data_modeling_wor
 )
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     DuckLakeRegisterDataImportsWorkflow,
+    DuckLakeTrinoLandingSweepWorkflow,
     cleanup_ducklake_registration_tables_activity,
     copy_and_register_ducklake_data_imports_activity,
     ducklake_register_data_imports_gate_activity,
     prepare_ducklake_data_imports_registration_activity,
+    sweep_trino_registration_landing_activity,
 )
 from products.managed_warehouse.backend.temporal.model_alias_workflow import (
     ReconcileModelAliasesWorkflow,
@@ -44,6 +46,7 @@ WORKFLOWS = [
     DuckLakeCopyDataImportsWorkflow,
     DuckLakeCopyDataModelingWorkflow,
     DuckLakeRegisterDataImportsWorkflow,
+    DuckLakeTrinoLandingSweepWorkflow,
     ManagedWarehouseViewTranslationWorkflow,
 ]
 ACTIVITIES = [
@@ -63,6 +66,7 @@ ACTIVITIES = [
     prepare_managed_warehouse_view_translation_activity,
     record_managed_warehouse_source_job_activity,
     run_ducklake_compaction,
+    sweep_trino_registration_landing_activity,
     compile_managed_warehouse_team_views_activity,
     fail_managed_warehouse_view_translation_activity,
     finalize_managed_warehouse_view_translation_activity,
