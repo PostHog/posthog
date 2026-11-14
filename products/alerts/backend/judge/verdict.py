@@ -7,8 +7,7 @@ class LLMDetectionVerdict(BaseModel):
     """The structured output the model must return about the current point of one series."""
 
     # The model writes the fields in this order, and the judge calls it with thinking disabled.
-    # The rationale comes first so that the model reasons before it decides. When is_anomaly came
-    # first, the model could set the verdict and then write a rationale that argued against it.
+    # The rationale comes first so that the model reasons before it sets the verdict.
     rationale: str = Field(
         description=(
             "One or two plain sentences about the current point: what you saw and why it is or isn't unusual. "
