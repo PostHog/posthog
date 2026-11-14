@@ -4,6 +4,7 @@ import DataModelingDetailContent from '../categoryDetail/categories/DataModeling
 import { SdkOutdatedRenderer } from '../renderers/SdkOutdatedRenderer'
 import type { HealthIssue, HealthIssueSeverity } from '../types'
 import { DataModelingHealthTable } from './DataModelingHealthTable'
+import { ExperimentsHealthTable } from './ExperimentsHealthTable'
 import { IngestionWarningTable } from './IngestionWarningTable'
 import { PipelineHealthTable } from './PipelineHealthTable'
 import { WebAnalyticsHealthTable } from './WebAnalyticsHealthTable'
@@ -188,6 +189,46 @@ const WEB_ANALYTICS_ISSUES: HealthIssue[] = [
     }),
 ]
 
+const EXPERIMENT_ISSUES: HealthIssue[] = [
+    createMockIssue('exp-1', {
+        kind: 'experiment_flag_state',
+        payload: {
+            experiment_id: 101,
+            feature_flag_id: 201,
+            actions: ['open_feature_flag'],
+            experiment_name: 'Checkout button color',
+            title: 'The experiment is paused',
+            detail: 'The experiment is running, but its feature flag is disabled, so no users see a variant.',
+        },
+        created_at: '2025-01-14T08:00:00Z',
+    }),
+    createMockIssue('exp-2', {
+        kind: 'experiment_no_metric',
+        payload: {
+            experiment_id: 102,
+            feature_flag_id: 202,
+            actions: ['add_primary_metric', 'add_secondary_metric'],
+            experiment_name: 'Pricing page layout',
+            title: 'No metrics defined',
+            detail: 'The experiment has launched, but it has no metric, so it shows no results.',
+        },
+        created_at: '2025-01-13T08:00:00Z',
+    }),
+    createMockIssue('exp-3', {
+        kind: 'experiment_forced_variant',
+        severity: 'info',
+        payload: {
+            experiment_id: 103,
+            feature_flag_id: 203,
+            actions: ['edit_release_conditions'],
+            experiment_name: 'Onboarding checklist',
+            title: 'Some users are not randomly assigned to a variant',
+            detail: 'Set 1 sets the variant override "test", so users who match it always get "test".',
+        },
+        created_at: '2025-01-12T08:00:00Z',
+    }),
+]
+
 const SDK_OUTDATED_ISSUE: HealthIssue = createMockIssue('sdk-1', {
     kind: 'sdk_outdated',
     severity: 'warning',
@@ -288,6 +329,10 @@ export const PipelineDefault: StoryFn = () => (
 
 export const PipelineEmpty: StoryFn = () => (
     <PipelineHealthTable issues={[]} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
+)
+
+export const ExperimentsDefault: StoryFn = () => (
+    <ExperimentsHealthTable issues={EXPERIMENT_ISSUES} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
 )
 
 export const WebAnalyticsAllChecks: StoryFn = () => (
