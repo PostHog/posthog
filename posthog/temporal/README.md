@@ -313,6 +313,7 @@ By default, the logger you get from `structlog.get_logger` is configured to do b
 >
 > - A `team_id` must be set somewhere in the context.
 > - The function `resolve_log_source` in `posthog/temporal/common/logger.py` must be configured to resolve a `log_source` from your workflow's ID and type.
+>   Without a branch, your logs fall back to the `temporal_workflow` source, which no product UI reads.
 >   That being said, we want logging to be there when you need it, but otherwise get out of the way. For this reason, writing logs to stdout will always work, regardless of whether the requirements for log production are met or not. Moreover, if the requirements for log production are not met, log production will not crash your workflows.
 
 > [!TIP]

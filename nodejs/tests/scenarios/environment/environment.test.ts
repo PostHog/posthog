@@ -17,6 +17,7 @@ import Redis from 'ioredis'
 import net from 'net'
 import os from 'os'
 import path from 'path'
+import { Client } from 'pg'
 import { setTimeout as nextTimers } from 'timers/promises'
 import { promisify } from 'util'
 
@@ -31,17 +32,30 @@ import { isPortFree } from '~/tests/helpers/service-process'
 import { CdpRole } from '../cards'
 import { Environment, createEnvironment } from './environment'
 import * as processes from './processes'
-import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
-import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
+    ProcEntry,
+    holdRunLock,
+    lockAddress,
+    planCleanup,
+    processState,
+    readProcs,
+    strangerConflict,
+    terminate,
+} from './processes'
+import { ROLE_PORTS, Role, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from './roles'
+import {
+    RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
     STACK,
     downServices,
     forgetSesBucket,
+    lagOf,
     membersOf,
     pingRedis,
+    postgresServersOf,
     scratchSchema,
     seekFailures,
+    terminateRoleConnections,
     withPostgres,
 } from './stack'
 import { createSupervisor } from './supervisor'
@@ -50,6 +64,7 @@ const SELF = 100
 const REPO = '/work/posthog'
 const NODEJS = `${REPO}/nodejs`
 const STATE_DIR = '/home/dev/.cache/posthog-scenarios'
+const EDGE = { url: 'http://127.0.0.1:4566', caCertPath: `${STATE_DIR}/edge-ca/ca.pem` }
 const MARKED_ENV = ['PATH=/usr/bin', `SCENARIO_RUNNER=${STATE_DIR}`]
 const PLAIN_ENV = ['PATH=/usr/bin']
 const OTHER_CHECKOUT = '/work/posthog-other/nodejs'
@@ -72,11 +87,6 @@ const proc = (
 })
 
 const runner = proc(SELF, SELF, 'node scenarios run smoke', PLAIN_ENV)
-
-const stateOf = (pid: number): string => {
-    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
-    return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
-}
 
 const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
@@ -340,8 +350,83 @@ describe('scenario environment', () => {
     })
 
     describe('roleSpecs', () => {
-        const base = { PATH: '/usr/bin', AWS_PROFILE: 'prod-admin', HTTP_SERVER_PORT: '6738' }
-        const specs = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+        const base = {
+            PATH: '/usr/bin',
+            AWS_PROFILE: 'prod-admin',
+            HTTP_SERVER_PORT: '6738',
+            EXTERNAL_REQUEST_PROXY_TEAMS: '2',
+        }
+        const specs = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR)
+
+        const POSTHOG = 'postgres://posthog:posthog@localhost:5432/posthog'
+
+        it.each<[string, Record<string, string>, string[]]>([
+            [
+                'one server when Cyclotron shares it',
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron' },
+                [POSTHOG],
+            ],
+            [
+                'one server when Cyclotron spells the same server another way',
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1/cyclotron' },
+                [POSTHOG],
+            ],
+            [
+                'one server when a setting holds the word postgres rather than a URL',
+                { POSTHOG_DB_USER: 'postgres' },
+                [POSTHOG],
+            ],
+            [
+                'both servers when a profile moves Cyclotron to another',
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron' },
+                [POSTHOG, 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron'],
+            ],
+            [
+                'both servers when a profile moves the read replica to another',
+                { DATABASE_READONLY_URL: 'postgres://posthog:posthog@replica.example.com:5432/posthog' },
+                [POSTHOG, 'postgres://posthog:posthog@replica.example.com:5432/posthog'],
+            ],
+            [
+                'one server when a setting no role reads holds a Postgres URL',
+                { PROFILE_NOTES_URL: 'postgres://posthog:posthog@shared.example.com:5432/notes' },
+                [POSTHOG],
+            ],
+            [
+                'both servers when settings build the primary on another host',
+                {
+                    DATABASE_URL: '',
+                    POSTHOG_DB_NAME: 'posthog',
+                    POSTHOG_DB_USER: 'posthog',
+                    POSTHOG_DB_PASSWORD: 'posthog',
+                    POSTHOG_POSTGRES_HOST: 'primary.example.com',
+                    POSTHOG_POSTGRES_PORT: '5432',
+                },
+                [POSTHOG, 'postgres://posthog:posthog@primary.example.com:5432/posthog'],
+            ],
+        ])('lists the Postgres servers the roles reach: %s', (_story, settings, servers) => {
+            const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings)
+
+            expect(postgresServersOf(spec, POSTHOG)).toEqual(servers)
+        })
+
+        const hogflowWorker = (settings: Record<string, string>) =>
+            roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings).find(
+                ({ role }) => role === 'cdp-cyclotron-worker-hogflow'
+            )!
+
+        it.each<[string, Record<string, string>, number]>([
+            ['the default', {}, 3],
+            ['a profile setting', { CDP_FETCH_RETRIES: '5' }, 5],
+            ['a setting the worker cannot parse, as the worker keeps its default', { CDP_FETCH_RETRIES: 'many' }, 3],
+        ])('reads the fetch retries of the hogflow worker from %s', (_story, settings, retries) => {
+            expect(fetchRetriesOf(hogflowWorker(settings))).toBe(retries)
+        })
+
+        it('refuses fetch retries that never run out', () => {
+            expect(() => fetchRetriesOf(hogflowWorker({ CDP_FETCH_RETRIES: 'Infinity' }))).toThrow(
+                'CDP_FETCH_RETRIES Infinity is not a number of retries'
+            )
+        })
 
         it('gives every role its own port, cdp-api the one Django calls', () => {
             const ports = Object.fromEntries(specs.map((spec) => [spec.role, spec.env.HTTP_SERVER_PORT]))
@@ -351,24 +436,81 @@ describe('scenario environment', () => {
             expect(ports['cdp-api']).toBe('6738')
         })
 
-        it.each(CdpRole.options)('runs %s as itself in dev, marked, against the edge, without AWS_PROFILE', (role) => {
-            const { env } = specs.find((spec) => spec.role === role)!
-
-            expect(env).not.toHaveProperty('AWS_PROFILE')
-            expect(env).toMatchObject({
-                PATH: '/usr/bin',
-                NODE_ENV: 'dev',
-                PLUGIN_SERVER_MODE: role,
-                SES_ENDPOINT: 'http://127.0.0.1:4566',
-                SCENARIO_RUNNER: STATE_DIR,
+        it("runs each replica a profile asks for on its own port under its role's connection name, replica 0 on the role's port", () => {
+            const replicated = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, {}, undefined, {
+                'cdp-cyclotron-worker-hogflow': 3,
+                'cdp-processed-events': 2,
             })
+            const identities = replicated.map(({ role, replica, port, env }) => ({
+                role,
+                replica,
+                port,
+                listens: env.HTTP_SERVER_PORT,
+                connects: env.PGAPPNAME,
+            }))
+
+            expect(identities.filter(({ replica }) => replica === 0)).toEqual(
+                specs.map(({ role, env }) => ({
+                    role,
+                    replica: 0,
+                    port: Number(env.HTTP_SERVER_PORT),
+                    listens: env.HTTP_SERVER_PORT,
+                    connects: env.PGAPPNAME,
+                }))
+            )
+            expect(identities.filter(({ replica }) => replica > 0)).toEqual([
+                {
+                    role: 'cdp-processed-events',
+                    replica: 1,
+                    port: 6860,
+                    listens: '6860',
+                    connects: 'scenario-cdp-processed-events',
+                },
+                {
+                    role: 'cdp-cyclotron-worker-hogflow',
+                    replica: 1,
+                    port: 6861,
+                    listens: '6861',
+                    connects: 'scenario-cdp-cyclotron-worker-hogflow',
+                },
+                {
+                    role: 'cdp-cyclotron-worker-hogflow',
+                    replica: 2,
+                    port: 6961,
+                    listens: '6961',
+                    connects: 'scenario-cdp-cyclotron-worker-hogflow',
+                },
+            ])
+            expect(consumerGroupsOf(replicated)).toEqual(consumerGroupsOf(specs))
         })
+
+        it.each(CdpRole.options)(
+            'runs %s as itself in dev, marked, against the edge and its proxy for every team, without AWS_PROFILE',
+            (role) => {
+                const { env } = specs.find((spec) => spec.role === role)!
+
+                expect(env).not.toHaveProperty('AWS_PROFILE')
+                expect(env).not.toHaveProperty('EXTERNAL_REQUEST_PROXY_TEAMS')
+                expect(env).toMatchObject({
+                    PATH: '/usr/bin',
+                    NODE_ENV: 'dev',
+                    PLUGIN_SERVER_MODE: role,
+                    SES_ENDPOINT: EDGE.url,
+                    HTTPS_PROXY: EDGE.url,
+                    NODE_EXTRA_CA_CERTS: EDGE.caCertPath,
+                    SCENARIO_RUNNER: STATE_DIR,
+                })
+            }
+        )
 
         it('lets profile settings override the role environment but not how the runner wires a role', () => {
             const settings = {
                 SES_REGION: 'eu-west-1',
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
                 SES_ENDPOINT: 'http://elsewhere',
+                HTTPS_PROXY: 'http://elsewhere',
+                NODE_EXTRA_CA_CERTS: '/elsewhere/ca.pem',
+                EXTERNAL_REQUEST_PROXY_TEAMS: '*:0.5',
                 PERSONHOG_ADDR: '127.0.0.1:1',
                 SES_RATE_LIMITER_VALKEY_HOST: 'elsewhere',
                 SES_RATE_LIMITER_VALKEY_PORT: '6379',
@@ -380,13 +522,16 @@ describe('scenario environment', () => {
                 SCENARIO_RUNNER: '0',
                 KAFKA_CONSUMER_GROUP_ID: 'scenario-events',
             }
-            const [spec] = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR, settings)
+            const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings)
 
             expect(spec.env).not.toHaveProperty('KAFKA_CONSUMER_GROUP_ID')
+            expect(spec.env).not.toHaveProperty('EXTERNAL_REQUEST_PROXY_TEAMS')
             expect(spec.env).toMatchObject({
                 SES_REGION: 'eu-west-1',
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
-                SES_ENDPOINT: 'http://127.0.0.1:4566',
+                SES_ENDPOINT: EDGE.url,
+                HTTPS_PROXY: EDGE.url,
+                NODE_EXTRA_CA_CERTS: EDGE.caCertPath,
                 PERSONHOG_ADDR: '127.0.0.1:50052',
                 SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
                 SES_RATE_LIMITER_VALKEY_PORT: '6390',
@@ -400,7 +545,12 @@ describe('scenario environment', () => {
         })
 
         it('drops an inherited consumer group id, so the events role joins the group a reset moves', () => {
-            const specs = roleSpecs({ KAFKA_CONSUMER_GROUP_ID: 'dev-group' }, 'http://edge', secretsOf({}), STATE_DIR)
+            const specs = roleSpecs(
+                { KAFKA_CONSUMER_GROUP_ID: 'dev-group' },
+                { url: 'http://edge' },
+                secretsOf({}),
+                STATE_DIR
+            )
 
             expect(specs.filter(({ env }) => 'KAFKA_CONSUMER_GROUP_ID' in env)).toEqual([])
         })
@@ -408,7 +558,7 @@ describe('scenario environment', () => {
         it("shares the runner's secrets with the roles", () => {
             const [spec] = roleSpecs(
                 {},
-                'http://edge',
+                { url: 'http://edge' },
                 secretsOf({ ENCRYPTION_SALT_KEYS: 'run-key', WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt' }),
                 STATE_DIR
             )
@@ -420,25 +570,29 @@ describe('scenario environment', () => {
         })
     })
 
-    it.each<[string, string, number | null]>([
+    it.each<[string, string, number | null, number | null]>([
         [
             'a group with members',
-            'GROUP        cdp-processed-events-consumer\nCOORDINATOR  0\nSTATE        Stable\nBALANCER     range\nMEMBERS      2\nTOTAL-LAG    0\n',
+            'GROUP        cdp-processed-events-consumer\nCOORDINATOR  0\nSTATE        Stable\nBALANCER     range\nMEMBERS      2\nTOTAL-LAG    3\n',
             2,
+            3,
         ],
         [
             'an empty group',
             'GROUP        cdp-processed-events-consumer\nSTATE        Empty\nMEMBERS      0\nTOTAL-LAG    0\n',
+            0,
             0,
         ],
         [
             'a group that never existed',
             'GROUP        cdp-processed-events-consumer\nCOORDINATOR  0\nSTATE        Dead\nBALANCER     \nMEMBERS      0\nTOTAL-LAG    0\n',
             0,
+            0,
         ],
-        ['output it cannot read', 'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n', null],
-    ])('reads the members of %s from rpk', (_name, output, members) => {
+        ['output it cannot read', 'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n', null, null],
+    ])('reads the members and lag of %s from rpk', (_name, output, members, lag) => {
         expect(membersOf(output)).toBe(members)
+        expect(lagOf(output)).toBe(lag)
     })
 
     it.each<[string, NodeJS.ProcessEnv, Record<string, string>, { group: string; topics: string[] }[]]>([
@@ -447,32 +601,41 @@ describe('scenario environment', () => {
             {},
             {},
             [
-                {
-                    group: 'cdp-processed-events-consumer',
-                    topics: ['clickhouse_events_json'],
-                },
+                { group: 'cdp-processed-events-consumer', topics: ['clickhouse_events_json'] },
+                { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
             ],
         ],
         [
             'the group the runner env overrides',
             { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events' },
             {},
-            [{ group: 'scenario-events', topics: ['clickhouse_events_json'] }],
+            [
+                { group: 'scenario-events', topics: ['clickhouse_events_json'] },
+                { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+            ],
         ],
         [
             'the events topic under the Kafka prefix the roles inherit',
             { KAFKA_PREFIX: 'scenario_' },
             {},
-            [{ group: 'cdp-processed-events-consumer', topics: ['scenario_clickhouse_events_json'] }],
+            [
+                { group: 'cdp-processed-events-consumer', topics: ['scenario_clickhouse_events_json'] },
+                { group: 'cdp-ses-webhooks-consumer', topics: ['scenario_cdp_ses_webhooks'] },
+            ],
         ],
         [
             'the group and topic a profile sets',
             {},
             { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events', CDP_EVENTS_CONSUMER_TOPIC: 'scenario_events_json' },
-            [{ group: 'scenario-events', topics: ['scenario_events_json'] }],
+            [
+                { group: 'scenario-events', topics: ['scenario_events_json'] },
+                { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+            ],
         ],
     ])('moves %s', (_name, env, settings, groups) => {
-        expect(consumerGroupsOf(roleSpecs(env, 'http://edge', secretsOf({}), STATE_DIR, settings))).toEqual(groups)
+        expect(consumerGroupsOf(roleSpecs(env, { url: 'http://edge' }, secretsOf({}), STATE_DIR, settings))).toEqual(
+            groups
+        )
     })
 
     it.each<[string, string, string[]]>([
@@ -713,7 +876,7 @@ describe('scenario environment', () => {
 
         it('kills the whole group of a marked role and leaves an unmarked sibling running', async () => {
             const stateDir = path.join(os.tmpdir(), `scenario-leftovers-${process.pid}`)
-            const [roleEnv] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), stateDir)
+            const [roleEnv] = roleSpecs(process.env, EDGE, secretsOf({}), stateDir)
             const { SCENARIO_RUNNER: _marker, ...plainEnv } = process.env
             const marked = await launch(roleEnv.env)
             const unmarked = await launch(plainEnv)
@@ -733,7 +896,7 @@ describe('scenario environment', () => {
         it('resumes a frozen group so it stops on SIGTERM instead of waiting for SIGKILL', async () => {
             const frozen = await launch(process.env)
             process.kill(-frozen.pid!, 'SIGSTOP')
-            while (stateOf(frozen.pid!) !== 'T') {
+            while (processState(frozen.pid!) !== 'T') {
                 await new Promise(setImmediate)
             }
             const exited = once(frozen, 'exit')
@@ -780,7 +943,7 @@ describe('scenario environment', () => {
         afterAll(() => rmSync(tempRoot, { recursive: true, force: true }))
 
         it('stops a running role without recording its exit or starting it again', async () => {
-            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
             await supervisor.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: tag } }])
             expect(tagged()).toHaveLength(1)
 
@@ -788,6 +951,23 @@ describe('scenario environment', () => {
             await nextTimers(0)
 
             expect({ exits: supervisor.exits(), running: tagged() }).toEqual({ exits: [], running: [] })
+        }, 15_000)
+
+        it('keeps a role stopped until the last of two overlapping freezes releases', async () => {
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+            await supervisor.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: tag } }])
+            const [{ pid }] = tagged()
+            const first = supervisor.freeze(spec, 5000)
+            const second = supervisor.freeze(spec, 5000)
+            expect(await second.observed()).toBe(true)
+
+            await first.release()
+            await first.release()
+            const afterFirst = processState(pid)
+            await second.release()
+            await waitForExpect(() => expect(processState(pid)).not.toBe('T'), 5000, 20)
+
+            expect(afterFirst).toBe('T')
         }, 15_000)
 
         it('records a role whose first start fails and retries it, instead of failing the start', async () => {
@@ -799,7 +979,7 @@ describe('scenario environment', () => {
                 graceMs: 1000,
                 restartBackoffMs: 20,
             })
-            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
             try {
                 await missing.start([spec])
 
@@ -807,6 +987,49 @@ describe('scenario environment', () => {
                 expect(missing.exits()[0]).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
             } finally {
                 await missing.stop()
+            }
+        }, 15_000)
+
+        const blockEventLoopUntilZombie = (pid: number): void => {
+            const deadline = Date.now() + 10_000
+            while (processState(pid) !== 'Z') {
+                if (Date.now() > deadline) {
+                    throw new Error(`${pid} did not become a zombie within 10 s`)
+                }
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+            }
+        }
+
+        it('refuses to kill a role that something else killed before its exit was reported', async () => {
+            const killedElsewhere = createSupervisor({
+                command: process.execPath,
+                args: ['-e', 'setInterval(() => {}, 1000)'],
+                cwd: os.tmpdir(),
+                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
+                graceMs: 1000,
+                restartBackoffMs: 60_000,
+            })
+            const killedTag = `killed-${process.pid}`
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+            try {
+                await killedElsewhere.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: killedTag } }])
+                const [{ pid }] = readProcs().filter((entry) =>
+                    entry.environ?.includes(`SCENARIO_TEST_TAG=${killedTag}`)
+                )
+                process.kill(pid, 'SIGKILL')
+                blockEventLoopUntilZombie(pid)
+
+                await expect(killedElsewhere.kill(spec, 2000)).rejects.toThrow(`${spec.role} is not running`)
+                await waitForExpect(
+                    () =>
+                        expect(killedElsewhere.exits()).toEqual([
+                            expect.objectContaining({ role: spec.role, signal: 'SIGKILL', byValve: false }),
+                        ]),
+                    5000,
+                    20
+                )
+            } finally {
+                await killedElsewhere.stop()
             }
         }, 15_000)
 
@@ -820,7 +1043,7 @@ describe('scenario environment', () => {
                 graceMs: 1000,
                 restartBackoffMs: 50,
             })
-            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
             try {
                 await exiting.start([spec])
                 rmdirSync(cwd)
@@ -1023,12 +1246,12 @@ describe('scenario environment', () => {
                     ).rows.map((row) => row.status),
                 cyclotronUrl
             )
-        const eventsGroup = (): { group: string; topic: string } => {
-            const [{ group, topics }] = consumerGroupsOf(
-                roleSpecs(process.env, 'http://edge', secretsOf({}), STATE_DIR)
+        const everyGroupAtEnd = (): Record<string, Record<string, string>> =>
+            Object.fromEntries(
+                consumerGroupsOf(roleSpecs(process.env, { url: 'http://edge' }, secretsOf({}), STATE_DIR)).map(
+                    ({ group, topics }) => [group, Object.fromEntries(topics.map((topic) => [topic, 'end']))]
+                )
             )
-            return { group, topic: topics[0] }
-        }
         const offsetsOf = (): Record<string, Record<string, string>> =>
             existsSync(path.join(fakes, 'offsets.json'))
                 ? parseJSON(readFileSync(path.join(fakes, 'offsets.json'), 'utf8'))
@@ -1331,6 +1554,186 @@ describe('scenario environment', () => {
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: false })])
         }, 30_000)
 
+        it('kills a role on a valve, sees the old process gone, records the exit as the valve and starts it again', async () => {
+            const role = 'cdp-cyclotron-worker-email'
+            environment = environmentOf()
+            await environment.up()
+            const health = `http://127.0.0.1:${ROLE_PORTS[role]}/_health`
+            const killed = Number(await (await internalFetch(health)).text())
+
+            const actuation = await environment.actuate({ kind: 'kill', role })
+
+            expect(await actuation.observed()).toBe(true)
+            expect(() => process.kill(killed, 0)).toThrow()
+            await waitForExpect(async () => {
+                const answer = await internalFetch(health)
+                expect(Number(await answer.text())).not.toBe(killed)
+            }, 15_000)
+            await actuation.release()
+            expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: true })])
+        }, 30_000)
+
+        it('starts every replica a profile asks for, lists each one, and kills only replica 0 on a valve', async () => {
+            const role = 'cdp-cyclotron-worker-email'
+            environment = environmentOf()
+            await environment.up()
+            await environment.reset({}, { [role]: 2 })
+            const pidAt = async (url: string): Promise<number> =>
+                Number(await (await internalFetch(`${url}/_health`)).text())
+            const [first, second] = environment.roles().filter(({ name }) => name === role)
+            const before = { first: await pidAt(first.url), second: await pidAt(second.url) }
+
+            const actuation = await environment.actuate({ kind: 'kill', role })
+
+            expect(await actuation.observed()).toBe(true)
+            await waitForExpect(async () => expect(await pidAt(first.url)).not.toBe(before.first), 15_000)
+            expect({
+                handles: environment.roles().map(({ name, replica, url }) => ({ name, replica, url })),
+                replica0: environment.role(role).url,
+                secondUntouched: await pidAt(second.url),
+                exits: environment.exits().map(({ role, replica, byValve }) => ({ role, replica, byValve })),
+                secondLogged: existsSync(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}-1.log`)),
+            }).toEqual({
+                handles: CdpRole.options.flatMap((name) => [
+                    { name, replica: 0, url: `http://127.0.0.1:${ROLE_PORTS[name]}` },
+                    ...(name === role ? [{ name, replica: 1, url: `http://127.0.0.1:${ROLE_PORTS[name] + 100}` }] : []),
+                ]),
+                replica0: `http://127.0.0.1:${ROLE_PORTS[role]}`,
+                secondUntouched: before.second,
+                exits: [{ role, replica: 0, byValve: true }],
+                secondLogged: true,
+            })
+        }, 30_000)
+
+        it("drops the roles' Postgres connections in every database on their servers and spares every other one", async () => {
+            environment = environmentOf()
+            await environment.up()
+            const connect = async (
+                url: string,
+                applicationName: string
+            ): Promise<{ client: Client; ended: Promise<void>; backend: number }> => {
+                const client = new Client({ connectionString: url, application_name: applicationName })
+                const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
+                await client.connect()
+                const backend = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid
+                return { client, ended, backend }
+            }
+            const tag = `${process.pid}-${Date.now()}`
+            const pool = await connect(templatesUrl, 'cdp-cyclotron-worker-hogflow')
+            const jobs = await connect(cyclotronUrl, `scenario-${tag}`)
+            const bystanders = [
+                await connect(templatesUrl, `bystander-${tag}`),
+                await connect(cyclotronUrl, `bystander-${tag}`),
+            ]
+            const sessions = [pool, jobs, ...bystanders]
+            try {
+                const actuation = await environment.actuate({ kind: 'pg.terminate', share: 1 })
+
+                expect(await actuation.observed()).toBe(true)
+                await Promise.all([pool.ended, jobs.ended])
+                const alive = await withPostgres(
+                    async (client) =>
+                        (
+                            await client.query<{ pid: number }>(
+                                'SELECT pid FROM pg_stat_activity WHERE pid = ANY($1::int[]) ORDER BY pid',
+                                [sessions.map(({ backend }) => backend)]
+                            )
+                        ).rows.map(({ pid }) => pid),
+                    templatesUrl
+                )
+                expect(alive).toEqual(bystanders.map(({ backend }) => backend).sort((x, y) => x - y))
+                await actuation.release()
+            } finally {
+                await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
+            }
+        }, 30_000)
+
+        it('fails a drop that cannot reach the read replica, after dropping the role sessions on the main server', async () => {
+            const readonlyFromEnv = process.env.DATABASE_READONLY_URL
+            process.env.DATABASE_READONLY_URL = 'postgres://posthog:posthog@127.0.0.1:1/posthog'
+            try {
+                environment = environmentOf()
+                await environment.up()
+                const client = new Client({
+                    connectionString: templatesUrl,
+                    application_name: `scenario-${process.pid}-${Date.now()}`,
+                })
+                const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
+                await client.connect()
+                try {
+                    await expect(environment.actuate({ kind: 'pg.terminate', share: 1 })).rejects.toThrow(
+                        'ECONNREFUSED 127.0.0.1:1'
+                    )
+                    await ended
+                } finally {
+                    await client.end().catch(() => undefined)
+                }
+            } finally {
+                if (readonlyFromEnv === undefined) {
+                    delete process.env.DATABASE_READONLY_URL
+                } else {
+                    process.env.DATABASE_READONLY_URL = readonlyFromEnv
+                }
+            }
+        }, 30_000)
+
+        it("drops the dose's share of the sessions it targets, rounded up, and no other session", async () => {
+            environment = environmentOf()
+            await environment.up()
+            const tag = `${process.pid}-${Date.now()}`
+            const open = (name: string) =>
+                Promise.all(
+                    [1, 2, 3].map(async (n) => {
+                        const client = new Client({
+                            connectionString: templatesUrl,
+                            application_name: `scenario-${tag}-${name}-${n}`,
+                        })
+                        let ended = false
+                        client.on('error', () => (ended = true))
+                        await client.connect()
+                        return { client, ended: () => ended }
+                    })
+                )
+            const [targeted, bystanders] = [await open('targeted'), await open('bystander')]
+            const answering = (sessions: typeof targeted) =>
+                Promise.all(
+                    sessions
+                        .filter(({ ended }) => !ended())
+                        .map(async ({ client }) => (await client.query<{ one: number }>('SELECT 1 AS one')).rows[0].one)
+                )
+            try {
+                const terminated = await terminateRoleConnections(templatesUrl, 0.5, {
+                    names: [],
+                    prefix: `scenario-${tag}-targeted-`,
+                })
+
+                await waitForExpect(() => expect(targeted.filter(({ ended }) => ended())).toHaveLength(2))
+                expect({
+                    terminated,
+                    targeted: await answering(targeted),
+                    bystanders: await answering(bystanders),
+                }).toEqual({ terminated: 2, targeted: [1], bystanders: [1, 1, 1] })
+            } finally {
+                await Promise.all([...targeted, ...bystanders].map(({ client }) => client.end().catch(() => undefined)))
+            }
+        })
+
+        it('freezes a role on a valve, sees it stopped, and resumes the same process on release', async () => {
+            const role = 'cdp-cyclotron-worker-hogflow'
+            environment = environmentOf()
+            await environment.up()
+            const health = `http://127.0.0.1:${ROLE_PORTS[role]}/_health`
+            const frozen = Number(await (await internalFetch(health)).text())
+
+            const actuation = await environment.actuate({ kind: 'freeze', role })
+
+            expect(await actuation.observed()).toBe(true)
+            expect(processState(frozen)).toBe('T')
+            await actuation.release()
+            expect(Number(await (await internalFetch(health)).text())).toBe(frozen)
+            expect(environment.exits()).toEqual([])
+        }, 30_000)
+
         it('brings every role up healthy, and keeps a role that stops answering out of the dependency health', async () => {
             const hung: Role = 'cdp-cyclotron-worker-hogflow'
             environment = environmentOf()
@@ -1473,17 +1876,19 @@ describe('scenario environment', () => {
             30_000
         )
 
-        it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog", async () => {
+        it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog, keeping the resident backlog", async () => {
             const { limiter, close } = sesLimiterOn(testRedis)
             const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
-            const { group, topic } = eventsGroup()
             environment = environmentOf()
             await environment.up()
             await withPostgres(
                 (client) =>
                     client.query(
-                        "INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition) SELECT gen_random_uuid(), 9999001, 'hog', status::public.cyclotronjobstatus, 0, now(), now(), now() FROM unnest($1::text[]) AS status",
-                        [['available', 'running', 'completed']]
+                        "INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition) SELECT gen_random_uuid(), team, 'hog', status::public.cyclotronjobstatus, 0, now(), now(), now() FROM unnest($1::int[], $2::text[]) AS job(team, status)",
+                        [
+                            [9999001, 9999001, 9999001, RESIDENT_TEAMS_FROM],
+                            ['available', 'running', 'completed', 'running'],
+                        ]
                     ),
                 cyclotronUrl
             )
@@ -1504,9 +1909,9 @@ describe('scenario environment', () => {
                     offsets: offsetsOf(),
                     sends: [fault.status, sendBefore, await sendThrough(environment.edgeUrl())],
                 }).toEqual({
-                    jobs: ['completed'],
+                    jobs: ['completed', 'running'],
                     tokens: 5,
-                    offsets: { [group]: { [topic]: 'end' } },
+                    offsets: everyGroupAtEnd(),
                     sends: [201, 'MessageRejected', 'sent'],
                 })
             } finally {
@@ -1516,7 +1921,6 @@ describe('scenario environment', () => {
         }, 30_000)
 
         it('waits for a stopped role to leave the events group before it moves the group to the end', async () => {
-            const { group, topic } = eventsGroup()
             environment = environmentOf()
             await environment.up()
             holdDeadMember()
@@ -1536,7 +1940,7 @@ describe('scenario environment', () => {
             }).toEqual({
                 seen: 'member seen',
                 reset: 'reset',
-                offsets: { [group]: { [topic]: 'end' } },
+                offsets: everyGroupAtEnd(),
                 startedWhileMemberHeld: [],
             })
         }, 45_000)

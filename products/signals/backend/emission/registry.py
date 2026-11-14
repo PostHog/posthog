@@ -161,23 +161,32 @@ def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str,
 def _register_all_emitters() -> None:
     # Tier-3 feedback / reviews
     from products.signals.backend.emission.aha_ideas import AHA_CONFIG
+    from products.signals.backend.emission.airbrake_groups import AIRBRAKE_CONFIG
+    from products.signals.backend.emission.amazon_cloudwatch_alarm_history import AMAZON_CLOUDWATCH_ALARM_HISTORY_CONFIG
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
+    from products.signals.backend.emission.appsignal_anomaly_incidents import APPSIGNAL_ANOMALY_CONFIG
     from products.signals.backend.emission.appsignal_exception_incidents import APPSIGNAL_CONFIG
+    from products.signals.backend.emission.appsignal_performance_incidents import APPSIGNAL_PERFORMANCE_CONFIG
     from products.signals.backend.emission.asana_tasks import ASANA_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
     from products.signals.backend.emission.aws_guardduty_findings import AWS_GUARDDUTY_CONFIG
     from products.signals.backend.emission.aws_inspector_findings import AWS_INSPECTOR_CONFIG
+    from products.signals.backend.emission.aws_macie_findings import AWS_MACIE_CONFIG
     from products.signals.backend.emission.aws_security_hub_findings import AWS_SECURITY_HUB_CONFIG
     from products.signals.backend.emission.azure_application_insights_exceptions import AZURE_EXCEPTIONS_CONFIG
     from products.signals.backend.emission.azure_devops_work_item_revisions import AZURE_DEVOPS_CONFIG
+    from products.signals.backend.emission.beamer_feature_requests import BEAMER_CONFIG
+    from products.signals.backend.emission.beamer_nps import BEAMER_NPS_CONFIG
     from products.signals.backend.emission.bettermode_posts import BETTERMODE_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
     from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
     from products.signals.backend.emission.bugherd_tasks import BUGHERD_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
+    from products.signals.backend.emission.chameleon_responses import CHAMELEON_CONFIG
     from products.signals.backend.emission.checkly_error_groups import CHECKLY_CONFIG
+    from products.signals.backend.emission.checkmarx_scan_results import CHECKMARX_CONFIG
     from products.signals.backend.emission.clickup_tasks import CLICKUP_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
     from products.signals.backend.emission.cronitor_issues import CRONITOR_CONFIG
@@ -192,15 +201,20 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.dynamics365_cases import DYNAMICS365_CONFIG
     from products.signals.backend.emission.dynatrace_problems import DYNATRACE_CONFIG
+    from products.signals.backend.emission.dynatrace_security_problems import DYNATRACE_SECURITY_CONFIG
+    from products.signals.backend.emission.etsy_reviews import ETSY_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
+    from products.signals.backend.emission.featurebase_survey_responses import FEATUREBASE_SURVEY_CONFIG
     from products.signals.backend.emission.firehydrant_incidents import FIREHYDRANT_CONFIG
     from products.signals.backend.emission.formbricks_responses import FORMBRICKS_CONFIG
     from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
     from products.signals.backend.emission.freshservice_tickets import FRESHSERVICE_CONFIG
     from products.signals.backend.emission.frill_ideas import FRILL_CONFIG
     from products.signals.backend.emission.front_conversations import FRONT_CONFIG
+    from products.signals.backend.emission.g2_reviews import G2_CONFIG
     from products.signals.backend.emission.gainsight_px_survey_responses import GAINSIGHT_PX_CONFIG
     from products.signals.backend.emission.gitea_issues import GITEA_CONFIG
+    from products.signals.backend.emission.gitguardian_secret_incidents import GITGUARDIAN_CONFIG
     from products.signals.backend.emission.github_code_scanning_alerts import GITHUB_CODE_SCANNING_ALERTS_CONFIG
     from products.signals.backend.emission.github_dependabot_alerts import GITHUB_DEPENDABOT_ALERTS_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
@@ -212,25 +226,35 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.google_search_console_opportunities import GOOGLE_SEARCH_CONSOLE_CONFIG
     from products.signals.backend.emission.gorgias_tickets import GORGIAS_CONFIG
     from products.signals.backend.emission.grafana_irm_incidents import GRAFANA_IRM_CONFIG
+    from products.signals.backend.emission.gumroad_product_reviews import GUMROAD_CONFIG
     from products.signals.backend.emission.helpscout_conversations import HELPSCOUT_CONFIG
     from products.signals.backend.emission.honeybadger_faults import HONEYBADGER_CONFIG
     from products.signals.backend.emission.hubspot_tickets import HUBSPOT_CONFIG
     from products.signals.backend.emission.incident_io_incidents import INCIDENT_IO_CONFIG
+    from products.signals.backend.emission.infisical_secret_scanning_findings import INFISICAL_CONFIG
     from products.signals.backend.emission.instatus_incidents import INSTATUS_CONFIG
     from products.signals.backend.emission.intercom_conversations import INTERCOM_CONFIG
     from products.signals.backend.emission.intercom_tickets import INTERCOM_TICKETS_CONFIG
+    from products.signals.backend.emission.jfrog_xray_violations import JFROG_XRAY_CONFIG
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
     from products.signals.backend.emission.lacework_alerts import LACEWORK_CONFIG
     from products.signals.backend.emission.langsmith_feedback import LANGSMITH_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.logicmonitor_alerts import LOGICMONITOR_ALERTS_CONFIG
     from products.signals.backend.emission.microsoft_defender_cloud_apps_alerts import (
         MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG,
     )
     from products.signals.backend.emission.mintlify_feedback import MINTLIFY_CONFIG
     from products.signals.backend.emission.monday_items import MONDAY_CONFIG
     from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
+    from products.signals.backend.emission.mux_errors import MUX_ERRORS_CONFIG
+    from products.signals.backend.emission.newrelic_alert_issues import NEWRELIC_ALERT_ISSUES_CONFIG
+    from products.signals.backend.emission.newrelic_errors import (
+        NEWRELIC_JAVASCRIPT_ERRORS_CONFIG,
+        NEWRELIC_TRANSACTION_ERRORS_CONFIG,
+    )
     from products.signals.backend.emission.okendo_reviews import OKENDO_CONFIG
     from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
     from products.signals.backend.emission.orca_security_alerts import ORCA_SECURITY_CONFIG
@@ -249,12 +273,15 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.roark_issues import ROARK_CONFIG
     from products.signals.backend.emission.rollbar_items import ROLLBAR_CONFIG
     from products.signals.backend.emission.semgrep_sast_findings import SEMGREP_CONFIG
+    from products.signals.backend.emission.semgrep_sca_findings import SEMGREP_SCA_CONFIG
+    from products.signals.backend.emission.sentinelone_threats import SENTINELONE_CONFIG
     from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
     from products.signals.backend.emission.servicenow_incidents import SERVICENOW_CONFIG
     from products.signals.backend.emission.shortcut_stories import SHORTCUT_CONFIG
     from products.signals.backend.emission.sleekplan_posts import SLEEKPLAN_CONFIG
     from products.signals.backend.emission.snyk_issues import SNYK_CONFIG
     from products.signals.backend.emission.solarwinds_service_desk_incidents import SOLARWINDS_SERVICE_DESK_CONFIG
+    from products.signals.backend.emission.sonarcloud_issues import SONARCLOUD_CONFIG
     from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
     from products.signals.backend.emission.sprig_responses import SPRIG_CONFIG
     from products.signals.backend.emission.squadcast_incidents import SQUADCAST_CONFIG
@@ -267,13 +294,20 @@ def _register_all_emitters() -> None:
     )
     from products.signals.backend.emission.trello_cards import TRELLO_CONFIG
     from products.signals.backend.emission.trigger_dev_errors import TRIGGER_DEV_CONFIG
+    from products.signals.backend.emission.trustpilot_product_reviews import TRUSTPILOT_PRODUCT_REVIEWS_CONFIG
     from products.signals.backend.emission.trustpilot_service_reviews import TRUSTPILOT_CONFIG
     from products.signals.backend.emission.typeform_responses import TYPEFORM_CONFIG
     from products.signals.backend.emission.usersnap_feedbacks import USERSNAP_CONFIG
+    from products.signals.backend.emission.uservoice_nps_ratings import USERVOICE_NPS_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
+    from products.signals.backend.emission.veracode_findings import VERACODE_CONFIG
+    from products.signals.backend.emission.veracode_sca_findings import VERACODE_SCA_CONFIG
     from products.signals.backend.emission.vitally_conversations import VITALLY_CONFIG
+    from products.signals.backend.emission.vitally_nps_responses import VITALLY_NPS_CONFIG
+    from products.signals.backend.emission.woocommerce_product_reviews import WOOCOMMERCE_CONFIG
     from products.signals.backend.emission.wrike_tasks import WRIKE_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
+    from products.signals.backend.emission.yotpo_reviews import YOTPO_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
     from products.signals.backend.emission.zoho_crm_cases import ZOHO_CRM_CONFIG
 
@@ -403,6 +437,19 @@ def _register_all_emitters() -> None:
     # Business and product reviews (record kind: review)
     register_signal_source(ExternalDataSourceType.TRUSTPILOT, "service_reviews", TRUSTPILOT_CONFIG)
     register_signal_source(ExternalDataSourceType.OKENDO, "reviews", OKENDO_CONFIG)
+    # Feedback, NPS and review tools (record kinds: feedback, review)
+    register_signal_source(ExternalDataSourceType.BEAMER, "feature_requests", BEAMER_CONFIG)
+    register_signal_source(ExternalDataSourceType.BEAMER, "nps", BEAMER_NPS_CONFIG)
+    register_signal_source(ExternalDataSourceType.CHAMELEON, "responses", CHAMELEON_CONFIG)
+    register_signal_source(ExternalDataSourceType.FEATUREBASE, "survey_responses", FEATUREBASE_SURVEY_CONFIG)
+    register_signal_source(ExternalDataSourceType.USERVOICE, "nps_ratings", USERVOICE_NPS_CONFIG)
+    register_signal_source(ExternalDataSourceType.VITALLY, "NPS_Responses", VITALLY_NPS_CONFIG)
+    register_signal_source(ExternalDataSourceType.ETSY, "reviews", ETSY_CONFIG)
+    register_signal_source(ExternalDataSourceType.G2, "reviews", G2_CONFIG)
+    register_signal_source(ExternalDataSourceType.GUMROAD, "product_reviews", GUMROAD_CONFIG)
+    register_signal_source(ExternalDataSourceType.TRUSTPILOT, "product_reviews", TRUSTPILOT_PRODUCT_REVIEWS_CONFIG)
+    register_signal_source(ExternalDataSourceType.WOOCOMMERCE, "product_reviews", WOOCOMMERCE_CONFIG)
+    register_signal_source(ExternalDataSourceType.YOTPO, "reviews", YOTPO_CONFIG)
     # Cloud security (record kind: scanner_finding)
     register_signal_source(ExternalDataSourceType.AWSSECURITYHUB, "findings", AWS_SECURITY_HUB_CONFIG)
     register_signal_source(ExternalDataSourceType.AWSGUARDDUTY, "findings", AWS_GUARDDUTY_CONFIG)
@@ -417,6 +464,31 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", AZURE_EXCEPTIONS_CONFIG)
     register_signal_source(ExternalDataSourceType.APPSIGNAL, "exception_incidents", APPSIGNAL_CONFIG)
     register_signal_source(ExternalDataSourceType.CURSOR, "bugbot_reviews", CURSOR_CONFIG)
+    # Monitoring alerts and error tracking. New Relic and AppSignal keep one record kind per product,
+    # so one inbox toggle covers every table of the product.
+    register_signal_source(ExternalDataSourceType.NEWRELIC, "alert_issues", NEWRELIC_ALERT_ISSUES_CONFIG)
+    register_signal_source(ExternalDataSourceType.NEWRELIC, "javascript_errors", NEWRELIC_JAVASCRIPT_ERRORS_CONFIG)
+    register_signal_source(ExternalDataSourceType.NEWRELIC, "transaction_errors", NEWRELIC_TRANSACTION_ERRORS_CONFIG)
+    register_signal_source(ExternalDataSourceType.APPSIGNAL, "performance_incidents", APPSIGNAL_PERFORMANCE_CONFIG)
+    register_signal_source(ExternalDataSourceType.APPSIGNAL, "anomaly_incidents", APPSIGNAL_ANOMALY_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.AMAZONCLOUDWATCH, "alarm_history", AMAZON_CLOUDWATCH_ALARM_HISTORY_CONFIG
+    )
+    register_signal_source(ExternalDataSourceType.LOGICMONITOR, "alerts", LOGICMONITOR_ALERTS_CONFIG)
+    register_signal_source(ExternalDataSourceType.AIRBRAKE, "groups", AIRBRAKE_CONFIG)
+    register_signal_source(ExternalDataSourceType.MUX, "errors", MUX_ERRORS_CONFIG)
+    # Tier-2 code, secret and cloud security scanners (record kind: scanner_finding)
+    register_signal_source(ExternalDataSourceType.SONARCLOUD, "issues", SONARCLOUD_CONFIG)
+    register_signal_source(ExternalDataSourceType.CHECKMARX, "scan_results", CHECKMARX_CONFIG)
+    register_signal_source(ExternalDataSourceType.VERACODE, "findings", VERACODE_CONFIG)
+    register_signal_source(ExternalDataSourceType.VERACODE, "sca_findings", VERACODE_SCA_CONFIG)
+    register_signal_source(ExternalDataSourceType.SEMGREP, "sca_findings", SEMGREP_SCA_CONFIG)
+    register_signal_source(ExternalDataSourceType.GITGUARDIAN, "secret_incidents", GITGUARDIAN_CONFIG)
+    register_signal_source(ExternalDataSourceType.INFISICAL, "secret_scanning_findings", INFISICAL_CONFIG)
+    register_signal_source(ExternalDataSourceType.AWSMACIE, "findings", AWS_MACIE_CONFIG)
+    register_signal_source(ExternalDataSourceType.SENTINELONE, "threats", SENTINELONE_CONFIG)
+    register_signal_source(ExternalDataSourceType.JFROGARTIFACTORY, "xray_violations", JFROG_XRAY_CONFIG)
+    register_signal_source(ExternalDataSourceType.DYNATRACE, "security_problems", DYNATRACE_SECURITY_CONFIG)
 
 
 _register_all_emitters()

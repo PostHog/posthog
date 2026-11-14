@@ -10,6 +10,7 @@ from django.http import HttpRequest, HttpResponseBase
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from opentelemetry import trace
@@ -333,6 +334,16 @@ class OrderBy(models.TextChoices):
     EARLIEST = "earliest", "earliest"
 
 
+class LogsQueryTrigger(models.TextChoices):
+    INITIAL_LOAD = "initial_load", "initial_load"
+    FILTER_CHANGE = "filter_change", "filter_change"
+    FILTERS_RESTORED = "filters_restored", "filters_restored"
+    SORT_CHANGE = "sort_change", "sort_change"
+    COLUMN_CHANGE = "column_change", "column_change"
+    SCOPE_CHANGE = "scope_change", "scope_change"
+    REFRESH = "refresh", "refresh"
+
+
 # Scope fields ride on every logs body that reaches the query runner, so they are built here
 # rather than redeclared per serializer — the help text is what drf-spectacular ships into the
 # generated TypeScript and the MCP tool schemas, and six copies drift.
@@ -426,6 +437,14 @@ class _LogsBodyLimitSerializer(serializers.Serializer):
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
     query = _LogsQueryBodySerializer(help_text="The logs query to execute.")
+    trigger = serializers.ChoiceField(
+        choices=LogsQueryTrigger.choices,
+        required=False,
+        help_text=(
+            "What caused the PostHog app to run this query. Used for usage analytics only, with no effect "
+            "on results. API clients omit it."
+        ),
+    )
 
 
 class _LogsSparklineBodySerializer(serializers.Serializer):
@@ -1613,6 +1632,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sessionId=query_data.get("sessionId", None),
         )
 
+    def _session_team_has_logs(self) -> bool:
+        try:
+            return team_has_logs(self.team, cache_negative=True)
+        except (NetworkError, SocketTimeoutError):
+            # The logs cluster drops connections for short periods. Replay shows an empty logs panel for
+            # the recording instead of an error. The answer is not cached, so the next recording open checks again.
+            # Capacity, memory and S3 errors keep their error response so clients can tell the query did not run.
+            logger.warning("logs_session_has_logs_check_unavailable", team_id=self.team_id, exc_info=True)
+            return False
+
     @staticmethod
     def _filter_analytics_props(query_data: dict) -> dict:
         """The filter-shape properties every logs query action reports."""
@@ -1633,6 +1662,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
         self._require_dict_query(query_data)
+        trigger = request.data.get("trigger")
 
         live_logs_checkpoint = query_data.get("liveLogsCheckpoint", None)
         after_cursor = query_data.get("after", None)
@@ -1705,7 +1735,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_started_at = monotonic()
         try:
             # Replay asks for session logs on every recording open, and most of those teams send no logs.
-            if query.sessionId and not team_has_logs(self.team, cache_negative=True):
+            if query.sessionId and not self._session_team_has_logs():
                 results: list[Any] = []
             elif live_logs_checkpoint:
                 response = LogsQueryRunner(query, self.team).run(
@@ -1749,6 +1779,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "is_paginated": bool(after_cursor),
                 # Session and person scopes come from embeds that load on page open, not from a search.
                 "scope": "session" if query.sessionId else "person" if query.personId else "none",
+                # Never rejected: a bad analytics label must not fail the query it describes.
+                "trigger": trigger if trigger in LogsQueryTrigger.values else "unknown",
             }
             if results:
                 # This endpoint serves the app, API keys, MCP and other integrations, so the property covers all of them.

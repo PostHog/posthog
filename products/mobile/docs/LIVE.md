@@ -4,10 +4,14 @@ The Live screen mirrors the web's Web analytics → Live tab: users online, a wo
 It reads the web's HogQL polling transport, not the event stream, so it needs no backend change.
 
 Live is the Home tab (`app/(tabs)/live/`, `/live`): the first slot of the bottom bar and the start page until the person picks another in Settings.
-The Browse row (`views-browse-live`) switches to Home.
+Views has no Browse row for Live, because Live is Home.
 Live also opens as a pushed screen at `/views/live?from={entry}` (`app/views/live.tsx`) with the usual Back and More chrome, from the Live chip on Web analytics (`from=web_analytics`) and from deep links.
 More has "Open on web", which opens `/web/live`. Live is not a navigation pin, because it is Home.
-`LiveScreen({ from, chrome })` draws both: on Home (`chrome="tab"`) the tabs header draws the title "Live" alone, the content starts with one row (the dot, the status line, the Pause pill), and the tabs menu has Open on web.
+`LiveScreen({ from, chrome })` draws both: on Home (`chrome="tab"`) the tabs header draws the title "Live" and a Pause or Resume button (`live-pause`) left of More, the content starts with the cards, and the tabs menu has Open on web.
+Home has no dot or status line while updates succeed.
+When polling keeps failing, the header shows "Reconnecting…" until updates recover.
+The warning waits for the check in **Failures** below.
+When the person comes back to Home during the same failure streak, the check runs again before the warning shows.
 Deep link: `posthog://views/live` opens the pushed screen.
 Live needs `query:read`, so it reuses the Views access check (`useFeatureAccess('views')`) and `ViewsReauthState`.
 
@@ -76,10 +80,10 @@ The Live chip on the Web analytics screen reads users online alone: the stats re
 - **Focus back.** Getting the focus back reads at once when the last data is older than the read interval (30 seconds), or after a failed read. Otherwise the next read comes when that interval ends, so going back and forth between Live and a screen it pushes does not send a full read each time.
 - **Background grace.** When the app leaves the foreground, reads stop after 2 seconds, like the web's hidden-tab grace. Coming back within 2 seconds changes nothing. Coming back later reads at once, then polls again.
 - **Timed from the end of a read**, so a slow read never overlaps the next.
-- **Slower after 10 minutes.** After 10 minutes of polling with no user action, the read comes every 60 seconds instead of 30. Pull to refresh, Try again, Resume, reopening the screen, and coming back to the foreground after reads stopped set it back to 30 seconds and start the 10 minutes again. Scrolling does not count. The status line still says when the last update came. The stats read keeps its 10-second interval.
+- **Slower after 10 minutes.** After 10 minutes of polling with no user action, the read comes every 60 seconds instead of 30. Pull to refresh, Try again, Resume, reopening the screen, and coming back to the foreground after reads stopped set it back to 30 seconds and start the 10 minutes again. Scrolling does not count. The pushed screen's status line still says when the last update came. The stats read keeps its 10-second interval.
 - **Pause** stops every timer and aborts the read in flight. Resume reads at once, then polls again.
 - **Pull to refresh** reads now. While paused it reads once and stays paused.
-- **Failures.** A job that fails, or answers with a query that still runs, keeps its card's last value. After a failed read, the status line keeps its previous state for 10 seconds, then retries once or joins a read already in progress. If that check fails or has not completed after 5 more seconds, it shows "Reconnecting…" and the toast "Couldn't update live data. Retrying…" once per failure streak. A successful check cancels the warning. This extra read uses the existing query budget and does not reset the inactivity slowdown. Subsequent reads use the normal interval (30 or 60 seconds), with total failures doubling the delay up to 5 minutes. A first read that fails shows "Couldn't load live data" with Try again.
+- **Failures.** A job that fails, or answers with a query that still runs, keeps its card's last value. After a failed read, the status keeps its previous state for 10 seconds, then retries once or joins a read already in progress. If that check fails or has not completed after 5 more seconds, Home's header and the pushed screen's status line show "Reconnecting…" until updates recover. The toast "Couldn't update live data. Retrying…" appears once per failure streak. A successful check cancels the warning. This extra read uses the existing query budget and does not reset the inactivity slowdown. Subsequent reads use the normal interval (30 or 60 seconds), with total failures doubling the delay up to 5 minutes. A first read that fails shows "Couldn't load live data" with Try again.
 - **A missing scope** (403 naming `query:read`) reports a Views scope error, so the screen shows the sign-in state.
 
 Visitors by country does not run Live's read. Pushing it takes the focus from Live, so Live's poller stops at once, and the screen runs its own poller (`useLiveWorld`) with the `geo` job alone and the same rules: 30 seconds, 60 after 10 minutes, focus, background grace and backoff.
@@ -100,10 +104,10 @@ Many pulls to refresh in a row can still empty the minute bucket. Reads then fai
 
 ## Screen
 
-1. Title "Live" with a dot: green and pulsing while live, gray when paused or reconnecting, still with reduced motion. The status line says "Live · updated 12 s ago", "Paused", "Reconnecting…" or "Loading…". The Pause or Resume pill (`live-pause`) sits at the right of the title.
+1. Title. On Home the tabs header draws "Live", with the Pause or Resume button (`live-pause`) left of More, and the content has no title row. The pushed screen draws its own title "Live" with a dot: green and pulsing while live, gray when paused or reconnecting, still with reduced motion. Its status line (`live-status`) says "Live · updated 12 s ago", "Paused", "Reconnecting…" or "Loading…", and its Pause or Resume pill (`live-pause`) sits at the right of the title.
 2. Paused banner (`live-paused-banner`): "Paused. Tap Resume to catch up." with Resume (`live-banner-resume`).
 3. Stats (`live-stats`): Users online, Unique visitors and Pageviews, with the web's tooltips in a toast when a label is tapped. A changed number counts to its new value in 300 ms and flashes blue.
-4. Where visitors are (`live-map`): "18 countries · last 30 minutes", a world map, and "🇺🇸 United States leads with 15 visitors". Land is `segmentEmpty`; a country with visitors is blue by its share of the leading country's visitors, with the web's 30% floor toward the land color. The whole card opens Visitors by country; a tap on a country with visitors opens it with that country selected.
+4. Where visitors are (`live-map`): "18 countries · last 30 minutes", a world map, and "🇺🇸 United States leads with 15 visitors". Land is `segmentEmpty`; a country with visitors is blue by its share of the leading country's visitors, with the web's 30% floor toward the land color. The whole card opens Visitors by country.
 5. Active users per minute (`live-activity`): 30 stacked bars, new visitors (green) under returning visitors (blue), as the web draws them. A visitor is new in the first minute of the window that shows them. The line under the chart names the scrubbed minute, or the current one: "21:14 · 18 visitors · 9 pageviews". The last bar is in progress.
 6. Top pages and Top referrers (`live-top-pages`, `live-top-referrers`): ten rows with views and their share of the window's pageviews. A row that changes rank slides to its place with a ↑ or ↓ badge that fades after 4 seconds. "Direct / None" is in italics. App only shows Top screens (`live-top-screens`, column "Screen") in place of Top pages, with shares of the listed screen views, and no Top referrers.
 7. Breakdown (`live-breakdown`): Devices, Browsers or Countries, with the total and a share bar per row. Devices or Browsers is not offered when its only row is "Unknown", as for app events. With neither and no countries, the card is hidden. Browsers and countries show their top six and an "Other" row. Countries show a flag and a name from the web analytics helper (`countryName`), which uses `Intl.DisplayNames` where the runtime has it and a short list otherwise; codes neither names stay codes. Rows do not open anything, because the web's visitor drill-down is behind a flag.
@@ -115,12 +119,12 @@ Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the
 
 The state comes from the project read and the last snapshot (`liveProjectState` in `src/model/adapters/live.ts`):
 
-| State        | When                                                                                                                      | Screen                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `not_set_up` | The project read says `ingested_event: false`                                                                             | Status "Not receiving events yet", gray dot, no Pause. The setup card (`live-not-set-up`), then Meanwhile  |
-| `quiet`      | Every job answered and the window is empty: no visitor in any minute, no events, empty top lists, every breakdown total 0 | Status "Live · waiting for activity", gray dot, Pause stays. The Quiet card (`live-quiet`), then Meanwhile |
-| `app_only`   | No pageviews, and screens: a Top screens list with rows, or a `$screen` event among the newest events                     | The usual cards: Pageviews 0, Top screens, no Top referrers, no Browsers segment                           |
-| `web`        | Anything else, such as server-side events without pageviews or screens, and while parts of the snapshot are missing       | The usual cards. Server-side events alone show an empty Top pages                                          |
+| State        | When                                                                                                                      | Screen                                                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `not_set_up` | The project read says `ingested_event: false`                                                                             | No Pause. The setup card (`live-not-set-up`), then Meanwhile. The pushed screen's status says "Not receiving events yet", with a gray dot  |
+| `quiet`      | Every job answered and the window is empty: no visitor in any minute, no events, empty top lists, every breakdown total 0 | Pause stays. The Quiet card (`live-quiet`), then Meanwhile. The pushed screen's status says "Live · waiting for activity", with a gray dot |
+| `app_only`   | No pageviews, and screens: a Top screens list with rows, or a `$screen` event among the newest events                     | The usual cards: Pageviews 0, Top screens, no Top referrers, no Browsers segment                                                           |
+| `web`        | Anything else, such as server-side events without pageviews or screens, and while parts of the snapshot are missing       | The usual cards. Server-side events alone show an empty Top pages                                                                          |
 
 A project read that fails counts as unknown, so Live shows what the snapshot says and retries the project read every minute while the screen is visible, as well as on focus and return to the foreground.
 `ingested_event` turns true for anything the project ingests, also logs, traces and metrics. Such a project shows Quiet or its cards, not the setup card.
@@ -142,14 +146,12 @@ Meanwhile sends no data reads: pin values, automatic pin displays and the unread
 
 ## Visitors by country
 
-`/views/live-countries[?country={ISO code}]` (`liveCountriesHref`), pushed from the map card with Back only.
+`/views/live-countries` (`liveCountriesHref`), pushed from the map card with Back only.
 The title block is the "Live" eyebrow, "Visitors by country", and a status line with the live dot: "60 visitors in 20 countries · last 30 minutes", "Paused · …", "Reconnecting…" or "Loading…".
-The map is full width, up to 40% of the window height and centered, so in landscape the stuck map leaves room for the list. A caption sits under it: the leader and "Tap a country", or the selected country ("🇦🇺 Australia · 5 visitors (6.8%)") with Clear.
-The map and caption stick under the chrome while the list scrolls, so a selected row and its outline stay on screen together.
+The map is full width, up to 40% of the window height and centered, so in landscape it leaves room for the list. A caption under it names the leading country and its visitor count.
+The title, map, caption, and country list scroll together as one page.
 The list (`live-countries-list`) has every country: flag, name, a blue bar scaled to the leading country, and "13 (21.7%)". Rows slide when ranks change, like the top pages rows.
-A tap on a country with visitors selects it: an `ink` outline on the map, a tinted row, and the list scrolls the row into view. A tap on a row selects it on the map. A tap on the sea or on a country without visitors does nothing.
-A tap on the sea, or inside a country smaller than 12 pt, also tries points up to 12 pt around it, so small countries can be tapped.
-A `country` in the route that is not in the screen's first countries selects nothing.
+The map and list display visitor counts without country selection or automatic scrolling.
 Loading shows the skeleton, a first read that fails shows "Couldn't load live data" with Try again, and no countries say "No country data in the last 30 minutes".
 
 ### Map data
@@ -170,9 +172,7 @@ The map draws the viewBox from x 90 to 2670 and y 16 to 1172, without the empty 
 | `mobile_live_breakdown_changed`  | `breakdown`: `devices`, `browsers` or `countries`                                                                                                                                |
 | `mobile_live_event_sheet_opened` | `kind`: `pageview`, `screen` or `other`                                                                                                                                          |
 | `mobile_live_event_action_taken` | `action`: `view_person`, `watch_recording`, `copy_distinct_id`                                                                                                                   |
-| `mobile_live_map_opened`         | `from`: `card` (the card) or `map_country` (a country on the card's map)                                                                                                         |
-| `mobile_live_country_selected`   | `source`: `map` or `row`, on Visitors by country                                                                                                                                 |
-| `mobile_live_country_cleared`    | Clear on Visitors by country                                                                                                                                                     |
+| `mobile_live_map_opened`         | `from`: `card`                                                                                                                                                                   |
 | `mobile_live_state_shown`        | `state`: `app_only`, `quiet` or `not_set_up`, once per focus for each state                                                                                                      |
 | `mobile_live_setup_opened`       | Open setup guide on Not set up                                                                                                                                                   |
 | `mobile_live_meanwhile_opened`   | `target`: `view` or `inbox`                                                                                                                                                      |

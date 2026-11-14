@@ -341,8 +341,7 @@ function ViewsBody(): ReactElement {
         }
     }, [])
     const openBrowse = useCallback((entry: BrowseEntry) => {
-        // Web analytics sends its own open event with `from`, so the other rows count a Browse open here. The Live row
-        // counts here too, because the Home tab it switches to sends `from: tab`.
+        // Web analytics sends its own open event with `from`, so the other rows count a Browse open here.
         if (entry !== 'web') {
             trackBrowseListOpened({ section: entry, from: latest.current.searching ? 'search' : 'browse' })
         }

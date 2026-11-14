@@ -211,12 +211,13 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   The splash stays above the app until the session is ready and, when the app opens on the inbox, until the inbox loads, with an eight-second timeout.
 - **Tabs header** (`features/tabs/TabsHeader.tsx`): Home, Inbox, Chats and Views share one header that the
   tabs layout draws once, like the bottom bar. Home is titled "Live", after the screen it shows.
+  Home's metrics card and the Chats and Views search fields start at the same position, 4pt below the shared content offset.
   The logomark and the tab's title sit at the same spot on
   every tab. The pill on the right holds More on every tab, and a filter button left of it on a tab that
-  publishes one (the Inbox); Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
+  publishes one (the Inbox), or a Pause or Resume button on Home; Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
   refresh, so the header has no refresh button. A tab may add a status line under the title (Views does); it
   and the refresh hint are absolutely positioned, so they never move the title row. Each screen publishes its
-  refresh hint, status line, filter button and menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
+  refresh hint, status line, filter button, Pause button and menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
   The logomark plays the splash's hop while the focused Inbox, Chats or Views page refreshes, including pull-to-refresh and automatic refreshes.
   It finishes its current hop when refreshing ends and stays still with reduced motion enabled.
 - **Inbox**: rows (source · `#123` PR tag when the report has a PR, green when open, purple when merged, gray otherwise · time),

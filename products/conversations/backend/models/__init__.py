@@ -24,6 +24,7 @@ from .inbound_event import ConversationInboundEvent, ConversationInboundEventSou
 from .intercom_import_job import IntercomImportJob
 from .mailgun_domain_registration import MailgunDomainRegistration
 from .purged_ticket_thread import PurgedTicketThread
+from .pylon_import_job import PylonImportJob
 from .restore_token import ConversationRestoreToken
 from .signing_secret import SigningSecret
 from .team_conversations_email_config import EmailChannel, EmailChannelConnectionStatus, EmailChannelKind
@@ -68,6 +69,7 @@ __all__ = [
     "MailgunDomainRegistration",
     "Priority",
     "PurgedTicketThread",
+    "PylonImportJob",
     "RuleType",
     "SigningSecret",
     "Status",

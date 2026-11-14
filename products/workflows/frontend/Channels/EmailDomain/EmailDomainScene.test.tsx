@@ -7,7 +7,6 @@ import { Provider, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -93,7 +92,6 @@ describe('EmailDomainScene', () => {
     }
 
     const turnOnSuggestions = (on: boolean): void => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: true })
         organizationLogic.actions.loadCurrentOrganizationSuccess({
             ...MOCK_DEFAULT_ORGANIZATION,
             is_ai_data_processing_approved: on,
@@ -111,9 +109,6 @@ describe('EmailDomainScene', () => {
         useMocks(backend.mocks())
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD], {
-            [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: true,
-        })
     })
 
     afterEach(() => {
