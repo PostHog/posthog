@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -274,6 +275,67 @@ class TestOpenSandboxMessage(APIBaseTest):
 
         run.refresh_from_db()
         assert "await_user_message" not in run.state
+
+    def _attach_warm_run(self) -> tuple[Task, TaskRun]:
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.state = {**(run.state or {}), "await_user_message": True}
+        run.save(update_fields=["status", "state"])
+        self._attach_task(task)
+        return task, run
+
+    def test_a_run_started_while_a_warm_run_gets_its_first_message_is_refused(self):
+        task, _ = self._attach_warm_run()
+        admitted_during_delivery: list[bool] = []
+
+        def start_a_run_during_delivery(*args, **kwargs) -> None:
+            try:
+                task.create_run(mode="interactive")
+            except tasks_facade.TaskRunAlreadyLiveError:
+                admitted_during_delivery.append(False)
+            else:
+                admitted_during_delivery.append(True)
+
+        with (
+            patch(f"{ROUTING}.signal_task_followup_message", side_effect=start_a_run_during_delivery),
+            patch.object(TaskRun, "append_log"),
+        ):
+            self._service().open({"content": "go", "attached_context": []})
+
+        assert admitted_during_delivery == [False]
+        assert task.runs.count() == 1
+
+    def test_a_warm_run_beside_a_live_run_does_not_get_the_message(self):
+        task, run = self._attach_warm_run()
+        live = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        TaskRun.objects.filter(id=live.id).update(created_at=run.created_at - timedelta(minutes=1))
+
+        with (
+            patch(f"{ROUTING}.signal_task_followup_message") as m_signal,
+            patch.object(TaskRun, "append_log"),
+        ):
+            with self.assertRaises(Conflict):
+                self._service().open({"content": "go", "attached_context": []})
+
+        m_signal.assert_not_called()
+        run.refresh_from_db()
+        assert run.state["await_user_message"] is True
+
+    def test_a_warm_run_stays_unclaimed_when_its_first_signal_fails(self):
+        _, run = self._attach_warm_run()
+
+        with (
+            patch(f"{ROUTING}.signal_task_followup_message", side_effect=RuntimeError("workflow gone")),
+            patch.object(TaskRun, "append_log"),
+        ):
+            with self.assertRaises(Conflict):
+                self._service().open({"content": "go", "attached_context": []})
+
+        run.refresh_from_db()
+        assert run.state["await_user_message"] is True
+        assert "warm_activation_started" not in run.state
 
     def test_in_progress_followup_raises_conflict_when_signal_fails(self):
         task, run = self._stub_task()

@@ -377,11 +377,19 @@ class SandboxSession(BaseSandboxService):
         """
         try:
             tasks_facade.check_wake_by_task_id(run.task_id, source="posthog_ai_follow_up")
-        except tasks_facade.TaskDoneError as error:
+            reserved = tasks_facade.reserve_warm_task_run(run.id)
+        except (tasks_facade.TaskDoneError, tasks_facade.TaskRunAlreadyLiveError) as error:
             raise Conflict(str(error)) from error
         try:
             signal_task_followup_message(run.workflow_id, wrapped, artifact_ids=[])
         except Exception as e:
+            if reserved:
+                try:
+                    tasks_facade.release_warm_task_run_reservation(run.id)
+                except Exception as release_error:
+                    logger.warning(
+                        "sandbox_followup_reservation_release_failed", run_id=str(run.id), error=str(release_error)
+                    )
             # Status race: the run still reads in-progress but its workflow has already finished or
             # was terminated, so the signal can't be delivered. Surface a recoverable conflict
             # instead of an unhandled 500, and don't log the turn — a retry then routes cleanly

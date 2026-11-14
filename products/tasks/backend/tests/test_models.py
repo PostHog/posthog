@@ -1721,6 +1721,34 @@ class TestTaskRun(TestCase):
                 False,
             ),
             (
+                "warm_run_claimed_for_a_message",
+                [
+                    (
+                        TaskRun.Status.IN_PROGRESS,
+                        TaskRun.Environment.CLOUD,
+                        {"await_user_message": True, "warm_activation_started": True},
+                    )
+                ],
+                "cloud",
+                True,
+            ),
+            (
+                "cancelling_claimed_warm_run",
+                [
+                    (
+                        TaskRun.Status.IN_PROGRESS,
+                        TaskRun.Environment.CLOUD,
+                        {
+                            "await_user_message": True,
+                            "warm_activation_started": True,
+                            "cancel_requested_at": "2026-01-01",
+                        },
+                    )
+                ],
+                "cloud",
+                False,
+            ),
+            (
                 "cancelling_run",
                 [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {"cancel_requested_at": "2026-01-01"})],
                 "cloud",

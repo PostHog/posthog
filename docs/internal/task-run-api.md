@@ -163,7 +163,8 @@ A task can become done only while its profile is set to `enforce` in the `tasks-
 Every profile is off until the payload names it.
 
 A task with a cloud run in progress refuses another run or a cloud resume with `409`.
-A run that is waiting for its first message or is being canceled does not count.
+A run that is being canceled does not count.
+A run that is waiting for its first message does not count until a message is on its way to it.
 Neither does a run with no writes for 24 hours, which is marked failed when the next run starts.
 A scheduled run that comes due while another run is in progress still starts.
 

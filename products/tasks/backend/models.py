@@ -1086,7 +1086,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         return [
             run_id
             for run_id, state in unfinished.values_list("id", "state")
-            if not (state or {}).get("await_user_message") and not (state or {}).get("cancel_requested_at")
+            if not (state or {}).get("cancel_requested_at")
+            and (not (state or {}).get("await_user_message") or (state or {}).get("warm_activation_started"))
         ]
 
     def live_cloud_run_ids(self, exclude_run_id: uuid.UUID | None = None) -> list[uuid.UUID]:

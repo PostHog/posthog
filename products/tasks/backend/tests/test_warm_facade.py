@@ -2481,6 +2481,38 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert run.state["await_user_message"] is True
 
+    @parameterized.expand([("run_task",), ("user_message",)])
+    def test_a_run_started_while_the_first_message_is_delivered_is_refused(self, activation: str) -> None:
+        task, run = self._warm_run()
+        admitted_during_delivery: list[bool] = []
+
+        def start_a_run_during_delivery(*args: Any, **kwargs: Any) -> None:
+            try:
+                task.create_run(mode="interactive")
+            except facade.TaskRunAlreadyLiveError:
+                admitted_during_delivery.append(False)
+            else:
+                admitted_during_delivery.append(True)
+
+        with patch(
+            "products.tasks.backend.temporal.client.signal_task_followup_message",
+            side_effect=start_a_run_during_delivery,
+        ):
+            if activation == "run_task":
+                facade.run_task(
+                    task.id,
+                    self.team.id,
+                    self.user.id,
+                    validated_data={"mode": "interactive", "branch": "main", "pending_user_message": "go"},
+                )
+            else:
+                facade.signal_task_run_user_message(
+                    run.id, task.id, self.team.id, content="go", artifact_ids=[], actor_user_id=self.user.id
+                )
+
+        assert admitted_during_delivery == [False]
+        assert task.runs.count() == 1
+
     def test_a_delivered_first_message_logs_a_live_sibling_once(self) -> None:
         task, run = self._warm_run()
         live = TaskRun.objects.create(

@@ -2547,6 +2547,30 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
+def reserve_warm_task_run(run_id: str | UUID) -> bool:
+    warm_runs = TaskRun.objects.filter(id=run_id, state__await_user_message=True)
+    task_id = warm_runs.values_list("task_id", flat=True).first()
+    if task_id is None:
+        return False
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id)
+        run = warm_runs.select_for_update(of=("self",)).first()
+        if run is None or run.state.get("warm_activation_started"):
+            return False
+        task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
+        run.state["warm_activation_started"] = True
+        run.save(update_fields=["state", "updated_at"])
+    return True
+
+
+def release_warm_task_run_reservation(run_id: str | UUID) -> None:
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update().filter(id=run_id, state__await_user_message=True).first()
+        if run is not None:
+            run.state.pop("warm_activation_started", None)
+            run.save(update_fields=["state", "updated_at"])
+
+
 def activate_warm_task_run(run_id: str | UUID) -> None:
     warm_runs = TaskRun.objects.filter(id=run_id, state__await_user_message=True)
     task_id = warm_runs.values_list("task_id", flat=True).first()
@@ -6234,8 +6258,6 @@ def signal_task_run_user_message(
     if not plan_owner_consented:
         ensure_subscription_owner(run.state, actor_user_id)
     check_wake(run.task, source="follow_up")
-    if (run.state or {}).get("await_user_message"):
-        run.task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         if not run.is_terminal:
             raise RuntimeError("Task run is still stopping. Try again shortly.")
@@ -6256,6 +6278,7 @@ def signal_task_run_user_message(
     if (run.state or {}).get("await_user_message"):
         message_id = message_id or str(uuid4())
         with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=run.task_id, team_id=team_id)
             claimed = TaskRun.objects.select_for_update().get(id=run.id, team_id=team_id)
             state = claimed.state or {}
             if state.get("await_user_message"):
@@ -6266,6 +6289,8 @@ def signal_task_run_user_message(
                 ):
                     return False
                 claimed_warm_run = not state.get("warm_activation_started", False)
+                if claimed_warm_run:
+                    task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
                 claimed.state = {**state, "warm_activation_started": True, "warm_activation_message_id": message_id}
                 claimed.save(update_fields=["state", "updated_at"])
     accepted_at = django_timezone.now()
