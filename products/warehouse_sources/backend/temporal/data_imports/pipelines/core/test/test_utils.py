@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
+    pyarrow_schema_from_arrow_exportable,
     raise_on_nullability_drift,
     reconcile_batch_to_accumulated_schema,
     relax_batch_nullability,
@@ -2016,6 +2017,28 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
     assert excinfo.value.column_name is None
     assert excinfo.value.stored_type is None
     assert excinfo.value.incoming_type is None
+
+
+def test_pyarrow_schema_from_arrow_exportable_recovers_from_stale_uuid_extension():
+    # delta-rs tags a uuid column with the Arrow canonical `arrow.uuid` extension but stores it
+    # with the Delta primitive type (binary), not the extension's required fixed_size_binary(16).
+    # PyArrow's extension registry then refuses the Arrow C Data Interface import outright
+    # (`ArrowInvalid: Invalid storage type for UuidType: binary`), so this must fall back to the
+    # plain storage type instead of propagating that crash.
+    delta_schema = deltalake.Schema.from_arrow(pa.schema([pa.field("id", pa.uuid()), pa.field("name", pa.string())]))
+
+    schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+
+    assert schema.field("id").type == pa.binary()
+    assert schema.field("name").type == pa.string()
+
+
+def test_pyarrow_schema_from_arrow_exportable_reraises_unrelated_errors():
+    not_a_delta_schema = MagicMock(spec=pa.Schema)
+    not_a_delta_schema.__arrow_c_schema__.side_effect = pa.ArrowInvalid("some other arrow problem")
+
+    with pytest.raises(pa.ArrowInvalid, match="some other arrow problem"):
+        pyarrow_schema_from_arrow_exportable(not_a_delta_schema)
 
 
 @pytest.mark.parametrize(

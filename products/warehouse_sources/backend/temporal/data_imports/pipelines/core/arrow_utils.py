@@ -171,9 +171,41 @@ def normalize_column_name(column_name: str) -> str:
     return NamingConvention.normalize_identifier(column_name)
 
 
+def _strip_arrow_extension_metadata(type_def: Any) -> Any:
+    if isinstance(type_def, dict):
+        kind = type_def.get("type")
+        if kind == "struct":
+            for field in type_def.get("fields", []):
+                field["metadata"] = {
+                    key: value
+                    for key, value in field.get("metadata", {}).items()
+                    if not key.startswith("ARROW:extension")
+                }
+                _strip_arrow_extension_metadata(field.get("type"))
+        elif kind == "array":
+            _strip_arrow_extension_metadata(type_def.get("elementType"))
+        elif kind == "map":
+            _strip_arrow_extension_metadata(type_def.get("keyType"))
+            _strip_arrow_extension_metadata(type_def.get("valueType"))
+    return type_def
+
+
 def pyarrow_schema_from_arrow_exportable(schema: ArrowSchemaExportable) -> pa.Schema:
-    # PyArrow's stubs don't model Arrow C Data Interface inputs here.
-    return pa.schema(cast(Any, schema))
+    try:
+        # PyArrow's stubs don't model Arrow C Data Interface inputs here.
+        return pa.schema(cast(Any, schema))
+    except pa.ArrowInvalid:
+        # delta-rs tags some columns (e.g. a Postgres uuid column) with a canonical Arrow
+        # extension type (ARROW:extension:name=arrow.uuid) but stores them with their plain
+        # Delta primitive type (binary) rather than the extension's required storage
+        # (fixed_size_binary(16)). PyArrow's extension registry then refuses to reconstruct
+        # them from the Arrow C Data Interface. We only need the physical storage type here,
+        # so drop the stale extension tag and reimport.
+        if not isinstance(schema, deltalake.Schema):
+            raise
+        raw_schema = json.loads(schema.to_json())
+        _strip_arrow_extension_metadata(raw_schema)
+        return pa.schema(deltalake.Schema.from_json(json.dumps(raw_schema)))
 
 
 def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | datetime.datetime:
