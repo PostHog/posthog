@@ -6,6 +6,9 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { PrototypeDomainReadyStep } from '../../Transactional/sendFromCodePrototype/PrototypeDomainReadyStep'
+import { PrototypeSwitcher } from '../../Transactional/sendFromCodePrototype/PrototypeSwitcher'
+import { useSendFromCodePrototype } from '../../Transactional/sendFromCodePrototype/useSendFromCodePrototype'
 import { AgentHandoffModal } from './components/AgentHandoffModal'
 import { StepIndicator } from './components/StepIndicator'
 import { emailDomainLogic } from './emailDomainLogic'
@@ -46,6 +49,9 @@ function CurrentStep(): JSX.Element {
 
 export function EmailDomainSetup(): JSX.Element {
     const { phase } = useValues(emailDomainLogic)
+    // PROTOTYPE (ticket #320): variant BC shows the ready step with a first send from code once "verified".
+    const prototype = useSendFromCodePrototype()
+    const prototypeReady = prototype.variant === 'BC' && prototype.domain === 'verified'
     return (
         <div className="@container flex flex-col items-center px-4 py-8 @3xl:py-14">
             <div className="w-full max-w-160 flex flex-col gap-8">
@@ -59,10 +65,11 @@ export function EmailDomainSetup(): JSX.Element {
                 >
                     Back to workflows
                 </LemonButton>
-                <StepIndicator phase={phase} />
-                <CurrentStep />
+                <StepIndicator phase={prototypeReady ? 'ready' : phase} />
+                {prototypeReady ? <PrototypeDomainReadyStep /> : <CurrentStep />}
             </div>
             <AgentHandoffModal />
+            <PrototypeSwitcher />
         </div>
     )
 }

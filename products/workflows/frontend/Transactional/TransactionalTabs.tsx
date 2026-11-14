@@ -16,6 +16,7 @@ import { PrototypeEmailsTable } from './sendFromCodePrototype/PrototypeEmailsTab
 import { useSendFromCodePrototype } from './sendFromCodePrototype/useSendFromCodePrototype'
 import { VariantAfterDomainVerified } from './sendFromCodePrototype/VariantAfterDomainVerified'
 import { VariantCodeFirstEmptyState } from './sendFromCodePrototype/VariantCodeFirstEmptyState'
+import { VariantCodeFirstWithDomain } from './sendFromCodePrototype/VariantCodeFirstWithDomain'
 import { VariantSendFromCodePage } from './sendFromCodePrototype/VariantSendFromCodePage'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalRoute, TransactionalTab } from './transactionalRoute'
@@ -40,7 +41,9 @@ export function TransactionalTabs({
         currentTab === 'transactional' &&
         (prototype.view === 'code' || (prototype.view === null && prototype.emails === 'none'))
     const listContent =
-        variant === 'B' ? (
+        variant === 'BC' ? (
+            <VariantCodeFirstWithDomain />
+        ) : variant === 'B' ? (
             <VariantCodeFirstEmptyState />
         ) : variant === 'C' ? (
             <VariantAfterDomainVerified />
