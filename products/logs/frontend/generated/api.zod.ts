@@ -618,6 +618,23 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Make a destination's message editable. A destination that sends the standard message from the alerts platform gets HogFunctions with that message, one per event kind, and stops sending from the platform. A destination that already has HogFunctions keeps them. Returns the HogFunction IDs to edit.
+ */
+export const logsAlertsDestinationsCustomizeCreateBodyHogFunctionIdsMax = 100
+
+export const LogsAlertsDestinationsCustomizeCreateBody = /* @__PURE__ */ zod.object({
+    destination_id: zod
+        .uuid()
+        .nullish()
+        .describe("The destination's `destinations[].id`. Use it for a destination with no HogFunctions."),
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .max(logsAlertsDestinationsCustomizeCreateBodyHogFunctionIdsMax)
+        .optional()
+        .describe("The destination's `destinations[].hog_function_ids`, for a destination that has HogFunctions."),
+})
+
+/**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
 export const logsAlertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
@@ -632,6 +649,19 @@ export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object
         .max(logsAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
         .optional()
         .describe('Destination IDs, from `destinations[].id`, to delete with their HogFunctions.'),
+})
+
+/**
+ * Send a customized destination's standard message again. Its HogFunctions are deleted, with their edits, and the alerts platform sends it from then on. Only an alert the alerts platform checks can be reset.
+ */
+export const logsAlertsDestinationsResetCreateBodyHogFunctionIdsMax = 100
+
+export const LogsAlertsDestinationsResetCreateBody = /* @__PURE__ */ zod.object({
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(logsAlertsDestinationsResetCreateBodyHogFunctionIdsMax)
+        .describe('Every HogFunction of the customized destination, from `destinations[].hog_function_ids`.'),
 })
 
 /**

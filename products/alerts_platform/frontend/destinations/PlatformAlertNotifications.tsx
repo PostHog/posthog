@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 
 import {
     AlertNotificationDestinationEditor,
+    AlertNotificationDestinationMessageAction,
     AlertNotificationDestinationView,
     PendingAlertNotificationDestinationView,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
@@ -25,6 +26,8 @@ export interface PlatformAlertNotificationsProps extends PlatformAlertDestinatio
     typeOptions?: typeof DESTINATION_TYPE_OPTIONS
     /** What the product adds to a saved destination's row, such as a link to edit its message. */
     destinationView?: (destination: AlertDestinationEntry) => Partial<AlertNotificationDestinationView>
+    /** Offer "Customize" and "Reset to standard message" on each saved destination. Needs `api.customize` and `api.reset`. */
+    messageCustomization?: boolean
 }
 
 /** An alert's own notification destinations, in the editor every alert product uses. */
@@ -34,6 +37,7 @@ export function PlatformAlertNotifications({
     api,
     typeOptions = DESTINATION_TYPE_OPTIONS,
     destinationView,
+    messageCustomization = false,
 }: PlatformAlertNotificationsProps): JSX.Element {
     const logic = platformAlertDestinationsLogic({ alertId, sourceKind, api })
     const {
@@ -41,6 +45,7 @@ export function PlatformAlertNotifications({
         destinationsLoading,
         destinationsLoadFailed,
         deletingDestinationIds,
+        changingMessageDestinationIds,
         pendingDestinations,
         integrationsLoading,
         integrationsFailed,
@@ -59,6 +64,8 @@ export function PlatformAlertNotifications({
         addSelectedDestination,
         removePendingDestination,
         deleteDestination,
+        customizeDestination,
+        resetDestinationMessage,
         setSelectedType,
         setSlackChannelValue,
         setWebhookUrl,
@@ -84,6 +91,35 @@ export function PlatformAlertNotifications({
         }
     }, [unnamedSlackWorkspaceId, loadAllSlackChannels])
 
+    const messageAction = (destination: AlertDestinationEntry): AlertNotificationDestinationMessageAction =>
+        destination.message_customized
+            ? {
+                  label: 'Reset to standard message',
+                  tooltip: 'Send the standard PostHog message instead of your edited one',
+                  onClick: () =>
+                      LemonDialog.open({
+                          title: 'Reset to the standard message?',
+                          description:
+                              "This destination will send PostHog's standard message. Your edits to its message are deleted.",
+                          primaryButton: {
+                              children: 'Reset',
+                              status: 'danger',
+                              onClick: () => resetDestinationMessage(destination),
+                              'data-attr': 'alert-destination-reset-message-confirm',
+                          },
+                          secondaryButton: { children: 'Cancel' },
+                      }),
+                  loading: changingMessageDestinationIds.has(destination.id),
+                  dataAttr: 'alert-destination-reset-message',
+              }
+            : {
+                  label: 'Customize',
+                  tooltip: 'Edit the message this destination sends',
+                  onClick: () => customizeDestination(destination),
+                  loading: changingMessageDestinationIds.has(destination.id),
+                  dataAttr: 'alert-destination-customize-message',
+              }
+
     const existing: AlertNotificationDestinationView[] = destinations.map((destination) => ({
         key: destination.id,
         ...describeDestination({
@@ -95,6 +131,7 @@ export function PlatformAlertNotifications({
         tags: destination.enabled ? undefined : [{ label: 'Paused' }],
         onDelete: () => deleteDestination(destination),
         deleting: deletingDestinationIds.has(destination.id),
+        messageAction: messageCustomization ? messageAction(destination) : undefined,
         ...destinationView?.(destination),
     }))
 

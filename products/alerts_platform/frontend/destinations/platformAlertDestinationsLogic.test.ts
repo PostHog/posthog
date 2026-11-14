@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -5,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { platformAlertsDestinationsCreate, platformAlertsDestinationsList } from '../generated/api'
 import { PlatformAlertDestinationTypeEnumApi } from '../generated/api.schemas'
-import { MAX_DESTINATIONS_PER_ALERT } from './platformAlertDestinations'
+import { AlertDestinationEntry, MAX_DESTINATIONS_PER_ALERT } from './platformAlertDestinations'
 import { platformAlertDestinationsLogic } from './platformAlertDestinationsLogic'
 
 jest.mock('posthog-js')
@@ -130,5 +131,36 @@ describe('platformAlertDestinationsLogic', () => {
         resumeKeaLoadersErrors()
 
         expect(saved.values).toMatchObject({ destinations: [], destinationsLoadFailed: true })
+    })
+
+    it.each([
+        ['opens the message editor for the HogFunctions it returns', true, '/editor/hf-1'],
+        ['stays on the alert when the route refuses', false, '/alert'],
+    ])('customize %s', async (_name, succeeds, expectedPath) => {
+        router.actions.push('/alert')
+        const destination = { id: 'row-1', type: PlatformAlertDestinationTypeEnumApi.Slack, enabled: true }
+        const customize = succeeds
+            ? jest.fn().mockResolvedValue(['hf-1', 'hf-2'])
+            : jest.fn().mockRejectedValue({ detail: 'This destination has changed.' })
+        const saved = platformAlertDestinationsLogic({
+            alertId: 'alert-1',
+            sourceKind: 'logs',
+            api: {
+                list: jest.fn().mockResolvedValue([destination]),
+                create: jest.fn(),
+                remove: jest.fn(),
+                customize,
+                reset: jest.fn(),
+                messageEditorUrl: (_alertId, hogFunctionIds) => `/editor/${hogFunctionIds[0]}`,
+            },
+        })
+        saved.mount()
+
+        saved.actions.customizeDestination(destination as AlertDestinationEntry)
+        await expectLogic(saved).toFinishAllListeners()
+
+        expect(customize).toHaveBeenCalledWith(expect.any(String), 'alert-1', destination)
+        expect(router.values.location.pathname).toMatch(new RegExp(`${expectedPath}$`))
+        expect(saved.values.changingMessageDestinationIds.size).toEqual(0)
     })
 })
