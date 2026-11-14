@@ -48,10 +48,22 @@ _CONNECT_RETRY_BACKOFF_SECONDS = 0.5
 def _connect_with_retry(database_url: str) -> psycopg.Connection:
     for _ in range(_CONNECT_MAX_ATTEMPTS - 1):
         try:
-            return psycopg.Connection.connect(database_url, autocommit=True)
+            return _connect(database_url)
         except psycopg.OperationalError:
             time.sleep(_CONNECT_RETRY_BACKOFF_SECONDS)
-    return psycopg.Connection.connect(database_url, autocommit=True)
+    return _connect(database_url)
+
+
+def _connect(database_url: str) -> psycopg.Connection:
+    conn = psycopg.Connection.connect(database_url, autocommit=True)
+    # The queue DB sits behind a transaction pooler, which can hand consecutive statements on
+    # the same client connection to different backends. psycopg's default prepare_threshold
+    # server-prepares a statement after 5 identical executions (every batch here runs the same
+    # INSERT), and a later Bind against that name can land on a backend that never saw the
+    # Parse, raising "unable to bind ... cannot get parse message". Mirrors the same setting in
+    # jobs_db.py's ConnectionPool and batch_consumer.py's _connect_once.
+    conn.prepare_threshold = None
+    return conn
 
 
 @contextmanager

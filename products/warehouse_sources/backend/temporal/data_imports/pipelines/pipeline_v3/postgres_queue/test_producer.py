@@ -86,6 +86,16 @@ class TestPostgresProducerConnectRetry:
 
         assert mock_connect.call_count == 3
 
+    def test_disables_prepared_statements(self) -> None:
+        # The queue DB sits behind a transaction pooler: psycopg's default prepare_threshold
+        # server-prepares a statement after 5 identical executions, and a later Bind can land on
+        # a backend that never saw the Parse ("unable to bind ... cannot get parse message").
+        mock_conn = MagicMock()
+        with patch(self._CONNECT_TARGET, return_value=mock_conn):
+            producer = PostgresProducer(**_default_kwargs())
+
+        assert producer._conn.prepare_threshold is None
+
 
 class TestPostgresProducerSendBatch:
     def test_inserts_row_on_send(self) -> None:
