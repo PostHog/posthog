@@ -421,6 +421,13 @@ describe('measurements', () => {
             [{ value: 0 }],
         ],
         [
+            'marks an at-once drain incomplete when reads failed for longer than three samples',
+            'drain_seconds',
+            (second) => (between(720, 1100)(second) ? 'failed' : QUIET),
+            [VALVE],
+            [{ value: 0, incomplete: true }],
+        ],
+        [
             'censors a drain the valve phase ends before',
             'drain_seconds',
             (second) => (between(1050, 1100)(second) ? BACKED_UP : QUIET),
@@ -462,6 +469,13 @@ describe('measurements', () => {
                 between(720, 760)(second) ? BACKED_UP : second === 1200 ? { due: 1, oldestDueSeconds: 500 } : QUIET,
             [VALVE],
             [{ value: 30 }],
+        ],
+        [
+            'marks the lag peak incomplete when reads failed for longer than three samples',
+            'queue_lag_peak_seconds',
+            (second) => (between(720, 1100)(second) ? 'failed' : QUIET),
+            [VALVE],
+            [{ value: 1, incomplete: true }],
         ],
     ])('%s', (_story, name, lag, timeline, measured) => {
         const queue = [...probedQueue(lag), { at: atS(902), error: 'Postgres at db failed: timeout' }]
@@ -590,6 +604,7 @@ describe('measurements', () => {
         }).toEqual({
             baseline: {
                 seconds: 700,
+                scrapedSeconds: 600,
                 claimsPerSecond: { email: 0.375, hogflow: 0.125 },
                 newJobsPerSecond: 0.5,
                 hostBusyShare: 0.4,
@@ -600,5 +615,15 @@ describe('measurements', () => {
                 { name: 'baseline_new_jobs_per_second', unit: 'jobs/s', value: 0.5 },
             ],
         })
+    })
+
+    it('rates no claims when the role metrics stop early in the baseline', () => {
+        const samples: MetricSample[] = [
+            { ...sample(0, -60, 1, 100), processed: {} },
+            { ...sample(10, -60, 1, 100), processed: { email: 10 } },
+        ]
+        const recorded = evidence({ samples, queue: probedQueue(() => QUIET), drive: DRIVE, timeline: [VALVE] })
+
+        expect(baselineOf(recorded)).toMatchObject({ seconds: 700, scrapedSeconds: 10, claimsPerSecond: {} })
     })
 })

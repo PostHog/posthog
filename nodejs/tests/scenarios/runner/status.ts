@@ -49,16 +49,22 @@ export function admissionsOf({ load, host }: Pick<Profile, 'load' | 'host'>, bas
                 ({ what, measured, target }) =>
                     `${what} ${measured === undefined ? 'unmeasured' : rate(measured)}, not within ${percent(tolerance)} of ${rate(target)}`
             )
+        const unscraped =
+            Object.keys(targets.claimsPerSecond).length > 0 && baseline.scrapedSeconds < MIN_BASELINE_SECONDS
+                ? `the role metrics covered ${Number(baseline.scrapedSeconds.toFixed(1))}s of the baseline, under the ${MIN_BASELINE_SECONDS}s minimum`
+                : undefined
         admissions.push(
             unmeasurable !== undefined
                 ? { name: 'load', passed: false, reason: unmeasurable }
-                : misses.length > 0
-                  ? { name: 'load', passed: false, reason: misses.join(', ') }
-                  : {
-                        name: 'load',
-                        passed: true,
-                        reason: `every baseline rate within ${percent(tolerance)} of its target`,
-                    }
+                : unscraped !== undefined
+                  ? { name: 'load', passed: false, reason: unscraped }
+                  : misses.length > 0
+                    ? { name: 'load', passed: false, reason: misses.join(', ') }
+                    : {
+                          name: 'load',
+                          passed: true,
+                          reason: `every baseline rate within ${percent(tolerance)} of its target`,
+                      }
         )
     }
     if (host) {

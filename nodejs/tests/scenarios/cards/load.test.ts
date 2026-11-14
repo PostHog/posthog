@@ -354,6 +354,12 @@ describe('load', () => {
             'profile.load.targets.claimsPerSecond.email: ',
         ],
         [
+            'a load block without a target',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: {} }, tolerance: 0.1 } },
+            'profile.load.targets: name at least one target',
+        ],
+        [
             'a load target on a queue Cyclotron does not serve',
             card,
             { ...profile, load: { targets: { claimsPerSecond: { sms: 4 } }, tolerance: 0.1 } },

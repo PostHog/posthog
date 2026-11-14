@@ -188,6 +188,7 @@ describe('statusOf', () => {
 
     const BASELINE: Baseline = {
         seconds: 600,
+        scrapedSeconds: 600,
         claimsPerSecond: { email: 3.8, hogflow: 2 },
         newJobsPerSecond: 5.5,
         hostBusyShare: 0.62,
@@ -211,6 +212,18 @@ describe('statusOf', () => {
                     name: 'load',
                     passed: false,
                     reason: 'hogflow claims 2/s, not within 10% of 3/s, new jobs 6/s, not within 10% of 5/s',
+                },
+            ],
+        ],
+        [
+            'refuses claim targets when the role metrics covered too little of the baseline',
+            { load: LOAD },
+            { scrapedSeconds: 10, claimsPerSecond: {} },
+            [
+                {
+                    name: 'load',
+                    passed: false,
+                    reason: 'the role metrics covered 10s of the baseline, under the 30s minimum',
                 },
             ],
         ],

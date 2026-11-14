@@ -231,6 +231,17 @@ const ENVELOPE_MS = 10 * 60_000
 const DRAINED_FOR_MS = 60_000
 const QUEUE_GAP_MS = 15_000
 
+function readThroughout(queue: readonly QueueSample[], phase: Phase): boolean {
+    const edges = [
+        phase.from,
+        ...counted(queue)
+            .filter(({ at }) => within(phase, at))
+            .map(({ at }) => at),
+        phase.to,
+    ]
+    return edges.every((at, i) => i === 0 || at - edges[i - 1] <= QUEUE_GAP_MS)
+}
+
 function drain(queue: readonly QueueSample[], baseline: Phase, phase: Phase): Measured[] {
     const recent = { from: Math.max(baseline.from, baseline.to - ENVELOPE_MS), to: baseline.to }
     const envelope = counted(queue).filter(({ at }) => within(recent, at))
@@ -248,7 +259,7 @@ function drain(queue: readonly QueueSample[], baseline: Phase, phase: Phase): Me
         !('error' in sample) && sample.due <= maxDue && sample.oldestDueSeconds <= maxAge
     const left = inPhase.findIndex((sample) => !('error' in sample) && !inside(sample))
     if (left < 0) {
-        return [{ value: 0 }]
+        return [{ value: 0, ...(readThroughout(queue, phase) ? {} : { incomplete: true as const }) }]
     }
     let insideSince: number | undefined
     let previous = inPhase[left].at
@@ -307,16 +318,27 @@ function phaseIncrease(
     return { value, ...(incomplete ? { incomplete: true as const } : {}) }
 }
 
+const spanOf = (window: readonly { at: number }[]): number => (window.length < 2 ? 0 : window.at(-1)!.at - window[0].at)
+
 function phaseRate(samples: readonly MetricSample[], read: Counter, phase: Phase): number {
     return replicasOf(samples).reduce((sum, ofReplica) => {
         const window = spanning(ofReplica, phase)
-        const span = window.length < 2 ? 0 : window.at(-1)!.at - window[0].at
+        const span = spanOf(window)
         return span <= 0 ? sum : sum + increaseOf(window, read, window[0].at) / seconds(span)
     }, 0)
 }
 
+function scrapedSeconds(samples: readonly MetricSample[], phase: Phase): number {
+    const spans = replicasOf(samples)
+        .map((ofReplica) => spanning(ofReplica, phase))
+        .filter((window) => window.length > 0)
+        .map((window) => seconds(spanOf(window)))
+    return spans.length === 0 ? 0 : Math.min(...spans)
+}
+
 export type Baseline = {
     seconds: number
+    scrapedSeconds: number
     claimsPerSecond: Record<string, number>
     newJobsPerSecond?: number
     hostBusyShare?: number
@@ -325,10 +347,12 @@ export type Baseline = {
 export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvidence): Baseline {
     const { baseline } = phasesOf(drive, timeline)
     const length = seconds(baseline.to - baseline.from)
+    const scraped = scrapedSeconds(samples, baseline)
     if (length < MIN_BASELINE_SECONDS) {
-        return { seconds: length, claimsPerSecond: {} }
+        return { seconds: length, scrapedSeconds: scraped, claimsPerSecond: {} }
     }
-    const queues = [...new Set(samples.flatMap(({ processed }) => Object.keys(processed)))]
+    const queues =
+        scraped < MIN_BASELINE_SECONDS ? [] : [...new Set(samples.flatMap(({ processed }) => Object.keys(processed)))]
     const claimsPerSecond = Object.fromEntries(
         queues.map((name) => [name, phaseRate(samples, ({ processed }) => processed[name] ?? 0, baseline)])
     )
@@ -337,6 +361,7 @@ export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvi
     const [firstHost, lastHost] = [hostSpan.at(0), hostSpan.at(-1)]
     return {
         seconds: length,
+        scrapedSeconds: scraped,
         claimsPerSecond,
         ...(inserted.length > 1 && inserted.at(-1)!.at > inserted[0].at
             ? {
@@ -384,7 +409,9 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         const ages = counted(queue)
             .filter(({ at }) => within(phase, at))
             .map(({ oldestDueSeconds }) => oldestDueSeconds)
-        return ages.length === 0 ? [] : [{ value: Math.max(...ages) }]
+        return ages.length === 0
+            ? []
+            : [{ value: Math.max(...ages), ...(readThroughout(queue, phase) ? {} : { incomplete: true as const }) }]
     }),
     inPhase('drain_seconds', 's', 'valve', ({ queue }, phase, { baseline }) => drain(queue, baseline, phase)),
     inPhase('failback_drain_seconds', 's', 'failback', ({ queue }, phase, { baseline }) =>

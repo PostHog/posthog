@@ -90,7 +90,12 @@ export const Load = z
                 claimsPerSecond: z.partialRecord(BacklogQueue, z.number().positive()),
                 newJobsPerSecond: z.number().positive().optional(),
             })
-            .strict(),
+            .strict()
+            .refine(
+                ({ claimsPerSecond, newJobsPerSecond }) =>
+                    Object.keys(claimsPerSecond).length > 0 || newJobsPerSecond !== undefined,
+                'name at least one target'
+            ),
         tolerance: z.number().min(0).max(1),
     })
     .strict()
