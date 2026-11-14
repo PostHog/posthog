@@ -557,7 +557,15 @@ function Root<T>({
             }
         }
         // The header and footer never move relative to the items around them, so they cannot hold a place.
-        const row = rows.slice(first).find((item) => item.key !== HEADER_KEY && item.key !== FOOTER_KEY)
+        // Read by index: the core's lazy measurement cache only materializes rows through its Proxy `get` trap.
+        let row: (typeof rows)[number] | undefined
+        for (let index = first; index < rows.length; index++) {
+            const candidate = rows[index]
+            if (candidate.key !== HEADER_KEY && candidate.key !== FOOTER_KEY) {
+                row = candidate
+                break
+            }
+        }
         topRowRef.current = row ? { key: String(row.key), offset: row.start - top, start: row.start } : null
     }, [virtualizer])
 
