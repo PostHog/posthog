@@ -13,6 +13,23 @@ FROM system.signal_spend
 WHERE finalized_at IS NOT NULL
 ```
 
+## Spend in a billing period
+
+Use the billing period bounds for `{date_from}` and `{date_to}`, as [queries.md](queries.md) describes.
+Compare `non_exempt_credits`, converted to USD, with billed spend.
+
+```sql
+SELECT
+    sum(credits) AS recorded_credits,
+    sumIf(credits, billing_exempt) AS exempt_credits,
+    sumIf(credits, NOT billing_exempt) AS non_exempt_credits,
+    countIf(accounting_failed) AS incomplete_records
+FROM system.signal_spend
+WHERE finalized_at >= {date_from} AND finalized_at < {date_to}
+```
+
+A period that starts before the first receipt holds only part of the usage.
+
 ## Spend by day
 
 ```sql
