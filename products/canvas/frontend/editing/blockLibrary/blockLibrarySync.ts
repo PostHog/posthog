@@ -18,6 +18,17 @@ function librarySource(path: string): string | undefined {
     return match?.[1] ? BLOCK_COMPONENT_SOURCES[match[1]] : undefined
 }
 
+function drawsWithRecharts(source: string): boolean {
+    return /from\s+["']recharts["']/.test(source)
+}
+
+function replacesCopy(current: string | undefined, copiedHash: string, latest: string | undefined): latest is string {
+    if (current === undefined || hashText(current) !== copiedHash || latest === undefined || latest === current) {
+        return false
+    }
+    return !drawsWithRecharts(current) || drawsWithRecharts(latest)
+}
+
 export function hashText(text: string): string {
     let hash = 0x811c9dc5
     for (let index = 0; index < text.length; index += 1) {
@@ -76,10 +87,8 @@ export function syncBlockLibrary(input: LibraryFiles): LibraryFiles {
     let next = files
     let changed = false
     for (const [path, copiedHash] of Object.entries(manifest)) {
-        const current = files[path]
         const latest = librarySource(path)
-        const untouched = current !== undefined && hashText(current) === copiedHash
-        if (!untouched || latest === undefined || latest === current) {
+        if (!replacesCopy(files[path], copiedHash, latest)) {
             continue
         }
         if (next === files) {
