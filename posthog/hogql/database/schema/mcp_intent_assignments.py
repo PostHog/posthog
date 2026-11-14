@@ -191,12 +191,13 @@ MCP_INTENT_CALLS_HOURLY_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-class MCPIntentCallsHourlyTable(Table):
+class MCPIntentCallsHourlyTable(EventsRetentionTable):
     description: str = (
         "Hourly MCP tool calls per intent text and tool, written by the intent topics sync run. "
         "A sync that re-reads an hour writes its rows again with a later inserted_at and older copies can remain, "
         "so read only the rows with the latest inserted_at for each hour and intent_hash."
     )
+    events_retention_field: str = "hour"
     fields: dict[str, FieldOrTable] = MCP_INTENT_CALLS_HOURLY_FIELDS
 
     def to_printed_clickhouse(self, context: HogQLContext):
@@ -223,12 +224,13 @@ MCP_INTENT_TOPIC_DAILY_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-class MCPIntentTopicDailyTable(Table):
+class MCPIntentTopicDailyTable(EventsRetentionTable):
     description: str = (
         "Daily MCP tool calls per tool and intent topic. The fast path for intent topic trends; "
         "join topic_id to the topic registry for labels. Each rebuild of a day writes all of that day's rows again "
         "with a later inserted_at and keeps the older rows, so sum only the rows with the latest inserted_at for each day."
     )
+    events_retention_field: str = "day"
     fields: dict[str, FieldOrTable] = MCP_INTENT_TOPIC_DAILY_FIELDS
 
     def to_printed_clickhouse(self, context: HogQLContext):
