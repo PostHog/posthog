@@ -47,6 +47,32 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+function relativeLuminance(hex: string): number {
+    const { r, g, b } = hexToRGB(hex)
+    const linear = (channel: number): number => {
+        const c = channel / 255
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+}
+
+/** WCAG contrast ratio between two hex colors, from 1 (identical) to 21 (black on white). */
+export function contrastRatio(a: string, b: string): number {
+    const [lighter, darker] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x)
+    return (lighter + 0.05) / (darker + 0.05)
+}
+
+/** Blends two hex colors, `weight` of the way from `from` to `to`. */
+export function mixHexColors(from: string, to: string, weight: number): string {
+    const a = hexToRGB(from)
+    const b = hexToRGB(to)
+    const channel = (x: number, y: number): string =>
+        Math.round(x + (y - x) * weight)
+            .toString(16)
+            .padStart(2, '0')
+    return `#${channel(a.r, b.r)}${channel(a.g, b.g)}${channel(a.b, b.b)}`
+}
+
 export function RGBToHex(rgb: string): string {
     const rgbValues = rgb.replace('rgb(', '').replace(')', '').split(',').map(Number)
 
