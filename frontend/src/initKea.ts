@@ -196,6 +196,7 @@ const NOT_FOUND_SELF_HANDLED = new Set([
     'loadOfflineResultPayload',
     'loadDatasetItemDetails', // The dataset item modal renders a deleted, stale, or foreign item as an inline error
     'loadDatasetItemVersions',
+    'loadPluginConfig', // The legacy plugin page renders NotFound for a deleted or mistyped config id
 ])
 
 /*
