@@ -93,26 +93,40 @@ class TestFilterRecipeValidation(SimpleTestCase):
 
 class TestFilterRecipeExecution(SimpleTestCase):
     def assert_malformed(self, engine: WarehouseFilterBindings, payload: str, expression: str | None = None) -> None:
-        with self.assertRaisesRegex(InternalCHQueryError, "signal_filter:malformed_value:value") as raised:
-            self.execute(engine, payload, expression)
-        self.assertEqual(raised.exception.code, 395)
+        if expression is None:
+            with self.assertRaisesRegex(InternalCHQueryError, "signal_filter:malformed_value:value") as raised:
+                self.select(payload, engine.projections["value"].select())
+            self.assertEqual(raised.exception.code, 395)
+            return
+        predicate = engine.predicate(expression)
+        assert predicate is not None
+        self.assertEqual(self.select(payload, predicate.matches, predicate.malformed), (0, 1))
 
     def execute(
         self, engine: WarehouseFilterBindings, payload: str | int | None, expression: str | None = None
     ) -> object:
-        selected: ast.Expr = (
-            engine.projections["value"].select()
-            if expression is None
-            else engine.predicate(expression) or ast.Constant(value=True)
-        )
+        if expression is None:
+            return self.select(payload, engine.projections["value"].select())[0]
+        predicate = engine.predicate(expression)
+        assert predicate is not None
+        matches, malformed = self.select(payload, predicate.matches, predicate.malformed)
+        self.assertEqual(malformed, 0)
+        return matches
+
+    def matches(self, engine: WarehouseFilterBindings, expression: str) -> ast.Expr:
+        predicate = engine.predicate(expression)
+        assert predicate is not None
+        return predicate.matches
+
+    def select(self, payload: str | int | None, *exprs: ast.Expr) -> tuple[object, ...]:
         query = ast.SelectQuery(
-            select=[selected],
+            select=list(exprs),
             select_from=ast.JoinExpr(
                 alias="source",
                 table=ast.SelectQuery(select=[ast.Alias(alias="payload", expr=ast.Constant(value=payload))]),
             ),
         )
-        return self.execute_query(query)[0][0]
+        return self.execute_query(query)[0]
 
     def execute_query(self, query: ast.SelectQuery) -> list[tuple[object, ...]]:
         context = HogQLContext(
@@ -156,7 +170,7 @@ class TestFilterRecipeExecution(SimpleTestCase):
             ("integer", '{"value":9223372036854775808}'),
         ]
     )
-    def test_malformed_values_surface_errors(self, field_type: str, payload: str) -> None:
+    def test_malformed_values_never_pass(self, field_type: str, payload: str) -> None:
         engine = bindings(field_type)
         self.assert_malformed(engine, payload)
         self.assert_malformed(engine, payload, "true OR isNull(value)")
@@ -272,7 +286,7 @@ class TestFilterRecipeExecution(SimpleTestCase):
                     select=[ast.Alias(alias="payload", expr=ast.Constant(value='{"value":"Core","other":"Team"}'))]
                 ),
             ),
-            where=engine.predicate("payload = 'Core' AND other = 'Team'"),
+            where=self.matches(engine, "payload = 'Core' AND other = 'Team'"),
         )
         self.assertEqual(self.execute_query(query), [("Core", "Team")])
 
@@ -326,7 +340,7 @@ class TestFilterRecipeExecution(SimpleTestCase):
                     select=[ast.Alias(alias=name, expr=ast.Constant(value=value)) for name, value in payloads.items()]
                 ),
             ),
-            where=ast.And(exprs=[ast.Constant(value=True), predicate]),
+            where=ast.And(exprs=[ast.Constant(value=True), predicate.matches]),
             limit=ast.Constant(value=1),
         )
         self.assertEqual(

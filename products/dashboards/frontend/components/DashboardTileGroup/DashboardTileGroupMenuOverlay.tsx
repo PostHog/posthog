@@ -95,7 +95,7 @@ export function DashboardTileGroupMenuOverlay({
                     >
                         <LemonButton
                             fullWidth
-                            sideIcon={<IconChevronRight />}
+                            sideIcon={<IconChevronRight className="text-sm" />}
                             data-attr="dashboard-tile-group-menu-add"
                         >
                             Add tile
@@ -105,35 +105,30 @@ export function DashboardTileGroupMenuOverlay({
                 </>
             )}
             {onStartRename && (
-                <>
-                    <LemonButton
-                        fullWidth
-                        onClick={onStartRename}
-                        disabledReason={savingReason}
-                        data-attr="dashboard-tile-group-menu-rename"
-                    >
-                        {renameLabel}
-                    </LemonButton>
-                    {!onRemove && (onCopyToDashboard || onChangeGroupDisplay) && <LemonDivider />}
-                </>
+                <LemonButton
+                    fullWidth
+                    onClick={onStartRename}
+                    disabledReason={savingReason}
+                    data-attr="dashboard-tile-group-menu-rename"
+                >
+                    {renameLabel}
+                </LemonButton>
             )}
             {onRemove && (
-                <>
-                    <LemonButton
-                        fullWidth
-                        status="danger"
-                        onClick={onRemove}
-                        disabledReason={
-                            savingReason ??
-                            (groupHasTiles ? `Move this ${copyNoun}'s tiles out before deleting it` : undefined)
-                        }
-                        data-attr="dashboard-tile-group-menu-remove"
-                    >
-                        {removeLabel}
-                    </LemonButton>
-                    {(onCopyToDashboard || onChangeGroupDisplay) && <LemonDivider />}
-                </>
+                <LemonButton
+                    fullWidth
+                    status="danger"
+                    onClick={onRemove}
+                    disabledReason={
+                        savingReason ??
+                        (groupHasTiles ? `Move this ${copyNoun}'s tiles out before deleting it` : undefined)
+                    }
+                    data-attr="dashboard-tile-group-menu-remove"
+                >
+                    {removeLabel}
+                </LemonButton>
             )}
+            {(onStartRename || onRemove) && (onCopyToDashboard || onChangeGroupDisplay) && <LemonDivider />}
             {onCopyToDashboard && (
                 <>
                     <DashboardWidgetPlacementMenu

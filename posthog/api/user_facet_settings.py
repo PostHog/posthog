@@ -8,10 +8,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.models import User, UserFacetSettings
 from posthog.models.scoping import team_scope
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, check_team_within_credential_organizations
 from posthog.rate_limit import UserAuthenticationThrottle
 
 
@@ -73,7 +78,12 @@ class UserFacetSettingsViewSet(viewsets.GenericViewSet):
     scope_object = "user"
     serializer_class = UserFacetSettingsSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     throttle_classes = [UserAuthenticationThrottle]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
@@ -147,4 +157,5 @@ class UserFacetSettingsViewSet(viewsets.GenericViewSet):
         team_id = instance.current_team_id
         if not team_id:
             raise serializers.ValidationError("Current team is required to manage custom facets.")
+        check_team_within_credential_organizations(self.request, team_id)
         return team_id

@@ -1,4 +1,5 @@
-"""Logs alerts with no logs row, which only the alerts platform keeps.
+"""Logs alerts the logs API reads from the alerts platform: those with no logs row, which only the
+platform keeps, and the copies the platform owns, whose settings it keeps.
 
 Each function takes ids and returns the platform's view, so the logs API presents the alert with
 `LogsAlertConfiguration.from_platform_view` and never holds a row it could save.
@@ -17,6 +18,8 @@ from products.alerts_platform.backend.facade.api import (
     get_configuration,
     list_configurations,
     native_configuration_keys,
+    owned_copies,
+    owned_copy_ids,
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import Grouping, PlatformAlertConfigurationView, SourceKind
@@ -48,12 +51,24 @@ def native_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[Platf
     return tuple(view for view in page.configurations if view.legacy_configuration_id is None)
 
 
+def owned_copy_alert_ids(team_id: int, *, created_by_uuid: UUID | None = None) -> tuple[UUID, ...]:
+    """The ids of the team's logs alerts that keep a logs row and that the platform owns. With
+    `created_by_uuid`, only the ones that user created, as the platform records it."""
+    return owned_copy_ids(team_id=team_id, source_kind=SourceKind.LOGS, created_by_uuid=created_by_uuid)
+
+
+def owned_copy_views(team_id: int, alert_ids: Collection[UUID]) -> dict[UUID, PlatformAlertConfigurationView]:
+    """The platform's view of each named logs alert it owns that keeps a logs row, keyed by the alert's id."""
+    return owned_copies(team_id=team_id, source_kind=SourceKind.LOGS, legacy_configuration_ids=alert_ids)
+
+
 def create_native(
     *,
     team_id: int,
     fields: Mapping[str, Any],
     grouping: Grouping | None,
     labels: dict[str, str] | None,
+    annotations: dict[str, str] | None,
     created_by_id: int,
 ) -> PlatformAlertConfigurationView:
     """Creates a logs alert on the platform alone, from the logs API's settings with their defaults applied.
@@ -62,7 +77,10 @@ def create_native(
     platform's logs schema rejects.
     """
     edit = platform_edit_of(
-        LogsAlertConfiguration(team_id=team_id, **fields), grouping if grouping is not None else Grouping(), labels
+        LogsAlertConfiguration(team_id=team_id, **fields),
+        grouping if grouping is not None else Grouping(),
+        labels,
+        annotations,
     )
     return create_configuration(
         team_id=team_id, source_kind=SourceKind.LOGS, edit=edit, created_by_id=created_by_id, natively=True
@@ -76,6 +94,7 @@ def update_native(
     changes: Mapping[str, Any],
     grouping: Grouping | None,
     labels: dict[str, str] | None,
+    annotations: dict[str, str] | None,
     snooze_until: datetime | None,
     snooze_changed: bool,
 ) -> PlatformAlertConfigurationView | None:
@@ -94,7 +113,7 @@ def update_native(
         team_id=team_id,
         source_kinds=_LOGS,
         configuration_id=alert_id,
-        change=platform_change_of(alert, grouping, labels),
+        change=platform_change_of(alert, grouping, labels, annotations),
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
     )

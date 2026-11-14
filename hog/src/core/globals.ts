@@ -178,6 +178,16 @@ export function resolveGlobals(
     return resolved as GlobalOptions
 }
 
+// Node and Bun skip certificate checks for every request when NODE_TLS_REJECT_UNAUTHORIZED is "0". "false"
+// counts too, because a false alarm only costs the run what it downloads.
+export function tlsVerificationOff(env: Env, globals: GlobalOptions): string | undefined {
+    if (globals.skipSslVerification) {
+        return 'TLS verification is off'
+    }
+    const value = env.NODE_TLS_REJECT_UNAUTHORIZED?.trim().toLowerCase()
+    return value === '0' || value === 'false' ? 'NODE_TLS_REJECT_UNAUTHORIZED turns TLS verification off' : undefined
+}
+
 const WINDOW_MS = 60_000
 
 export function networkRuntime(runtime: Runtime, globals: GlobalOptions): Runtime {

@@ -348,9 +348,18 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status,timed_out_inactivity,timeout_marker,error_message,expected_event,expected_reason",
+        "status,timed_out_inactivity,timeout_marker,error_message,expected_event,expected_reason,run_output,expected_pr_created",
         [
-            (TaskRun.Status.COMPLETED, True, None, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
+            (
+                TaskRun.Status.COMPLETED,
+                True,
+                None,
+                None,
+                "task_run_completed",
+                TIMED_OUT_INACTIVITY_STATE_KEY,
+                None,
+                False,
+            ),
             (
                 TaskRun.Status.FAILED,
                 False,
@@ -358,6 +367,8 @@ class TestUpdateTaskRunStatusActivity:
                 None,
                 "task_run_failed",
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
+                None,
             ),
             (
                 TaskRun.Status.COMPLETED,
@@ -366,6 +377,8 @@ class TestUpdateTaskRunStatusActivity:
                 None,
                 "task_run_completed",
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
+                False,
             ),
             (
                 TaskRun.Status.COMPLETED,
@@ -374,6 +387,38 @@ class TestUpdateTaskRunStatusActivity:
                 "Sandbox stopped: killed with exit code 137, usually because it ran out of memory. Resume to continue.",
                 "task_run_completed",
                 SANDBOX_GONE_STATE_KEY,
+                None,
+                False,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                None,
+                None,
+                "task_run_completed",
+                None,
+                {"pr_url": "https://github.com/PostHog/posthog/pull/42"},
+                True,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                None,
+                None,
+                "task_run_completed",
+                None,
+                "https://github.com/PostHog/posthog/pull/42",
+                False,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                None,
+                None,
+                "task_run_completed",
+                None,
+                ["https://github.com/PostHog/posthog/pull/42"],
+                False,
             ),
         ],
     )
@@ -389,7 +434,12 @@ class TestUpdateTaskRunStatusActivity:
         error_message,
         expected_event,
         expected_reason,
+        run_output,
+        expected_pr_created,
     ):
+        if run_output is not None:
+            test_task_run.output = run_output
+            test_task_run.save(update_fields=["output"])
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id),
             status=status,
@@ -407,6 +457,7 @@ class TestUpdateTaskRunStatusActivity:
         properties = captured[0].kwargs["properties"]
         assert properties["termination_reason"] == expected_reason
         assert properties["error_message"] == (error_message or "")
+        assert properties.get("pr_created") is expected_pr_created
         assert properties["agent_active_at_termination"] is False
         assert properties["end_of_turn_received"] is True
         assert properties["last_agent_heartbeat_at"] == "2026-08-19T10:00:00+00:00"

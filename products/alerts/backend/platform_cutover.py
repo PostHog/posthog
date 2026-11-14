@@ -12,7 +12,7 @@ from typing import Final
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Min, Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -29,6 +29,7 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_source_cycle import DELIVERY_EVENT_IDS, platform_upsert_of
+from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import (
     DeliveryPath,
@@ -229,9 +230,22 @@ def has_begun_cutover(team_id: int) -> bool:
     return AlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM).exists()
 
 
-def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
+def team_cutover_at(team_id: int, *, new_alert_id: UUID) -> datetime | None:
+    """When the platform took the earliest of a team's other insight alerts it still owns. None when it
+    owns none of them."""
+    return (
+        AlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM)
+        .exclude(id=new_alert_id)
+        .aggregate(at=Min("owner_changed_at"))["at"]
+    )
+
+
+def hand_over(alert: AlertConfiguration, at: datetime, *, shadow_from: datetime | None = None) -> bool:
     """Copies an insight alert locked by the caller onto the platform and makes the platform its owner,
     on both rows. False, changing nothing, when the platform copy is inside a firing of its own.
+
+    `shadow_from` is the insight row's `owner_changed_at`, where its shadow starts, and defaults to `at`.
+    The platform copy always takes `at`, because its check fence and firing check need the real time.
 
     The caller checks `can_move` first.
     """
@@ -239,6 +253,7 @@ def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
     assert upsert is not None
     savepoint = transaction.savepoint_create()
     upsert_configuration(upsert)
+    sync_subscriber_destinations(alert)
     taken = take_ownership(
         PlatformOwnershipHandover(
             legacy_configuration_id=alert.id,
@@ -257,11 +272,12 @@ def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
         return False
     transaction.savepoint_commit(savepoint)
     # `update()` rather than `save()`: a handover is not a user's edit, and `save()` would log one.
+    owner_changed_at = shadow_from or at
     AlertConfiguration.objects.filter(team_id=alert.team_id, id=alert.id).update(
-        owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at
+        owner=PlatformAlertOwner.PLATFORM, owner_changed_at=owner_changed_at
     )
     alert.owner = PlatformAlertOwner.PLATFORM
-    alert.owner_changed_at = at
+    alert.owner_changed_at = owner_changed_at
     return True
 
 

@@ -1,4 +1,4 @@
-import '../../../public/surveys/hosted-survey.css'
+import '../../../../products/surveys/backend/templates/surveys/hosted-survey.css'
 
 import { DndContext, DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'

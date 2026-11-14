@@ -34,6 +34,10 @@ from posthog.session_recordings.queries.sub_queries.events_subquery import (
     ReplayFiltersEventsSubQuery,
     SessionIdMatchPlan,
 )
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
+    GROUP_KEY_RESOLUTION_MAX_SECONDS,
+    GroupKeyLookupBudget,
+)
 from posthog.session_recordings.queries.sub_queries.person_ids_subquery import PersonsIdCompareOperation
 from posthog.session_recordings.queries.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
 from posthog.session_recordings.queries.utils import (
@@ -172,6 +176,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         project_exposure_variant: bool = False,
         # For callers that read a short page as "no more matches", so a timeout must raise, not truncate.
         throw_on_timeout: bool = False,
+        group_key_resolution_seconds: int = GROUP_KEY_RESOLUTION_MAX_SECONDS,
         **_,
     ):
         self._user = user
@@ -183,6 +188,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # session window and do not need each run to re-scan the whole range.
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
+        # One budget for every builder this listing makes, so its group filters share one lookup allowance.
+        self._group_key_budget = GroupKeyLookupBudget(group_key_resolution_seconds)
         self.events_subqueries_sampled = False
         self._allow_combined_event_filters = allow_combined_event_filters
         self._event_match_plan: SessionIdMatchPlan | None = None
@@ -712,6 +719,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sample_factor=self._events_sample_factor,
             events_timestamp_floor=self._events_timestamp_floor,
             resolve_group_properties=self._resolve_group_properties,
+            user=self._user,
+            group_key_budget=self._group_key_budget,
         )
         self._event_match_plan = events_sub_query_builder.get_session_id_match_plan(
             allow_combined_filters=self._allow_combined_event_filters
@@ -844,6 +853,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 sample_factor=self._events_sample_factor,
                 events_timestamp_floor=self._events_timestamp_floor,
                 resolve_group_properties=self._resolve_group_properties,
+                user=self._user,
+                group_key_budget=self._group_key_budget,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(

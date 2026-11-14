@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { ApiError } from 'lib/api-error'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import type { HogQLQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -14,6 +15,7 @@ import {
     aeoPromptsRetrieve,
     aeoPromptsTopics,
 } from '../generated/api'
+import { contentAutopilotBrandedLogic } from './contentAutopilotBrandedLogic'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
@@ -37,6 +39,8 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        // The branded segment persists in local storage, so a choice made in one test must not leak into the next.
+        localStorage.clear()
         initKeaTests()
         jest.mocked(aeoPromptsList).mockResolvedValue({
             count: 1,
@@ -60,11 +64,74 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             overviewError: null,
             hasChecks: true,
         })
-        expect(mockOverview).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), { days: OVERVIEW_DAYS })
-        expect(logic.values.citationQuery?.source.values).toEqual({ window_start: '2026-09-01 00:00:00' })
+        expect(mockOverview).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            days: OVERVIEW_DAYS,
+            branded: 'non_branded',
+        })
+        expect(logic.values.visibilityQuery?.source.values).toEqual({
+            window_start: '2026-09-01 00:00:00',
+            brand_pattern: '\\b(example)\\b',
+        })
         // The legend shows the engine's display name, built into the SQL from the shared label map.
-        expect(logic.values.citationQuery?.source.query).toContain("engine = 'claude-web-search', 'Claude'")
+        expect(logic.values.visibilityQuery?.source.query).toContain("engine = 'claude-web-search', 'Claude'")
         expect(logic.values.sourcesQuery?.source).toMatchObject({ values: { window_start: '2026-09-01 00:00:00' } })
+    })
+
+    it.each([
+        ['all', ['example'], null],
+        ['branded', ['example'], 'AND match(lower(prompt_text), {brand_pattern})'],
+        ['non_branded', ['example'], 'AND NOT match(lower(prompt_text), {brand_pattern})'],
+        ['branded', [], 'AND false'],
+        ['non_branded', [], null],
+    ] as const)(
+        'reloads the %s segment with brand names %j and filters the set queries the same way',
+        async (segment, brandNames, where) => {
+            mockOverview.mockImplementation(async (_, params) => ({
+                ...EXAMPLE_PROMPT_SET_OVERVIEW,
+                brand_names: [...brandNames],
+                branded: params?.branded ?? 'all',
+            }))
+            logic = contentAutopilotPromptsOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            contentAutopilotBrandedLogic.actions.setBrandedSegment(segment, 'overview')
+            await expectLogic(logic).toDispatchActions(['loadPromptSetOverviewSuccess']).toFinishAllListeners()
+
+            expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+                days: OVERVIEW_DAYS,
+                branded: segment,
+            })
+            const queries = [logic.values.visibilityQuery?.source, logic.values.sourcesQuery?.source].map(
+                (source) => (source as HogQLQuery).query
+            )
+            for (const query of queries) {
+                if (where) {
+                    expect(query).toContain(where)
+                } else {
+                    expect(query).not.toContain('prompt_text')
+                    expect(query).not.toContain('AND false')
+                }
+            }
+        }
+    )
+
+    it('keeps the chosen segment after the logic mounts again', async () => {
+        logic = contentAutopilotPromptsOverviewLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        contentAutopilotBrandedLogic.actions.setBrandedSegment('all', 'overview')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+
+        initKeaTests()
+        logic = contentAutopilotPromptsOverviewLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ brandedSegment: 'all' })
+        expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            days: OVERVIEW_DAYS,
+            branded: 'all',
+        })
     })
 
     it.each([

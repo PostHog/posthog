@@ -16,6 +16,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
     latest.current = { slot, onMore, dismiss }
     const close = useCallback(() => latest.current.dismiss?.(), [])
     const filter = useCallback(() => latest.current.slot?.filter?.onPress(), [])
+    const pause = useCallback(() => latest.current.slot?.pause?.onPress(), [])
     const more = useCallback(() => latest.current.onMore(), [])
     const done = useCallback(() => latest.current.slot?.editing?.onDone(), [])
     const compose = useCallback(
@@ -39,6 +40,8 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
     const editing = !!slot?.editing
     const hasFilter = !!slot?.filter
     const activeFilter = slot?.filter?.active ?? false
+    const hasPause = !!slot?.pause
+    const paused = slot?.pause?.paused ?? false
     const leading = useMemo(
         () =>
             dismiss ? (
@@ -78,6 +81,17 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                                   />,
                               ]
                             : []),
+                        ...(hasPause
+                            ? [
+                                  <Stack.Toolbar.Button
+                                      iconRenderingMode="template"
+                                      key="pause"
+                                      icon={paused ? nativeIcons.play : nativeIcons.pause}
+                                      accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
+                                      onPress={pause}
+                                  />,
+                              ]
+                            : []),
                         <Stack.Toolbar.Button
                             iconRenderingMode="template"
                             key="compose"
@@ -95,7 +109,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                             onPress={more}
                         />,
                     ],
-        [dismiss, editing, hasFilter, activeFilter, done, filter, compose, more]
+        [dismiss, editing, hasFilter, activeFilter, hasPause, paused, done, filter, pause, compose, more]
     )
     return (
         <>

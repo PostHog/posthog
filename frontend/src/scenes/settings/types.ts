@@ -169,6 +169,7 @@ export type SettingId =
     | 'data-theme'
     | 'datacapture'
     | 'date-and-time'
+    | 'data-deletion-requests'
     | 'dead-clicks-autocapture'
     | 'details'
     | 'discussion-mention-integrations'

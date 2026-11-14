@@ -12,8 +12,10 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
+from django.db import connection
 from django.db.models import F
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import httpx
@@ -29,12 +31,15 @@ from products.signals.backend.activity_summary.read import (
     ActivitySummaryTheme,
     ActivitySummaryView,
 )
+from products.signals.backend.activity_summary.render import InboxStrength
 from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.models import (
     PersonalInboxRanking,
     SignalReport,
+    SignalReportAction,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReviewerExclusion,
 )
 from products.signals.backend.personal_ranking import serve as personal_ranking_serve
 from products.signals.backend.personal_ranking.candidates import Candidate
@@ -45,6 +50,8 @@ from products.signals.backend.personal_ranking.config import (
     ReasonLimits,
     parse_config,
 )
+from products.signals.backend.personal_ranking.inbox_activity import read_inbox_activity
+from products.signals.backend.personal_ranking.list_sort import personal_ranking_state
 from products.signals.backend.personal_ranking.logic import (
     BUILT_EVENT,
     InputChanges,
@@ -55,7 +62,11 @@ from products.signals.backend.personal_ranking.logic import (
 )
 from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
-from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
+from products.signals.backend.personal_ranking_tasks import (
+    build_lock_key,
+    build_personal_inbox_ranking,
+    start_first_summary_build,
+)
 from products.signals.backend.ranking.inbox_sort import PERSONAL_RECOMMENDED_FLAG, RECOMMENDED_INBOX_SORT_FLAG
 from products.signals.backend.ranking.report_predictions import OutcomePrediction, ReportPredictions
 
@@ -360,8 +371,10 @@ class TestInputParts(SimpleTestCase):
         candidates = [_candidate(1, _IDS[0]), _candidate(2, _IDS[1], predictions=None, needs_you=())]
 
         assert (
-            input_hash(candidates, config=CONFIG, limit=25, activity_summary_version=7, focus="checkout")
-            == "3d3077866e85c6b1868f952a33a297762db56b2abc2978e2e68bdcf4811c4baf"
+            input_hash(
+                candidates, config=CONFIG, limit=25, activity_summary_version=7, focus="checkout", inbox_activity=None
+            )
+            == "9fd317c4f9be057d443190b2b97bc2608552333a6e816da77c07db2867b275e1"
         )
 
     @parameterized.expand(
@@ -417,7 +430,12 @@ class TestInputParts(SimpleTestCase):
     ) -> None:
         stored = PersonalInboxRanking(
             input_parts=input_parts(
-                [_candidate(1, _IDS[0])], config=CONFIG, limit=25, activity_summary_version=7, focus=None
+                [_candidate(1, _IDS[0])],
+                config=CONFIG,
+                limit=25,
+                activity_summary_version=7,
+                focus=None,
+                inbox_activity=None,
             )
         )
         current = input_parts(
@@ -426,6 +444,7 @@ class TestInputParts(SimpleTestCase):
             limit=25,
             activity_summary_version=summary_version,
             focus=None,
+            inbox_activity=None,
         )
 
         assert compare_inputs(stored, current, rank_top=10) == dataclasses.replace(
@@ -441,6 +460,7 @@ class TestInputParts(SimpleTestCase):
                 limit=25,
                 activity_summary_version=7,
                 focus=None,
+                inbox_activity=None,
             ),
             result={"ranked": [{"report_id": ids[1]}, {"report_id": ids[0]}, {"report_id": ids[2]}]},
         )
@@ -450,6 +470,7 @@ class TestInputParts(SimpleTestCase):
             limit=25,
             activity_summary_version=7,
             focus=None,
+            inbox_activity=None,
         )
 
         changes = compare_inputs(stored, current, rank_top=2)
@@ -471,7 +492,14 @@ class TestInputParts(SimpleTestCase):
     def test_a_previous_list_without_parts_reports_why(
         self, _name: str, previous: PersonalInboxRanking | None, expected: tuple[str, ...]
     ) -> None:
-        current = input_parts([_candidate(1, _IDS[0])], config=CONFIG, limit=25, activity_summary_version=7, focus=None)
+        current = input_parts(
+            [_candidate(1, _IDS[0])],
+            config=CONFIG,
+            limit=25,
+            activity_summary_version=7,
+            focus=None,
+            inbox_activity=None,
+        )
 
         assert compare_inputs(previous, current, rank_top=10) == InputChanges(changed_parts=expected)
 
@@ -883,6 +911,50 @@ class TestBuildPersonalRanking(BaseTest):
             assert [candidate.report_id for candidate in build.candidates] == [str(own.id)]
             assert (build.candidates[0].predictions is not None) is staff
 
+    def test_the_inbox_activity_block_reaches_the_prompt_and_the_event(self) -> None:
+        routed = self._names_me(self._report("Export job timeouts"))
+        SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=routed,
+            user=self.user,
+            type="feedback",
+            metadata={"sentiment": "positive"},
+            last_at=timezone.now(),
+        )
+        self.create.return_value = _response(_answer([_entry("c1", 1)]))
+        config = PersonalRankingConfig(inbox_activity_lines=5)
+
+        build = build_personal_ranking(self.team, self.user, config=config, dry_run=False)
+
+        ref = build.candidates[0].ref
+        message = self.create.call_args.kwargs["messages"][1]["content"]
+        assert "# Recent inbox activity" in message
+        assert f"- {ref} | " in message and "rated it useful" in message
+        event = self.capture.call_args.kwargs["properties"]
+        assert (event["inbox_activity_lines"], event["inbox_activity_candidate_lines"]) == (1, 1)
+        assert event["inbox_activity_strength_counts"] == {"rated": 1}
+        assert "Export job timeouts" not in json.dumps(event)
+
+    def test_the_block_is_off_by_default_and_leaves_the_prompt_and_hash_unchanged(self) -> None:
+        routed = self._names_me(self._report("Export job timeouts"))
+        SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=routed,
+            user=self.user,
+            type="feedback",
+            metadata={"sentiment": "positive"},
+            last_at=timezone.now(),
+        )
+        self.create.return_value = _response(_answer([_entry("c1", 1)]))
+
+        build = build_personal_ranking(self.team, self.user, config=PersonalRankingConfig(), dry_run=True)
+
+        message = self.create.call_args.kwargs["messages"][1]["content"]
+        assert "# Recent inbox activity" not in message
+        assert build.inbox_activity is None
+        assert build.input_parts is not None
+        assert "inbox_activity" not in build.input_parts["parts"]
+
     def test_configured_pools_keep_their_order_and_names(self) -> None:
         claimed = self._report("Claimed", status=SignalReport.Status.IN_PROGRESS)
         SignalReportAssignment.all_teams.create(team=self.team, report=claimed, actor_kind="user", actor_user=self.user)
@@ -947,6 +1019,43 @@ class TestBuildPersonalRanking(BaseTest):
         assert {str(row_id) for row_id in mine.values_list("id", flat=True)} == set(ranking_ids[-2:])
         assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=other_user.id).count() == 1
         assert PersonalInboxRanking.objects.for_team(other_team.id).filter(user_id=self.user.id).count() == 1
+
+    @parameterized.expand(
+        [
+            ("first summary with candidates", {}, True, False, ["first_summary"]),
+            ("already has a list", {}, True, True, ["on_demand"]),
+            ("disabled payload", {"enabled": False}, True, False, []),
+            ("no candidates", {}, False, False, []),
+        ]
+    )
+    def test_a_first_summary_builds_a_list_only_for_a_person_without_one(
+        self, _name: str, payload: dict[str, Any], has_candidates: bool, has_list: bool, triggers: list[str]
+    ) -> None:
+        cache.delete(build_lock_key(self.team.id, self.user.id))
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        if has_candidates:
+            self._setup_reports()
+        self.create.return_value = _response(_answer([]))
+        if has_list:
+            self._build()
+        queued: list[tuple[Any, ...]] = []
+
+        with (
+            patch("products.signals.backend.personal_ranking.config.read_flag_payload", return_value=payload),
+            patch(
+                "products.signals.backend.personal_ranking_tasks.build_personal_inbox_ranking.delay",
+                side_effect=lambda *args: queued.append(args),
+            ),
+        ):
+            start_first_summary_build(self.team.id, self.user.id)
+            for args in queued:
+                build_personal_inbox_ranking(*args)
+
+        captured = [call.kwargs["properties"]["trigger"] for call in self.capture.call_args_list]
+        assert captured == triggers
+        assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == len(triggers)
+        assert cache.get(build_lock_key(self.team.id, self.user.id)) is None
 
 
 class TestForMeEndpoint(APIBaseTest):
@@ -1251,6 +1360,73 @@ class TestForMeEndpoint(APIBaseTest):
         assert (self._rows(), self.queued) == (0, [])
 
 
+class TestReadInboxActivity(BaseTest):
+    def _report(self, title: str, **fields: Any) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team, title=title, summary=f"{title} summary", signal_count=1, total_weight=1.0, **fields
+        )
+
+    def _acted(self, report: SignalReport, user: User, days_ago: float = 1) -> None:
+        action = SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team, report=report, user=user, type="view", last_at=timezone.now()
+        )
+        # A view on two days is the lightest fact the block keeps at the default minimum strength.
+        SignalReportAction.objects.for_team(self.team.id).filter(id=action.id).update(
+            first_at=timezone.now() - datetime.timedelta(days=days_ago + 1),
+            last_at=timezone.now() - datetime.timedelta(days=days_ago),
+        )
+
+    def test_only_the_person_and_project_reach_the_block(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        mine = self._report("Export job timeouts")
+        theirs = self._report("Checkout funnel drops")
+        self._acted(mine, self.user)
+        self._acted(mine, other)
+        self._acted(theirs, other)
+        SignalReviewerExclusion.objects.create(
+            team=self.team, subject_user_uuid=self.user.uuid, repository="example-org/billing", instruction="moved on"
+        )
+        SignalReviewerExclusion.objects.create(
+            team=self.team, subject_user_uuid=other.uuid, repository="example-org/web", instruction="not mine"
+        )
+        SignalReviewerExclusion.objects.create(
+            team=self.team,
+            subject_user_uuid=self.user.uuid,
+            repository="example-org/old",
+            instruction="revoked",
+            status=SignalReviewerExclusion.Status.REVOKED,
+        )
+
+        config = PersonalRankingConfig(inbox_activity_lines=10, inbox_activity_min_strength=InboxStrength.VIEWED)
+        block = read_inbox_activity(self.team, self.user, config, now=timezone.now())
+
+        assert block is not None
+        assert [sorted(line.report_ids) for line in block.lines] == [[str(mine.id)]]
+        assert [area.repository for area in block.exclusions] == ["example-org/billing"]
+
+    def test_the_block_is_none_when_lines_are_zero(self) -> None:
+        self._acted(self._report("Export job timeouts"), self.user)
+
+        assert read_inbox_activity(self.team, self.user, PersonalRankingConfig(), now=timezone.now()) is None
+
+
+class TestPersonalRankingState(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("real", "ok", True, 2, "real"),
+            ("one_report", "ok", True, 1, "one_report"),
+            ("not_personalized", "ok", False, 3, "not_personalized"),
+            ("ok_without_reports", "ok", True, 0, "empty"),
+            ("empty", "empty", False, 0, "empty"),
+            ("fallback", "fallback", False, 3, "fallback"),
+        ]
+    )
+    def test_only_an_ok_personalized_row_of_two_reports_is_real(
+        self, _name: str, status: str, personalized: bool, size: int, expected: str
+    ) -> None:
+        assert personal_ranking_state(status, personalized, size) == expected
+
+
 class TestPersonalListSort(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1309,8 +1485,7 @@ class TestPersonalListSort(APIBaseTest):
             input_hash="h",
             model="m",
             prompt_version=1,
-            status="ok",
-            **{"user": self.user, **defaults, **kwargs},
+            **{"user": self.user, "status": "ok", **defaults, **kwargs},
         )
 
     def _variants(self, variants: dict[str, str]) -> None:
@@ -1432,17 +1607,20 @@ class TestPersonalListSort(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("full_list", 4, "personal", "personal"),
-            ("full_list_in_control", 4, "control", "priority"),
-            ("short_list", 3, "personal", "priority"),
-            ("no_list", None, "personal", "priority"),
+            ("full_list", 4, "personal", "personal", [True]),
+            ("full_list_in_control", 4, "control", "priority", [True]),
+            # A rebuild can make an exposed person's list shorter, and they must keep their arm.
+            ("short_list", 3, "personal", "personal", [False]),
+            ("short_list_in_control", 3, "control", "priority", [False]),
+            ("no_list", None, "personal", "priority", []),
         ]
     )
-    def test_recommended_tests_the_personal_order_only_with_a_full_list(
-        self, _name: str, ranked: int | None, variant: str, ranker: str
+    def test_recommended_exposes_the_personal_test_only_with_a_full_list(
+        self, _name: str, ranked: int | None, variant: str, ranker: str, exposures: list[bool]
     ) -> None:
         r0, r1, r2, r3, r4 = self.reports
-        row = self._ranking([r3, r1, r4, r0][:ranked], [r2]) if ranked is not None else None
+        listed = [r3, r1, r4, r0][:ranked]
+        row = self._ranking(listed, [r2]) if ranked is not None else None
         base = self._ids(self._list(sort="priority"))
         self._variants({PERSONAL_RECOMMENDED_FLAG: variant, RECOMMENDED_INBOX_SORT_FLAG: "control"})
 
@@ -1450,15 +1628,72 @@ class TestPersonalListSort(APIBaseTest):
 
         if ranker == "personal":
             assert row is not None
-            assert self._ids(body) == [str(r3.id), str(r1.id), str(r4.id), str(r0.id), str(r2.id)]
+            assert self._ids(body)[: len(listed) + 1] == [str(report.id) for report in [*listed, r2]]
             assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("personal", str(row.id), True)
             assert body["results"][0]["personal_reason"] == "reason R3"
         else:
             assert self._ids(body) == base
             assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("priority", None, False)
-        exposures = [
+        assert [
             call.kwargs["send_feature_flag_events"]
             for call in self.analytics.get_feature_flag.call_args_list
             if call.args[0] == PERSONAL_RECOMMENDED_FLAG
-        ]
-        assert exposures == ([True] if ranked == 4 else [])
+        ] == exposures
+
+    @parameterized.expand([("priority", {}), ("personal", {}), ("personal", {"scope": "teammate"})])
+    def test_first_page_reports_the_viewer_ranking_status(self, sort: str, params: dict[str, Any]) -> None:
+        r0, r1, r2, *_ = self.reports
+        teammate = User.objects.create(email="teammate@example.com")
+        OrganizationMembership.objects.create(user=teammate, organization=self.organization)
+        with time_machine.travel("2026-03-01T12:00:00Z", tick=False):
+            row = self._ranking([r0, r1], [r2], status="fallback", personalized=False, fallback_reason="timeout")
+        PersonalInboxRanking.objects.filter(id=row.id).update(
+            checked_at=datetime.datetime(2026, 3, 1, 13, 30, tzinfo=datetime.UTC)
+        )
+        self._ranking([r2, r1], [], user=teammate)
+        if params:
+            params = {**params, "teammate_uuid": teammate.uuid}
+
+        with time_machine.travel("2026-03-01T14:00:00Z", tick=False):
+            first = self._list(sort=sort, limit=2, **params)
+            later = self._list(sort=sort, limit=2, offset=2, **params)
+
+        assert first["personal_ranking_status"] == {
+            "state": "fallback",
+            "size": 3,
+            "age_minutes": 120,
+            "checked_age_minutes": 30,
+            "fallback_reason": "timeout",
+        }
+        assert later["personal_ranking_status"] is None
+        assert (self.gather.call_count, self.delay.call_count) == (0, 0)
+
+    @parameterized.expand([("flag_off", False, None), ("no_row", True, "none")])
+    def test_ranking_status_without_a_ranking(self, _name: str, flag_enabled: bool, state: str | None) -> None:
+        self.flag_enabled = flag_enabled
+
+        status = self._list(sort="priority")["personal_ranking_status"]
+
+        if state is None:
+            assert status is None
+        else:
+            assert status == {
+                "state": state,
+                "size": None,
+                "age_minutes": None,
+                "checked_age_minutes": None,
+                "fallback_reason": None,
+            }
+
+    def test_ranking_status_adds_one_query_to_the_first_page(self) -> None:
+        r0, r1, *_ = self.reports
+        self._ranking([r0, r1], [])
+        self._list(sort="priority")
+
+        def queries(payload: dict[str, Any]) -> int:
+            self.payload = payload
+            with CaptureQueriesContext(connection) as captured:
+                self._list(sort="priority")
+            return len(captured)
+
+        assert queries({}) - queries({"enabled": False}) == 1

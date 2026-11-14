@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 import { SMALL_MAPPING } from '../../test/parity/fixtures'
-import { detectCi } from './telemetry'
+import { detectCi } from './ci'
 
 const TELEMETRY = 'https://us.i.posthog.com/batch/'
 const ON = { telemetryToken: 'phc_test' }

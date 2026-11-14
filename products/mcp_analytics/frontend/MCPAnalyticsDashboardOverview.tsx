@@ -24,11 +24,19 @@ import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
 import { ProtocolVersionStrip } from './dashboard/ProtocolVersionStrip'
 import { RecentToolCallsCard } from './dashboard/RecentToolCallsCard'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
+import { ToolLatencyChart } from './dashboard/ToolLatencyChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
 import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from './feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from './feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
-import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from './mcpDashboardOverviewLogic'
+import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
+import {
+    mcpDashboardOverviewLogic,
+    rankedToolsEmptyMessage,
+    rankToolsByErrorRate,
+    rankToolsByP95,
+    slowestToolsEmptyMessage,
+} from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const {
@@ -71,10 +79,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const showModel = isCardVisible('model') && hasModelData
     const showProtocolVersion = isCardVisible('protocol-version') && hasProtocolVersionData
     const showToolErrors = isCardVisible('tool-errors')
+    const showToolLatency = isCardVisible('tool-latency')
     const showNotableSessions = isCardVisible('notable-sessions')
     const showRecentActivity = isCardVisible('recent-activity')
     const showUsage = showActivity || showToolUsage || showHarness || showModel || showProtocolVersion
-    const showReliability = showToolErrors || showNotableSessions
+    const showReliability = showToolErrors || showToolLatency || showNotableSessions
     const showsNoCards = !(showKpis || showUsage || showReliability || showRecentActivity)
 
     return (
@@ -205,15 +214,44 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 onToolClick={openToolReport}
                             />
                         )}
-                        {showNotableSessions && (
+                        {showToolLatency && (
+                            <ToolLatencyChart
+                                rows={rankToolsByP95(toolRows)}
+                                emptyMessage={slowestToolsEmptyMessage(toolRows)}
+                                loading={!!loadingSections.toolRows}
+                                failed={failedLoads.toolRows}
+                                onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
+                                theme={theme}
+                                onToolClick={openToolReport}
+                                action={
+                                    // Negative margin keeps the header as tall as a title-only header.
+                                    <LemonButton
+                                        className="-my-1"
+                                        type="secondary"
+                                        size="xsmall"
+                                        to={mcpToolQualityUrlWithDates(dateFilter, null, {
+                                            column: 'p95_duration_ms',
+                                            direction: 'DESC',
+                                        })}
+                                        data-attr="mcp-dashboard-slowest-tools-view-all"
+                                    >
+                                        View all tools
+                                    </LemonButton>
+                                }
+                            />
+                        )}
+                    </CardRow>
+                    {/* The card's self-start would shrink it to its content width in this flex column. */}
+                    {showNotableSessions && (
+                        <div className="min-w-0">
                             <NotableSessionsTable
                                 sessions={notableSessions}
                                 loading={!!loadingSections.sessionRows}
                                 failed={failedLoads.sessionRows}
                                 onRetry={() => loadSections([MCPDashboardSection.SessionRows])}
                             />
-                        )}
-                    </CardRow>
+                        </div>
+                    )}
                 </section>
             )}
             {showRecentActivity && <RecentToolCallsCard filters={queryFilters} />}

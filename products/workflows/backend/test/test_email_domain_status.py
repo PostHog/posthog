@@ -1,7 +1,11 @@
+import threading
+from typing import Any
+
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+import dns.query
 from parameterized import parameterized
 
 from products.workflows.backend.facade.contracts import EmailDomainStatusRecord
@@ -9,7 +13,11 @@ from products.workflows.backend.facade.enums import (
     EmailDomainSetupRecordKind as Kind,
     EmailDomainSetupRecordType as RecordType,
 )
-from products.workflows.backend.services.email_domain_dns import PublishedRecords, find_published_records
+from products.workflows.backend.services.email_domain_dns import (
+    MAX_PARALLEL_LOOKUPS,
+    PublishedRecords,
+    find_published_records,
+)
 from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
 DOMAIN = "mail.example.com"
@@ -54,6 +62,42 @@ class TestFindPublishedRecords(SimpleTestCase):
 
         with world.installed():
             assert (record in find_published_records(DOMAIN, [record]).records) is expected
+
+    def test_finds_every_record_while_holding_at_most_the_lookup_limit_in_flight(self) -> None:
+        records = [
+            _record(Kind.DKIM, RecordType.CNAME, f"dk{index}._domainkey.{DOMAIN}", f"dk{index}.dkim.amazonses.com")
+            for index in range(MAX_PARALLEL_LOOKUPS + 4)
+        ]
+        world = EmailDomainWorld()
+        world.dns.add_zone("example.com", nameservers={"ns1.example-dns.net": "34.120.0.1"})
+        for record in records:
+            world.dns.publish(record.hostname, "CNAME", f"{record.value}.")
+        lock = threading.Lock()
+        over_limit = threading.Event()
+        in_flight = peak = 0
+
+        with world.installed():
+            answer = dns.query.udp
+
+            def held_until_one_over_the_limit(*args: Any, **kwargs: Any) -> Any:
+                nonlocal in_flight, peak
+                with lock:
+                    in_flight += 1
+                    peak = max(peak, in_flight)
+                    if in_flight > MAX_PARALLEL_LOOKUPS:
+                        over_limit.set()
+                over_limit.wait(timeout=0.2)
+                try:
+                    return answer(*args, **kwargs)
+                finally:
+                    with lock:
+                        in_flight -= 1
+
+            with patch("dns.query.udp", held_until_one_over_the_limit):
+                published = find_published_records(DOMAIN, records)
+
+        assert peak <= MAX_PARALLEL_LOOKUPS
+        assert published.records == frozenset(records)
 
 
 class TestOOBDomainGuard(SimpleTestCase):

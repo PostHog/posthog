@@ -74,6 +74,7 @@ from posthog.models.user_integration import (
     ReauthorizationRequired,
     UserGitHubIntegration,
     UserIntegration,
+    revoke_slack_user_token,
 )
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
 from posthog.rate_limit import CodexConnectUserThrottle, UserAuthenticationThrottle
@@ -900,6 +901,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         ).first()
         if integration is None:
             raise exceptions.NotFound("No Slack link found for this Slack user id.")
+        revoke_slack_user_token(integration)
         integration.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

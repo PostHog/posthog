@@ -4,10 +4,13 @@ import { readJson, runHog, TEST_CREDENTIALS } from '@/testing'
 
 const AGENT = { ...TEST_CREDENTIALS, CLAUDECODE: '1' }
 
+// PostHog hashes the types-only module differently, because its generator has its own version.
 const definitions = (content: string) => (url: string) =>
     url.endsWith('/event_definitions/typescript/')
         ? { status: 200, body: { content, event_count: 3, schema_hash: 'hash-new' } }
-        : { status: 404, body: { detail: 'Not found.' } }
+        : url.endsWith('/event_definitions/typescript/?sdk=none')
+          ? { status: 200, body: { content, event_count: 3, schema_hash: 'hash-types', sdk: 'none' } }
+          : { status: 404, body: { detail: 'Not found.' } }
 
 // The file posthog-cli 0.18 writes, plus a section hog owns.
 const OLD_CONFIG = JSON.stringify({
@@ -37,6 +40,7 @@ describe('hog schema', () => {
             languages: {
                 typescript: {
                     output_path: 'src/lib/posthog-typed.ts',
+                    sdk: 'posthog-js',
                     schema_hash: 'hash-new',
                     updated_at: '2026-01-01T00:00:00.000Z',
                     event_count: 3,
@@ -81,12 +85,22 @@ describe('hog schema', () => {
         expect(result.requests).toEqual([])
     })
 
+    test('pull rejects --sdk for a language other than TypeScript', async () => {
+        const result = await runHog(['schema', 'pull', '--language', 'golang', '--sdk', 'none'], { env: AGENT })
+        expect(result.exitCode).toBe(2)
+        expect(result.error().code).toBe('usage_error')
+        expect(result.requests).toEqual([])
+    })
+
     test.each([
-        ['the events have not changed', 'hash-new', { '/work/out.ts': '' }, 'up_to_date', 0],
-        ['the events changed', 'hash-old', { '/work/out.ts': '' }, 'outdated', 1],
-        ['the module is gone', 'hash-new', {}, 'missing', 1],
-    ])('status when %s', async (_name, hash, files, status, exitCode) => {
-        const config = JSON.stringify({ languages: { typescript: { output_path: 'out.ts', schema_hash: hash } } })
+        ['the events have not changed', 'hash-new', {}, { '/work/out.ts': '' }, 'up_to_date', 0],
+        ['types-only events have not changed', 'hash-types', { sdk: 'none' }, { '/work/out.ts': '' }, 'up_to_date', 0],
+        ['the events changed', 'hash-old', {}, { '/work/out.ts': '' }, 'outdated', 1],
+        ['the module is gone', 'hash-new', {}, {}, 'missing', 1],
+    ])('status when %s', async (_name, hash, sdk, files, status, exitCode) => {
+        const config = JSON.stringify({
+            languages: { typescript: { output_path: 'out.ts', schema_hash: hash, ...sdk } },
+        })
         const result = await runHog(['schema', 'status'], {
             env: AGENT,
             files: { '/work/posthog.json': config, ...files },

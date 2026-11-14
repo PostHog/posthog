@@ -1,5 +1,17 @@
 export type LiveBreakdownKind = 'devices' | 'browsers' | 'countries'
 
+/** The device and browser jobs' value for events without the property, such as app events without `$browser`. */
+export const UNKNOWN_BREAKDOWN = 'Unknown'
+
+/** What the top list counts: pageviews by path, or screen views by screen name for a project with app events only. */
+export type LivePathsMode = 'pages' | 'screens'
+
+/**
+ * What the project sends. `app_only`: events but no pageviews, as from a mobile SDK. `quiet`: no events in the window.
+ * `not_set_up`: the project has never ingested an event.
+ */
+export type LiveProjectState = 'web' | 'app_only' | 'quiet' | 'not_set_up'
+
 /** One minute of the active users chart. `at` is the minute's start, epoch milliseconds. */
 export interface LiveMinute {
     at: number
@@ -44,6 +56,14 @@ export interface LiveBreakdown {
     rows: LiveBreakdownRow[]
 }
 
+/** Every country with visitors, most first, for the world map. The Countries breakdown keeps only the top six. */
+export interface LiveWorld {
+    total: number
+    countries: LiveBreakdownRow[]
+    /** Visitors per ISO 3166-1 alpha-2 code, as the map reads them. */
+    counts: Readonly<Record<string, number>>
+}
+
 export type LiveEventKind = 'pageview' | 'screen' | 'other'
 
 export interface LiveEventRow {
@@ -64,10 +84,13 @@ export interface LiveEventRow {
 export interface LiveSnapshot {
     activity: LiveActivity | null
     topPages: LiveRankedRow[] | null
+    /** What `topPages` counts. Null until the first answer. */
+    topPagesMode: LivePathsMode | null
     topReferrers: LiveRankedRow[] | null
     devices: LiveBreakdown | null
     browsers: LiveBreakdown | null
     countries: LiveBreakdown | null
+    world: LiveWorld | null
     events: LiveEventRow[] | null
     usersOnline: number | null
 }
@@ -75,10 +98,12 @@ export interface LiveSnapshot {
 export const EMPTY_LIVE_SNAPSHOT: LiveSnapshot = {
     activity: null,
     topPages: null,
+    topPagesMode: null,
     topReferrers: null,
     devices: null,
     browsers: null,
     countries: null,
+    world: null,
     events: null,
     usersOnline: null,
 }

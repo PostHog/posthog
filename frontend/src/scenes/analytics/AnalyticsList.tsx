@@ -45,6 +45,7 @@ import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnal
 import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { AnalyticsDeleteDialog } from './AnalyticsDeleteDialog'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
 import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
@@ -52,7 +53,9 @@ import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
+import { AnalyticsTagsDialog } from './AnalyticsTagsDialog'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
 import { ShareToSpaceDialog } from './ShareToSpaceDialog'
@@ -90,6 +93,7 @@ function AnalyticsListContent(): JSX.Element {
     const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
+    const { hidePinHint } = useActions(analyticsPinnedLogic)
     const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
     const { ref: tableEndRef, inView: tableEndInView } = useInView({
         root: tableViewport,
@@ -120,6 +124,9 @@ function AnalyticsListContent(): JSX.Element {
     // Only the collection itself is deleted from Manage; a folder inside it is deleted from its row.
     const topLevelSpace = mode === 'folder' && filters.folder ? analyticsSpaceOfPath(filters.folder) : null
     const isSpaceRoot = !!topLevelSpace && topLevelSpace !== USERS_FOLDER && folderBreadcrumbs.length === 1
+
+    // The hint belongs to the visit that asked for it.
+    useEffect(() => () => hidePinHint(), [hidePinHint])
 
     useEffect(() => {
         if (nearEnd && hasMore) {
@@ -356,6 +363,8 @@ function AnalyticsListContent(): JSX.Element {
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />
+            <AnalyticsTagsDialog />
+            <AnalyticsDeleteDialog />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )

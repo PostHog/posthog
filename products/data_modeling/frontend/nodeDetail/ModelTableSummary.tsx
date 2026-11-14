@@ -12,18 +12,7 @@ import { StatusTagSetting, SyncFrequencyLabelMap, SyncTypeLabelMap } from 'produ
 import { ModelDownstreamSummary } from './ModelDownstreamSummary'
 import { ModelSummaryCard } from './ModelSummaryCard'
 
-export function ModelTableSummary({
-    id,
-    node,
-    table,
-    source,
-    schema,
-    loading,
-    error,
-    accessDenied,
-    onRetry,
-    metadata,
-}: {
+export interface ModelTableSummaryProps {
     id: string
     node: Pick<DataModelingNode, 'origin' | 'downstream_count'>
     table: Pick<DataWarehouseTable, 'format'> | null
@@ -37,7 +26,20 @@ export function ModelTableSummary({
     accessDenied: boolean
     onRetry: () => void
     metadata?: ReactNode
-}): JSX.Element {
+}
+
+export function ModelTableSummary({
+    id,
+    node,
+    table,
+    source,
+    schema,
+    loading,
+    error,
+    accessDenied,
+    onRetry,
+    metadata,
+}: ModelTableSummaryProps): JSX.Element {
     const downstream = (
         <ModelDownstreamSummary downstreamCount={node.downstream_count} lineageUrl={urls.nodeDetail(id, 'lineage')} />
     )

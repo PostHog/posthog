@@ -1,12 +1,14 @@
 """Read flag calls from `posthog.flag_evaluations` when a query asks `events` for them.
 
-On flag_evaluations mode 2, ingestion stops writing `$feature_flag_called` to `events`. This transform swaps a
+On flag_evaluations mode 2, ingestion stops writing `$feature_flag_called` to `events`. The native JSON events table
+holds no flag calls on any mode, so a query that reads it reads flag calls as mode 2 does. This transform swaps a
 query's `events` scan for `posthog.flag_evaluations` when `flag_evaluations` holds every row the scan selects, so
 saved queries keep returning flag calls without a change. A scan spelled `posthog.events` reads the same table and
 swaps the same way.
 
 The swap runs before type resolution, so every rule here is syntactic. A shape the rules cannot classify keeps
-reading `events`. On mode 2, a second pass finds the scans those rules miss in the resolved query.
+reading `events`. When flag calls are only in flag_evaluations, a second pass finds the scans those rules miss in the
+resolved query.
 """
 
 import json
@@ -60,8 +62,24 @@ _FLAG_KEY_PROPERTY = "$feature_flag"
 _Predicate = Callable[[ast.Expr], bool]
 
 
-class _Resolve(Protocol[_T_AST]):
+class Resolve(Protocol[_T_AST]):
     def __call__(self, node: _T_AST, /, *, join_sources: JoinSources | None = None) -> _T_AST: ...
+
+
+@frozen
+class FlagCallScope:
+    """The part of a query that a swap reads when it is not the whole query, as its errors name it."""
+
+    subject: str
+    part: str
+
+    @classmethod
+    def view(cls, name: str) -> "FlagCallScope":
+        return cls(subject=f"the view {name}", part="view")
+
+    @classmethod
+    def join(cls, name: str) -> "FlagCallScope":
+        return cls(subject=f"the join {name} in this query", part="query")
 
 
 @frozen
@@ -166,36 +184,28 @@ def can_read_flag_evaluations(
 def swaps_flag_calls(node: ast.AST, context: HogQLContext) -> bool:
     """Whether `resolve_flag_calls_from_flag_evaluations` can change where `node` reads flag calls from. It reads
     only the context and the text of `node`, and it resolves nothing."""
-    database = _swap_database(context)
-    return database is not None and _swap_applies(node, context, database)
+    return swap_database(context) is not None and names_flag_called_event(node)
 
 
-def _swap_database(context: HogQLContext) -> "Database | None":
+def swap_database(context: HogQLContext) -> "Database | None":
     """The database when the context allows the swap, or None."""
-    database = context.database
-    if (
-        not context.rewrite_flag_calls_to_flag_evaluations
-        or database is None
-        or not database.read_flag_calls_from_flag_evaluations
-    ):
+    if not context.rewrite_flag_calls_to_flag_evaluations or not context.reads_flag_calls_from_flag_evaluations():
         return None
-    return database
+    return context.database
 
 
-def _swap_applies(node: ast.AST, context: HogQLContext, database: "Database") -> bool:
-    if not names_flag_called_event(node):
-        return False
-    return database.flag_calls_only_in_flag_evaluations or not context.uses_new_events_schema()
-
-
-def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext, resolve: _Resolve[_T_AST]) -> _T_AST:
+def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext, resolve: Resolve[_T_AST]) -> _T_AST:
     """`node` resolved with `resolve`, with each `events` scan that `swap_flag_calls` accepts reading
     `posthog.flag_evaluations` instead."""
     return swap_flag_calls(node, context, resolve).resolved
 
 
 def swap_flag_calls(
-    node: _T_AST, context: HogQLContext, resolve: _Resolve[_T_AST], *, view_name: str | None = None
+    node: _T_AST,
+    context: HogQLContext,
+    resolve: Resolve[_T_AST],
+    *,
+    scope: FlagCallScope | None = None,
 ) -> FlagCallSwap[_T_AST]:
     """`node` resolved with `resolve`, with each `events` scan that `can_read_flag_evaluations` accepts reading
     `posthog.flag_evaluations` instead. When the flag-call union is on, each other scan that reads flag calls with
@@ -203,61 +213,65 @@ def swap_flag_calls(
 
     This returns the changed query only when it resolves, every name in it binds as it does in the original, and
     every field in it that starts with `posthog.events` reads a scan.
-    Otherwise it returns the resolved original. For an organization whose flag calls are only in
-    `flag_evaluations`, it raises a QueryError instead of returning the original. It also raises before it
-    resolves anything when such an organization's query has a scan of only flag calls with a shape that
+    Otherwise it returns the resolved original. When the query's flag calls are only in `flag_evaluations`, as on
+    mode 2 or on the native JSON events table, it raises a QueryError instead of returning the original. It also
+    raises before it resolves anything when such a query has a scan of only flag calls with a shape that
     `flag_evaluations` cannot stand in for. When the union refuses a scan, the query raises only if that scan still
     reads `events` after `swap_scans_found_by_type`.
 
-    While `events` still gets flag calls, the original query is the answer whenever the two tables can read a row
-    differently:
+    While `events` still gets flag calls, the original query is the answer when it reads a property from a different
+    kind of column there, such as a materialized column. See `_swap_reads_properties_alike`. A project that reads the
+    native JSON events table always reads flag calls from `flag_evaluations`, because that table holds none. The
+    native table decodes JSON escapes in a property value and `flag_evaluations` returns the escaped text, so a
+    filter on such a value can select different rows than the same filter on other events.
 
-    - A project that reads the native-JSON events table keeps reading `events`. That table decodes JSON escapes in a
-      property value. `flag_evaluations` returns the escaped text, so a filter on such a value selects different
-      rows in the two tables.
-    - A query keeps reading `events` when it reads a property from a different kind of column there, such as a
-      materialized column. See `_swap_reads_properties_alike`.
-
-    For an organization whose flag calls are only in `flag_evaluations`, a scan that the syntactic rules miss swaps
+    When the query's flag calls are only in `flag_evaluations`, a scan that the syntactic rules miss swaps
     too when the resolved original shows that its filters pin `event` to flag calls in its WHERE or PREWHERE. The
     query raises when such a scan cannot swap. A scan that the resolver adds, such as one in an inline cohort, is not
     swapped here. On mode 2 with the union enabled, `read_flag_calls_in_inline_cohort` points an inline cohort's scans
     at the union. Otherwise they read `events`.
 
-    The resolver runs this on the body of each saved view that it inlines, and `view_name` names that view for the
+    The resolver runs this on the body of each saved view that it inlines, with `scope` naming that view for the
     error. The check of resolved filters skips the joins of a view's body in the enclosing query, because the swap of
     that body already checked them. A top-level query raises when it reads a view whose resolved body still reads
     only flag calls from `events`, such as a body that filters with `matchesAction`.
+
+    `read_flag_calls_in_lazy_join` runs this on the subquery of a lazy join, with `scope` naming that join. A swap
+    with a `scope` records no literal spans, because that part's offsets are not offsets in the query text.
     """
     # Deferred: flag_calls_union imports this module.
     from posthog.hogql.transforms.flag_calls_union import refuse_union_table_by_name  # noqa: PLC0415
 
     refuse_union_table_by_name(node, context)
-    database = _swap_database(context)
+    database = swap_database(context)
     if database is None:
         return FlagCallSwap(source=node, resolved=resolve(node))
-    if _swap_applies(node, context, database):
-        swap = _resolve_with_swaps(node, context, resolve, database, view_name)
+    if names_flag_called_event(node):
+        swap = _resolve_with_swaps(node, context, resolve, database, scope)
     else:
         swap = FlagCallSwap(
             source=node,
-            resolved=_without_unreadable_inline_cohort_scans(resolve(node), context, view_name),
+            resolved=_without_unreadable_inline_cohort_scans(resolve(node), context, scope),
         )
     # A view's body names flag calls only after resolution when it filters with `matchesAction`, so its swap never
     # runs. The check reads the whole resolved query, so it runs once, for the top-level query.
-    if database.flag_calls_only_in_flag_evaluations and view_name is None:
+    if context.flag_calls_only_in_flag_evaluations() and scope is None:
         unswapped_view = _view_reading_flag_calls_from_events(swap.resolved)
         if unswapped_view is not None:
             raise flag_calls_only_in_flag_evaluations_error(
-                f"it reads the saved view {unswapped_view}, which reads them from events", None
+                f"it reads the saved view {unswapped_view}, which reads them from events"
             )
     return swap
 
 
 def _resolve_with_swaps(
-    node: _T_AST, context: HogQLContext, resolve: _Resolve[_T_AST], database: "Database", view_name: str | None
+    node: _T_AST,
+    context: HogQLContext,
+    resolve: Resolve[_T_AST],
+    database: "Database",
+    scope: FlagCallScope | None,
 ) -> FlagCallSwap[_T_AST]:
-    only_in_flag_evaluations = database.flag_calls_only_in_flag_evaluations
+    only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
     # Deferred: flag_calls_union imports this module.
     from posthog.hogql.transforms.flag_calls_union import (  # noqa: PLC0415
         read_flag_calls_with_union,
@@ -281,7 +295,7 @@ def _resolve_with_swaps(
         swapper.visit(rewritten)
         union = read_flag_calls_with_union(rewritten, context, compares_as_string)
     if only_in_flag_evaluations and swapper.refusals:
-        raise flag_calls_only_in_flag_evaluations_error(swapper.refusals[0], view_name)
+        raise flag_calls_only_in_flag_evaluations_error(swapper.refusals[0], scope)
     if not only_in_flag_evaluations and (swapper.refusals or union.refusals):
         reason = swapper.refusals[0] if swapper.refusals else union.refusals[0].reason
         logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=reason)
@@ -301,11 +315,11 @@ def _resolve_with_swaps(
             None,
         )
         if refusal is not None:
-            raise flag_calls_only_in_flag_evaluations_error(refusal, view_name)
+            raise flag_calls_only_in_flag_evaluations_error(refusal, scope)
     if not swapper.swapped and not union.renamed:
         return FlagCallSwap(
             source=node,
-            resolved=_without_unreadable_inline_cohort_scans(original, context, view_name),
+            resolved=_without_unreadable_inline_cohort_scans(original, context, scope),
         )
     try:
         swapped = resolve(rewritten)
@@ -325,21 +339,25 @@ def _resolve_with_swaps(
             reason = "it reads a property from a different kind of column there"
         else:
             # A view body's offsets come from the view's own text, not from the query the editor shows.
-            if view_name is None:
+            if scope is None:
                 context.flag_called_union_spans.update(union.literal_spans)
+            if swapper.swapped:
+                context.flag_calls_read.add("flag_evaluations")
             return FlagCallSwap(source=rewritten, resolved=swapped)
     if only_in_flag_evaluations:
         # events gets no new flag calls, so the original query would return only calls from before the move.
-        raise flag_calls_only_in_flag_evaluations_error(reason, view_name)
+        raise flag_calls_only_in_flag_evaluations_error(reason, scope)
     logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=reason)
     return FlagCallSwap(source=node, resolved=original)
 
 
-def _without_unreadable_inline_cohort_scans(resolved: _T_AST, context: HogQLContext, view_name: str | None) -> _T_AST:
+def _without_unreadable_inline_cohort_scans(
+    resolved: _T_AST, context: HogQLContext, scope: FlagCallScope | None
+) -> _T_AST:
     # Deferred: flag_calls_union imports this module.
     from posthog.hogql.transforms.flag_calls_union import require_union_readable  # noqa: PLC0415
 
-    require_union_readable(resolved, context, view_name)
+    require_union_readable(resolved, context, scope)
     return resolved
 
 
@@ -382,8 +400,8 @@ def _event_property_metadata(context: HogQLContext, names: set[str]) -> Property
     return loaded
 
 
-def flag_calls_only_in_flag_evaluations_error(reason: str, view_name: str | None = None) -> QueryError:
-    subject, part = ("this query", "query") if view_name is None else (f"the view {view_name}", "view")
+def flag_calls_only_in_flag_evaluations_error(reason: str, scope: FlagCallScope | None = None) -> QueryError:
+    subject, part = (scope.subject, scope.part) if scope is not None else ("this query", "query")
     return QueryError(
         f"Your organization's {FLAG_CALLED_EVENT} events are only in posthog.flag_evaluations, and {subject} "
         f"can't read them there because {reason}. Change that part of the {part}, or query "
@@ -525,7 +543,7 @@ class EventsScan:
     def pins_flag_calls(self, conjuncts: list[ast.Expr], needs_flag_key: bool) -> bool:
         """Whether `conjuncts` pin `event` to flag calls. With `needs_flag_key`, a pin of `event` counts only where
         these conjuncts also pin `$feature_flag`."""
-        return _pins_flag_calls(conjuncts, self._reads_event, self.flag_keys if needs_flag_key else None)
+        return pins_flag_calls(conjuncts, self._reads_event, self.flag_keys if needs_flag_key else None)
 
     def _flag_keys_in(self, expr: ast.Expr) -> list[str] | None:
         """The keys `expr` pins `$feature_flag` to, or None when it does not pin it."""
@@ -595,7 +613,7 @@ class EventsScan:
         return self.column(expr) == ["timestamp"]
 
 
-def _pins_flag_calls(
+def pins_flag_calls(
     conjuncts: list[ast.Expr], reads_event: _Predicate, flag_keys: Callable[[list[ast.Expr]], list[str]] | None
 ) -> bool:
     """Whether `conjuncts` pin what `reads_event` matches to flag calls: by `=` or `IN` of only
@@ -610,10 +628,10 @@ def _pins_flag_calls(
 def _pins_flag_calls_in(
     expr: ast.Expr, reads_event: _Predicate, flag_keys: Callable[[list[ast.Expr]], list[str]] | None
 ) -> bool:
-    if _pinned_values(expr, reads_event, _is_flag_called) is not None:
+    if _pinned_values(expr, reads_event, is_flag_called) is not None:
         return flag_keys is None
     if branches := boolean_operands(expr, ast.Or):
-        return all(_pins_flag_calls(_conjuncts(branch), reads_event, flag_keys) for branch in branches)
+        return all(pins_flag_calls(_conjuncts(branch), reads_event, flag_keys) for branch in branches)
     return False
 
 
@@ -744,7 +762,7 @@ def _is_constant(expr: ast.Expr, value: str) -> bool:
     return isinstance(expr, ast.Constant) and expr.value == value
 
 
-def _is_flag_called(expr: ast.Expr) -> bool:
+def is_flag_called(expr: ast.Expr) -> bool:
     return _is_constant(expr, FLAG_CALLED_EVENT)
 
 
@@ -1096,7 +1114,7 @@ class _EventsScanSwapper(ScanVisitor):
         for select, join in _joins(resolved):
             if not _reads_events_table(join) or sources.is_added(join):
                 continue
-            if not _pins_flag_calls(filter_conjuncts(select), partial(_reads_event_of, join.type), None):
+            if not pins_flag_calls(filter_conjuncts(select), partial(_reads_event_of, join.type), None):
                 continue
             source = sources.source_of(join)
             source_clones = clones.get(id(source), []) if source is not None else []

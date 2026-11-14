@@ -3748,7 +3748,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 toAction({ productTab: ProductTab.AGENTS }, searchParams)
             },
             // The prompt detail page belongs to the AI visibility tab; the prompt detail logic opens the prompt.
-            '/web/content-autopilot/prompts/:promptId': (_, searchParams) => {
+            '/web/ai-visibility/prompts/:promptId': (_, searchParams) => {
                 toAction({ productTab: ProductTab.CONTENT_AUTOPILOT }, searchParams)
             },
             '/web/:productTab': toAction,

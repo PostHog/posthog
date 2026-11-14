@@ -54,7 +54,9 @@ export function withTooltip(
                         target === 'block' ? (
                             <div tabIndex={tabIndex} />
                         ) : (
-                            <span className="inline-flex" tabIndex={tabIndex} />
+                            // Middle, not baseline: a checkbox's baseline comes from its check icon, so on a text line
+                            // checking it would move the box and change the line's height.
+                            <span className="inline-flex align-middle" tabIndex={tabIndex} />
                         )
                     }
                 >

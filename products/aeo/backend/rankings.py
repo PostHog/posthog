@@ -24,18 +24,22 @@ import tldextract
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.aeo.backend.brand import brand_names, brand_regex
+from products.aeo.backend.brand import SEGMENT_SQL, brand_names, brand_regex, segment_filter, segment_sql_params
 from products.aeo.backend.facade.contracts import (
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
+    BrandedSegment,
+    BrandKind,
+    BrandStatus,
+    CheckMode,
     PromptSetRankings,
     RankedBrand,
     RankedBrandDay,
     RankedDomain,
     RankedPage,
 )
-from products.aeo.backend.models import AEOCitationCheck
+from products.aeo.backend.models import AEOBrand, AEOCitationCheck
 
 # Registrable names of sites answers cite whatever the brand, so they are never a competitor.
 NON_BRAND_NAMES = frozenset(
@@ -48,7 +52,7 @@ _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 # One row per brand and day: answered checks that day, and how many of them named the brand. An
 # answer names a brand when its text has the brand's name as a word, or it cites a host on the brand's
 # registrable domain; for the project's own brand any cited answer also counts, as in the mention rate.
-_BRAND_DAYS_SQL = """
+_BRAND_DAYS_SQL = f"""
     SELECT brand.domain, (check_row.created_at AT TIME ZONE %s)::date AS day, count(*),
         count(*) FILTER (
             WHERE check_row.answer_text ~* brand.pattern
@@ -64,20 +68,24 @@ _BRAND_DAYS_SQL = """
     FROM posthog_aeo_citation_check AS check_row
     CROSS JOIN unnest(%s::text[], %s::text[], %s::bool[]) AS brand(domain, pattern, is_target)
     WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
+        AND {SEGMENT_SQL}
     GROUP BY brand.domain, day
 """
 
 # A JSON field that is not a list reads as an empty one, so one malformed row can't fail the query.
-_CITED_HOSTS_SQL = """
+_CITED_HOSTS_SQL = f"""
     SELECT DISTINCT lower(host)
     FROM posthog_aeo_citation_check AS check_row,
         jsonb_array_elements_text(
             CASE WHEN jsonb_typeof(check_row.top_cited_domains) = 'array' THEN check_row.top_cited_domains ELSE '[]'::jsonb END
         ) AS host
     WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
+        AND {SEGMENT_SQL}
 """
 # The host to registrable domain mapping arrives as two parallel arrays.
-_DOMAIN_ANSWERS_SQL = """
+_DOMAIN_ANSWERS_SQL = f"""
     SELECT mapping.domain, count(DISTINCT check_row.id)
     FROM unnest(%s::text[], %s::text[]) AS mapping(host, domain),
         posthog_aeo_citation_check AS check_row,
@@ -86,10 +94,12 @@ _DOMAIN_ANSWERS_SQL = """
         ) AS cited_host
     WHERE lower(cited_host) = mapping.host
         AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
+        AND {SEGMENT_SQL}
     GROUP BY mapping.domain
 """
 # URLs per host never overlap, so a domain's distinct URLs are the sum over its hosts.
-_DOMAIN_URLS_SQL = """
+_DOMAIN_URLS_SQL = f"""
     SELECT mapping.domain, count(DISTINCT url)
     FROM unnest(%s::text[], %s::text[]) AS mapping(host, domain),
         posthog_aeo_citation_check AS check_row,
@@ -98,15 +108,19 @@ _DOMAIN_URLS_SQL = """
         ) AS url
     WHERE lower(substring(url from '^[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^@/?#]*@)?([^/:?#]+)')) = mapping.host
         AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
+        AND {SEGMENT_SQL}
     GROUP BY mapping.domain
 """
-_PAGES_SQL = """
+_PAGES_SQL = f"""
     SELECT url, count(DISTINCT check_row.id)
     FROM posthog_aeo_citation_check AS check_row,
         jsonb_array_elements_text(
             CASE WHEN jsonb_typeof(check_row.cited_urls) = 'array' THEN check_row.cited_urls ELSE '[]'::jsonb END
         ) AS url
     WHERE url <> '' AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
+        AND {SEGMENT_SQL}
     GROUP BY url
     ORDER BY count(DISTINCT check_row.id) DESC, url
     LIMIT %s
@@ -119,7 +133,9 @@ def registrable_domain(host: str) -> str:
     return parts.top_domain_under_public_suffix or host
 
 
-def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str, days: int) -> PromptSetRankings:
+def get_rankings(
+    team_id: int, *, target_domains: list[str], timezone_name: str, days: int, segment: BrandedSegment
+) -> PromptSetRankings:
     tz = ZoneInfo(timezone_name)
     window_to = timezone.now().astimezone(tz).date()
     window_from = window_to - dt.timedelta(days=days - 1)
@@ -129,20 +145,36 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
     # Every read stops at the same instant, so a check written mid-request can't make the counts disagree.
     until = timezone.now()
     answered = AEOCitationCheck.objects.for_team(team_id).filter(
-        created_at__gte=window_start, created_at__lt=until, check_failed=False
+        segment_filter(segment, target_domains),
+        created_at__gte=window_start,
+        created_at__lt=until,
+        check_failed=False,
+        mode=CheckMode.WEB_SEARCH,
     )
     answers = answered.count()
 
     # A target like docs.example.com stands for the whole example.com brand.
     targets = {registrable_domain(domain.lower()) for domain in target_domains}
-    citations = _Citations(resolve_effective_team_id(team_id), since=window_start, until=until)
+    segment_params = segment_sql_params(segment, target_domains)
+    citations = _Citations(
+        resolve_effective_team_id(team_id), since=window_start, until=until, segment_params=segment_params
+    )
     ranked_domains = citations.ranked_domains()
-    competitors = _competitors(ranked_domains, targets, brand_names(target_domains))
+    # Competitors a person confirmed in the brand catalog win; until there are any, derive them from citations.
+    # Our own domains always rank as the target, even when someone labeled one a competitor.
+    confirmed = {
+        domain: aliases for domain, aliases in _confirmed_competitors(team_id).items() if domain not in targets
+    }
+    competitors = list(confirmed) or _competitors(
+        ranked_domains, targets, brand_names(target_domains), catalog_excluded=_catalog_exclusions(team_id)
+    )
+    names = {domain: confirmed[domain][0] if domain in confirmed else _brand_name(domain) for domain in competitors}
     top_domains = ranked_domains[:MAX_RANKED_DOMAINS]
     domain_urls = citations.urls_per_domain([domain for domain, _ in top_domains])
     target_domain = registrable_domain(target_domains[0].lower()) if target_domains else None
     brands = ([(target_domain, brand_regex(target_domains), True)] if target_domain else []) + [
-        (domain, rf"\m{re.escape(_brand_name(domain))}\M", False) for domain in competitors
+        (domain, _word_pattern(confirmed[domain] if domain in confirmed else (_brand_name(domain),)), False)
+        for domain in competitors
     ]
     brand_days = _brand_days(
         team_id,
@@ -151,6 +183,7 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
         since=previous_start,
         until=until,
         window_from=window_from,
+        segment_params=segment_params,
     )
     positive_share = _positive_share(answered) if target_domain else None
 
@@ -158,7 +191,7 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
         (
             RankedBrand(
                 domain=domain,
-                name=", ".join(brand_names(target_domains)) if is_target else _brand_name(domain),
+                name=", ".join(brand_names(target_domains)) if is_target else names[domain],
                 is_target=is_target,
                 answers_mentioning=brand_days.current[domain][1],
                 visibility=_share(*brand_days.current[domain]),
@@ -170,9 +203,11 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
         key=lambda brand: (-(brand.visibility or 0), brand.domain),
     )
     return PromptSetRankings(
+        competitors_confirmed=bool(confirmed),
         days=days,
         window_from=window_from,
         window_to=window_to,
+        branded=segment,
         answers=answers,
         brands=tuple(ranked_brands),
         daily=brand_days.daily,
@@ -220,8 +255,10 @@ class _Citations:
     once per answer. Python only maps the distinct cited hosts to registrable domains, which needs the
     public suffix list."""
 
-    def __init__(self, team_id: int, *, since: dt.datetime, until: dt.datetime) -> None:
-        self._params: list[Any] = [team_id, since, until]
+    def __init__(
+        self, team_id: int, *, since: dt.datetime, until: dt.datetime, segment_params: list[str | None]
+    ) -> None:
+        self._params: list[Any] = [team_id, since, until, *segment_params]
         with connection.cursor() as cursor:
             cursor.execute(_CITED_HOSTS_SQL, self._params)
             hosts = [host for (host,) in cursor.fetchall() if host]
@@ -264,14 +301,49 @@ class _Citations:
         return [list(host_domains.keys()), list(host_domains.values())]
 
 
-def _competitors(ranked_domains: list[tuple[str, int]], targets: set[str], target_names: tuple[str, ...]) -> list[str]:
+def _confirmed_competitors(team_id: int) -> dict[str, tuple[str, ...]]:
+    """Confirmed competitors from the brand catalog, by domain, each with its name first and then its aliases."""
+    rows = (
+        AEOBrand.objects.for_team(team_id)
+        .filter(kind=BrandKind.COMPETITOR.value, status=BrandStatus.CONFIRMED.value)
+        .order_by("domain")
+        .values_list("domain", "name", "aliases")[:MAX_RANKED_COMPETITORS]
+    )
+    return {
+        domain: (name, *(alias for alias in (aliases or []) if isinstance(alias, str) and alias.strip()))
+        for domain, name, aliases in rows
+    }
+
+
+def _word_pattern(names: tuple[str, ...]) -> str:
+    """Postgres regex (for `~*`) matching any of the names as whole words. The boundaries are any non-word
+    character or the text's ends, so a name that ends in punctuation (`Yahoo!`) still matches."""
+    return r"(^|\W)(" + "|".join(re.escape(name.strip().lower()) for name in names if name.strip()) + r")(\W|$)"
+
+
+def _catalog_exclusions(team_id: int) -> set[str]:
+    """Domains a person ignored or confirmed as something other than a competitor, so the fallback skips them."""
+    rows = AEOBrand.objects.for_team(team_id).filter(
+        Q(status=BrandStatus.IGNORED.value)
+        | (Q(status=BrandStatus.CONFIRMED.value) & ~Q(kind=BrandKind.COMPETITOR.value))
+    )
+    return set(rows.values_list("domain", flat=True))
+
+
+def _competitors(
+    ranked_domains: list[tuple[str, int]],
+    targets: set[str],
+    target_names: tuple[str, ...],
+    *,
+    catalog_excluded: set[str],
+) -> list[str]:
     # The project's own brand on another domain (example.de for example.com) is not a competitor.
     excluded = NON_BRAND_NAMES | set(target_names)
     competitors: list[str] = []
     for domain, _ in ranked_domains:
         if len(competitors) == MAX_RANKED_COMPETITORS:
             break
-        if domain not in targets and _brand_name(domain) not in excluded:
+        if domain not in targets and domain not in catalog_excluded and _brand_name(domain) not in excluded:
             competitors.append(domain)
     return competitors
 
@@ -284,6 +356,7 @@ def _brand_days(
     since: dt.datetime,
     until: dt.datetime,
     window_from: dt.date,
+    segment_params: list[str | None],
 ) -> _BrandDays:
     current: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     previous: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
@@ -302,6 +375,7 @@ def _brand_days(
                 effective_team_id,
                 since,
                 until,
+                *segment_params,
             ],
         )
         rows = cursor.fetchall()

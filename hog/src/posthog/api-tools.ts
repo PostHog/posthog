@@ -8,7 +8,7 @@ import type {
 } from '@posthog/mcp/src/cli/library-types'
 
 import type { Context } from '@/core/context'
-import { HogError } from '@/core/errors'
+import { EXIT_FAILURE, HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { ApiError, stepUpRequired } from './api'
@@ -36,7 +36,7 @@ export interface ToolRow {
 }
 
 const SCOPES_HINT =
-    'If you logged in with `hog auth login`, run `hog auth add` with the scopes PostHog named. If you use a personal API key, add the scopes to it in PostHog under Settings, Personal API keys.'
+    'If you logged in with `hog auth login`, run `hog auth add` with the scopes PostHog named. If you use a personal API key, add the scopes to it in PostHog under Settings > Personal API keys.'
 
 // "Events & properties" becomes "events-properties".
 export function groupSlug(name: string): string {
@@ -70,16 +70,39 @@ export function findGroup(library: ApiToolLibrary, query: string): ToolGroup {
     return group
 }
 
+export const STALE_TOOLS_HINT =
+    'The tool definitions may be out of date. Update hog to the latest version, or run `hog api refresh`.'
+
 export function findTool(library: ApiToolLibrary, name: string): ApiToolSummary {
     const tool = library.tools().find((candidate) => candidate.name === name)
-    if (!tool) {
+    if (tool) {
+        return tool
+    }
+
+    const dropped = library.catalog().dropped.find((candidate) => candidate.name === name && !candidate.builtIn)
+    if (dropped) {
         throw new HogError(
-            'unknown_tool',
-            `There is no tool named "${name}".`,
-            'Run `hog api search <words>` to find tools by name and description.'
+            'tool_unavailable',
+            `This hog can't run ${name} from the downloaded tool catalog. Reason: ${dropped.reason}.`,
+            'Update hog to the latest version to use it.'
         )
     }
-    return tool
+    throw new HogError(
+        'unknown_tool',
+        `There is no tool named "${name}".`,
+        'Run `hog api search <words>` to find tools by name and description. If the tool is new, update hog to the latest version, or run `hog api refresh`.'
+    )
+}
+
+// PostHog refusing a field, or a missing endpoint, can mean the tool's definition is older than the
+// API, so those failures also say how to get newer definitions.
+export function withStaleToolsHint(error: ApiToolError, hogError: HogError): HogError {
+    const stale =
+        (error.code === 'validation_error' && error.status === 400) ||
+        (error.code === 'api_error' && error.status === 404)
+    return stale
+        ? hogError.withHint(hogError.hint ? `${hogError.hint} ${STALE_TOOLS_HINT}` : STALE_TOOLS_HINT)
+        : hogError
 }
 
 export function toolKind(tool: ApiToolSummary): ToolKind {
@@ -154,17 +177,21 @@ export function missingScopesError(
 }
 
 export function toHogError(error: ApiToolError, tool?: string, credentials?: Credentials): HogError {
+    const { detail } = error
     switch (error.code) {
         case 'permission_denied':
             return error.missingScope && tool
                 ? missingScopesError(tool, [error.missingScope], credentials)
-                : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT)
+                : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT, undefined, detail)
         case 'validation_error':
         case 'invalid_input':
             return new HogError(
                 error.code,
                 error.message,
-                tool ? `Run \`hog api schema ${tool}\` to see the input it takes.` : undefined
+                tool ? `Run \`hog api schema ${tool}\` to see the input it takes.` : undefined,
+                EXIT_FAILURE,
+                undefined,
+                detail
             )
         case 'needs_confirmation':
             return new HogError(error.code, error.message, 'Run it again with --confirm.')
@@ -184,7 +211,7 @@ export function toHogError(error: ApiToolError, tool?: string, credentials?: Cre
                 404: 'Check the IDs in the input, and the project ID.',
             }
             const status = error.status ?? 500
-            return new ApiError(status, undefined, `http_${status}`, error.message, hints[status])
+            return new ApiError(status, undefined, `http_${status}`, error.message, hints[status], undefined, detail)
         }
         case 'tool_error':
             return new HogError(error.code, error.message)

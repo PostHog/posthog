@@ -1,24 +1,33 @@
 """The insight alert a platform alert stands for: its insight row for a copy, or one built from the
 platform alert's settings when insight keeps no row for it."""
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
+from dataclasses import replace
 from typing import Any, Final
 from uuid import UUID
 
 from django.db.models import Prefetch, prefetch_related_objects
 
 from posthog.models.tagged_item import TaggedItem
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, InsightThresholdType
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend.facade.contracts import MovedAlertSettings
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade.api import (
+    delete_owned_configuration,
     get_configuration,
     list_configurations,
+    native_configuration_ids_by_source_config,
     native_configuration_matches,
+    owned_copies_by_legacy_id,
+    update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
+    ActivitySource,
     NativeConfigurationMatch,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationView,
@@ -85,6 +94,29 @@ def insight_of(team_id: int, source_config: dict) -> Insight | None:
     return found[0] if found and not found[0].deleted else None
 
 
+def insight_activity_source(team_id: int, source_config: Mapping[str, Any]) -> ActivitySource | None:
+    """The insight an insight alert watches, named on the alert's activity log entries. None once the
+    insight is gone."""
+    insight = insight_of(team_id, dict(source_config))
+    if insight is None:
+        return None
+    return ActivitySource(id=insight.short_id, name=insight.name or insight.derived_name or insight.short_id)
+
+
+def subscribers_with_insight_access(*, team_id: int, configuration_id: UUID, user_ids: Collection[int]) -> list[int]:
+    """The users who can still view the insight an insight alert watches. Nobody, once it is gone."""
+    configuration = get_configuration(
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=configuration_id
+    )
+    insight = insight_of(team_id, configuration.source_config) if configuration is not None else None
+    if insight is None:
+        return []
+    controls = UserAccessControl.for_user_ids(user_ids=user_ids, team=Team.objects.get(id=team_id))
+    return [
+        user_id for user_id, control in controls.items() if control.check_access_level_for_object(insight, "viewer")
+    ]
+
+
 def evaluation_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
     """The alert a check evaluates: a copy's insight row, or, for an alert insight keeps no row for,
     one built from the platform alert. None when either is gone."""
@@ -106,12 +138,36 @@ def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | Non
     return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
 
 
-def native_insight_alert_view(team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
-    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None."""
+def native_insight_alert_view(
+    team_id: int, alert_id: UUID, *, lock: bool = False
+) -> PlatformAlertConfigurationView | None:
+    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None.
+    With `lock`, its row stays locked until the caller's transaction ends."""
     configuration = get_configuration(
-        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id, lock=lock
     )
     return configuration if configuration is not None and configuration.legacy_configuration_id is None else None
+
+
+def enable_native_insight_alert(*, team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
+    """Turns on an insight alert with no insight row, through the platform's admission, once the
+    insight API has run its own checks. None when it is gone.
+
+    Raises `InvalidPlatformAlertEdit` when the admission refuses it.
+    """
+    return update_configuration(
+        team_id=team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        configuration_id=alert_id,
+        change=lambda stored: replace(stored, enabled=True),
+        source_checked=True,
+    )
+
+
+def delete_native_insight_alert(*, team_id: int, alert_id: UUID) -> None:
+    """Deletes an insight alert with no insight row: sends the resolves of its open firings while its
+    destinations still exist, then removes them and the alert. Call it outside any transaction."""
+    delete_owned_configuration(team_id=team_id, configuration_id=alert_id)
 
 
 def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:
@@ -132,6 +188,14 @@ def native_insight_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tup
     )
     return tuple(
         configuration for configuration in page.configurations if configuration.legacy_configuration_id is None
+    )
+
+
+def native_insight_alert_ids_by_insight(team_id: int, insight_ids: Collection[int]) -> dict[int, list[UUID]]:
+    """The ids of the team's insight alerts with no insight row on these insights, oldest first. An
+    insight with none is left out."""
+    return native_configuration_ids_by_source_config(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, source_config_key="insight_id", values=insight_ids
     )
 
 
@@ -193,8 +257,10 @@ def _presented(alert: AlertConfiguration, configuration: PlatformAlertConfigurat
         alert.threshold = Threshold(
             team=alert.team, insight=alert.insight, configuration={"type": InsightThresholdType.ABSOLUTE.value}
         )
-    # An unsaved threshold has no `created_at`, which the API's readers expect.
+    # An unsaved threshold has no `created_at`, which the API's readers expect, and a fresh id on
+    # every read. The alert's id keeps the threshold's id the same from one read to the next.
     alert.threshold.created_at = configuration.created_at
+    alert.threshold.id = configuration.id
     # What the viewset annotates on a row. The platform's last check replaces it when there is one.
     alert.last_value = None  # type: ignore[attr-defined]
     # An alert with no insight row has no subscriptions. Cached as the viewset prefetches them for
@@ -237,32 +303,72 @@ def _built_alert(
     created_by: User | None,
     enabled: bool,
 ) -> AlertConfiguration:
-    source_config = configuration.source_config
-    condition = source_config.get(SOURCE_CONDITION_KEY) or {}
-    threshold_config = condition.get("threshold")
+    threshold_config = _threshold_of(configuration)
     return AlertConfiguration(
         id=configuration.id,
         team=insight.team,
         insight=insight,
-        name=configuration.name,
         enabled=enabled,
-        config=source_config.get("config") or {},
-        condition=condition.get("comparison") or {},
-        detector_config=condition.get("detector"),
         threshold=Threshold(team=insight.team, insight=insight, configuration=threshold_config)
         if threshold_config
         else None,
-        calculation_interval=interval_of(configuration.check_interval_minutes),
-        skip_weekend=source_config.get("skip_weekend", False),
-        evaluation_delay_intervals=source_config.get("evaluation_delay_intervals", 0),
-        investigation_agent_enabled=source_config.get("investigation_agent_enabled", False),
-        investigation_gates_notifications=source_config.get("investigation_gates_notifications", False),
-        investigation_inconclusive_action=source_config.get("investigation_inconclusive_action", "notify"),
-        schedule_restriction=configuration.schedule_restriction,
-        snoozed_until=configuration.snooze_until,
         owner=PlatformAlertOwner.PLATFORM,
         created_by=created_by,
+        **_row_settings(configuration),
     )
+
+
+def _threshold_of(configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView) -> dict[str, Any] | None:
+    return (configuration.source_config.get(SOURCE_CONDITION_KEY) or {}).get("threshold")
+
+
+def _row_settings(configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView) -> dict[str, Any]:
+    """A platform alert's settings, by the insight row field that holds each one, apart from `enabled`,
+    the threshold and the insight."""
+    source_config = configuration.source_config
+    condition = source_config.get(SOURCE_CONDITION_KEY) or {}
+    return {
+        "name": configuration.name,
+        "config": source_config.get("config") or {},
+        "condition": condition.get("comparison") or {},
+        "detector_config": condition.get("detector"),
+        "calculation_interval": interval_of(configuration.check_interval_minutes),
+        "skip_weekend": source_config.get("skip_weekend", False),
+        "evaluation_delay_intervals": source_config.get("evaluation_delay_intervals", 0),
+        "investigation_agent_enabled": source_config.get("investigation_agent_enabled", False),
+        "investigation_gates_notifications": source_config.get("investigation_gates_notifications", False),
+        "investigation_inconclusive_action": source_config.get("investigation_inconclusive_action", "notify"),
+        "schedule_restriction": configuration.schedule_restriction,
+        "snoozed_until": configuration.snooze_until,
+    }
+
+
+def moved_alert_settings(*, team_id: int, alert_ids: Collection[UUID]) -> dict[UUID, MovedAlertSettings]:
+    """The settings the platform copy of each named alert holds, for the alerts the platform owns. The
+    insight is left out, because the API checks the reader's access to the row's insight."""
+    views = owned_copies_by_legacy_id(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=alert_ids
+    )
+    return {
+        alert_id: MovedAlertSettings(
+            fields={**_copied_row_settings(view), "enabled": view.enabled},
+            threshold=_threshold_of(view),
+            schedule_start_time=view.anchor_time,
+        )
+        for alert_id, view in views.items()
+    }
+
+
+def _copied_row_settings(view: PlatformAlertConfigurationView) -> dict[str, Any]:
+    """`_row_settings`, with the insight row settings a copy holds as stored. A copy made before it held
+    one keeps the row's, rather than a default."""
+    settings = _row_settings(view)
+    for key in INSIGHT_ROW_SETTINGS:
+        if key in view.source_config:
+            settings[key] = view.source_config[key]
+        else:
+            del settings[key]
+    return settings
 
 
 def legacy_alert(*, team_id: int, alert_id: UUID) -> AlertConfiguration | None:

@@ -145,6 +145,7 @@ class TestSignalsProductModuleIntegrity:
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
+            "assigned_signal_ids_activity",
             "complete_signal_grouping_activity",
             "capture_signal_dropped_activity",
             "check_signals_quota_limited_activity",

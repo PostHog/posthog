@@ -6,11 +6,13 @@ function. Every seeder returns the identities and trust signals its scorers grad
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from unittest.mock import patch
 
 from django.db import transaction
+from django.utils import timezone
 
 from posthog.hogql.query import execute_hogql_query
 
@@ -85,6 +87,14 @@ from products.data_catalog.evals.constants import (
     INVOICE_LINES_ROWS,
     INVOICE_LINES_SCHEMA_NAME,
     INVOICE_LINES_TABLE_NAME,
+    LATE_VIEW_BACKING_TABLE_NAME,
+    LATE_VIEW_HISTORY_DAYS,
+    LATE_VIEW_NAME,
+    LATE_VIEW_REFRESHED_DAYS_AGO,
+    LATE_VIEW_SOURCE_SCHEMA_NAME,
+    LATE_VIEW_SOURCE_TABLE_NAME,
+    LATE_VIEW_SQL,
+    LATE_VIEW_YESTERDAY_SIGNUPS,
     LONG_SERIES_METRIC_DEFINITION,
     LONG_SERIES_METRIC_DESCRIPTION,
     LONG_SERIES_METRIC_DISPLAY_NAME,
@@ -145,9 +155,13 @@ from products.data_catalog.evals.constants import (
     YOY_MRR_GROWTH_METRIC_DESCRIPTION,
     YOY_MRR_GROWTH_METRIC_DISPLAY_NAME,
     YOY_MRR_GROWTH_METRIC_NAME,
+    late_view_signups_on,
 )
 from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
@@ -156,7 +170,7 @@ from products.posthog_ai.evals.data_warehouse.seeder import seed_warehouse_schem
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.contracts import SyncedWarehouseTable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_sources.backend.facade.testing import create_synced_table_from_rows
+from products.warehouse_sources.backend.facade.testing import create_synced_table_from_rows, create_table_from_rows
 from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableFormat,
     ExternalDataSourceType,
@@ -181,6 +195,7 @@ __all__ = [
     "seed_failing_top_customers_metric",
     "seed_instruction_like_column_annotation",
     "seed_instruction_like_relationship_context",
+    "seed_late_certified_view",
     "seed_metric_listing_catalog",
     "seed_mcp_tool_call_fail_pct_metric",
     "seed_mismatched_drifted_metric",
@@ -776,11 +791,15 @@ def _synced_table(
         description_source=description_source,
         test_bucket="eval_catalog",
     )
+    _raise_unless_readable(team, user, table_name, row_count=len(rows))
+    return synced
+
+
+def _raise_unless_readable(team: Team, user: User, table_name: str, *, row_count: int) -> None:
     # A table ClickHouse cannot read would score the agent 0 for an infrastructure fault, so fail the seed instead.
     response = execute_hogql_query(f"SELECT count() FROM {table_name}", team=team, user=user)
-    if getattr(response, "error", None) or not response.results or response.results[0][0] != len(rows):
-        raise RuntimeError(f"Seeded synced table '{table_name}' did not return its {len(rows)} rows.")
-    return synced
+    if getattr(response, "error", None) or not response.results or response.results[0][0] != row_count:
+        raise RuntimeError(f"Seeded table '{table_name}' did not return its {row_count} rows.")
 
 
 def _annotated_view(team: Team, user: User, *, name: str, sql: str, descriptions: dict[str, str]) -> None:
@@ -843,6 +862,78 @@ def seed_instruction_like_column_annotation(context: CustomPromptSandboxContext)
         descriptions={"status": INJECTION_LEDGER_STATUS_DESCRIPTION},
     )
     return {"annotated_view": {"name": INJECTION_LEDGER_VIEW_NAME}}
+
+
+def seed_late_certified_view(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    today = timezone.now().astimezone(team.timezone_info).date()
+
+    def day(days_ago: int) -> str:
+        return (today - timedelta(days=days_ago)).isoformat()
+
+    _synced_table(
+        team,
+        user,
+        source_type=ExternalDataSourceType.POSTGRES,
+        schema_name=LATE_VIEW_SOURCE_SCHEMA_NAME,
+        table_name=LATE_VIEW_SOURCE_TABLE_NAME,
+        columns={"signup_id": _INTEGER_COLUMN, "signup_date": _STRING_COLUMN},
+        rows=tuple(
+            (days_ago * 100 + n, day(days_ago))
+            for days_ago in range(1, LATE_VIEW_HISTORY_DAYS + 1)
+            for n in range(late_view_signups_on(days_ago))
+        ),
+        descriptions={},
+    )
+    backing_rows = tuple(
+        (day(days_ago), late_view_signups_on(days_ago))
+        for days_ago in range(LATE_VIEW_REFRESHED_DAYS_AGO + 1, LATE_VIEW_HISTORY_DAYS + 1)
+    )
+    backing = create_table_from_rows(
+        team,
+        table_name=LATE_VIEW_BACKING_TABLE_NAME,
+        columns={"day": _STRING_COLUMN, "signups": _INTEGER_COLUMN},
+        rows=backing_rows,
+        test_bucket="eval_catalog",
+    )
+    _raise_unless_readable(team, user, LATE_VIEW_BACKING_TABLE_NAME, row_count=len(backing_rows))
+
+    view = DataWarehouseSavedQuery.objects.create(
+        team=team,
+        created_by=user,
+        name=LATE_VIEW_NAME,
+        columns={"day": _STRING_COLUMN, "signups": _INTEGER_COLUMN},
+        query={"kind": "HogQLQuery", "query": LATE_VIEW_SQL},
+        table_id=backing.id,
+        is_materialized=True,
+        status=DataWarehouseSavedQuery.Status.COMPLETED,
+    )
+    # No reconcile: a real refresh schedule could refresh the view mid-case and make it current.
+    with transaction.atomic():
+        node = modeling_api.sync_saved_query_to_dag(view, reconcile=False)
+    if node is None:
+        raise RuntimeError(f"Seeded view '{LATE_VIEW_NAME}' did not get a DAG node.")
+    modeling_api.set_declared_target(node, timedelta(days=1))
+    DataModelingJob.objects.create(
+        team=team,
+        saved_query=view,
+        status=DataModelingJobStatus.COMPLETED,
+        engine=DataModelingJobEngine.CLICKHOUSE,
+        last_run_at=timezone.now() - timedelta(days=LATE_VIEW_REFRESHED_DAYS_AGO),
+    )
+    certify(propose_certification(team=team, user=user, saved_query_id=str(view.id)), user)
+
+    response = execute_hogql_query(f"SELECT count() FROM {LATE_VIEW_NAME}", team=team, user=user)
+    if not any(w.type == "warehouse_sync" and w.table_name == LATE_VIEW_NAME for w in response.warnings or []):
+        raise RuntimeError(f"Seeded view '{LATE_VIEW_NAME}' did not raise a freshness warning.")
+    return {
+        "late_certified_view": {
+            "view": LATE_VIEW_NAME,
+            "source_table": LATE_VIEW_SOURCE_TABLE_NAME,
+            "refreshed_days_ago": LATE_VIEW_REFRESHED_DAYS_AGO,
+            "yesterday_signups": LATE_VIEW_YESTERDAY_SIGNUPS,
+        }
+    }
 
 
 def seed_synced_invoices_table(context: CustomPromptSandboxContext) -> dict[str, Any]:

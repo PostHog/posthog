@@ -48,7 +48,7 @@ Callers pass an endpoint template, because a project path in a URL is customer d
 
 ## Auth
 
-The customer's access token in the `PRIVATE-TOKEN` header.
+The customer's access token in the `Authorization: Bearer` header. GitLab accepts that header for project, group, personal and OAuth tokens.
 No PostHog-owned credential.
 The caller validates the host before the call and never follows a redirect, because the token header would go to the redirect target.
 

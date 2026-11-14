@@ -6,24 +6,23 @@ import {
     liveBreakdown,
     liveEvents,
     livePathCounts,
+    livePathsMode,
     liveRankedRows,
     liveReferrerCounts,
     liveUsersOnlineFromQuery,
+    liveWorld,
 } from '@/model/adapters/live'
-import type { LiveRankedRow, LiveSnapshot } from '@/model/live'
+import type { LivePathsMode, LiveRankedRow, LiveSnapshot, LiveWorld } from '@/model/live'
 
 import type { LiveReadResult } from './liveController'
 
-/** The web's jobs, the chart's first so a slow read fills the top of the screen first. */
-const JOBS: readonly LiveQueryKey[] = [
-    'usersPageviews',
-    'paths',
-    'referrer',
-    'device',
-    'browser',
-    'geo',
-    'recentEvents',
-]
+const TOP_JOB: Record<LivePathsMode, LiveQueryKey> = { pages: 'paths', screens: 'screens' }
+
+/**
+ * The web's jobs, the chart's first. The top list (`paths` or `screens`) runs after them, so it can take its form from
+ * this read's activity.
+ */
+const JOBS: readonly LiveQueryKey[] = ['usersPageviews', 'referrer', 'device', 'browser', 'geo', 'recentEvents']
 /** The Views queue's limit, so one read never holds more than two server queries at a time. */
 const CONCURRENCY = 2
 
@@ -82,20 +81,38 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
     const { run, previous, now, signal } = input
     const keys: LiveQueryKey[] = input.countUsersOnline ? [...JOBS, 'usersOnline'] : [...JOBS]
     const options = { window: liveWindow(now), pathCleaning: input.pathCleaning }
+    const ask = (key: LiveQueryKey): Promise<unknown> => run(key, liveQuery(key, options), signal, now)
+    let activityAnswer: Promise<unknown> | null = null
+    let topMode: LivePathsMode = 'pages'
+    const askTop = async (): Promise<unknown> => {
+        // The activity job started first, so it has usually answered by now. When it failed, the last activity decides.
+        const answer = await activityAnswer?.catch(() => undefined)
+        topMode = livePathsMode(answered(answer) ? liveActivity(answer, now) : previous.activity)
+        return ask(TOP_JOB[topMode])
+    }
     const settled = await settleInTurn(
-        keys.map((key) => () => run(key, liveQuery(key, options), signal, now)),
+        [
+            ...keys.map((key) => (): Promise<unknown> => {
+                const answer = ask(key)
+                if (key === 'usersPageviews') {
+                    activityAnswer = answer
+                }
+                return answer
+            }),
+            askTop,
+        ],
         signal
     )
     const answers = new Map<LiveQueryKey, unknown>()
     let failure: unknown = null
-    keys.forEach((key, index) => {
+    for (const [index, key] of [...keys, TOP_JOB[topMode]].entries()) {
         const result = settled[index]
         if (result?.status === 'fulfilled' && answered(result.value)) {
             answers.set(key, result.value)
         } else {
             failure ??= result?.status === 'rejected' ? result.reason : new Error(`The ${key} query did not finish.`)
         }
-    })
+    }
     if (answers.size === 0) {
         throw failure ?? new Error('The live read failed.')
     }
@@ -103,6 +120,7 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
     const activity = answers.has('usersPageviews')
         ? liveActivity(answers.get('usersPageviews'), now)
         : previous.activity
+    const topAnswer = answers.get(TOP_JOB[topMode])
     const ranked = (counts: Map<string, number>, before: LiveRankedRow[] | null): LiveRankedRow[] => {
         // Shares are of the window's pageviews; without them, of the listed views, so they never read 0%.
         const listed = [...counts.values()].reduce((sum, views) => sum + views, 0)
@@ -114,7 +132,11 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
     return {
         data: {
             activity,
-            topPages: part('paths', (answer) => ranked(livePathCounts(answer), previous.topPages), previous.topPages),
+            // Rank changes compare rows of one form only, so a switch between pages and screens shows no badges.
+            topPages: topAnswer
+                ? ranked(livePathCounts(topAnswer), previous.topPagesMode === topMode ? previous.topPages : null)
+                : previous.topPages,
+            topPagesMode: topAnswer ? topMode : previous.topPagesMode,
             topReferrers: part(
                 'referrer',
                 (answer) => ranked(liveReferrerCounts(answer), previous.topReferrers),
@@ -123,9 +145,25 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
             devices: part('device', (answer) => liveBreakdown(answer, 'devices'), previous.devices),
             browsers: part('browser', (answer) => liveBreakdown(answer, 'browsers'), previous.browsers),
             countries: part('geo', (answer) => liveBreakdown(answer, 'countries'), previous.countries),
+            world: part('geo', liveWorld, previous.world),
             events: part('recentEvents', liveEvents, previous.events),
             usersOnline: part('usersOnline', liveUsersOnlineFromQuery, previous.usersOnline),
         },
-        complete: answers.size === keys.length,
+        complete: answers.size === keys.length + 1,
     }
+}
+
+export interface LiveWorldReadInput {
+    run: LiveQueryRunner
+    now: number
+    signal: AbortSignal
+}
+
+/** The countries screen's read: the `geo` job alone, so the screen never runs Live's full read. */
+export async function readLiveWorld({ run, now, signal }: LiveWorldReadInput): Promise<LiveReadResult<LiveWorld>> {
+    const answer = await run('geo', liveQuery('geo', { window: liveWindow(now), pathCleaning: false }), signal, now)
+    if (!answered(answer)) {
+        throw new Error('The geo query did not finish.')
+    }
+    return { data: liveWorld(answer), complete: true }
 }

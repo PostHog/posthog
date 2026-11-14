@@ -82,7 +82,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.actions.backend.facade.api import existing_action_ids, get_actions
+from products.actions.backend.facade.api import existing_action_ids, get_action_details, get_actions
 from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
@@ -450,8 +450,6 @@ else:
 def get_survey_conditions_with_actions(
     survey: "Survey", action_serializer_class: type[serializers.Serializer] | None = None
 ) -> dict | None:
-    if action_serializer_class is None:
-        action_serializer_class = ActionSerializer
     conditions = survey.conditions
     actions = survey.actions.all()
     if len(actions) > 0:
@@ -459,14 +457,18 @@ def get_survey_conditions_with_actions(
             conditions = {}
         else:
             conditions = dict(conditions)
-        conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
+        if action_serializer_class is None:
+            details = get_action_details(team_id=survey.team_id, action_ids=[action.id for action in actions])
+            conditions["actions"] = {"values": ActionSerializer(details, many=True).data}
+        else:
+            conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
     elif isinstance(conditions, dict) and isinstance(conditions.get("actions"), dict):
         # The actions M2M didn't resolve (e.g. the referenced actions were deleted) but a stale
         # actions blob still lives in `conditions`. That stored blob can carry fields this caller's
         # serializer would never expose — notably `created_by` on the public /surveys and /decide
         # payload — so project each value down to the serializer's own fields. Never surface more
         # than the serializer itself would.
-        meta = getattr(action_serializer_class, "Meta", None)
+        meta = getattr(action_serializer_class or ActionSerializer, "Meta", None)
         allowed_fields = getattr(meta, "fields", None)
         if isinstance(allowed_fields, list | tuple):
             allowed = set(allowed_fields)
@@ -4079,20 +4081,6 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
     return {"surveys": surveys}
 
 
-def _survey_page_site_url() -> str:
-    """
-    Origin for the hosted survey page's static assets. Assets must load from the app
-    origin even when the page is served through a reverse-proxy domain, which doesn't
-    serve Django staticfiles. A localhost SITE_URL (the unset default) would emit asset
-    URLs no external browser can reach, so fall back to host-relative paths — those at
-    least keep direct app-origin access working.
-    """
-    hostname = urlparse(settings.SITE_URL).hostname
-    if hostname in (None, "localhost", "127.0.0.1", "::1"):
-        return ""
-    return settings.SITE_URL
-
-
 def _public_survey_csp(request: HttpRequest) -> str:
     nonce = getattr(request, "csp_nonce", "")
     script_sources = ["'self'", f"'nonce-{nonce}'", "'strict-dynamic'"]
@@ -4132,7 +4120,6 @@ def _survey_error_response(
     context: dict[str, Any] = {
         "error_title": error_title,
         "error_message": error_message,
-        "site_url": _survey_page_site_url(),
     }
     if appearance is not None:
         context["appearance"] = appearance
@@ -4238,7 +4225,6 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
         "survey_id": survey_id,
         "survey_data": survey_data,
         "project_config": project_config,
-        "site_url": _survey_page_site_url(),
         "display_language": get_hosted_survey_display_language(request),
         "debug": settings.DEBUG,
         "embed_mode": request.GET.get("embed") == "true",

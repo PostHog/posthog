@@ -23,6 +23,11 @@ export interface Prompts {
         choices: readonly Choice<Value>[],
         options?: { help?: string }
     ): Promise<Value>
+    multiselect<Value extends string>(
+        message: string,
+        choices: readonly Choice<Value>[],
+        options?: { help?: string }
+    ): Promise<Value[]>
     text(message: string, options?: { initialValue?: string; validate?: Validate; help?: string }): Promise<string>
     password(message: string, options?: { validate?: Validate }): Promise<string>
     confirm(message: string, options?: { initialValue?: boolean }): Promise<boolean>
@@ -52,6 +57,24 @@ export function clackPrompts(): Prompts {
             >[0]['options']
             const question = help ? `${message}\n${styleText('dim', help)}` : message
             return answer(await clack.select<Value>({ message: question, options }))
+        },
+        async multiselect<Value extends string>(
+            message: string,
+            choices: readonly Choice<Value>[],
+            { help }: { help?: string } = {}
+        ): Promise<Value[]> {
+            const options = choices.map((choice) => ({ ...choice })) as Parameters<
+                typeof clack.multiselect<Value>
+            >[0]['options']
+            const question = help ? `${message}\n${styleText('dim', help)}` : message
+            const picked = answer(
+                await clack.multiselect<Value>({
+                    message: question,
+                    options,
+                    required: false,
+                })
+            )
+            return choices.map((choice) => choice.value).filter((value) => picked.includes(value))
         },
         async text(message, options = {}) {
             const validate = options.validate

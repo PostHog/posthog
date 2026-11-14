@@ -15,14 +15,17 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from posthog.integrations import RepositoryCache
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
-from posthog.models.integration import Integration
+from posthog.models.integration import GitLabIntegrationError, Integration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.tasks.backend.exceptions import (
     ActiveSessionCapError,
     ComputeBillingLimitError,
+    CredentialUnavailableError,
     OrganizationExecutionError,
+    ProcessTaskTransientError,
     RepositoryAccessError,
     RepositoryCloneError,
     SandboxCleanupError,
@@ -93,6 +96,60 @@ def test_private_trial_keeps_the_pinned_model_without_agent_telemetry(mocker, is
 
     assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if is_trial else None)
     assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "synthetic-token")
+
+
+@pytest.mark.parametrize(
+    "github_token, gitlab_token, expected",
+    [
+        ("gh-token", "", {"GH_TOKEN": "gh-token", "GITLAB_TOKEN": None, "POSTHOG_GIT_PROVIDER": None}),
+        ("", "gl-token", {"GH_TOKEN": None, "GITLAB_TOKEN": "gl-token", "POSTHOG_GIT_PROVIDER": "gitlab"}),
+    ],
+    ids=["github", "gitlab"],
+)
+def test_environment_variables_name_the_git_provider(mocker, github_token, gitlab_token, expected) -> None:
+    for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+        mocker.patch.object(provision_sandbox_module, name, return_value={})
+    mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
+
+    environment = provision_sandbox_module._build_environment_variables(
+        _context_for_desktop_bootstrap(),
+        mocker.Mock(is_scout_experiment=False),
+        github_token,
+        "fake-token",
+        gitlab_token,
+    )
+
+    assert {key: environment.get(key) for key in expected} == expected
+
+
+@pytest.mark.parametrize(
+    "check, expected",
+    [
+        (True, "glpat-synthetic"),
+        (False, CredentialUnavailableError),
+        (GitLabIntegrationError("rate limited", transient=True), ProcessTaskTransientError),
+        (GitLabIntegrationError("revoked"), CredentialUnavailableError),
+    ],
+    ids=["project_token", "broader_token", "gitlab_unavailable", "revoked_token"],
+)
+def test_gitlab_token_reaches_the_sandbox_only_when_bound_to_the_project(mocker, check, expected) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.repository_integration_id = 5
+    mocker.patch.object(provision_sandbox_module.IntegrationManager.gitlab.token, "get", return_value=mocker.Mock())
+    gitlab = mocker.Mock()
+    if isinstance(check, Exception):
+        gitlab.token_reaches_only_connected_project.side_effect = check
+    else:
+        gitlab.token_reaches_only_connected_project.return_value = check
+    gitlab.credentials.access_token.return_value.token = "glpat-synthetic"
+    mocker.patch.object(provision_sandbox_module, "GitLabIntegration", return_value=gitlab)
+
+    if isinstance(expected, str):
+        assert provision_sandbox_module._resolve_sandbox_gitlab_token(context) == expected
+    else:
+        with pytest.raises(expected):
+            provision_sandbox_module._resolve_sandbox_gitlab_token(context)
+        gitlab.credentials.access_token.assert_not_called()
 
 
 class _ShellSandbox:
@@ -472,6 +529,7 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         shallow=True,
         branch=expected_branch,
         blobless=True,
+        gitlab_token="",
     )
 
 
@@ -523,6 +581,7 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             shallow=True,
             branch="branch-from-a-sibling-repository",
             blobless=False,
+            gitlab_token="",
         ),
         mocker.call(
             "posthog/posthog",
@@ -530,6 +589,7 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             shallow=True,
             branch=None,
             blobless=False,
+            gitlab_token="",
         ),
     ]
 
@@ -871,12 +931,16 @@ def test_denial_classification_resolves_team_installation_state(
         if unavailable:
             config[INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY] = "2026-01-01T00:00:00Z"
         row.config = config
+        row.auth_type = "oauth"
         row.errors = ""
-        row.repository_cache_updated_at = None
-        row.repository_cache = None
         row.integration_id = str(index + 1)
         rows.append(row)
     mocker.patch("posthog.integrations.IntegrationManager.github.oauth.list", return_value=rows)
+    # The adapter reads the repository list through the SDK, not from the row.
+    mocker.patch(
+        "posthog.integrations.accessors.AuthAccessor.get_repository_cache",
+        return_value=RepositoryCache(repositories=None, updated_at=None),
+    )
     mocker.patch.object(provision_sandbox_module, "forget_cached_github_tokens")
     context = _clone_context(state={"github_read_access": True})
     stderr = "fatal: Authentication failed for 'https://github.com/acme/repo.git/'\n"

@@ -26,11 +26,11 @@ export function TodayProductsSidebar(): JSX.Element {
         starredProducts,
         starredHrefs,
         starredOpen,
-        allProductsOpen,
+        allProductsVisible,
         activeHref,
         search,
     } = useValues(todayProductsLogic)
-    const { setSearch, setStarredOpen, setAllProductsOpen, productOpened } = useActions(todayProductsLogic)
+    const { setSearch, setStarredOpen, toggleAllProducts, productOpened } = useActions(todayProductsLogic)
     const searching = !!search.trim()
     const searchedAnalyticsTypes = analyticsTypesForPaneSearch(search)
     const hasProducts = pinnedProducts.length > 0 || starredProducts.length > 0 || productCount > 0
@@ -111,9 +111,9 @@ export function TodayProductsSidebar(): JSX.Element {
                 {productCount > 0 && (
                     <SidebarSection
                         label="All products"
-                        open={allProductsOpen || searching}
+                        open={allProductsVisible || searching}
                         count={productCount}
-                        onToggle={() => setAllProductsOpen(!allProductsOpen)}
+                        onToggle={toggleAllProducts}
                         dataAttr="today-section-all-products"
                     >
                         {productGroups.map((group, index) => (

@@ -18,6 +18,7 @@ from posthog.utils import ensure_utc
 from products.alerts.backend.facade.contracts import (
     MovedAlertCheck,
     MovedAlertCheckPage,
+    MovedAlertHistoryUnavailable,
     MovedAlertLastCheck,
     MovedAlertRuntime,
     MovedAlertStatus,
@@ -95,8 +96,9 @@ def moved_alert_check_page(
     """A page of a moved alert's checks in `[since, until]`, newest first, with how many the window holds.
 
     Each check carries its investigation and whether the agent suppressed its notification. None
-    when the alert's own checks are the ones to show: the platform does not own it, or its history
-    could not be read.
+    when the platform does not own the alert, so its own checks are the ones to show. Raises
+    `MovedAlertHistoryUnavailable` when the platform's history could not be read, because the
+    alert's own checks stopped at the move and would show a stale history.
     """
     try:
         page = check_page_by_public_id(
@@ -110,7 +112,7 @@ def moved_alert_check_page(
         )
     except Exception as error:
         capture_exception(error, additional_properties={"alert_configuration_id": str(alert_id)})
-        return None
+        raise MovedAlertHistoryUnavailable from error
     if page is None:
         return None
     keys = [check.evaluation_key for check in page.checks]

@@ -23,7 +23,7 @@ export function AnalyticsOwnerAvatar({ owner }: { owner: NonNullable<AnalyticsIt
     )
 }
 
-/** Who created an item, as an avatar and name. Reads as a dash when the API knows no creator. */
+/** Who created an item, as an avatar and first name with the full name on hover. A dash when the API knows no creator. */
 export function AnalyticsOwner({
     owner,
     className,
@@ -38,12 +38,16 @@ export function AnalyticsOwner({
             </Text>
         )
     }
-    const name = fullName(owner) === 'Unknown User' ? owner.email : fullName(owner) || owner.email
+    const full = fullName(owner)
+    const label = owner.first_name?.trim() || owner.email.split('@')[0]
     return (
-        <span className={cn('flex min-w-0 items-center gap-2', className)}>
+        <span
+            className={cn('flex min-w-0 items-center gap-1.5', className)}
+            title={full && full !== 'Unknown User' ? full : owner.email}
+        >
             <AnalyticsOwnerAvatar owner={owner} />
             <Text size="xs" className="truncate">
-                {name}
+                {label}
             </Text>
         </span>
     )

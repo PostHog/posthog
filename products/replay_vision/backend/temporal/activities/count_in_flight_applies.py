@@ -1,11 +1,13 @@
 from uuid import UUID
 
 from django.db.models import Count, Q
+from django.utils import timezone
 
 from temporalio import activity
 
 from products.replay_vision.backend.enqueue_claims import pending_enqueue_claims
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.temporal.constants import COUNT_IN_FLIGHT_APPLIES_TIMEOUT, in_flight_headroom
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
@@ -48,7 +50,12 @@ def count_in_flight(
 @activity.defn
 @track_activity()
 def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
-    with bounded_queries(COUNT_IN_FLIGHT_APPLIES_TIMEOUT):
+    return count_in_flight_applies(inputs)
+
+
+def count_in_flight_applies(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
+    # Its own budget, because the folded sweep tick runs the budget check first in the same attempt.
+    with bounded_queries(COUNT_IN_FLIGHT_APPLIES_TIMEOUT, from_attempt_start=False):
         rows = count_in_flight_rows(inputs.team_id, inputs.scanner_id)
     counts = count_in_flight(inputs.team_id, inputs.scanner_id, rows=rows)
     team = counts["team"]
@@ -57,4 +64,8 @@ def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFl
     # can't be emitted from deterministic workflow code.
     if in_flight_headroom(scanner, team) <= 0:
         record_sweep_outcome("throttled")
+        if scanner > 0:
+            # A scanner that fills its in-flight cap skips the candidate query, which would otherwise read as
+            # finding nothing and slow its schedule while it is busiest.
+            ReplayScanner.objects.filter(pk=inputs.scanner_id).update(last_found_candidates_at=timezone.now())
     return InFlightApplyCounts(scanner=scanner, team=team)

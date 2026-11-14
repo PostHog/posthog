@@ -12,7 +12,16 @@ import { fileFromEndpoint, remoteVariableIds, type Endpoint } from '@/endpoints/
 import { planPull, type PullItem } from '@/endpoints/plan'
 import { ApiError, type PostHogApi } from '@/posthog/api'
 
-import { actionLabel, changeLines, CONFIRM_OPTIONS, confirm, indent, SCOPES_READ, type Styler } from './shared'
+import {
+    actionLabel,
+    changeLines,
+    CONFIRM_OPTIONS,
+    confirm,
+    indent,
+    problemWarnings,
+    SCOPES_READ,
+    type Styler,
+} from './shared'
 
 type PlannedItem = Omit<PullItem, 'endpoint'>
 
@@ -197,21 +206,29 @@ export default defineCommand({
 
     human({ result, out }) {
         const style: Styler = (text, ...styles) => out.style(text, ...styles)
-        for (const problem of result.problems) {
-            out.line(`${out.style('Skipped', 'yellow', 'bold')} ${problem.path}: ${problem.message}`)
-        }
+        const warnings = problemWarnings(result.problems)
+
         if (result.status === 'written') {
-            result.written.forEach((path) => out.line(`${out.style('Wrote', 'green', 'bold')}  ${path}`))
-            out.line(out.style(`${plural(result.written.length, 'file')} written`, 'dim'))
+            out.report({
+                status: warnings.length > 0 ? 'partial' : 'done',
+                result: `Wrote ${plural(result.written.length, 'file')}`,
+                effects: result.written,
+                warnings,
+            })
             return
         }
-        pullPlanLines(result.plan, style).forEach((line) => out.line(line))
+
         const messages = {
-            preview: 'Dry run: no files written.',
-            cancelled: 'Cancelled: no files written.',
-            nothing_to_do: 'The local files already match PostHog.',
+            preview: 'Dry run: no files written',
+            cancelled: 'Cancelled: no files written',
+            nothing_to_do: 'The local files already match PostHog',
         }
-        out.line(out.style(messages[result.status], 'dim'))
+        out.report({
+            status: warnings.length > 0 ? 'partial' : 'unchanged',
+            result: messages[result.status],
+            effects: pullPlanLines(result.plan, style),
+            warnings,
+        })
     },
 
     agent({ result, out }) {

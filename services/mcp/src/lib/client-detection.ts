@@ -207,6 +207,10 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 // too — so it drives CLI-mode detection; the UI-host check reuses it as its own
 // user-agent fallback.
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
+
+// Published Claude artifact pages call the MCP from page code to fill in their data, so no model
+// reads the responses.
+export const ARTIFACT_RUNTIME_VENDOR_FRAGMENTS = ['claudeartifacts'] as const
 export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
 
 // OpenAI clients send no vendor header, so the shared `openai-mcp` client is matched
@@ -319,6 +323,13 @@ export class MCPClientProfile {
         return (
             matchesAnyFragment(this.userAgent, ANTHROPIC_USER_AGENT_FRAGMENTS) ||
             normalizeClientName(this.clientName ?? '').startsWith('anthropic')
+        )
+    }
+
+    isArtifactRuntime(): boolean {
+        return (
+            matchesAnyFragment(this.vendorClient, ARTIFACT_RUNTIME_VENDOR_FRAGMENTS) ||
+            matchesAnyFragment(this.clientName, ARTIFACT_RUNTIME_VENDOR_FRAGMENTS)
         )
     }
 

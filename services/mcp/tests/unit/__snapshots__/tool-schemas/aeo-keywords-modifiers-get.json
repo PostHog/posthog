@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "days": {
+            "default": 7,
+            "description": "Length of the window in days, ending today in the project's timezone. Default 7, at most 30.",
+            "maximum": 30,
+            "minimum": 1,
+            "type": "number"
+        },
+        "keyword": {
+            "description": "Only count answers whose web searches contain this phrase, case ignored. Usually one of the project's keywords.",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

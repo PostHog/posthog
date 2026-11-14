@@ -2,6 +2,9 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
@@ -23,6 +26,8 @@ describe('ReportAiPanel', () => {
 
     beforeEach(() => {
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
         logic = inboxTaskKickoffLogic()
         logic.mount()
     })

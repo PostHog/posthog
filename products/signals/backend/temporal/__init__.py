@@ -98,6 +98,7 @@ from products.signals.backend.temporal.grouping import (
 )
 from products.signals.backend.temporal.grouping_v2 import (
     TeamSignalGroupingV2Workflow,
+    assigned_signal_ids_activity,
     check_signals_ai_consent_activity,
     discard_signal_batches_activity,
     read_signals_from_s3_activity,
@@ -185,6 +186,7 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    assigned_signal_ids_activity,
     check_signals_ai_consent_activity,
     discard_signal_batches_activity,
     poll_monitoring_assessment_activity,

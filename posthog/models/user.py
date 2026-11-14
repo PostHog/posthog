@@ -1,4 +1,4 @@
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import cached_property
@@ -259,6 +259,7 @@ class OnboardingSkippedReason(models.TextChoices):
     OTHER = "other", "Other"
     PROVISIONED = "provisioned", "Account provisioned by a partner"
     CONNECTOR = "connector", "Signed up through an OAuth connector"
+    DEVICE_LOGIN = "device_login", "Signed up through an OAuth device login"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
@@ -483,17 +484,19 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         return None
 
     def _get_github_login_from_team_integration(self) -> str | None:
+        # The SDK imports the Integration model, which imports this module.
+        from posthog.integrations import CrossTeamFilter, IntegrationManager  # noqa: PLC0415
+
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
         team_github_integrations = (
             prefetched_integrations
             if prefetched_integrations is not None
-            else self.integration_set.filter(kind="github")
-            .exclude(config__connecting_user_github_login=None)
-            .only("config")
-            .order_by("id")[:1]
+            else IntegrationManager.github.any.list_across_teams(
+                CrossTeamFilter(created_by_ids=(self.id,), has_config_key="connecting_user_github_login")
+            )
         )
         for integration in team_github_integrations:
-            if isinstance(integration.config, dict):
+            if isinstance(integration.config, Mapping):
                 login = integration.config.get("connecting_user_github_login")
                 if login:
                     return str(login)

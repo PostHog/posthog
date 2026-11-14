@@ -303,12 +303,18 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         read = self._read(created.json()["id"])
         assert (read["snooze_until"], read["state"]) == ("2026-11-06T13:00:00Z", "snoozed")
 
-    def test_an_alert_with_no_logs_row_keeps_its_labels(self, *_: object) -> None:
+    def test_an_alert_with_no_logs_row_keeps_its_labels_and_annotations(self, *_: object) -> None:
         self.native_create = True
 
         created = self.client.post(
             self.base_url,
-            {"name": "High error rate", "threshold_count": 10, "filters": _FILTERS, "labels": {"team": "checkout"}},
+            {
+                "name": "High error rate",
+                "threshold_count": 10,
+                "filters": _FILTERS,
+                "labels": {"team": "checkout"},
+                "annotations": {"summary": "Checkout errors"},
+            },
             format="json",
         )
         assert created.status_code == status.HTTP_201_CREATED, created.json()
@@ -321,6 +327,7 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
             {"team": "checkout"},
             {"team": "billing"},
         )
+        assert relabelled.json()["annotations"] == {"summary": "Checkout errors"}
 
     def test_a_team_whose_alerts_stay_with_logs_keeps_the_logs_row_with_the_flag_on(self, *_: object) -> None:
         LogsAlertConfiguration.objects.create(team=self.team, name="Kept on logs", enabled=False)

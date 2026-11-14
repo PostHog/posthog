@@ -131,12 +131,9 @@ export function ExperimentQuantileMetricFields({
                         )}
                     </div>
                 </LemonField.Pure>
-                <div className="text-muted text-xs mt-1 space-y-1">
-                    {!customPercentileError && (
-                        <p className="m-0">{`p${percentile} is the value that ${percentile}% of events in a variant are at or below.`}</p>
-                    )}
-                    <p className="m-0">Breakdowns aren't available for percentile metrics yet.</p>
-                </div>
+                {!customPercentileError && (
+                    <p className="text-muted text-xs mt-1 mb-0">{`p${percentile} is the value that ${percentile}% of events in a variant are at or below.`}</p>
+                )}
             </div>
         </div>
     )

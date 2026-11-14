@@ -32,6 +32,7 @@ import { ModelBarChart } from './ModelBarChart'
 import { NotableSessionsTable } from './NotableSessionsTable'
 import { ProtocolVersionStrip } from './ProtocolVersionStrip'
 import { ToolErrorRateChart } from './ToolErrorRateChart'
+import { ToolLatencyChart } from './ToolLatencyChart'
 import { ToolUsageChart } from './ToolUsageChart'
 
 const DAYS = ['Jun 1', 'Jun 2', 'Jun 3', 'Jun 4', 'Jun 5', 'Jun 6', 'Jun 7']
@@ -519,6 +520,12 @@ export const ErrorRateByToolLoadError: Story = {
     render: withTheme((theme) => (
         <ToolErrorRateChart rows={TOOL_ROWS} loading={false} failed onRetry={() => {}} theme={theme} />
     )),
+}
+
+// The full dashboard stories snapshot this card next to the error-rate card, so this story only checks that it renders.
+export const SlowestToolsByLatency: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: withTheme((theme) => <ToolLatencyChart rows={TOOL_ROWS} loading={false} theme={theme} />),
 }
 
 export const DailyToolBreakdown: Story = {

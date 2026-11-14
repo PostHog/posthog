@@ -13,9 +13,11 @@ joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 
 from __future__ import annotations
 
+import re
 import time
 import hashlib
 import threading
+from collections.abc import Callable
 from dataclasses import field
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -25,14 +27,24 @@ from django.conf import settings
 import requests
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
+from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config
 from posthog.security.llm_prompt_sanitization import (
     GENERIC_VALUE_MAX_LEN,
     sanitize_user_text,
     strip_llm_framing_markers,
 )
 
+from products.aeo.backend.facade.contracts import CheckMode
+
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
+# Engine ids are stored on every check, so renaming one splits its history in two.
+CLAUDE_WEB_SEARCH = "claude-web-search"
+OPENAI_WEB_SEARCH = "openai-web-search"
+PERPLEXITY_WEB_SEARCH = "perplexity-web-search"
+EXA_ANSWER = "exa-answer"
+CLAUDE_NO_SEARCH = "claude-no-search"
+OPENAI_NO_SEARCH = "openai-no-search"
+
 EXA_TIMEOUT_SECONDS = 60
 EXA_ANSWER_URL = "https://api.exa.ai/answer"
 
@@ -64,15 +76,16 @@ class CitationCheck:
 
     engine: str
     model: str
+    mode: CheckMode = CheckMode.WEB_SEARCH
     # URLs the answer actually cites, in first-mention order.
     cited_urls: list[str] = field(default_factory=list)
-    # URLs the engine retrieved/saw but didn't necessarily cite (Anthropic only).
+    # URLs the engine retrieved/saw but didn't necessarily cite (Anthropic and Perplexity only).
     retrieved_urls: list[str] = field(default_factory=list)
     # Search queries the model issued.
     search_queries: list[str] = field(default_factory=list)
     answer_text: str = ""
-    # Engine-reported cost (Exa). Gateway engines report cost on their
-    # $ai_generation event instead — join via trace_id.
+    # Engine-reported cost (Exa, and Perplexity when its response carries usage.cost). Gateway
+    # engines also report cost on their $ai_generation event, which joins on trace_id.
     cost_usd: float | None = None
     trace_id: str | None = None
     error: str | None = None
@@ -96,6 +109,7 @@ class ParsedAnswer:
 class CitationEngine(Protocol):
     name: str
     model: str
+    mode: CheckMode
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck: ...
 
@@ -311,6 +325,97 @@ def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
     )
 
 
+# Numbered markers such as [3], and the source-typed form [web:3] that Perplexity's effort-level
+# prompts use. Both refer to a search_results entry by its id.
+_PERPLEXITY_CITATION_MARKER = re.compile(r"\[(?:web:)?(\d+)\]")
+
+
+def _perplexity_answer_text(body: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for item in body.get("output") or []:
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        for content in item.get("content") or []:
+            if isinstance(content, dict) and content.get("type") == "output_text":
+                text = content.get("text")
+                parts.append(text if isinstance(text, str) else "")
+    return "".join(parts)
+
+
+def perplexity_response_error(body: Any) -> str | None:
+    """Why a Perplexity Responses body cannot count as an answer, or None when it can.
+
+    The check fails closed: a body that is not completed, reports an error, has no output list,
+    or has no answer text is a failed check and never a zero-citation answer, so the scout can
+    tell "the engine broke" from "the citations disappeared"."""
+    if not isinstance(body, dict):
+        return "unexpected_response: body is not an object"
+    error = body.get("error")
+    if isinstance(error, dict):
+        return f"failed_response: {error.get('message') or error.get('type') or 'unknown'}"
+    status = body.get("status")
+    if status != "completed":
+        details = body.get("incomplete_details")
+        reason = details.get("reason") if isinstance(details, dict) else None
+        return f"{status or 'missing_status'}_response: {reason or 'unknown'}"
+    if not isinstance(body.get("output"), list):
+        return "unexpected_response: no output list"
+    if not _perplexity_answer_text(body).strip():
+        return "empty_response: no answer text"
+    return None
+
+
+def parse_perplexity_citations(body: dict[str, Any]) -> ParsedAnswer:
+    """Parse a completed Perplexity Responses body that ran the web_search tool.
+
+    Retrieved = every search_results entry, in order. Cited = the url_citation annotations when
+    the answer carries any, the same as an OpenAI Responses body. Otherwise cited = the entries the
+    inline [n] markers point at, in first-mention order, and a marker whose id matches no entry is
+    dropped. The markers are removed from the recorded answer text, because the ids mean nothing
+    once the result list is gone.
+    """
+    url_by_id: dict[int, str] = {}
+    retrieved: list[str] = []
+    queries: list[str] = []
+
+    for item in body.get("output") or []:
+        if not isinstance(item, dict) or item.get("type") != "search_results":
+            continue
+        item_queries = item.get("queries")
+        if isinstance(item_queries, list):
+            queries.extend(query for query in item_queries if isinstance(query, str) and query)
+        results = item.get("results")
+        for result in results if isinstance(results, list) else []:
+            if not isinstance(result, dict):
+                continue
+            url = result.get("url")
+            if not isinstance(url, str) or not url:
+                continue
+            retrieved.append(url)
+            result_id = result.get("id")
+            if isinstance(result_id, int) and not isinstance(result_id, bool):
+                url_by_id.setdefault(result_id, url)
+
+    answer = _perplexity_answer_text(body)
+    cited = parse_openai_responses_citations(body).cited_urls or [
+        url_by_id[int(marker)] for marker in _PERPLEXITY_CITATION_MARKER.findall(answer) if int(marker) in url_by_id
+    ]
+
+    usage = body.get("usage")
+    cost = usage.get("cost") if isinstance(usage, dict) else None
+    total_cost = cost.get("total_cost") if isinstance(cost, dict) else None
+
+    return ParsedAnswer(
+        answer_text=_PERPLEXITY_CITATION_MARKER.sub("", answer),
+        cited_urls=_dedupe_urls(cited),
+        retrieved_urls=_dedupe_urls(retrieved),
+        search_queries=queries,
+        cost_usd=float(total_cost)
+        if isinstance(total_cost, int | float) and not isinstance(total_cost, bool)
+        else None,
+    )
+
+
 def is_target_host(host: str, target_domains: list[str]) -> bool:
     """True when the host is one of the target domains or a subdomain of it."""
     host = host.lower()
@@ -386,6 +491,7 @@ def build_check_fields(
         "prompt_hash": prompt_hash,
         "engine": check.engine,
         "model": check.model,
+        "mode": check.mode.value,
         "check_failed": check.error is not None,
         "error": sanitize_user_text(check.error, MAX_ERROR_LENGTH) if check.error is not None else None,
         "cited": bool(target_urls),
@@ -411,12 +517,15 @@ def _request_error(e: requests.RequestException) -> str:
 
 
 class ClaudeWebSearchEngine:
-    """Claude with Anthropic's native web_search server tool, via the AI gateway."""
+    """Claude with Anthropic's native web_search server tool, via the AI gateway.
 
-    name = "claude-web-search"
+    With `search=False` the request carries no tool, so the answer comes from training data alone. That
+    variant is its own engine, `claude-no-search`, so its answers get their own column next to the others."""
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, *, search: bool = True) -> None:
         self.model = model or settings.AEO_ANTHROPIC_MODEL
+        self.mode = CheckMode.WEB_SEARCH if search else CheckMode.NO_SEARCH
+        self.name = CLAUDE_WEB_SEARCH if search else CLAUDE_NO_SEARCH
         gateway = resolve_ai_gateway_config()
         if gateway is None:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
@@ -424,11 +533,13 @@ class ClaudeWebSearchEngine:
         self._sessions = _gateway_sessions()
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "max_tokens": MAX_ANSWER_TOKENS,
             "messages": [{"role": "user", "content": prompt}],
-            "tools": [
+        }
+        if self.mode == CheckMode.WEB_SEARCH:
+            payload["tools"] = [
                 {
                     "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
                     "name": "web_search",
@@ -439,8 +550,7 @@ class ClaudeWebSearchEngine:
                     # eligible for zero data retention.
                     "allowed_callers": ["direct"],
                 }
-            ],
-        }
+            ]
         headers = {
             "Authorization": f"Bearer {self._gateway.api_key}",
             "anthropic-version": "2023-06-01",
@@ -451,28 +561,40 @@ class ClaudeWebSearchEngine:
                 self._sessions.get(), self._gateway.url.rstrip("/") + "/messages", headers, payload
             )
         except requests.RequestException as e:
-            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
+            return self._check(trace_id, error=_request_error(e))
         parsed = parse_anthropic_citations(body)
         if (truncated := anthropic_truncated_error(body, parsed.cited_urls)) is not None:
-            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=truncated)
-        return CitationCheck(
-            engine=self.name,
-            model=self.model,
-            trace_id=trace_id,
-            cited_urls=parsed.cited_urls,
-            retrieved_urls=parsed.retrieved_urls,
-            search_queries=parsed.search_queries,
-            answer_text=parsed.answer_text,
-        )
+            return self._check(trace_id, error=truncated)
+        return _answered_check(self, trace_id, parsed)
+
+    def _check(self, trace_id: str, *, error: str) -> CitationCheck:
+        return CitationCheck(engine=self.name, model=self.model, mode=self.mode, trace_id=trace_id, error=error)
+
+
+def _post_gateway_responses(
+    gateway: AIGatewayConfig,
+    sessions: _ThreadSessions,
+    payload: dict[str, Any],
+    *,
+    trace_id: str,
+    custom_properties: dict[str, str],
+) -> dict[str, Any]:
+    headers = {
+        "Authorization": f"Bearer {gateway.api_key}",
+        **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
+    }
+    return gateway_post_json(sessions.get(), gateway.url.rstrip("/") + "/responses", headers, payload)
 
 
 class OpenAIWebSearchEngine:
-    """An OpenAI model with its web search tool, via the AI gateway's /responses path."""
+    """An OpenAI model with its web search tool, via the AI gateway's /responses path.
 
-    name = "openai-web-search"
+    With `search=False` the request carries no tool, the same as ClaudeWebSearchEngine, and runs as `openai-no-search`."""
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, *, search: bool = True) -> None:
         self.model = model or settings.AEO_OPENAI_MODEL
+        self.mode = CheckMode.WEB_SEARCH if search else CheckMode.NO_SEARCH
+        self.name = OPENAI_WEB_SEARCH if search else OPENAI_NO_SEARCH
         gateway = resolve_ai_gateway_config()
         if gateway is None:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
@@ -480,33 +602,43 @@ class OpenAIWebSearchEngine:
         self._sessions = _gateway_sessions()
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "input": prompt,
-            "tools": [{"type": "web_search"}],
             "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
         }
-        headers = {
-            "Authorization": f"Bearer {self._gateway.api_key}",
-            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
-        }
+        if self.mode == CheckMode.WEB_SEARCH:
+            payload["tools"] = [{"type": "web_search"}]
         try:
-            body = gateway_post_json(
-                self._sessions.get(), self._gateway.url.rstrip("/") + "/responses", headers, payload
+            body = _post_gateway_responses(
+                self._gateway, self._sessions, payload, trace_id=trace_id, custom_properties=custom_properties
             )
         except requests.RequestException as e:
-            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
+            return self._check(trace_id, error=_request_error(e))
         if (error := openai_response_error(body)) is not None:
-            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=error)
-        parsed = parse_openai_responses_citations(body)
+            return self._check(trace_id, error=error)
+        return _answered_check(self, trace_id, parse_openai_responses_citations(body))
+
+    def _check(self, trace_id: str, *, error: str) -> CitationCheck:
+        return CitationCheck(engine=self.name, model=self.model, mode=self.mode, trace_id=trace_id, error=error)
+
+
+def _answered_check(engine: CitationEngine, trace_id: str, parsed: ParsedAnswer) -> CitationCheck:
+    if engine.mode == CheckMode.NO_SEARCH:
+        # Without a search nothing in the answer is a retrieved source, so the check keeps only the
+        # text and never counts as cited. Readers of citation rates rely on that.
         return CitationCheck(
-            engine=self.name,
-            model=self.model,
-            trace_id=trace_id,
-            cited_urls=parsed.cited_urls,
-            search_queries=parsed.search_queries,
-            answer_text=parsed.answer_text,
+            engine=engine.name, model=engine.model, mode=engine.mode, trace_id=trace_id, answer_text=parsed.answer_text
         )
+    return CitationCheck(
+        engine=engine.name,
+        model=engine.model,
+        trace_id=trace_id,
+        cited_urls=parsed.cited_urls,
+        retrieved_urls=parsed.retrieved_urls,
+        search_queries=parsed.search_queries,
+        answer_text=parsed.answer_text,
+    )
 
 
 class ExaAnswerEngine:
@@ -518,8 +650,9 @@ class ExaAnswerEngine:
     posthog/egress incarnation if this graduates to real rollout.
     """
 
-    name = "exa-answer"
+    name = EXA_ANSWER
     model = "exa-answer"
+    mode = CheckMode.WEB_SEARCH
 
     def __init__(self) -> None:
         self._sessions = _ThreadSessions(trust_env=True)
@@ -546,12 +679,124 @@ class ExaAnswerEngine:
         )
 
 
+# A request has no default instructions, and Perplexity adds inline markers only when the prompt
+# asks for them. Without markers or annotations no result can count as cited.
+PERPLEXITY_CITATION_INSTRUCTIONS = (
+    "Answer the question using the web search results. After each sentence that uses a result, "
+    "cite it inline with its number in square brackets, like [1] or [1][2]. Cite only results you used, "
+    "and do not add a separate references section."
+)
+
+
+class PerplexityWebSearchEngine:
+    """A Perplexity Sonar model with its web_search tool, via the AI gateway's /responses path."""
+
+    name = PERPLEXITY_WEB_SEARCH
+    mode = CheckMode.WEB_SEARCH
+
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or settings.AEO_PERPLEXITY_MODEL
+        gateway = resolve_ai_gateway_config()
+        if gateway is None:
+            raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
+        self._gateway = gateway
+        self._sessions = _gateway_sessions()
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        payload = {
+            "model": self.model,
+            "input": prompt,
+            "instructions": PERPLEXITY_CITATION_INSTRUCTIONS,
+            "tools": [{"type": "web_search", "search_type": "fast"}],
+            # One research step is what Perplexity's own fast effort level uses with web_search.
+            # Each extra step can run another billed search.
+            "max_steps": 1,
+            "max_output_tokens": MAX_ANSWER_TOKENS,
+        }
+        try:
+            body = _post_gateway_responses(
+                self._gateway, self._sessions, payload, trace_id=trace_id, custom_properties=custom_properties
+            )
+        except requests.RequestException as e:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
+        if (error := perplexity_response_error(body)) is not None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=error)
+        parsed = parse_perplexity_citations(body)
+        return CitationCheck(
+            engine=self.name,
+            model=self.model,
+            trace_id=trace_id,
+            cited_urls=parsed.cited_urls,
+            retrieved_urls=parsed.retrieved_urls,
+            search_queries=parsed.search_queries,
+            answer_text=parsed.answer_text,
+            cost_usd=parsed.cost_usd,
+        )
+
+
+@frozen
+class EngineSpec:
+    """An engine a project can run. `default_enabled` applies until someone changes the project's setting."""
+
+    engine: str
+    mode: CheckMode
+    default_enabled: bool
+    build: Callable[[], CitationEngine]
+    is_configured: Callable[[], bool]
+
+
+def _gateway_configured() -> bool:
+    return resolve_ai_gateway_config() is not None
+
+
+# Display order. The no-search variants cost a gateway call each, so they start off.
+ENGINE_SPECS: tuple[EngineSpec, ...] = (
+    EngineSpec(
+        engine=CLAUDE_WEB_SEARCH,
+        mode=CheckMode.WEB_SEARCH,
+        default_enabled=True,
+        build=ClaudeWebSearchEngine,
+        is_configured=_gateway_configured,
+    ),
+    EngineSpec(
+        engine=OPENAI_WEB_SEARCH,
+        mode=CheckMode.WEB_SEARCH,
+        default_enabled=True,
+        build=OpenAIWebSearchEngine,
+        is_configured=_gateway_configured,
+    ),
+    EngineSpec(
+        engine=PERPLEXITY_WEB_SEARCH,
+        mode=CheckMode.WEB_SEARCH,
+        default_enabled=True,
+        build=PerplexityWebSearchEngine,
+        is_configured=lambda: settings.AEO_PERPLEXITY_ENABLED and _gateway_configured(),
+    ),
+    EngineSpec(
+        engine=EXA_ANSWER,
+        mode=CheckMode.WEB_SEARCH,
+        default_enabled=True,
+        build=ExaAnswerEngine,
+        is_configured=lambda: bool(settings.EXA_API_KEY),
+    ),
+    EngineSpec(
+        engine=CLAUDE_NO_SEARCH,
+        mode=CheckMode.NO_SEARCH,
+        default_enabled=False,
+        build=lambda: ClaudeWebSearchEngine(search=False),
+        is_configured=_gateway_configured,
+    ),
+    EngineSpec(
+        engine=OPENAI_NO_SEARCH,
+        mode=CheckMode.NO_SEARCH,
+        default_enabled=False,
+        build=lambda: OpenAIWebSearchEngine(search=False),
+        is_configured=_gateway_configured,
+    ),
+)
+ENGINE_SPECS_BY_ID: dict[str, EngineSpec] = {spec.engine: spec for spec in ENGINE_SPECS}
+
+
 def available_engines() -> list[CitationEngine]:
-    """Engines the current configuration supports."""
-    engines: list[CitationEngine] = []
-    if resolve_ai_gateway_config() is not None:
-        engines.append(ClaudeWebSearchEngine())
-        engines.append(OpenAIWebSearchEngine())
-    if settings.EXA_API_KEY:
-        engines.append(ExaAnswerEngine())
-    return engines
+    """The engines a project with default settings runs, among the ones this deployment can run."""
+    return [spec.build() for spec in ENGINE_SPECS if spec.default_enabled and spec.is_configured()]

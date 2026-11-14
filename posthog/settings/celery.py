@@ -36,6 +36,7 @@ CELERY_IMPORTS: list[str] = [
     "products.legal_documents.backend.tasks.tasks",
     "products.aeo.backend.tasks.tasks",
     "products.business_knowledge.backend.tasks.tasks",
+    "products.alerts.backend.tasks.tasks",
 ]
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events

@@ -221,4 +221,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             channel_data="Channel-specific data for the attempt, including delivery status.",
         ),
     },
+    "message_media": {
+        "description": "A media file (image, video, audio, or other attachment) on an MMS or WhatsApp message.",
+        "docs_url": "https://www.twilio.com/docs/messaging/api/media-resource",
+        "columns": _columns(
+            parent_sid="SID of the message that the media is attached to.",
+            content_type="MIME type of the media, for example image/jpeg.",
+        ),
+    },
+    "alerts": {
+        "description": "An error or warning that the Twilio Debugger logged for the account.",
+        "docs_url": "https://www.twilio.com/docs/usage/monitor-alert",
+        "columns": _columns(
+            date_created="Time at which the alert was created (ISO 8601 format).",
+            date_updated="Time at which the alert was last updated (ISO 8601 format).",
+            date_generated="Time at which the alert was generated (ISO 8601 format).",
+            alert_text="Text of the alert.",
+            error_code="Twilio error code of the alert.",
+            log_level="Log level of the alert (error, warning, notice, or debug).",
+            more_info="URL of a page with more information about the error code.",
+            request_method="HTTP method of the request that caused the alert.",
+            request_url="URL of the request that caused the alert.",
+            resource_sid="SID of the resource that caused the alert, for example a call or a message.",
+            service_sid="SID of the service that caused the alert, if any.",
+            api_version="API version of the request that caused the alert.",
+            url="Absolute URL of the alert resource.",
+        ),
+    },
 }

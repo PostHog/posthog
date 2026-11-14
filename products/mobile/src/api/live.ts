@@ -13,6 +13,7 @@ export type LiveQueryKey =
     | 'device'
     | 'browser'
     | 'paths'
+    | 'screens'
     | 'referrer'
     | 'geo'
     | 'recentEvents'
@@ -59,6 +60,8 @@ export interface LiveProjectApi {
     live_events_token?: string | null
     timezone?: string | null
     path_cleaning_filters?: unknown[] | null
+    /** False until the project ingests its first event. */
+    ingested_event?: boolean | null
 }
 
 export interface LiveStatsApi {
@@ -103,6 +106,31 @@ function breakdownQuery(
     )
 }
 
+function topViewsQuery(
+    event: string,
+    breakdown: string,
+    name: string,
+    window: LiveWindow,
+    pathCleaning: boolean
+): Record<string, unknown> {
+    return {
+        kind: 'TrendsQuery',
+        interval: 'minute',
+        series: [{ kind: 'EventsNode', event, math: 'total' }],
+        breakdownFilter: {
+            breakdown_type: 'event',
+            breakdown,
+            breakdown_limit: 10,
+            breakdown_hide_other_aggregation: true,
+            breakdown_path_cleaning: pathCleaning,
+        },
+        dateRange: { date_from: window.dateFrom, date_to: window.dateTo },
+        properties: [],
+        filterTestAccounts: false,
+        tags: tags(name),
+    }
+}
+
 export interface LiveQueryOptions {
     window: LiveWindow
     pathCleaning: boolean
@@ -141,22 +169,11 @@ export function liveQuery(key: LiveQueryKey, { window, pathCleaning }: LiveQuery
         case 'browser':
             return breakdownQuery("ifNull(properties.$browser, 'Unknown')", DEVICE_ID, 'live_browser_breakdown', window)
         case 'paths':
-            return {
-                kind: 'TrendsQuery',
-                interval: 'minute',
-                series: [{ kind: 'EventsNode', event: '$pageview', math: 'total' }],
-                breakdownFilter: {
-                    breakdown_type: 'event',
-                    breakdown: '$pathname',
-                    breakdown_limit: 10,
-                    breakdown_hide_other_aggregation: true,
-                    breakdown_path_cleaning: pathCleaning,
-                },
-                dateRange: { date_from: window.dateFrom, date_to: window.dateTo },
-                properties: [],
-                filterTestAccounts: false,
-                tags: tags('live_paths'),
-            }
+            return topViewsQuery('$pageview', '$pathname', 'live_paths', window, pathCleaning)
+        case 'screens':
+            // The `$screen` form of `paths`, for projects that send app events and no pageviews. Path cleaning rules
+            // are written for URL paths, so they do not apply to screen names.
+            return topViewsQuery('$screen', '$screen_name', 'live_screens', window, false)
         case 'referrer':
             return hogql(
                 `SELECT

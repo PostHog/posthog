@@ -100,7 +100,7 @@
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
-        WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(t.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')))) AS events
+        WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(t.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC'))) SETTINGS load_balancing='random') AS events
      INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE ifNull(greaterOrEquals(toDateTime64(events.timestamp, 6, 'UTC'), exposures.first_exposure_time), 0)
      GROUP BY exposures.entity_id),
@@ -109,7 +109,7 @@
             t.event_uuid AS completion_uuid,
             toTimeZone(t.timestamp, 'UTC') AS completion_timestamp
      FROM experiment_metric_events_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 2), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(t.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800)), 6, 'UTC')))),
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 2), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(t.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800)), 6, 'UTC'))) SETTINGS load_balancing='random'),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
