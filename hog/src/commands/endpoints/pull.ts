@@ -2,7 +2,7 @@ import { basename, join, relative } from 'node:path'
 import { stringify } from 'yaml'
 
 import { defineCommand } from '@/core/command'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE, HogError } from '@/core/errors'
 import { Output } from '@/core/output'
 import { absolutePath } from '@/core/paths'
 import { plural } from '@/core/text'
@@ -235,7 +235,7 @@ export default defineCommand({
         out.json(result)
     },
 
-    exitCode: (result) => (result.problems.length > 0 ? 1 : 0),
+    exitCode: (result) => (result.problems.length > 0 ? EXIT_FAILURE : EXIT_SUCCESS),
 
     telemetry: ({ result, options }) => ({
         status: result.status,

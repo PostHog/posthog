@@ -16,7 +16,13 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 
 
 def set_issue_tag(
-    team_id: int, issue_id: UUID | str, key: str, answer: TagAnswer, source: ErrorTrackingIssueTag.Source
+    team_id: int,
+    issue_id: UUID | str,
+    key: str,
+    answer: TagAnswer,
+    source: ErrorTrackingIssueTag.Source,
+    *,
+    was_impersonated: bool = False,
 ) -> bool:
     """Store the answer unless issue tags are off for the team, or a higher-ranked source answered the tag already.
 
@@ -54,7 +60,7 @@ def set_issue_tag(
             updated_at = max(timezone.now(), tag.updated_at + timedelta(microseconds=1))
             tags.filter(pk=tag.pk).update(**fields, updated_at=updated_at)
         if before != after:
-            _log_tag_change(issue, answer.set_by, before, after)
+            _log_tag_change(issue, answer.set_by, was_impersonated, before, after)
         transaction.on_commit(
             partial(
                 sync_issue_tag_to_clickhouse,
@@ -71,13 +77,17 @@ def set_issue_tag(
 
 
 def _log_tag_change(
-    issue: ErrorTrackingIssue, user: User | None, before: dict[str, object] | None, after: dict[str, object]
+    issue: ErrorTrackingIssue,
+    user: User | None,
+    was_impersonated: bool,
+    before: dict[str, object] | None,
+    after: dict[str, object],
 ) -> None:
     log_activity(
         organization_id=issue.team.organization_id,
         team_id=issue.team_id,
         user=user,
-        was_impersonated=False,
+        was_impersonated=was_impersonated,
         item_id=str(issue.id),
         scope="ErrorTrackingIssue",
         activity="updated",

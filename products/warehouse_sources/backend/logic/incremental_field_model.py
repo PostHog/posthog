@@ -8,16 +8,19 @@ keeps the rule-based order.
 """
 
 import json
+import time
 import asyncio
 import hashlib
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.core.cache import cache
 
 import structlog
 from asgiref.sync import async_to_sync
 
+from posthog.dataclasses import frozen
+from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
@@ -31,19 +34,17 @@ from posthog.llm.system_one import (
 )
 from posthog.llm.system_one_client import (
     GATEWAY_MAX_CHOICE_OPTIONS,
-    GATEWAY_MAX_QUESTIONS,
     GatewaySystemOneClient,
     build_system_one_client,
     system_one_configured,
 )
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 
 from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
 from products.warehouse_sources.backend.tasks.tasks import compute_incremental_field_suggestion
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
-    is_temporal,
     name_is_silent,
     tracks_updates,
 )
@@ -57,14 +58,10 @@ logger = structlog.get_logger(__name__)
 FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
-# The wizard's recommendations request waits for the answer, so _ask_all gives every request together this long.
 TIMEOUT_SECONDS = 3.0
-# The stored-pick task has no one waiting, so a slow gateway answer still gets stored instead of asked again.
-TASK_TIMEOUT_SECONDS = 20.0
 MIN_CONFIDENCE = 0.6
-MAX_REQUESTS = 4
-# The open tables one call asks about, so a caller sending more gets no answer for the rest.
-MAX_TABLES_PER_CALL = MAX_REQUESTS * GATEWAY_MAX_QUESTIONS
+MAX_TABLES_PER_CALL = 8
+MAX_COLUMNS_PER_CALL = 32
 # Callers send their own names, so the model reads at most this much of each one. Picks map back by
 # position, so a cut name still resolves to its full column.
 MAX_NAME_CHARS = 256
@@ -72,37 +69,43 @@ CACHE_TTL_SECONDS = 24 * 60 * 60
 QUEUED_TTL_SECONDS = 10 * 60
 # Keyed per team: one team's table names must never answer for another team.
 CACHE_KEY_PREFIX = "warehouse_incremental_field_model"
-# Gateway requests per team. Renamed tables miss the cache, so the cache alone does not bound the calls.
-TEAM_BUDGET = Budget(burst=12, per_hour=60)
+# Tables asked about per team. Renamed tables miss the cache, so the cache alone does not bound the calls.
+TEAM_BUDGET = Budget(burst=200, per_hour=1000)
 TEAM_BUDGET_KEY_PREFIX = "warehouse_incremental_field_model_rate"
 
 MODEL_PICK_NOTE = "Picked by AI from the table and column names."
+WIZARD_PATH = "wizard"
+SYNC_FORM_PATH = "sync_form"
+ANSWERED_EVENT = "incremental field model answered"
 # Key in the schema's sync_type_config that holds the stored model pick for the sync settings form.
 SUGGESTION_KEY = "incremental_field_suggestion"
 
 _INSTRUCTIONS = (
     "state.tables.{table_id} is a database table and its columns that can be the cursor of an incremental sync. "
     "An incremental sync reads only the rows whose cursor value is greater than the last value it read. "
-    "Pick the column whose value changes every time a row is inserted or updated, so that edited rows sync again. "
+    "Pick the column whose value only grows across the whole table and grows again when a row is updated, "
+    "so that new and edited rows sync again. A per-row counter such as a version number does not qualify, "
+    "since an edited row can still hold a smaller value than another row. "
     "When two columns are equally likely, pick the indexed one that is never empty."
 )
 # Keys every cached and stored answer, so editing the instructions retires the old answers.
 PROMPT_VERSION = hashlib.sha256(_INSTRUCTIONS.encode()).hexdigest()[:12]
 
 
-def recommend_incremental_fields(
-    schemas: Sequence[SourceSchema], *, team: "Team", timeout: float | None = None
-) -> None:
-    """Move the model's confident pick to the front of each open table's `incremental_fields`."""
+def recommend_incremental_fields(schemas: Sequence[SourceSchema], *, team: "Team", path: str) -> None:
+    """Move the model's confident pick to the front of each open table's `incremental_fields`.
+
+    Makes at most one model call. `path` names the caller in the usage event.
+    """
     try:
-        _recommend(schemas, team, timeout)
+        _recommend(schemas, team, path)
     except Exception as error:
         # The rule-based order is a complete answer, so a failure here must not fail the endpoint.
         capture_exception(error, {"team_id": team.pk})
 
 
 def recommend_for_candidates(
-    tables: Sequence[tuple[str, list[IncrementalField]]], *, team: "Team", timeout: float | None = None
+    tables: Sequence[tuple[str, list[IncrementalField]]], *, team: "Team", path: str
 ) -> dict[str, list[IncrementalField]]:
     """The reordered candidates of each table where the model made a pick, keyed by table name.
 
@@ -119,7 +122,7 @@ def recommend_for_candidates(
         )
         for name, fields in tables
     ]
-    recommend_incremental_fields(schemas, team=team, timeout=timeout)
+    recommend_incremental_fields(schemas, team=team, path=path)
     return {
         schema.name: schema.incremental_fields
         for schema in schemas
@@ -193,7 +196,7 @@ def store_incremental_field_suggestion(
     team: "Team", schema_id: str, table: str, fields: list[IncrementalField]
 ) -> None:
     """Ask the model for one table and store a confident pick on the schema."""
-    picks = recommend_for_candidates([(table, fields)], team=team, timeout=TASK_TIMEOUT_SECONDS)
+    picks = recommend_for_candidates([(table, fields)], team=team, path=SYNC_FORM_PATH)
     if table not in picks:
         return
     asked = SourceSchema(name=table, supports_incremental=True, supports_append=True, incremental_fields=fields)
@@ -219,8 +222,18 @@ def _without_model_pick(field: IncrementalField) -> IncrementalField:
     return cleaned
 
 
-def _recommend(schemas: Sequence[SourceSchema], team: "Team", timeout: float | None) -> None:
-    timeout = TIMEOUT_SECONDS if timeout is None else timeout
+def fits_one_call(column_counts: Sequence[int]) -> bool:
+    """Whether tables with these candidate counts go in one model call.
+
+    A call holds up to MAX_TABLES_PER_CALL tables and MAX_COLUMNS_PER_CALL columns in total, and a
+    table over the column limit always goes alone.
+    """
+    if len(column_counts) <= 1:
+        return True
+    return len(column_counts) <= MAX_TABLES_PER_CALL and sum(column_counts) <= MAX_COLUMNS_PER_CALL
+
+
+def _recommend(schemas: Sequence[SourceSchema], team: "Team", path: str) -> None:
     pending = [schema for schema in schemas if _is_open(schema)]
     if not pending or not _model_allowed(team):
         return
@@ -228,34 +241,49 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team", timeout: float | N
     keys = {index: _cache_key(team.pk, schema) for index, schema in enumerate(pending)}
     cached = _cache_get_many(list(keys.values()))
     picks = {index: cached[key] for index, key in keys.items() if cached.get(key)}
-    uncached = [index for index, key in keys.items() if key not in cached][:MAX_TABLES_PER_CALL]
-    batches = [
-        uncached[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(uncached), GATEWAY_MAX_QUESTIONS)
-    ]
+    uncached = _first_call([index for index, key in keys.items() if key not in cached], pending)
 
-    if batches and _within_team_budget(team.pk, len(batches)):
-        client = build_system_one_client(
-            model=MODEL,
-            ai_product=AI_PRODUCT,
-            distinct_id=team_distinct_id(team.pk),
-            timeout=timeout,
-            privacy_mode=True,
-        )
-        # No TypeSafe fallback is passed, so the client is always the gateway one.
-        assert isinstance(client, GatewaySystemOneClient)
-        answers = async_to_sync(_ask_all)(client, [[(i, pending[i]) for i in batch] for batch in batches], timeout)
-        picks.update({index: field_name for index, field_name in answers.items() if field_name})
-        _cache_set_many({keys[index]: field_name for index, field_name in answers.items()})
+    asked: list[int] = []
+    outcome = "cached"
+    if uncached and not _within_team_budget(team.pk, len(uncached)):
+        outcome = "budget_exhausted"
+    elif uncached:
+        asked = uncached
+        call = _ask_once(team, [(index, pending[index]) for index in asked])
+        outcome = call.outcome
+        picks.update({index: field_name for index, field_name in call.answers.items() if field_name})
+        _cache_set_many({keys[index]: field_name for index, field_name in call.answers.items()})
 
     changed = sum(_apply_pick(pending[index], field_name) for index, field_name in picks.items())
-    logger.info(
-        "incremental_field_model_applied",
-        team_id=team.pk,
-        open_tables=len(pending),
-        asked=len(uncached),
-        picked=len(picks),
-        changed=changed,
-    )
+    summary = {
+        "path": path,
+        "outcome": outcome,
+        "open_tables": len(pending),
+        "asked_tables": len(asked),
+        "picked_tables": len(picks),
+        "changed_defaults": changed,
+    }
+    logger.info("incremental_field_model_applied", team_id=team.pk, **summary)
+    _report_answered(team, summary)
+
+
+def _report_answered(team: "Team", summary: dict[str, Any]) -> None:
+    if summary["path"] == SYNC_FORM_PATH:
+        # The sync form's pick is computed in a Celery task, where the global client may never flush.
+        with ph_scoped_capture() as capture:
+            capture(distinct_id=str(team.uuid), event=ANSWERED_EVENT, properties=summary, groups=groups(team=team))
+    else:
+        report_team_action(team, ANSWERED_EVENT, summary)
+
+
+def _first_call(indexes: list[int], schemas: Sequence[SourceSchema]) -> list[int]:
+    """The leading tables that fit one model call. Callers send one call's worth, so this rarely cuts."""
+    counts: list[int] = []
+    for index in indexes:
+        if not fits_one_call([*counts, len(_candidates(schemas[index]))]):
+            break
+        counts.append(len(_candidates(schemas[index])))
+    return indexes[: len(counts)]
 
 
 def _candidates(schema: SourceSchema) -> list[IncrementalField]:
@@ -265,13 +293,8 @@ def _candidates(schema: SourceSchema) -> list[IncrementalField]:
 
 def _is_open(schema: SourceSchema) -> bool:
     candidates = _candidates(schema)
-    # Only a timestamp whose name says neither "created" nor "updated" can beat the rules, and only
-    # a timestamp pick is one every surface (wizard, sync form, MCP) uses as the cursor.
-    return (
-        len(candidates) >= 2
-        and not tracks_updates(candidates[0])
-        and any(name_is_silent(field) and is_temporal(field) for field in candidates)
-    )
+    # With every name saying "created" or "updated", the rules already know the answer.
+    return len(candidates) >= 2 and not tracks_updates(candidates[0]) and any(map(name_is_silent, candidates))
 
 
 def _model_allowed(team: "Team") -> bool:
@@ -287,11 +310,11 @@ def _model_allowed(team: "Team") -> bool:
     )
 
 
-def _within_team_budget(team_id: int, requests: int) -> bool:
-    decision = consume(f"{TEAM_BUDGET_KEY_PREFIX}:{team_id}", TEAM_BUDGET, cost=requests)
+def _within_team_budget(team_id: int, tables: int) -> bool:
+    decision = consume(f"{TEAM_BUDGET_KEY_PREFIX}:{team_id}", TEAM_BUDGET, cost=tables)
     match decision:
         case BucketUnavailable():
-            # Fail open: one call is still bounded by MAX_REQUESTS.
+            # Fail open: one call is still bounded by MAX_TABLES_PER_CALL.
             logger.warning("incremental_field_model_budget_unavailable", team_id=team_id)
             return True
         case BucketDecision(allowed=False):
@@ -317,29 +340,57 @@ def _table_state(schema: SourceSchema) -> dict[str, JsonValue]:
     }
 
 
-async def _ask_all(
-    client: GatewaySystemOneClient, batches: list[list[tuple[int, SourceSchema]]], timeout: float
-) -> dict[int, str]:
-    """Run every batch under one deadline. A request still open at the deadline is cancelled."""
-    tasks = [asyncio.create_task(_ask(client, batch)) for batch in batches]
-    done, late = await asyncio.wait(tasks, timeout=timeout)
-    for task in late:
-        task.cancel()
-    if late:
-        await asyncio.gather(*late, return_exceptions=True)
-        logger.warning("incremental_field_model_deadline_reached", late_requests=len(late))
-    answers: dict[int, str] = {}
-    for task in done:
-        # One failed request must not drop the answers of the others.
-        if (error := task.exception()) is not None:
-            capture_exception(error)
-            continue
-        answers.update(task.result() or {})
-    return answers
+@frozen
+class _ModelCall:
+    """The picks per table index from one model call, and how the call ended."""
+
+    answers: Mapping[int, str]
+    outcome: Literal["ok", "timeout", "failed", "error"]
+    status_code: int | None = None
 
 
-async def _ask(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSchema]]) -> Mapping[int, str] | None:
-    """The confident pick per table index, or None when the request failed. An unsure table maps to ''."""
+def _ask_once(team: "Team", tables: list[tuple[int, SourceSchema]]) -> _ModelCall:
+    """One model call under the deadline. Returns the picks and the call outcome."""
+    client = build_system_one_client(
+        model=MODEL,
+        ai_product=AI_PRODUCT,
+        distinct_id=team_distinct_id(team.pk),
+        timeout=TIMEOUT_SECONDS,
+        privacy_mode=True,
+    )
+    # No TypeSafe fallback is passed, so the client is always the gateway one.
+    assert isinstance(client, GatewaySystemOneClient)
+    columns = sum(len(_candidates(schema)) for _, schema in tables)
+    started = time.monotonic()
+    call = async_to_sync(_ask_with_deadline)(client, tables)
+    logger.info(
+        "incremental_field_model_call",
+        team_id=team.pk,
+        tables=len(tables),
+        columns=columns,
+        latency_ms=round((time.monotonic() - started) * 1000),
+        outcome=call.outcome,
+        status_code=call.status_code,
+    )
+    return call
+
+
+async def _ask_with_deadline(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSchema]]) -> _ModelCall:
+    try:
+        return _ModelCall(answers=await asyncio.wait_for(_ask(client, tables), timeout=TIMEOUT_SECONDS), outcome="ok")
+    except TimeoutError:
+        return _ModelCall(answers={}, outcome="timeout")
+    except SystemOneRequestFailed as error:
+        return _ModelCall(answers={}, outcome="failed", status_code=error.status_code)
+    except SystemOneNotConfigured:
+        return _ModelCall(answers={}, outcome="failed")
+    except Exception as error:
+        capture_exception(error)
+        return _ModelCall(answers={}, outcome="error")
+
+
+async def _ask(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSchema]]) -> Mapping[int, str]:
+    """The confident pick per table index. An unsure table maps to ''."""
     state: dict[str, JsonValue] = {"tables": {f"t{index}": _table_state(schema) for index, schema in tables}}
     questions: dict[str, Question] = {
         f"t{index}": ChoiceQuestion(
@@ -351,12 +402,7 @@ async def _ask(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSch
         )
         for index, schema in tables
     }
-    try:
-        result = await client.adecide(state=state, questions=questions)
-    except (SystemOneRequestFailed, SystemOneNotConfigured) as error:
-        logger.warning("incremental_field_model_failed", error_type=type(error).__name__)
-        return None
-
+    result = await client.adecide(state=state, questions=questions)
     picks: dict[int, str] = {}
     for index, schema in tables:
         answer = result.answers.get(f"t{index}")
@@ -373,8 +419,8 @@ def _apply_pick(schema: SourceSchema, field_name: str) -> bool:
     fields = schema.incremental_fields
     chosen = next((field for field in fields if field["field"] == field_name and "recommended" in field), None)
     # Agreeing with the rules adds nothing, and marking it would make append skip a column that may
-    # never change, such as `created_at`. A non-timestamp pick is one the wizard would ignore.
-    if chosen is None or chosen is fields[0] or not is_temporal(chosen):
+    # never change, such as `created_at`.
+    if chosen is None or chosen is fields[0]:
         return False
     rest: list[IncrementalField] = [
         {**field, "recommended": False} if "recommended" in field else field for field in fields if field is not chosen

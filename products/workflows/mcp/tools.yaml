@@ -358,7 +358,6 @@ tools:
             enables them. Re-importing an automation replaces its draft, discarding edits made there since, so confirm
             with the user first. Share each draft's link and the notes marked needs_input, since the team must set those
             before enabling.
-        feature_flag: workflows-customerio-import
     workflows-import-notes:
         operation: workflow_imports_for_workflow_retrieve
         enabled: true
@@ -372,7 +371,6 @@ tools:
         description: >
             What importing a workflow from Customer.io changed or left out, step by step. Returns an empty response for
             a workflow that was not imported.
-        feature_flag: workflows-customerio-import
     workflows-list:
         operation: hog_flows_list
         enabled: true

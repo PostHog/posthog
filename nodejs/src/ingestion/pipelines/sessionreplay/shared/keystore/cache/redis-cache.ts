@@ -35,16 +35,26 @@ export class RedisCachedKeyStore implements KeyStore {
         await this.delegate.start()
     }
 
-    private async getCached(sessionId: string, teamId: number): Promise<SessionKey | null> {
+    // Best effort: the delegate is the source of truth, so a failed read (e.g. a command timeout) costs only a lookup.
+    // Returns 'unavailable' so the caller skips the fill write against a Redis that just failed.
+    private async getCached(sessionId: string, teamId: number): Promise<SessionKey | null | 'unavailable'> {
         const startTime = performance.now()
-        const client = await this.redisPool.acquire()
+        let cached: string | null
         try {
-            const cached = await client.get(this.cacheKey(sessionId, teamId))
-            return cached ? deserializeSessionKey(cached) : null
+            const client = await this.redisPool.acquire()
+            try {
+                cached = await client.get(this.cacheKey(sessionId, teamId))
+            } finally {
+                await this.redisPool.release(client)
+            }
+        } catch (error) {
+            SessionBatchMetrics.incrementKeystoreRedisReadErrors()
+            logger.warn('🔑', 'keystore_redis_cache_read_failed', { sessionId, teamId, error: serializeError(error) })
+            return 'unavailable'
         } finally {
-            await this.redisPool.release(client)
             SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
+        return cached ? deserializeSessionKey(cached) : null
     }
 
     // Best effort: the caller already has the key, so a failed write (e.g. READONLY after a failover) must not fail the request.
@@ -93,12 +103,12 @@ export class RedisCachedKeyStore implements KeyStore {
 
     async getKey(sessionId: string, teamId: number): Promise<SessionKey> {
         const cached = await this.getCached(sessionId, teamId)
-        if (cached) {
+        if (cached && cached !== 'unavailable') {
             return cached
         }
 
         const key = await this.delegate.getKey(sessionId, teamId)
-        if (this.cacheMissingKeys || key.sessionState !== 'cleartext') {
+        if (cached !== 'unavailable' && (this.cacheMissingKeys || key.sessionState !== 'cleartext')) {
             await this.setCached(sessionId, teamId, key, 'if_absent')
         }
         return key

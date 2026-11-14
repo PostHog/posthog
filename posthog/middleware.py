@@ -697,6 +697,9 @@ class CHQueries:
             status_class = f"{response.status_code // 100}xx"
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
+            # Lets the frontend put the id on its failure analytics, which then join to this request's logs.
+            if is_api_request and http_request_id and "X-Request-ID" not in response:
+                response["X-Request-ID"] = str(http_request_id)
 
             if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(

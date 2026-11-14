@@ -2992,7 +2992,7 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
             "disabled_project_names": disabled_team_names,
             "excluded_project_count": excluded_project_count,
             "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
-            "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={distinct_id}",
+            "feedback_survey_url": f"https://posthogsurveys.com/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={distinct_id}",
         }
 
         campaign_key = f"error_tracking_weekly_digest_{org_id}_{user.uuid}_{date_suffix}"
