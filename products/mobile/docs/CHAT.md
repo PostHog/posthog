@@ -86,6 +86,8 @@ Completed replies and pending decisions load from that saved state. If recovery 
 Backgrounding classic chat detaches its stream without canceling the server's reply or clearing received messages.
 Returning to the app reloads saved messages and reattaches to a reply still in progress, without resending the prompt.
 Connection recovery makes two silent attempts, one second apart, before showing a reconnect error.
+Uncheckpointed reply text stays visible while recovery retries. A first message interrupted before acceptance remains sendable if the server has no conversation to recover.
+Disconnected readers preserve the shared server stream for reattachment; its existing expiry bounds retention.
 Backgrounding or leaving the chat cancels a pending retry. Authorization and missing-conversation errors appear immediately.
 Pending approvals and forms remain available for an answer instead of restarting the stream.
 Linked conversations stay visible when their task is absent from the list.

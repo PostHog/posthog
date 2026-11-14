@@ -70,6 +70,7 @@ export function useClassicChat(
     const initialSnapshot = useRef(initialConversation?.id === initialId ? initialConversation : undefined)
     const [id, setId] = useState<string | null>(initialId ?? null)
     const idRef = useRef(id)
+    const unacceptedConversation = useRef<string | null>(null)
     const [state, setState] = useState(() =>
         initialSnapshot.current
             ? classicHistory(
@@ -91,6 +92,9 @@ export function useClassicChat(
     const mounted = useRef(true)
     const controller = useRef<AbortController | null>(null)
     const appState = useRef(AppState.currentState)
+    const confirmConversation = useCallback((conversation: string): void => {
+        if (unacceptedConversation.current === conversation) unacceptedConversation.current = null
+    }, [])
     const canConnect = useCallback(
         (): boolean =>
             mounted.current &&
@@ -105,11 +109,18 @@ export function useClassicChat(
             const active = (): boolean => generation === epoch.current && !signal.aborted && canConnect()
             const publish = (saved: Awaited<ReturnType<typeof getConversation>>): ReturnType<typeof classicHistory> => {
                 const history = classicHistory(saved.messages, saved.title, saved.pending_approvals)
+                confirmConversation(conversation)
                 setId(conversation)
-                setState((previous) => ({
-                    ...history,
-                    error: previous.error,
-                }))
+                setState((previous) => {
+                    const merged =
+                        saved.status === 'in_progress' ? saved.messages.reduce(appendClassicMessage, previous) : history
+                    return {
+                        ...history,
+                        messages: merged.messages,
+                        nextMessageId: merged.nextMessageId,
+                        error: previous.error,
+                    }
+                })
                 return history
             }
             await retryRecovery(
@@ -150,7 +161,7 @@ export function useClassicChat(
                 active
             )
         },
-        [approval.request, canConnect]
+        [approval.request, canConnect, confirmConversation]
     )
 
     const stream = useCallback(
@@ -173,6 +184,7 @@ export function useClassicChat(
             let accepted = false
             try {
                 if (!(await approval.request()) || !active()) return false
+                if (!idRef.current) unacceptedConversation.current = conversation
                 idRef.current = conversation
                 controller.current = abort
                 setError(null)
@@ -195,6 +207,7 @@ export function useClassicChat(
                     abort.signal
                 )
                 accepted = true
+                confirmConversation(conversation)
                 await onAccepted?.()
                 if (!active()) return true
                 idRef.current = conversation
@@ -256,8 +269,18 @@ export function useClassicChat(
                 }
             }
         },
-        [client, scope, approval.request, canConnect, recoverConversation]
+        [client, scope, approval.request, canConnect, confirmConversation, recoverConversation]
     )
+
+    const resetUnacceptedConversation = useCallback((conversation: string, failure: unknown): boolean => {
+        if (!(failure instanceof ApiError) || failure.status !== 404 || unacceptedConversation.current !== conversation)
+            return false
+        unacceptedConversation.current = null
+        idRef.current = null
+        setId(null)
+        setState(EMPTY_CLASSIC_STATE)
+        return true
+    }, [])
 
     const reload = useCallback(async (): Promise<void> => {
         const conversation = idRef.current
@@ -273,7 +296,12 @@ export function useClassicChat(
         try {
             await recoverConversation(conversation, abort.signal, generation)
         } catch (failure) {
-            if (generation === epoch.current && !abort.signal.aborted) setHistoryError(toChatError(failure).message)
+            if (
+                generation === epoch.current &&
+                !abort.signal.aborted &&
+                !resetUnacceptedConversation(conversation, failure)
+            )
+                setHistoryError(toChatError(failure).message)
         } finally {
             if (generation === epoch.current) {
                 reloadBusy.current = false
@@ -283,7 +311,7 @@ export function useClassicChat(
                 setWorking(false)
             }
         }
-    }, [recoverConversation, canConnect])
+    }, [recoverConversation, canConnect, resetUnacceptedConversation])
 
     const stop = async (): Promise<void> => {
         if (!idRef.current || stopBusy.current) return
@@ -312,6 +340,7 @@ export function useClassicChat(
     const reset = useCallback((): void => {
         invalidate()
         idRef.current = null
+        unacceptedConversation.current = null
         setId(null)
         setState(EMPTY_CLASSIC_STATE)
         setError(null)

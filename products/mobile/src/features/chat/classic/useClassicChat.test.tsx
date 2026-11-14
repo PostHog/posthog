@@ -101,6 +101,65 @@ describe('classic chat transport', () => {
         expect(result.current.working).toBe(false)
     })
 
+    test('keeps an unaccepted first send retryable after backgrounding', async () => {
+        jest.mocked(streamConversation).mockImplementationOnce(
+            (_body, signal) =>
+                new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(new Error('Aborted'))))
+        )
+        const { result } = renderHook(() => useClassicChat(), { wrapper })
+        let sending!: Promise<boolean>
+        await act(async () => {
+            sending = result.current.send('Unsent question')
+        })
+        jest.mocked(getConversation).mockRejectedValueOnce(new ApiError(404, undefined))
+        await act(async () => {
+            changeAppState('background')
+            expect(await sending).toBe(false)
+            changeAppState('active')
+        })
+        expect(result.current.historyError).toBeNull()
+        expect(result.current.id).toBeNull()
+        expect(result.current.state.messages).toEqual([])
+        expect(result.current.loading).toBe(false)
+        expect(result.current.working).toBe(false)
+        await act(async () => {
+            expect(await result.current.send('Retry question')).toBe(true)
+        })
+    })
+
+    test('retains uncheckpointed reply text when both reattachments fail', async () => {
+        jest.useFakeTimers()
+        jest.mocked(readSse).mockImplementationOnce(async (_response, onEvent) => {
+            onEvent({
+                event: 'message',
+                data: JSON.stringify({ id: 'temp-reply', type: 'ai', content: 'Partial answer' }),
+            })
+            throw new TypeError('Disconnected')
+        })
+        jest.mocked(getConversation).mockResolvedValue({
+            id: 'saved-chat',
+            title: 'A chat',
+            status: 'in_progress',
+            messages: [],
+            pending_approvals: [],
+        } as unknown as Awaited<ReturnType<typeof getConversation>>)
+        jest.mocked(streamConversation)
+            .mockResolvedValueOnce({} as Response)
+            .mockRejectedValue(new TypeError('Offline'))
+        const { result } = renderHook(() => useClassicChat(), { wrapper })
+        let sending!: Promise<boolean>
+        await act(async () => {
+            sending = result.current.send('Question')
+        })
+        expect(result.current.state.messages.some((message) => message.data.content === 'Partial answer')).toBe(true)
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(1000)
+            await sending
+        })
+        expect(result.current.historyError).not.toBeNull()
+        expect(result.current.state.messages.some((message) => message.data.content === 'Partial answer')).toBe(true)
+    })
+
     test('ignores frames and completion from a conversation reset during streaming', async () => {
         let finish!: () => void
         jest.mocked(readSse).mockImplementation(
