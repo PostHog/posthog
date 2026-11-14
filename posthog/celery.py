@@ -15,6 +15,7 @@ from celery.bootsteps import RUN
 from celery.exceptions import WorkerShutdown
 from celery.platforms import EX_FAILURE
 from celery.signals import (
+    beat_init,
     celeryd_init,
     import_modules,
     setup_logging,
@@ -167,6 +168,17 @@ def _is_longrunning_worker() -> bool:
     return CeleryQueue.LONG_RUNNING.value in worker_queues
 
 
+_TASK_ENQUEUED_LOGGER = "django_structlog.celery.receivers"
+
+
+@beat_init.connect
+def keep_task_enqueued_logs_from_the_scheduler(**kwargs) -> None:
+    # receiver_setup_logging also runs in a scheduler process, and an embedded scheduler inherits
+    # the level from its worker. On-call runbooks read the scheduler's task_enqueued line to check
+    # that a scheduled task was queued, so the scheduler goes back to the level that LOGGING gives.
+    logging.getLogger(_TASK_ENQUEUED_LOGGER).setLevel(logging.NOTSET)
+
+
 @setup_logging.connect
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
     from logging import config as logging_config
@@ -181,7 +193,7 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
     # dictConfig disables every existing logger that LOGGING does not name. The level also drops
     # task_started and task_succeeded, which this logger emits at INFO when django-structlog's
     # worker signals are connected.
-    logging.getLogger("django_structlog.celery.receivers").setLevel(logging.WARNING)
+    logging.getLogger(_TASK_ENQUEUED_LOGGER).setLevel(logging.WARNING)
 
 
 @receiver(signals.bind_extra_task_metadata)
