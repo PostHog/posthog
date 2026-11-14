@@ -286,7 +286,7 @@ ORDER BY sessions DESC
 LIMIT 20
 ```
 
-Keep the per-session pre-aggregation exactly like this — footguns #2–#3 (per-session pre-aggregation, `argMinMerge`) both bite here. The counters say nothing about failed network requests, so a silently failing API needs the events side: look for `$exception` events on the same `$session_id`s before treating one as a candidate.
+Keep the per-session pre-aggregation exactly like this — footguns #2–#3 (per-session pre-aggregation, `argMinMerge`) both bite here. The counters say nothing about failed network requests, and a handled failed request raises no `$exception`, so this query cannot find a silently failing API; leave that case out rather than guess at it.
 
 Compare each URL against its own prior-13-day rate (same query, earlier window) — the reportable case is a step-change, not a steady grumble.
 
