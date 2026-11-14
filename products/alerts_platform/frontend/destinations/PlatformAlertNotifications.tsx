@@ -1,16 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 
 import {
     AlertNotificationDestinationEditor,
-    AlertNotificationDestinationMessageAction,
     AlertNotificationDestinationView,
     PendingAlertNotificationDestinationView,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import { destinationMessageAction } from 'products/alerts/frontend/components/destinationMessageAction'
 import { PlatformAlertDestinationTypeEnumApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import {
@@ -91,35 +91,6 @@ export function PlatformAlertNotifications({
         }
     }, [unnamedSlackWorkspaceId, loadAllSlackChannels])
 
-    const messageAction = (destination: AlertDestinationEntry): AlertNotificationDestinationMessageAction =>
-        destination.message_customized
-            ? {
-                  label: 'Reset to standard message',
-                  tooltip: 'Send the standard PostHog message instead of your edited one',
-                  onClick: () =>
-                      LemonDialog.open({
-                          title: 'Reset to the standard message?',
-                          description:
-                              "This destination will send PostHog's standard message. Your edits to its message are deleted.",
-                          primaryButton: {
-                              children: 'Reset',
-                              status: 'danger',
-                              onClick: () => resetDestinationMessage(destination),
-                              'data-attr': 'alert-destination-reset-message-confirm',
-                          },
-                          secondaryButton: { children: 'Cancel' },
-                      }),
-                  loading: changingMessageDestinationIds.has(destination.id),
-                  dataAttr: 'alert-destination-reset-message',
-              }
-            : {
-                  label: 'Customize',
-                  tooltip: 'Edit the message this destination sends',
-                  onClick: () => customizeDestination(destination),
-                  loading: changingMessageDestinationIds.has(destination.id),
-                  dataAttr: 'alert-destination-customize-message',
-              }
-
     const existing: AlertNotificationDestinationView[] = destinations.map((destination) => ({
         key: destination.id,
         ...describeDestination({
@@ -131,7 +102,14 @@ export function PlatformAlertNotifications({
         tags: destination.enabled ? undefined : [{ label: 'Paused' }],
         onDelete: () => deleteDestination(destination),
         deleting: deletingDestinationIds.has(destination.id),
-        messageAction: messageCustomization ? messageAction(destination) : undefined,
+        messageAction: messageCustomization
+            ? destinationMessageAction({
+                  messageCustomized: !!destination.message_customized,
+                  loading: changingMessageDestinationIds.has(destination.id),
+                  onCustomize: () => customizeDestination(destination),
+                  onReset: () => resetDestinationMessage(destination),
+              })
+            : undefined,
         ...destinationView?.(destination),
     }))
 
