@@ -30,6 +30,8 @@ const {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
+    loadWarehouseSourceRegistryFiles,
+    loadWarehouseSourceSdkImports,
     parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,
@@ -1917,6 +1919,112 @@ test('the cascade names direct importers and stops before the next hop', () => {
         'py:product:alpha',
         'py:product:beta',
     ])
+})
+
+// A vendor imports only the SDK, so the SDK is its one direct importer edge and
+// core sits a hop beyond it. If a reader below loses the vendor lane, a change
+// that can break a vendor merges in parallel with one, which is the failure
+// lanes exist to prevent. If core gains it, every vendor PR queues behind core
+// PRs again and the queue runs the full backend suite for it.
+test('a warehouse source vendor claims only the vendor lane, which every vendor reader shares', () => {
+    const vendorLane = 'py:warehouse-source-vendors'
+    const registry = 'products/warehouse_sources/backend/facade/credential_kinds.py'
+    const context = {
+        ...CONTEXT,
+        products: [...CONTEXT.products, 'warehouse_sources'],
+        warehouseSourceRegistryFiles: new Set([registry]),
+    }
+    const vendorDir = 'products/warehouse_sources/sources/acme'
+    assert.deepEqual(
+        computeTargets(
+            [
+                `${vendorDir}/source.py`,
+                `${vendorDir}/icon.png`,
+                `${vendorDir}/tests/test_acme.py`,
+                `${vendorDir}/README.md`,
+                registry,
+            ],
+            context
+        ),
+        [vendorLane]
+    )
+
+    const readers = [
+        'products/warehouse_sources/sources/sdk/source.py',
+        'products/warehouse_sources/sources/conftest.py',
+        'products/warehouse_sources/backend/facade/api.py',
+        'products/conftest.py',
+        'posthog/test/repo_invariants/test_dataclass_defaults.py',
+        'mypy.ini',
+        'bin/download-mmdb',
+    ]
+    for (const file of readers) {
+        assert.equal(computeTargets([file], context).includes(vendorLane), true, file)
+    }
+    // The SDK and the plugin root import core, so they also keep the product
+    // lane that core PRs overlap.
+    for (const file of readers.slice(0, 2)) {
+        assert.equal(computeTargets([file], context).includes('py:product:warehouse_sources'), true, file)
+    }
+    assert.equal(allKnownTargets(context).includes(vendorLane), true)
+    for (const file of ['posthog/models/user.py', 'products/alpha/backend/api.py']) {
+        assert.equal(computeTargets([file], context).includes(vendorLane), false, file)
+    }
+
+    // A core module the SDK imports claims the vendor lane on top of its own.
+    const sdkImport = 'posthog/integrations/__init__.py'
+    const withSdkImports = { ...context, warehouseSourceSdkImports: new Set([sdkImport]) }
+    const sdkImportTargets = computeTargets([sdkImport], withSdkImports)
+    assert.equal(sdkImportTargets.includes(vendorLane), true)
+    assert.equal(sdkImportTargets.includes('py:core'), true)
+    assert.equal(computeTargets(['posthog/models/user.py'], withSdkImports).includes(vendorLane), false)
+
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-imports-'))
+    try {
+        const write = (file, text) => {
+            fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+            fs.writeFileSync(path.join(root, file), text)
+        }
+        write(
+            'products/warehouse_sources/sources/sdk/__init__.py',
+            [
+                'from posthog.integrations import IntegrationKind',
+                'from posthog.security.url_validation import (',
+                '    is_url_allowed,',
+                ')',
+                'from products.warehouse_sources.backend.facade import api',
+                'from dlt.common import json',
+                '',
+            ].join('\n')
+        )
+        // Every vendor test collects the root and products/ conftest files too.
+        write('conftest.py', 'from posthog.test.junit import set_junit_report_location\n')
+        write('products/conftest.py', 'from posthog.conftest import *  # noqa: F403\n')
+        write(sdkImport, '')
+        write('posthog/conftest.py', '')
+        write('posthog/test/junit.py', '')
+        write('posthog/security/url_validation.py', '')
+        write('products/warehouse_sources/backend/facade/api.py', '')
+        assert.deepEqual([...loadWarehouseSourceSdkImports(root)].sort(), [
+            'posthog/conftest.py',
+            sdkImport,
+            'posthog/security/url_validation.py',
+            'posthog/test/junit.py',
+        ])
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+
+    // The registry set comes from the selector, which ci-scripts.yml checks out.
+    // The registries themselves are not in that checkout.
+    const registries = loadWarehouseSourceRegistryFiles(REPO_ROOT)
+    assert.ok(registries.size > 0)
+    for (const file of registries) {
+        assert.ok(file.startsWith('products/warehouse_sources/'), file)
+    }
+
+    assert.equal(computeTargets([`${vendorDir}/source.py`], CONTEXT).includes(vendorLane), false)
+    assert.equal(allKnownTargets(CONTEXT).includes(vendorLane), false)
 })
 
 // The base CONTEXT keeps an empty tach graph, so no product is declared in it.

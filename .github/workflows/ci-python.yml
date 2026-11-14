@@ -685,16 +685,22 @@ jobs:
             # A vendor cannot import another vendor (tach and import-linter enforce that), so the
             # other vendors cannot change. Any other file (the SDK, the conftest.py and other
             # files at the top of the plugin directory, the product, a manifest, this workflow)
-            # selects the full run. The merge queue, the
-            # hourly run and a manual run have no pull request diff to narrow by, so they also
-            # take the full run.
+            # selects the full run. The hourly run and a manual run have no pull request diff to
+            # narrow by, so they take the full run.
+            #
+            # The merge queue narrows by the same rule. On a trunk-merge/** pull request, HEAD^1
+            # is the master tip, so the diff holds every PR in the test branch: this one, its
+            # batch, and the PRs queued ahead of it in its lane. Trunk's optimistic merge lets
+            # this run vouch for all of them, which is why the whole branch has to be vendor-only.
+            # A vendor-only PR claims a lane of its own (narrowing 3 in
+            # .github/scripts/trunk-impacted-targets.js), so its branch usually holds vendor
+            # changes alone. When any PR in the branch changes another file, the full run follows.
             - name: Select vendors
               id: select
               env:
                   EVENT_NAME: ${{ github.event_name }}
-                  HEAD_REF: ${{ github.head_ref }}
               run: |
-                  if [ "$EVENT_NAME" != "pull_request" ] || [[ "$HEAD_REF" == trunk-merge/* ]]; then
+                  if [ "$EVENT_NAME" != "pull_request" ]; then
                       python tools/warehouse_sources_vendor_selection.py --full
                   else
                       git diff --name-only HEAD^1 HEAD | python tools/warehouse_sources_vendor_selection.py
