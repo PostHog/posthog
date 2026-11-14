@@ -1,5 +1,11 @@
-from posthog.test.base import APIBaseTest
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
+from time import monotonic
 
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
+
+from django.db import connection, transaction
+from django.db.models import F
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -271,6 +277,65 @@ class TestBulkAddSuppressions(APIBaseTest):
             None,
             before.updated_at,
         )
+
+
+class TestBulkAddSuppressionsWithConcurrentBounceWrites(NonAtomicAPIBaseTest):
+    def test_import_lets_a_bounce_write_holding_one_of_its_rows_finish(self):
+        rows = MessageSuppression.objects.for_team(self.team.id)
+        for identifier in ["a@example.com", "b@example.com"]:
+            rows.create(
+                team=self.team,
+                identifier=identifier,
+                source=SuppressionSource.MANUAL,
+                reason="Manually added",
+                suppressed=True,
+                suppressed_at=timezone.now(),
+            )
+        worker_pid: Queue[int] = Queue()
+
+        def import_bounces():
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET statement_timeout = '15s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    worker_pid.put(cursor.fetchone()[0])
+                return self.client.post(
+                    f"/api/projects/{self.team.id}/messaging_suppressions/bulk_add_suppressions/",
+                    {
+                        "suppressions": [
+                            {"identifier": i, "reason": "bounce"} for i in ["a@example.com", "b@example.com"]
+                        ]
+                    },
+                    format="json",
+                )
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                rows.filter(identifier="b@example.com").update(transient_bounce_count=F("transient_bounce_count") + 1)
+                response = executor.submit(import_bounces)
+                pid = worker_pid.get(timeout=10)
+                deadline = monotonic() + 10
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    holder_pid = cursor.fetchone()[0]
+                    while not response.done() and monotonic() < deadline:
+                        cursor.execute("SELECT %s = ANY(pg_blocking_pids(%s))", [holder_pid, pid])
+                        if cursor.fetchone()[0]:
+                            break
+                    else:
+                        self.fail("The import did not wait for the bounce write")
+                rows.filter(identifier="a@example.com").update(transient_bounce_count=F("transient_bounce_count") + 1)
+            assert response.result(timeout=10).status_code == 200
+
+        assert [
+            (row.identifier, row.transient_bounce_count, row.hard_bounced_at is not None)
+            for row in rows.order_by("identifier")
+        ] == [
+            ("a@example.com", 1, True),
+            ("b@example.com", 1, True),
+        ]
 
 
 class TestRemoveSuppressions(APIBaseTest):

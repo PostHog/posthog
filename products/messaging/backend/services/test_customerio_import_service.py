@@ -3,6 +3,8 @@ from io import StringIO
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+
 from parameterized import parameterized
 
 from posthog.models import Team
@@ -391,6 +393,41 @@ user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
         assert details["spam@example.com"] == (spam_at, None, None)
         assert details["earlier@example.com"] == (earlier_at, earlier_at, "550 Mailbox full")
         assert details["manual@example.com"][2] is None
+
+    @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_DELAY_SECONDS", 0)
+    @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
+    def test_api_import_blocks_transactional_email_to_a_bounce_the_feedback_adds_during_the_import(
+        self, mock_client_class: MagicMock
+    ) -> None:
+        feedback_written = False
+
+        def soft_bounce_lands_before_the_import_inserts(execute, sql, params, many, context):
+            nonlocal feedback_written
+            if not feedback_written and sql.startswith('INSERT INTO "posthog_messagesuppression"'):
+                feedback_written = True
+                MessageSuppression.objects.for_team(self.team.id).create(
+                    team=self.team,
+                    identifier="bounced@example.com",
+                    source=SuppressionSource.BOUNCE,
+                    suppressed=False,
+                    transient_bounce_count=1,
+                )
+            return execute(sql, params, many, context)
+
+        mock_client = mock_client_class.return_value
+        mock_client.validate_credentials.return_value = True
+        mock_client.get_subscription_topics.return_value = []
+        mock_client.get_globally_unsubscribed_customers.return_value = {"identifiers": []}
+        mock_client.get_suppressions.side_effect = lambda suppression_type, limit, offset: (
+            [{"email": "bounced@example.com"}] if (suppression_type, offset) == ("bounces", 0) else []
+        )
+
+        with connection.execute_wrapper(soft_bounce_lands_before_the_import_inserts):
+            CustomerIOImportService(self.team.id, self.api_key, self.user.id).import_api_data()
+
+        row = MessageSuppression.objects.for_team(self.team.id).get(identifier="bounced@example.com")
+        assert feedback_written
+        assert (row.source, row.suppressed, row.hard_bounced_at is not None) == (SuppressionSource.BOUNCE, True, True)
 
     @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_DELAY_SECONDS", 0)
     @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
