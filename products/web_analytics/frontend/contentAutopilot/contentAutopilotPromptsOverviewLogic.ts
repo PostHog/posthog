@@ -275,12 +275,12 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
                 overviewWindow ? promptSetSourcesQuery(overviewWindow) : null,
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         selectOverviewTopic: ({ topic }) => {
             // pinned: analytics event name, renaming it breaks dashboards
             posthog.capture('web analytics content autopilot prompts overview topic selected')
-            actions.setTopic(topic, 'overview')
-            actions.setWorkspaceTab('prompts')
+            // Picking the selected topic again clears it, so the table works as a toggle.
+            actions.setTopic(values.filters.topic === topic ? null : topic, 'overview')
         },
         openOverviewSearchPrompt: ({ promptId }) => {
             // pinned: analytics event name, renaming it breaks dashboards
