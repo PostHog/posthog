@@ -254,7 +254,7 @@ export const AeoKeywordsDestroyParams = () => zod.object({
 })
 
 /**
- * Gets the words and two-word phrases the engines added to their web searches beyond the prompt over the last 'days' days (default 7), such as years, 'pricing', 'vs' or 'site:'. They show the content the engines look for. Each modifier has a kind, how many answers used it, the citation rate in those answers against the baseline, the engines that used it and example searches. Pass 'keyword' to only count answers whose searches contain it.
+ * Gets the words and two-word phrases the engines added to their web searches beyond the prompt over the last 'days' days (default 7), such as years, 'pricing', 'vs' or 'site:'. They show the content the engines look for. Each modifier has a kind, how many answers used it, the citation rate in those answers against the baseline, the engines that used it and example searches. Pass 'keyword' to only count answers whose searches contain it, and 'branded', 'engine' or 'topic' to count only the answers to branded or non-branded prompts, of one answer engine, or of one topic.
  * @summary Get AEO search modifiers
  */
 export const AeoKeywordsModifiersParams = () => zod.object({
@@ -265,18 +265,36 @@ export const AeoKeywordsModifiersParams = () => zod.object({
         ),
 })
 
+export const aeoKeywordsModifiersQueryBrandedDefault = `all`
 export const aeoKeywordsModifiersQueryDaysDefault = 7
-export const aeoKeywordsModifiersQueryDaysMax = 30
+export const aeoKeywordsModifiersQueryDaysMax = 90
+
+export const aeoKeywordsModifiersQueryEngineMax = 64
 
 export const aeoKeywordsModifiersQueryKeywordMax = 100
 
+export const aeoKeywordsModifiersQueryTopicMax = 200
+
 export const AeoKeywordsModifiersQueryParams = () => zod.object({
+    branded: zod
+        .enum(['all', 'branded', 'non_branded'])
+        .default(aeoKeywordsModifiersQueryBrandedDefault)
+        .describe(
+            "Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n\* `all` - All\n\* `branded` - Branded\n\* `non_branded` - Non-branded"
+        ),
     days: zod
         .number()
         .min(1)
         .max(aeoKeywordsModifiersQueryDaysMax)
         .default(aeoKeywordsModifiersQueryDaysDefault)
-        .describe("Length of the window in days, ending today in the project's timezone. Default 7, at most 30."),
+        .describe("Length of the window in days, ending today in the project's timezone. Default 7, at most 90."),
+    engine: zod
+        .string()
+        .max(aeoKeywordsModifiersQueryEngineMax)
+        .nullish()
+        .describe(
+            "Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine."
+        ),
     keyword: zod
         .string()
         .min(1)
@@ -285,10 +303,17 @@ export const AeoKeywordsModifiersQueryParams = () => zod.object({
         .describe(
             "Only count answers whose web searches contain this phrase, case ignored. Usually one of the project's keywords."
         ),
+    topic: zod
+        .string()
+        .max(aeoKeywordsModifiersQueryTopicMax)
+        .nullish()
+        .describe(
+            'Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.'
+        ),
 })
 
 /**
- * Gets one row per keyword for the last 'days' days (default 7) in the project's timezone: how many prompts contain it and how those answers mention and cite the project, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, citation position and how early the brand is named in those answers. All rates are over answered checks. A keyword matches as a phrase, case ignored.
+ * Gets one row per keyword for the last 'days' days (default 7) in the project's timezone: how many prompts contain it and how those answers mention and cite the project, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, citation position and how early the brand is named in those answers. All rates are over answered checks. A keyword matches as a phrase, case ignored. Pass 'branded', 'engine' or 'topic' to count only the answers to branded or non-branded prompts, of one answer engine, or of one topic.
  * @summary Get the AEO keyword report
  */
 export const AeoKeywordsReportParams = () => zod.object({
@@ -299,16 +324,41 @@ export const AeoKeywordsReportParams = () => zod.object({
         ),
 })
 
+export const aeoKeywordsReportQueryBrandedDefault = `all`
 export const aeoKeywordsReportQueryDaysDefault = 7
-export const aeoKeywordsReportQueryDaysMax = 30
+export const aeoKeywordsReportQueryDaysMax = 90
+
+export const aeoKeywordsReportQueryEngineMax = 64
+
+export const aeoKeywordsReportQueryTopicMax = 200
 
 export const AeoKeywordsReportQueryParams = () => zod.object({
+    branded: zod
+        .enum(['all', 'branded', 'non_branded'])
+        .default(aeoKeywordsReportQueryBrandedDefault)
+        .describe(
+            "Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n\* `all` - All\n\* `branded` - Branded\n\* `non_branded` - Non-branded"
+        ),
     days: zod
         .number()
         .min(1)
         .max(aeoKeywordsReportQueryDaysMax)
         .default(aeoKeywordsReportQueryDaysDefault)
-        .describe("Length of the window in days, ending today in the project's timezone. Default 7, at most 30."),
+        .describe("Length of the window in days, ending today in the project's timezone. Default 7, at most 90."),
+    engine: zod
+        .string()
+        .max(aeoKeywordsReportQueryEngineMax)
+        .nullish()
+        .describe(
+            "Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine."
+        ),
+    topic: zod
+        .string()
+        .max(aeoKeywordsReportQueryTopicMax)
+        .nullish()
+        .describe(
+            'Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.'
+        ),
 })
 
 /**
@@ -375,7 +425,7 @@ export const AeoKeywordsSuggestionRetrieveParams = () => zod.object({
 })
 
 /**
- * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, by whether the prompt names the brand, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
+ * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, by whether the prompt names the brand, or to the prompts that need improvement, optionally over 'days' days and one 'engine'. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
  * @summary List AEO prompts
  */
 export const AeoPromptsListParams = () => zod.object({
@@ -385,6 +435,11 @@ export const AeoPromptsListParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const aeoPromptsListQueryDaysDefault = 30
+export const aeoPromptsListQueryDaysMax = 90
+
+export const aeoPromptsListQueryEngineMax = 64
 
 export const aeoPromptsListQueryIncludeArchivedDefault = false
 export const aeoPromptsListQueryLimitMax = 1000
@@ -400,6 +455,21 @@ export const AeoPromptsListQueryParams = () => zod.object({
         .describe(
             "Only list prompts whose current text names the brand (true) or does not (false). Omit to list both. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand."
         ),
+    days: zod
+        .number()
+        .min(1)
+        .max(aeoPromptsListQueryDaysMax)
+        .default(aeoPromptsListQueryDaysDefault)
+        .describe(
+            'The window needs_improvement reads, in days ending now. Default 30, at most 90. Ignored unless needs_improvement is true.'
+        ),
+    engine: zod
+        .string()
+        .max(aeoPromptsListQueryEngineMax)
+        .nullish()
+        .describe(
+            "With needs_improvement, only read the answers of this engine, for example 'claude-web-search'. Ignored unless needs_improvement is true."
+        ),
     include_archived: zod
         .boolean()
         .default(aeoPromptsListQueryIncludeArchivedDefault)
@@ -409,7 +479,7 @@ export const AeoPromptsListQueryParams = () => zod.object({
         .boolean()
         .default(aeoPromptsListQueryNeedsImprovementDefault)
         .describe(
-            'Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.'
+            "Only list prompts that the engines answered in the last 'days' days without citing a target domain. Prompts with no answered check in that window are left out."
         ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     topic: zod
@@ -637,7 +707,7 @@ export const AeoPromptsCreateDashboardParams = () => zod.object({
 })
 
 /**
- * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Those counts cover web-search checks; a prompt's own stats split every engine, no-search ones included. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Those counts cover web-search checks; a prompt's own stats split every engine, no-search ones included. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
  * @summary Get the AEO prompt set overview
  */
 export const AeoPromptsOverviewParams = () => zod.object({
@@ -652,6 +722,10 @@ export const aeoPromptsOverviewQueryBrandedDefault = `all`
 export const aeoPromptsOverviewQueryDaysDefault = 30
 export const aeoPromptsOverviewQueryDaysMax = 90
 
+export const aeoPromptsOverviewQueryEngineMax = 64
+
+export const aeoPromptsOverviewQueryTopicMax = 200
+
 export const AeoPromptsOverviewQueryParams = () => zod.object({
     branded: zod
         .enum(['all', 'branded', 'non_branded'])
@@ -665,10 +739,24 @@ export const AeoPromptsOverviewQueryParams = () => zod.object({
         .max(aeoPromptsOverviewQueryDaysMax)
         .default(aeoPromptsOverviewQueryDaysDefault)
         .describe("Length of the window in days, ending today in the project's timezone. Default 30, at most 90."),
+    engine: zod
+        .string()
+        .max(aeoPromptsOverviewQueryEngineMax)
+        .nullish()
+        .describe(
+            "Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine."
+        ),
+    topic: zod
+        .string()
+        .max(aeoPromptsOverviewQueryTopicMax)
+        .nullish()
+        .describe(
+            'Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.'
+        ),
 })
 
 /**
- * Gets how often AI answers named the project against its competitors over the last 'days' days (default 30) in the project's timezone, with the same share for the window before, a daily series, and the domains and pages the engines cited most. Competitors are derived from the cited domains. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
+ * Gets how often AI answers named the project against its competitors over the last 'days' days (default 30) in the project's timezone, with the same share for the window before, a daily series, and the domains and pages the engines cited most. Competitors are derived from the cited domains. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
  * @summary Get AEO brand rankings
  */
 export const AeoPromptsRankingsParams = () => zod.object({
@@ -683,6 +771,10 @@ export const aeoPromptsRankingsQueryBrandedDefault = `all`
 export const aeoPromptsRankingsQueryDaysDefault = 30
 export const aeoPromptsRankingsQueryDaysMax = 90
 
+export const aeoPromptsRankingsQueryEngineMax = 64
+
+export const aeoPromptsRankingsQueryTopicMax = 200
+
 export const AeoPromptsRankingsQueryParams = () => zod.object({
     branded: zod
         .enum(['all', 'branded', 'non_branded'])
@@ -696,6 +788,20 @@ export const AeoPromptsRankingsQueryParams = () => zod.object({
         .max(aeoPromptsRankingsQueryDaysMax)
         .default(aeoPromptsRankingsQueryDaysDefault)
         .describe("Length of the window in days, ending today in the project's timezone. Default 30, at most 90."),
+    engine: zod
+        .string()
+        .max(aeoPromptsRankingsQueryEngineMax)
+        .nullish()
+        .describe(
+            "Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine."
+        ),
+    topic: zod
+        .string()
+        .max(aeoPromptsRankingsQueryTopicMax)
+        .nullish()
+        .describe(
+            'Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.'
+        ),
 })
 
 /**
