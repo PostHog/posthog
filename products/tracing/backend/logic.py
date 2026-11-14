@@ -229,6 +229,15 @@ def _is_numeric(value: object) -> bool:
         return False
 
 
+def _to_attribute_text(value: object) -> object:
+    # The str map stores numbers as their OTel text, so an integral float must read '400', not '400.0'.
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 def with_span_attribute_type_suffix(prop: SpanPropertyFilter) -> SpanPropertyFilter:
     """Return a copy of a span-attribute filter whose key carries its physical-map type suffix.
 
@@ -250,6 +259,12 @@ def with_span_attribute_type_suffix(prop: SpanPropertyFilter) -> SpanPropertyFil
 
     prop = prop.model_copy(deep=True)
     prop.key = f"{prop.key}__{suffix}"
+    if suffix == "str":
+        # A numeric constant against the String map value fails in ClickHouse with NO_COMMON_TYPE.
+        if isinstance(prop.value, list):
+            prop.value = cast("list[str | float | bool]", [_to_attribute_text(v) for v in prop.value])
+        else:
+            prop.value = cast("str | float | bool | None", _to_attribute_text(prop.value))
     return prop
 
 

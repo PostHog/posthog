@@ -147,6 +147,18 @@ class TestSpanAttributeFilter(ClickhouseTestMixin, APIBaseTest):
                 {"key": "code.lineno", "type": "span_attribute", "operator": "exact", "value": "42"},
                 [WITH_CODE],
             ),
+            # Regression: a JSON number on the str map used to print a Float64 constant and 500 with
+            # NO_COMMON_TYPE. An integral float must match the stored integer text ('42', not '42.0').
+            (
+                "numeric_json_value_exact",
+                {"key": "code.lineno", "type": "span_attribute", "operator": "exact", "value": 42},
+                [WITH_CODE],
+            ),
+            (
+                "numeric_json_list_value_exact",
+                {"key": "code.lineno", "type": "span_attribute", "operator": "exact", "value": [42.0, 7]},
+                [WITH_CODE],
+            ),
             # Regression: a numeric-looking value with a string operator must NOT route to the float map,
             # which would silently drop the non-numeric stored value '500ok'.
             (
