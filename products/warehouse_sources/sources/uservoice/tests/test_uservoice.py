@@ -146,6 +146,36 @@ class TestPagination:
 
         assert result.params("updated_after") == [None]
 
+    @parameterized.expand(
+        [
+            ("supporters", "2026-03-04T00:00:00Z"),
+            ("features", "2026-03-04T00:00:00Z"),
+            ("status_updates", "2026-03-04T00:00:00Z"),
+            ("categories", None),
+        ]
+    )
+    def test_endpoint_reads_its_own_path_and_response_key(self, endpoint: str, expected_filter: str | None) -> None:
+        # Side-loaded lists (suggestions, users, forums) ride along in the same body and must not leak in.
+        result = _run(
+            [
+                ScriptedResponse(
+                    json={
+                        endpoint: [{"id": 1}, {"id": 2}],
+                        "suggestions": [{"id": 99}],
+                        "users": [{"id": 98}],
+                        "pagination": {"page": 1, "total_pages": 1},
+                    }
+                )
+            ],
+            endpoint=endpoint,
+            incremental_field="updated_at",
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+        )
+
+        assert [r["id"] for r in result.rows] == [1, 2]
+        assert result.paths == [f"/api/v2/admin/{endpoint}"]
+        assert result.params("updated_after") == [expected_filter]
+
 
 class TestSourceResponse:
     @parameterized.expand(

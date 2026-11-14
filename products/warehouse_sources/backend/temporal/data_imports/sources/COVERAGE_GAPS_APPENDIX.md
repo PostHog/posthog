@@ -13000,10 +13000,10 @@ Today (10): `comments`, `forums`, `labels`, `notes`, `nps_ratings`, `suggestion_
 
 Diffed against: <https://uservoice.uservoice.com/api/v2/public/doc/api-v2-reference>
 
-- [ ] `GET /admin/supporters` — the supporter/vote membership linking users to the suggestions we already sync (high)
-- [ ] `GET /admin/features` — roadmap features that suggestions roll up to; resolves the feature_ids on suggestions (high)
-- [ ] `GET /admin/categories` — lookup resolving the category id carried on every suggestion (high)
-- [ ] `GET /admin/status_updates` — state-transition history of suggestions (status changes and their messages) (high)
+- [x] `GET /admin/supporters` — the supporter/vote membership linking users to the suggestions we already sync (high)
+- [x] `GET /admin/features` — roadmap features that suggestions roll up to; resolves the feature_ids on suggestions (high)
+- [x] `GET /admin/categories` — lookup resolving the category id carried on every suggestion (high)
+- [x] `GET /admin/status_updates` — state-transition history of suggestions (status changes and their messages) (high)
 - [ ] `GET /admin/external_accounts` — the CRM account (and its revenue/MRR fields) that feedback is attributed to (high)
 - [ ] `GET /admin/external_users` — lookup joining UserVoice users to CRM contacts/accounts (high)
 - [ ] `GET /admin/feedback_records` — raw captured feedback items that suggestions and impact scores are derived from (high)
