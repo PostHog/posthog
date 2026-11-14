@@ -53,6 +53,7 @@ from products.access_control.backend.facade.api import (
     split_restricted_property_names,
 )
 from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
+from products.mcp_analytics.backend.intent_topics.labeling import fallback_label
 from products.mcp_analytics.backend.intent_topics.metrics import drift, focus_band, focus_score
 from products.mcp_analytics.backend.intent_topics.persist import latest_refit_started_at, project_team
 from products.mcp_analytics.backend.intent_topics.rollups import hourly_calls_source, topic_daily_source
@@ -136,7 +137,7 @@ SELECT topic_id,
        length(groupUniqArrayArray(conversations_now)) AS sessions,
        sum(outlier_calls_now) AS outlier_calls,
        sum(calls_before) AS previous_calls,
-       arrayMap(t -> t.2, arraySlice(arraySort(t -> -t.1, groupArrayIf((calls_now, tool), calls_now > 0)), 1, {top_tools})) AS top_tools
+       arrayMap(t -> t.2, arraySlice(arraySort(t -> -t.1, groupArrayIf((calls_now, tool), calls_now > 0 AND isNotNull(tool))), 1, {top_tools})) AS top_tools
 FROM (
     SELECT topic_id, tool,
            sumIf(calls, day >= {date_from}) AS calls_now,
@@ -257,7 +258,7 @@ class _IntentTopicsBase:
 
     def _label(self, topic_id: str, topic: MCPIntentTopic | None) -> str:
         if topic is None or self._intent_text_restricted:
-            return f"Topic {topic_id[:8]}"
+            return fallback_label(topic_id)
         return topic.label
 
     def _summary(self, topic: MCPIntentTopic | None) -> str:

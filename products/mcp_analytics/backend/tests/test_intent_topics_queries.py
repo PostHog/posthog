@@ -348,7 +348,7 @@ class TestIntentTopicsAccess(_Base):
         ).results
 
         assert profile.outliers == []
-        assert [(t.label, t.summary) for t in profile.results] == [(f"Topic {self.t_insights[:8]}", "")]
+        assert [(t.label, t.summary) for t in profile.results] == [(f"Topic {self.t_insights[-8:]}", "")]
         assert hourly_hashes == [(None,)]
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -385,7 +385,9 @@ class TestIntentTopicsAccess(_Base):
         assert run("SELECT conversation_hashes FROM posthog.mcp_intent_topic_daily") == [([11, 12],)]
         assert [(t.calls, t.sessions) for t in admin_topics.results] == [(10, 2)]
 
-    @parameterized.expand([("$mcp_tool_name",), ("$mcp_exec_tool_call_name",), ("$mcp_exec_target_tool",)])
+    @parameterized.expand(
+        [("$mcp_tool_name",), ("$mcp_exec_tool_call_name",), ("$mcp_exec_target_tool",), ("$mcp_exec_verb",)]
+    )
     def test_a_member_denied_a_tool_property_sees_no_tool_names(self, property_name: str) -> None:
         _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 10)
         _hourly(self.team.pk, TODAY, "o1", "query-trends", 4)
@@ -397,6 +399,10 @@ class TestIntentTopicsAccess(_Base):
         assert run("SELECT tool FROM posthog.mcp_intent_calls_hourly") == [(None,)]
         assert run("SELECT tool FROM posthog.mcp_intent_topic_daily") == [(None,)]
         assert run("SELECT count() FROM posthog.mcp_intent_topic_daily WHERE tool = 'query-trends'") == [(0,)]
+        topics = MCPIntentTopicsQueryRunner(
+            query=MCPIntentTopicsQuery(dateRange=WINDOW), team=self.team, user=self.user
+        ).calculate()
+        assert [(t.calls, t.top_tools) for t in topics.results] == [(10, [])]
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

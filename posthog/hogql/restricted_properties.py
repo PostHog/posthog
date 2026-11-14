@@ -119,8 +119,9 @@ _MCP_INTENT_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
     "intent_text": ("$mcp_intent",),
     "intent_hash": ("$mcp_intent",),
     "conversation_hashes": ("$mcp_session_id", "$session_id"),
-    # The rollups' effective tool name reads the exec wrapper's target before `$mcp_tool_name`.
-    "tool": ("$mcp_tool_name", "$mcp_exec_tool_call_name", "$mcp_exec_target_tool"),
+    # The rollups' effective tool name reads the exec wrapper's target before `$mcp_tool_name`, and only for the
+    # `call` verb, so the stored name also tells whether the verb was `call`.
+    "tool": ("$mcp_tool_name", "$mcp_exec_tool_call_name", "$mcp_exec_target_tool", "$mcp_exec_verb"),
 }
 
 

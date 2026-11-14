@@ -333,6 +333,7 @@ def fetch_hourly_calls(
                 team=team,
                 workload=Workload.OFFLINE,
                 modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+                settings=_COMPLETE_RESULTS_SETTINGS,
             ).results
             or []
         )
