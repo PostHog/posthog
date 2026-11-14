@@ -1,6 +1,3 @@
-import { parentPath, splitPath, joinPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
-
 import type { UserBasicApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { FacetDefinition } from './FacetSearchBar/facetQuery'
@@ -20,43 +17,6 @@ const valueFromLabel =
     (labels: Record<string, string>) =>
     (typed: string): string =>
         Object.keys(labels).find((value) => labels[value].toLowerCase() === typed.toLowerCase()) ?? typed
-
-/** The folder view lists everything under Unfiled in one place, so its subfolders are not scopes of their own. */
-export function displayedFolder(folder: string): string {
-    return folder === 'Unfiled' || folder.startsWith('Unfiled/') ? 'Unfiled' : folder
-}
-
-export function ancestorFolders(path: string): string[] {
-    const parts = splitPath(path)
-    return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
-}
-
-export function folderScopes(parent: string, includeDescendants: boolean): string[] {
-    const folder = displayedFolder(parent)
-    return folder === 'Unfiled' || !includeDescendants ? [folder] : ancestorFolders(folder)
-}
-
-/** A workflow has no folder while `placements` is unknown, so no folder pill matches it and none counts it as Unfiled. */
-export function workflowFolderFacet(
-    placements: Record<string, FileSystemEntry> | null,
-    includeDescendants: boolean
-): FacetDefinition<WorkflowListRow> {
-    return {
-        key: 'in',
-        aliases: ['path', 'folder'],
-        label: 'in',
-        description: 'Project folder',
-        caseSensitive: true,
-        formatValue: (value) => splitPath(value).join(' / '),
-        getValues: (row) => {
-            if (!placements) {
-                return []
-            }
-            const entry = placements[`hog_flow::${row.id}`]
-            return !entry || entry.shortcut ? ['Unfiled'] : folderScopes(parentPath(entry.path), includeDescendants)
-        },
-    }
-}
 
 /** Every word of the text must appear in the name or description. */
 export function matchesWorkflowListText(row: WorkflowListRow, text: string): boolean {

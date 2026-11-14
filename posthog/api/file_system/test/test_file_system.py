@@ -175,14 +175,6 @@ class TestFileSystemAPI(APIBaseTest):
             set(results),
             {f"Reports/{name}" for name, _, _, _ in entries} | {"Reports/Other notebook", "Reports/Other insight"},
         )
-        self.assertEqual(
-            {path: item["team_id"] for path, item in results.items()},
-            {
-                **{f"Reports/{name}": self.team.id for name, _, _, _ in entries},
-                "Reports/Other notebook": sibling_team.id,
-                "Reports/Other insight": sibling_team.id,
-            },
-        )
         for name, entry_type, _, content_type in entries:
             expected_meta = {"label": "example"}
             if entry_type == "insight":
@@ -879,60 +871,6 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["count"], 1, data["results"])
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_folder_counts_counts_the_files_directly_in_each_folder(self, mock_flag: MagicMock) -> None:
-        for path, file_type, shortcut in [
-            ("Unfiled", "folder", False),
-            ("Unfiled/Insights", "folder", False),
-            ("Unfiled/Insights/Old signups", "insight", False),
-            ("Unfiled/Notes", "notebook", False),
-            ("Reports", "folder", False),
-            ("Reports/Overview", "insight", False),
-            ("Reports/Notes", "notebook", False),
-            ("Reports/Pinned", "insight", True),
-            ("Reports/Weekly", "folder", False),
-            ("Reports/Weekly/Signups", "insight", False),
-            ("Reports/Weekly/Welcome", "hog_flow", False),
-            ("Q3\\/Q4/Plan", "notebook", False),
-            ("Ops\\\\/Runbook", "notebook", False),
-            ("Ideas\\//Draft", "notebook", False),
-            ("Plans/Q1\\/Q2", "notebook", False),
-            ("Root insight", "insight", False),
-        ]:
-            FileSystem.objects.create(
-                team=self.team, path=path, type=file_type, shortcut=shortcut, depth=1, created_by=self.user
-            )
-
-        with self.assertNumQueries(6):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/file_system/folder_counts/",
-                {"search": "-type:hog_flow -type:message_template"},
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertEqual(
-            response.json()["results"],
-            [
-                {"folder": "", "count": 1},
-                {"folder": "Ideas\\/", "count": 1},
-                {"folder": "Ops\\\\", "count": 1},
-                {"folder": "Plans", "count": 1},
-                {"folder": "Q3\\/Q4", "count": 1},
-                {"folder": "Reports", "count": 2},
-                {"folder": "Reports/Weekly", "count": 1},
-            ],
-        )
-
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_folder_counts_is_not_found_without_the_workflows_list(self, mock_flag: MagicMock) -> None:
-        FileSystem.objects.create(
-            team=self.team, path="Reports/Overview", type="insight", depth=2, created_by=self.user
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/folder_counts/")
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
 
     def test_list_by_parent_and_depth(self):
         """

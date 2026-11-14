@@ -49,7 +49,6 @@ describe('PostHog filesystem projection', () => {
         type,
         ref: id,
         depth: 2,
-        team_id: 1,
         created_at: '2026-01-01T00:00:00Z',
         created_by: null,
         last_viewed_at: null,

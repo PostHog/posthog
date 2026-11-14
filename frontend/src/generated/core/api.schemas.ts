@@ -5174,8 +5174,6 @@ export interface FileSystemApi {
     meta?: unknown
     /** @nullable */
     shortcut?: boolean | null
-    /** The environment the object belongs to. A project lists every environment's files. */
-    readonly team_id: number
     readonly created_at: string
     readonly created_by: UserBasicApi | null
     /** @nullable */
@@ -5213,8 +5211,6 @@ export interface PatchedFileSystemApi {
     meta?: unknown
     /** @nullable */
     shortcut?: boolean | null
-    /** The environment the object belongs to. A project lists every environment's files. */
-    readonly team_id?: number
     readonly created_at?: string
     readonly created_by?: UserBasicApi | null
     /** @nullable */
@@ -5229,18 +5225,6 @@ export interface PatchedFileSystemApi {
 export interface FileSystemMoveRequestApi {
     /** Full new path for the entry, including its own name as the last segment, such as 'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a name as '\/'. */
     new_path: string
-}
-
-export interface FileSystemFolderCountApi {
-    /** Folder path. An empty string is the project root. */
-    folder: string
-    /** Files directly in this folder, not counting folders or shortcuts. */
-    count: number
-}
-
-export interface FileSystemFolderCountsApi {
-    /** Each folder that directly holds a counted file. */
-    results: FileSystemFolderCountApi[]
 }
 
 export interface FileSystemHomeFolderApi {
@@ -7612,13 +7596,6 @@ export type FileSystemDestroyParams = {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean
-}
-
-export type FileSystemFolderCountsRetrieveParams = {
-    /**
-     * Picks the files counted, as in the list.
-     */
-    search?: string
 }
 
 export type FileSystemFrequentListParams = {

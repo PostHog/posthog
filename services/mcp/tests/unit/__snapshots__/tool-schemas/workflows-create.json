@@ -529,10 +529,6 @@
             ],
             "type": "string"
         },
-        "folder": {
-            "description": "Project folder to create the workflow in, such as 'Campaigns/Retention'. Read only when creating a workflow.",
-            "type": "string"
-        },
         "name": {
             "anyOf": [
                 {

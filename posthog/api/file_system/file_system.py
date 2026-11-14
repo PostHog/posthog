@@ -14,7 +14,6 @@ from django.db import connection, transaction
 from django.db.models import (
     Case,
     CharField,
-    Count,
     Exists,
     F,
     Func,
@@ -200,21 +199,6 @@ class FileSystemListQuerySerializer(serializers.Serializer):
     )
 
 
-class FileSystemFolderCountsQuerySerializer(serializers.Serializer):
-    search = serializers.CharField(
-        required=False, allow_blank=True, help_text="Picks the files counted, as in the list."
-    )
-
-
-class FileSystemFolderCountSerializer(serializers.Serializer):
-    folder = serializers.CharField(allow_blank=True, help_text="Folder path. An empty string is the project root.")
-    count = serializers.IntegerField(help_text="Files directly in this folder, not counting folders or shortcuts.")
-
-
-class FileSystemFolderCountsSerializer(serializers.Serializer):
-    results = FileSystemFolderCountSerializer(many=True, help_text="Each folder that directly holds a counted file.")
-
-
 class FileSystemMoveRequestSerializer(serializers.Serializer):
     new_path = serializers.CharField(
         help_text=(
@@ -290,9 +274,6 @@ def _stored_spellings(team_id: int, file_type: str, refs: set[str], any_surface:
 
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
-    team_id = serializers.IntegerField(
-        read_only=True, help_text="The environment the object belongs to. A project lists every environment's files."
-    )
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
@@ -307,7 +288,6 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
             "href",
             "meta",
             "shortcut",
-            "team_id",
             "created_at",
             "created_by",
             "last_viewed_at",
@@ -567,7 +547,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "unfiled",
         "count",
         "count_by_path",
-        "folder_counts",
     ]
     scope_object_write_actions = [
         "create",
@@ -975,7 +954,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset)
-        if self.action in ("list", "retrieve", "folder_counts"):
+        if self.action in ("list", "retrieve"):
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
 
         depth_param = self.request.query_params.get("depth")
@@ -1893,34 +1872,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "matched_with_typos": matched_with_typos,
             }
         )
-
-    @validated_request(
-        query_serializer=FileSystemFolderCountsQuerySerializer,
-        responses={200: OpenApiResponse(response=FileSystemFolderCountsSerializer)},
-        summary="Count files per folder",
-        description=(
-            "Counts the files directly in each folder outside Unfiled, so the workflows list can tell which folders "
-            "hold files without listing them. Not found unless the workflows list is on for the caller."
-        ),
-    )
-    @action(methods=["GET"], detail=False, pagination_class=None)
-    def folder_counts(self, request: Request, **kwargs: object) -> Response:
-        if not self._workflow_files_enabled:
-            raise NotFound()
-        # The workflows list shows Unfiled as one folder, so the files under it change nothing there. They are most
-        # rows of a large project, and this constant prefix drops them before the regexes and access checks run.
-        files = (
-            self.get_queryset()
-            .exclude(type="folder")
-            .exclude(shortcut=True)
-            .exclude(path__startswith="Unfiled/")
-            .order_by()
-        )
-        # Whole segments up to the last unescaped separator, read from the start so `\\/` and `\/` split as split_path does.
-        parents = Func(F("path"), Value(r"^(?:(?:\\.|[^/\\])*/)*"), function="substring", output_field=CharField())
-        folder = Func(parents, Value("/$"), Value(""), function="regexp_replace", output_field=CharField())
-        counts = files.annotate(folder=folder).values_list("folder").annotate(count=Count("id"))
-        return Response({"results": [{"folder": path, "count": count} for path, count in sorted(counts)]})
 
     @action(methods=["POST"], detail=True)
     def count(self, request: Request, *args: Any, **kwargs: Any) -> Response:

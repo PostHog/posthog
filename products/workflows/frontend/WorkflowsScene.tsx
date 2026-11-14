@@ -24,7 +24,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { lazyWithRetry } from 'lib/utils/retryImport'
+import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -51,13 +51,23 @@ import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
 import { workflowsLogic } from './Workflows/workflowsLogic'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
-import { templateTypeForListType } from './Workflows/workflowTypeFilters'
+import { WorkflowTemplateTypeFilter, templateTypeForListType } from './Workflows/workflowTypeFilters'
 import { WorkflowsTemplates } from './WorkflowsTemplates'
 
 // Only teams with `workflows-list-v2` see the new list and its folders, so that code loads in its own chunk.
 const WorkflowsListV2 = lazyWithRetry(() =>
     import('./Workflows/WorkflowsListV2/WorkflowsListV2').then((m) => ({ default: m.WorkflowsListV2 }))
 )
+const WorkflowsListV2ColumnsMenu = lazyWithRetry(() =>
+    import('./Workflows/WorkflowsListV2/WorkflowsListV2ColumnsMenu').then((m) => ({
+        default: m.WorkflowsListV2ColumnsMenu,
+    }))
+)
+
+async function listV2TemplateTypeFilter(): Promise<WorkflowTemplateTypeFilter> {
+    const { workflowsListV2Logic } = await retryImport(() => import('./Workflows/WorkflowsListV2/workflowsListV2Logic'))
+    return workflowsListV2Logic.findMounted()?.values.templateTypeFilter ?? 'all'
+}
 
 // pinned: URL path segments under /workflows - renaming breaks bookmarks
 const WORKFLOW_SCENE_TABS = [
@@ -238,10 +248,8 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         ),
         link: urls.workflows(),
     }
-    const showsWorkflowActions = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
-    // The folder view has its own New workflow button, which creates the workflow in the open folder.
-    const showsNewWorkflowButton = showsWorkflowActions && !(currentTab === 'workflows' && listV2)
-    const onNewWorkflow = (): void => {
+    const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
+    const onNewWorkflow = async (): Promise<void> => {
         void addProductIntent({
             product_type: ProductKey.WORKFLOWS,
             intent_context: ProductIntentContext.WORKFLOW_CREATED,
@@ -250,7 +258,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         // Messaging tab sees messaging templates first.
         setTypeFilter(
             currentTab === 'workflows'
-                ? templateTypeForListType(workflowsLogic.findMounted()?.values.filters.type ?? 'all')
+                ? listV2
+                    ? await listV2TemplateTypeFilter()
+                    : templateTypeForListType(workflowsLogic.findMounted()?.values.filters.type ?? 'all')
                 : 'all'
         )
         startNewWorkflow()
@@ -276,7 +286,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }}
                 actions={
                     <>
-                        {showsWorkflowActions && customerioImportEnabled && (
+                        {showsNewWorkflowButton && customerioImportEnabled && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Workflow}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -297,13 +307,17 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
                                 {todayRailNav ? (
-                                    <Button data-attr="new-workflow" onClick={onNewWorkflow} variant="primary">
+                                    <Button
+                                        data-attr="new-workflow"
+                                        onClick={() => void onNewWorkflow()}
+                                        variant="primary"
+                                    >
                                         New workflow
                                     </Button>
                                 ) : (
                                     <LemonButton
                                         data-attr="new-workflow"
-                                        onClick={onNewWorkflow}
+                                        onClick={() => void onNewWorkflow()}
                                         type="primary"
                                         size="small"
                                     >
@@ -311,6 +325,11 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                     </LemonButton>
                                 )}
                             </AccessControlAction>
+                        )}
+                        {currentTab === 'workflows' && listV2 && (
+                            <Suspense fallback={null}>
+                                <WorkflowsListV2ColumnsMenu />
+                            </Suspense>
                         )}
                         {currentTab !== 'workflows' && currentTab !== 'templates' && currentTab !== 'calendar' && (
                             <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />

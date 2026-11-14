@@ -6109,8 +6109,6 @@ export interface FileSystemEntry {
     last_viewed_at?: string | null
     /** Whether this is a shortcut or the actual item */
     shortcut?: boolean
-    /** The environment the object belongs to. A project lists every environment's files. */
-    team_id?: number
     /** Used to indicate pending actions, frontend only */
     _loading?: boolean
     /** Tag for the product 'beta' / 'alpha' */

@@ -128,37 +128,12 @@ const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
         '5. Test the workflow and leave it disabled.',
 }
 
-// The folder name is user data, so it travels as an untrusted item and this static instruction only points at it.
-const NEW_WORKFLOW_FOLDER_TYPE = 'new_workflow_folder'
-const FOLDER_PLACEMENT_CONTEXT_ITEM: AttachedContextItem = {
-    type: 'instructions',
-    hidden: true,
-    dismissGroup: NEW_WORKFLOW_DISMISS_GROUP,
-    value:
-        `The user is creating this workflow in a project folder, given by the ${NEW_WORKFLOW_FOLDER_TYPE} item. ` +
-        'Pass that value unchanged as folder on workflows-create, so the draft lands in the folder.',
-}
-
-/**
- * Skill pointer plus the draft-first instruction, no editor state, and the folder the draft is created in.
- * Not dismissible: the page only advances once the draft exists.
- */
-export function buildNewWorkflowComposerContext(folder: string | null = null): AttachedContextItem[] {
+/** Skill pointer plus the draft-first instruction, no editor state. Not dismissible: the page only advances once the draft exists. */
+export function buildNewWorkflowComposerContext(): AttachedContextItem[] {
     return [
         { ...TOOLING_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP },
         { ...SKILL_CHIP_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP, dismissible: false },
         DRAFT_FIRST_CONTEXT_ITEM,
-        ...(folder
-            ? [
-                  FOLDER_PLACEMENT_CONTEXT_ITEM,
-                  {
-                      type: NEW_WORKFLOW_FOLDER_TYPE,
-                      value: folder,
-                      hidden: true,
-                      dismissGroup: NEW_WORKFLOW_DISMISS_GROUP,
-                  },
-              ]
-            : []),
     ]
 }
 

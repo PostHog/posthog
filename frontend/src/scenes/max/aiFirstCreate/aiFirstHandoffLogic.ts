@@ -27,7 +27,6 @@ export interface AiFirstHandoffLogicProps {
      * call's parsed input. Returns null when it cannot say which one.
      */
     findCreatedId: (innerInput: Record<string, unknown> | undefined) => Promise<string | null>
-    prepareCreated?: (id: string) => Promise<void>
     /** The editor page for the created entity. */
     urlFor: (id: string) => string
     /** Toast for a saved entity the page could not open. Say where to find it. */
@@ -192,29 +191,6 @@ export const aiFirstHandoffLogic: LogicWrapper<aiFirstHandoffLogicType> = kea<ai
             }
             // Held from while the logic is alive: a remount puts a live manager back on the cache.
             const disposables = cache.disposables
-            // The page can be left, or the composer cleared or re-sent, while a lookup is in flight. The
-            // shared panel logic outlives this page, so a left page must not read values or route from here.
-            const superseded = (): boolean =>
-                disposables.isDisposed || cache.handedOff || event.streamKey !== values.activeCreation?.streamKey
-            const prepareOnce = async (prepare: (id: string) => Promise<void>, id: string): Promise<boolean> => {
-                const preparationKey = JSON.stringify([event.streamKey, event.toolCallId])
-                const pendingPreparations: Set<string> = (cache.pendingPreparations ??= new Set<string>())
-                if (pendingPreparations.has(preparationKey)) {
-                    return false
-                }
-                pendingPreparations.add(preparationKey)
-                try {
-                    await prepare(id)
-                    return true
-                } catch {
-                    if (!superseded()) {
-                        lemonToast.error(props.notOpenedMessage)
-                    }
-                    return false
-                } finally {
-                    pendingPreparations.delete(preparationKey)
-                }
-            }
             let createdId = createdIdFromOutput(event)
             if (!createdId) {
                 try {
@@ -224,14 +200,13 @@ export const aiFirstHandoffLogic: LogicWrapper<aiFirstHandoffLogicType> = kea<ai
                     createdId = null
                 }
             }
-            if (superseded()) {
+            // The page can be left, or the composer cleared or re-sent, while the lookup is in flight. The
+            // shared panel logic outlives this page, so a left page must not read values or route from here.
+            if (disposables.isDisposed || cache.handedOff || event.streamKey !== values.activeCreation?.streamKey) {
                 return
             }
             if (!createdId) {
                 lemonToast.error(props.notOpenedMessage)
-                return
-            }
-            if (props.prepareCreated && (!(await prepareOnce(props.prepareCreated, createdId)) || superseded())) {
                 return
             }
             cache.handedOff = true

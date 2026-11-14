@@ -15,7 +15,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
-import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -47,7 +46,6 @@ import {
     isFileSystemEntryTypeEnabled,
     isGroupViewShortcut,
     isPathUnder,
-    joinPath,
     matchesRefType,
     parentPath,
     refTypeParams,
@@ -89,13 +87,7 @@ const SHORTCUTS_PERSIST_OPTIONS =
  * without this one stalled request would withhold the toast and the Undo from every item that already
  * succeeded, and leave the batch in `cache.moveBatches` for the logic's lifetime.
  */
-export const MOVE_TIMEOUT_MS = 30000
-/**
- * A bulk move sends one request per item. Without a limit, a selection of thousands sends them all at once, the
- * browser queues most of them, and each queued request uses up its `MOVE_TIMEOUT_MS` before it is sent. The limit
- * keeps the rest waiting here, where their timeout has not started.
- */
-const MOVE_CONCURRENCY = 6
+const MOVE_TIMEOUT_MS = 30000
 export const PAGINATION_LIMIT = 100
 // Reporting a move per item would toast N times for a bulk move, and because react-toastify dedupes
 // identical messages the user would see one toast whose Undo reverts only the item it was built for. Every
@@ -115,19 +107,6 @@ interface MoveBatch {
 }
 
 let lastMoveBatchId = 0
-
-/** `state` without the records of the dropped folders among `items` and of every folder inside them. */
-function withoutDroppedFolders<T>(state: Record<string, T>, items: FileSystemEntry[]): Record<string, T> {
-    const dropped = new Set(
-        items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
-    )
-    return Object.fromEntries(
-        Object.entries(state).filter(([folder]) => {
-            const parts = splitPath(folder)
-            return !parts.some((_, index) => dropped.has(joinPath(parts.slice(0, index + 1))))
-        })
-    )
-}
 
 // Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
 // `orderedIds` is appended at the end so a partial input never silently drops items.
@@ -397,9 +376,6 @@ export interface projectTreeDataLogicActions {
     ) => {
         ref: string
         type: string
-    }
-    dropStaleItems: (items: FileSystemEntry[]) => {
-        items: FileSystemEntry[]
     }
     linkItem: (
         oldPath: string,
@@ -753,10 +729,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
-        // Drops cached copies that a full reload no longer lists at their path, in one update. Nothing is deleted on
-        // the server, so this is not a deleteSavedItem: listeners that react to a delete, such as removing a pin, must
-        // not run for it.
-        dropStaleItems: (items: FileSystemEntry[]) => ({ items }),
         deleteItem: (item: FileSystemEntry, projectTreeLogicKey: string) => ({ item, projectTreeLogicKey }),
         linkItem: (oldPath: string, newPath: string, force: boolean, projectTreeLogicKey: string) => ({
             oldPath,
@@ -897,13 +869,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         const verb = action.type === 'prepare-link' ? 'link' : 'move'
                         const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
                         try {
-                            // The prepare step stays pending until the count answers, and a pending folder move
-                            // blocks other changes to that folder, so a stalled count fails like a stalled move.
-                            const response = await withTimeout(
-                                api.fileSystem.count(action.item.id),
-                                MOVE_TIMEOUT_MS,
-                                `projectTreeDataLogic: counting ${action.item.type} timed out`
-                            )
+                            const response = await api.fileSystem.count(action.item.id)
                             actions.removeQueuedAction(action)
                             if (response && response.count > MOVE_ALERT_LIMIT) {
                                 const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
@@ -928,15 +894,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         try {
                             const oldPath = action.item.path
                             const newPath = action.newPath
-                            cache.moveRequests ??= new ConcurrencyController(MOVE_CONCURRENCY)
-                            await (cache.moveRequests as ConcurrencyController).run({
-                                fn: () =>
-                                    withTimeout(
-                                        () => api.fileSystem.move(action.item.id, newPath),
-                                        MOVE_TIMEOUT_MS,
-                                        `projectTreeDataLogic: moving ${action.item.type} timed out`
-                                    ),
-                            })
+                            await withTimeout(
+                                () => api.fileSystem.move(action.item.id, newPath),
+                                MOVE_TIMEOUT_MS,
+                                `projectTreeDataLogic: moving ${action.item.type} timed out`
+                            )
                             actions.removeQueuedAction(action)
                             actions.movedItem(action.item, oldPath, newPath)
                             settleMoveBatch((batch) => batch.moved.push({ item: action.item, oldPath, newPath }))
@@ -1243,20 +1205,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
                     return newState
                 },
-                dropStaleItems: (state, { items }) => {
-                    const idsByFolder = new Map<string, Set<string>>()
-                    for (const item of items) {
-                        const folder = parentPath(item.path)
-                        idsByFolder.set(folder, (idsByFolder.get(folder) ?? new Set()).add(item.id))
-                    }
-                    const newState = { ...state }
-                    for (const [folder, ids] of idsByFolder) {
-                        if (newState[folder]) {
-                            newState[folder] = newState[folder].filter((item) => !ids.has(item.id))
-                        }
-                    }
-                    return withoutDroppedFolders(newState, items)
-                },
                 deleteTypeAndRef: (state, { type, ref }) => {
                     const newState = { ...state }
                     for (const [folder, files] of Object.entries(newState)) {
@@ -1314,7 +1262,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     const previousOffset = forceReload ? 0 : (state[folder] ?? 0)
                     return { ...state, [folder]: previousOffset + offsetIncrease }
                 },
-                dropStaleItems: (state, { items }) => withoutDroppedFolders(state, items),
                 pruneClosedFolders: (state, { expandedFolders }) => {
                     const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
                     const newState: Record<string, number> = {}
@@ -1336,7 +1283,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     [folder]: hasMore ? 'has-more' : 'loaded',
                 }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
-                dropStaleItems: (state, { items }) => withoutDroppedFolders(state, items),
                 pruneClosedFolders: (state, { expandedFolders }) => {
                     const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
                     const newState: Record<string, FolderState> = {}

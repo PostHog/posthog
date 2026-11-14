@@ -41,18 +41,12 @@ const ITEMS: Item[] = [
 
 const matchesText = (item: Item, text: string): boolean => item.name.toLowerCase().includes(text.toLowerCase())
 
-function Harness({
-    initial,
-    facets = FACETS,
-}: {
-    initial: FacetSearchValue
-    facets?: FacetDefinition<Item>[]
-}): JSX.Element {
+function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
     const [value, setValue] = useState(initial)
     return (
         <div>
             <FacetSearchBar
-                facets={facets}
+                facets={FACETS}
                 items={ITEMS}
                 value={value}
                 onChange={setValue}
@@ -327,36 +321,6 @@ describe('FacetSearchBar', () => {
         await press('Enter')
         expect(shown('query')).toEqual('')
         expect(input()).toHaveFocus()
-    })
-
-    it('removes only the pill clicked, and keeps the other pill in place, when two differ only in case', async () => {
-        const folder: FacetDefinition<Item> = {
-            key: 'folder',
-            label: 'Folder',
-            description: 'Exact folder',
-            caseSensitive: true,
-            getValues: () => [],
-        }
-        render(
-            <Harness
-                facets={[...FACETS, folder]}
-                initial={{
-                    filters: [
-                        { facet: 'folder', value: 'billing', negated: false },
-                        { facet: 'folder', value: 'Billing', negated: false },
-                    ],
-                    text: '',
-                }}
-            />
-        )
-        const pills = (): Element[] => [...document.querySelectorAll('[data-attr="test-search-pill"]')]
-        const kept = pills()[1]
-
-        await user.click(document.querySelector('[aria-label="Remove filter Folder: billing"]')!)
-
-        expect(shown('query')).toEqual('folder:Billing')
-        expect(pills()).toEqual([kept])
-        expect(kept.textContent).toEqual('Folder: Billing')
     })
 
     it('exposes the combobox, labels each pill remove button, and keeps the values out of autocapture', async () => {

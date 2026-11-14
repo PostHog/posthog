@@ -1981,10 +1981,6 @@ class FileSystemEntry(BaseModel):
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
     shortcut: bool | None = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: list[Tag] | None = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
-    team_id: float | None = Field(
-        default=None,
-        description=("The environment the object belongs to. A project lists every environment's files."),
-    )
     type: str | None = Field(
         default=None,
         description="Type of object, used for icon, e.g. feature_flag, insight, etc",
@@ -6494,10 +6490,6 @@ class FileSystemImport(BaseModel):
     )
     shortcut: bool | None = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: list[Tag] | None = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
-    team_id: float | None = Field(
-        default=None,
-        description=("The environment the object belongs to. A project lists every environment's files."),
-    )
     type: str | None = Field(
         default=None,
         description="Type of object, used for icon, e.g. feature_flag, insight, etc",

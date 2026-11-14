@@ -28,7 +28,6 @@ import {
     isQueryWrappersConfig,
     modulesWithStrictBodies,
     operationIdToPascal,
-    schemaExclusionsByOperation,
 } from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
@@ -508,8 +507,7 @@ function composeToolSchema(
     resolved: ResolvedOperation,
     spec: OpenApiSpec,
     getQuerySchema: () => JsonSchemaRoot,
-    hasStrictBody = false,
-    schemaExcluded: ReadonlySet<string> = new Set(config.exclude_params ?? [])
+    hasStrictBody = false
 ): SchemaComposition {
     const pascal = operationIdToPascal(config.operation)
     const orvalImports: string[] = []
@@ -530,12 +528,6 @@ function composeToolSchema(
     let composesBody = false
 
     const excludeSet = new Set(config.exclude_params ?? [])
-    const unsharedNestedExclusion = [...excludeSet].find((param) => param.includes('.') && !schemaExcluded.has(param))
-    if (unsharedNestedExclusion) {
-        throw new Error(
-            `exclude_params "${unsharedNestedExclusion}" of ${config.operation} must be excluded by every tool on that operation`
-        )
-    }
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
     // original → alias mapping from rename_params config
     const renameMap = new Map(Object.entries(config.rename_params ?? {}))
@@ -637,12 +629,11 @@ function composeToolSchema(
                     continue
                 }
 
-                // The Orval schema already lacks the exclusions every tool on this operation shares, and
-                // .omit() of a missing key fails, so only the ones another tool keeps are omitted here.
+                // exclude_params are removed at the Orval schema level by
+                // applyNestedExclusions in generate-orval-schemas.mjs, so
+                // they won't exist in the Zod schema. Skip them here to
+                // avoid generating .omit() calls for nonexistent fields.
                 if (excludeSet.has(name)) {
-                    if (!schemaExcluded.has(name)) {
-                        bodyOmitFields.add(name)
-                    }
                     continue
                 }
 
@@ -1251,8 +1242,7 @@ function generateToolCode(
     spec: OpenApiSpec,
     knownTypes: Set<string>,
     getQuerySchema: () => JsonSchemaRoot,
-    hasStrictBody = false,
-    schemaExcluded?: ReadonlySet<string>
+    hasStrictBody = false
 ): {
     code: string
     orvalImports: string[]
@@ -1275,7 +1265,7 @@ function generateToolCode(
         return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
     }
 
-    const composition = composeToolSchema(config, resolved, spec, getQuerySchema, hasStrictBody, schemaExcluded)
+    const composition = composeToolSchema(config, resolved, spec, getQuerySchema, hasStrictBody)
     let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
@@ -2091,7 +2081,6 @@ function generateCategoryFile(
     let hasWithInformationalResponse = false
     const requiredToolUtilsValueImports = new Set<string>()
 
-    const schemaExclusions = schemaExclusionsByOperation(category.tools)
     for (const [name, config, resolved] of enabledTools) {
         const result = generateToolCode(
             name,
@@ -2101,8 +2090,7 @@ function generateCategoryFile(
             spec,
             knownTypes,
             getQuerySchema,
-            modulesWithStrictBodies.has(moduleName),
-            new Set(schemaExclusions.get(config.operation))
+            modulesWithStrictBodies.has(moduleName)
         )
         toolCodes.push(result.code)
         for (const imp of result.orvalImports) {

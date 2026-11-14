@@ -3,7 +3,6 @@ import {
     FacetSearchValue,
     createFacetCounter,
     createFacetMatcher,
-    facetFilterKey,
     parseFacetQuery,
     serializeFacetQuery,
 } from './facetQuery'
@@ -53,30 +52,6 @@ describe('facetQuery', () => {
         ['-FROM:b@example.com', [{ facet: 'sentBy', value: 'b@example.com', negated: true }]],
     ])('parses %s', (query, filters) => {
         expect(parseFacetQuery(query, FACETS)).toEqual(filters)
-    })
-
-    it('keeps pills that differ only in case when their facet tells cases apart', () => {
-        const facets = [
-            ...FACETS,
-            { key: 'folder', label: 'Folder', description: 'Exact folder', caseSensitive: true, getValues: () => [] },
-        ]
-        expect(parseFacetQuery('folder:Billing folder:billing status:Active status:active', facets)).toEqual([
-            { facet: 'folder', value: 'Billing', negated: false },
-            { facet: 'folder', value: 'billing', negated: false },
-            { facet: 'status', value: 'Active', negated: false },
-        ])
-    })
-
-    it.each([
-        ['without facets, as saved views call it', undefined, 'folder:billing'],
-        ['when no facet tells cases apart', FACETS, 'folder:billing'],
-        [
-            'with a case-sensitive facet',
-            [{ key: 'folder', label: 'Folder', description: 'Exact folder', caseSensitive: true, getValues: () => [] }],
-            'folder:Billing',
-        ],
-    ])('keys a pill %s', (_, facets: FacetDefinition<Item>[] | undefined, key) => {
-        expect(facetFilterKey({ facet: 'folder', value: 'Billing', negated: false }, facets)).toEqual(key)
     })
 
     it.each([

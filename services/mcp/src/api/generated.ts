@@ -54269,8 +54269,6 @@ export namespace Schemas {
       meta?: unknown;
       /** @nullable */
       shortcut?: boolean | null;
-      /** The environment the object belongs to. A project lists every environment's files. */
-      readonly team_id: number;
       readonly created_at: string;
       readonly created_by: UserBasic | null;
       /** @nullable */
@@ -54280,18 +54278,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
-    }
-
-    export interface FileSystemFolderCount {
-      /** Folder path. An empty string is the project root. */
-      folder: string;
-      /** Files directly in this folder, not counting folders or shortcuts. */
-      count: number;
-    }
-
-    export interface FileSystemFolderCounts {
-      /** Each folder that directly holds a counted file. */
-      results: FileSystemFolderCount[];
     }
 
     export interface FileSystemHomeFolder {
@@ -57579,8 +57565,6 @@ export namespace Schemas {
       readonly id: string;
       /** Project folder for a newly created workflow. */
       _create_in_folder?: string;
-      /** Project folder to create the workflow in, such as 'Campaigns/Retention'. Read only when creating a workflow. */
-      folder?: string;
       /**
          * Workflow name.
          * @maxLength 400
@@ -89910,8 +89894,6 @@ export namespace Schemas {
       meta?: unknown;
       /** @nullable */
       shortcut?: boolean | null;
-      /** The environment the object belongs to. A project lists every environment's files. */
-      readonly team_id?: number;
       readonly created_at?: string;
       readonly created_by?: UserBasic | null;
       /** @nullable */
@@ -138849,13 +138831,6 @@ export namespace Schemas {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean;
-    };
-
-    export type FileSystemFolderCountsRetrieveParams = {
-    /**
-     * Picks the files counted, as in the list.
-     */
-    search?: string;
     };
 
     export type FileSystemFrequentListParams = {

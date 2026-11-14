@@ -38,8 +38,6 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemDestroyParams,
-    FileSystemFolderCountsApi,
-    FileSystemFolderCountsRetrieveParams,
     FileSystemFrequentListParams,
     FileSystemHomeFolderApi,
     FileSystemListParams,
@@ -2018,40 +2016,6 @@ export const fileSystemCountByPathCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(fileSystemApi),
-    })
-}
-
-export const getFileSystemFolderCountsRetrieveUrl = (
-    projectId: string,
-    params?: FileSystemFolderCountsRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/file_system/folder_counts/?${stringifiedParams}`
-        : `/api/projects/${projectId}/file_system/folder_counts/`
-}
-
-/**
- * Counts the files directly in each folder outside Unfiled, so the workflows list can tell which folders hold files without listing them. Not found unless the workflows list is on for the caller.
- * @summary Count files per folder
- */
-export const fileSystemFolderCountsRetrieve = async (
-    projectId: string,
-    params?: FileSystemFolderCountsRetrieveParams,
-    options?: RequestInit
-): Promise<FileSystemFolderCountsApi> => {
-    return apiMutator<FileSystemFolderCountsApi>(getFileSystemFolderCountsRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
     })
 }
 

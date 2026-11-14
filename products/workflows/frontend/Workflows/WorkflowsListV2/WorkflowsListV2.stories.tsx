@@ -59,8 +59,6 @@ const meta: Meta = {
                     email_sending_suspension_reason: '',
                 },
                 '/api/projects/:team_id/hog_flow_templates/': paginated([]),
-                '/api/projects/:team_id/file_system/unfiled/': { count: 0 },
-                '/api/projects/:team_id/file_system/': paginated([]),
             },
         }),
     ],

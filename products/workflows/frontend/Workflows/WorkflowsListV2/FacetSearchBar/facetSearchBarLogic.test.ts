@@ -50,13 +50,6 @@ const FACETS: FacetDefinition<Item>[] = [
         emptyLabel: 'Health shows once run metrics load',
     },
     {
-        key: 'folder',
-        label: 'Folder',
-        description: 'Exact folder name',
-        caseSensitive: true,
-        getValues: (item) => [item.name],
-    },
-    {
         key: 'team',
         label: 'Team',
         description: 'Known once teams load',
@@ -172,39 +165,6 @@ describe('facetSearchBarLogic', () => {
         expect(logic.values.suggestions.map((s) => s.label)).toEqual(['Archived'])
     })
 
-    it('counts a case-sensitive pill apart from the same value in another case', () => {
-        const facets: FacetDefinition<Item>[] = [
-            ...FACETS,
-            {
-                key: 'squad',
-                label: 'Squad',
-                description: 'Exact squad name',
-                caseSensitive: true,
-                getValues: (item) => [item.name === 'Welcome' ? 'Billing' : 'billing'],
-            },
-        ]
-        const draftCountsIn = (squad: string): [string, number | undefined][] => {
-            logic = facetSearchBarLogic({
-                id: 'test',
-                facets,
-                items: ITEMS,
-                value: { filters: [{ facet: 'squad', value: squad, negated: false }], text: '' },
-                onChange,
-                matchesText,
-            })
-            logic.mount()
-            logic.actions.setInput('')
-            logic.actions.setInput('status:')
-            return logic.values.suggestions.map((s) => [s.label, s.count])
-        }
-
-        expect(draftCountsIn('Billing')).toEqual([['Active', 1]])
-        expect(draftCountsIn('billing')).toEqual([
-            ['Draft', 2],
-            ['Archived', 1],
-        ])
-    })
-
     it('offers "Not" values with how many rows they hide for a negated draft', () => {
         mountWith({ filters: [], text: '' })
         logic.actions.setInput('-status:')
@@ -262,12 +222,6 @@ describe('facetSearchBarLogic', () => {
             [{ facet: 'status', value: 'active', negated: true }],
             'wel ',
         ],
-        [
-            'a case-sensitive value in its own case',
-            'folder:Sync',
-            [{ facet: 'folder', value: 'Sync', negated: false }],
-            '',
-        ],
     ])('commits %s that names exactly one option without Space', (_, typed, filters, input) => {
         mountWith({ filters: [], text: '' })
         logic.actions.setInput(typed)
@@ -279,7 +233,6 @@ describe('facetSearchBarLogic', () => {
         ['the start of several values', [], 'status:a'],
         ['a value another value starts with', [], 'sends:deals'],
         ['a value in an open quote', [], 'sends:"Deals for you'],
-        ['a case-sensitive value in another case', [], 'folder:sync'],
         ['a value that is already a pill', [{ facet: 'status', value: 'draft', negated: false }], 'status:draft'],
         [
             'a value a pill already resolves to',
