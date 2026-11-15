@@ -17,6 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { DetectorConfig, DetectorType } from '~/queries/schema/schema-general'
 
+import type { ForecastSimulationApi } from '../generated/api.schemas'
 import { formatForecastLevel } from '../logic/forecastRules'
 import { AlertSimulationResult, BreakdownSimulationResult } from '../types'
 
@@ -62,6 +63,31 @@ const SCORE_COLORS = [
     'rgba(6, 182, 212, 0.7)', // cyan
 ]
 
+function getForecastSeries(forecast: ForecastSimulationApi | undefined): Series<SimSeriesMeta>[] {
+    if (!forecast) {
+        return []
+    }
+    return [
+        {
+            key: 'forecast-range',
+            label: 'Forecast range',
+            data: forecast.upper.map((v) => v ?? NaN),
+            color: 'rgba(99, 102, 241, 0.9)',
+            fill: { opacity: 0.15, lowerData: forecast.lower.map((v) => v ?? NaN) },
+            visibility: { tooltip: false },
+            meta: { isScore: false },
+        },
+        {
+            key: 'forecast-expected',
+            label: 'Expected',
+            data: forecast.expected.map((v) => v ?? NaN),
+            color: 'rgba(107, 114, 128, 0.9)',
+            stroke: { width: 1.5, pattern: [4, 4] },
+            meta: { isScore: false },
+        },
+    ]
+}
+
 function SimulationChart({
     result,
     detectorConfig,
@@ -74,7 +100,6 @@ function SimulationChart({
     // The AI and forecast detectors have no score, so their previews plot the values and mark the fired points.
     const hasScore = detectorConfig?.type !== DetectorType.LLM && detectorConfig?.type !== DetectorType.FORECAST
     const threshold = hasScore ? getThreshold(detectorConfig) : null
-    const forecast = result.forecast
 
     const subScores = result.sub_detector_scores
     const hasSubScores = !!subScores && subScores.length > 0
@@ -105,30 +130,8 @@ function SimulationChart({
                 },
             ]
 
-    const forecastSeries: Series<SimSeriesMeta>[] = forecast
-        ? [
-              {
-                  key: 'forecast-range',
-                  label: 'Forecast range',
-                  data: forecast.upper.map((v) => v ?? NaN),
-                  color: 'rgba(99, 102, 241, 0.9)',
-                  fill: { opacity: 0.15, lowerData: forecast.lower.map((v) => v ?? NaN) },
-                  visibility: { tooltip: false },
-                  meta: { isScore: false },
-              },
-              {
-                  key: 'forecast-expected',
-                  label: 'Expected',
-                  data: forecast.expected.map((v) => v ?? NaN),
-                  color: 'rgba(107, 114, 128, 0.9)',
-                  stroke: { width: 1.5, pattern: [4, 4] },
-                  meta: { isScore: false },
-              },
-          ]
-        : []
-
     const series: Series<SimSeriesMeta>[] = [
-        ...forecastSeries,
+        ...getForecastSeries(result.forecast),
         { key: 'value', label: 'Value', data: result.data, color: 'rgba(99, 102, 241, 0.9)', meta: { isScore: false } },
         ...scoreSeries,
     ]
