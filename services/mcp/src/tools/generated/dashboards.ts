@@ -938,6 +938,7 @@ const dashboardsGetAll = (): ToolBase<
                 ordering: params.ordering,
                 pinned: params.pinned,
                 search: params.search,
+                tags: params.tags,
             },
         })
         return await withPostHogUrl(

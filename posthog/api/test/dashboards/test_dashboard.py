@@ -157,7 +157,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response["count"] == 1
         assert response["results"][0]["name"] == "tagged"
 
-    def test_list_filter_by_multiple_tags(self):
+    @parameterized.expand(
+        [
+            ("repeated params", ["tag", "tag2"]),
+            ("json array", json.dumps(["tag", "tag2"])),
+        ]
+    )
+    def test_list_filter_by_multiple_tags(self, _name: str, tags_param: list[str] | str):
         self.dashboard_api.create_dashboard({"name": "tagged", "tags": ["tag"]})
         self.dashboard_api.create_dashboard({"name": "also tagged", "tags": ["tag2"]})
         self.dashboard_api.create_dashboard({"name": "not tagged"})
@@ -165,7 +171,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(12):
             response = self.dashboard_api.list_dashboards(
-                expected_status=status.HTTP_200_OK, query_params={"tags": ["tag", "tag2"]}
+                expected_status=status.HTTP_200_OK, query_params={"tags": tags_param}
             )
 
         assert response["count"] == 2

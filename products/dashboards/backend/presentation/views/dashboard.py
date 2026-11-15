@@ -3119,9 +3119,34 @@ class DashboardActivitySummarySerializer(serializers.Serializer):
     )
 
 
+def _parse_tags_filter(values: list[str]) -> list[str]:
+    # Other list endpoints take `?tags=["a","b"]`, so accept that here too. Repeated `?tags=a&tags=b`
+    # and a bare `?tags=a` stay supported for existing callers.
+    tags: list[str] = []
+    for value in values:
+        if value.startswith("["):
+            try:
+                decoded = json.loads(value)
+            except json.JSONDecodeError:
+                decoded = None
+            if isinstance(decoded, list):
+                tags.extend(tag for tag in decoded if isinstance(tag, str))
+                continue
+        tags.append(value)
+    return tags
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    'Optional. Return only dashboards with at least one of these tags, as a JSON array, e.g. `["a","b"]`.'
+                ),
+            ),
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
@@ -3278,7 +3303,7 @@ class DashboardsViewSet(
                 )
             queryset = self._apply_search(queryset, search)
 
-        tags = self.request.query_params.getlist("tags")
+        tags = _parse_tags_filter(self.request.query_params.getlist("tags"))
         if tags:
             queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
 
