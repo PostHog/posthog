@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { Named, Step } from '../cards'
+import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { JournalEntry } from './judge'
 import type { DriveWindow, MetricSample } from './measurements'
@@ -39,9 +39,13 @@ const MINUTE_MS = 60_000
 const SCRAPE_GAP_MS = 15_000
 
 const WriterCpuParams = z.object({ percent: z.number().positive().max(100) }).strict()
-const PickupParams = z
-    .object({ seconds: z.number().positive(), queues: z.array(z.enum(['hogflow', 'email'])).min(1) })
-    .strict()
+const Queue = z.enum(['hogflow', 'email'])
+const PickupParams = z.object({ seconds: z.number().positive(), queues: z.array(Queue).min(1) }).strict()
+
+const WORKER_OF = {
+    hogflow: 'cdp-cyclotron-worker-hogflow',
+    email: 'cdp-cyclotron-worker-email',
+} as const satisfies Record<z.infer<typeof Queue>, z.infer<typeof CdpRole>>
 
 const iso = (at: number): string => new Date(at).toISOString()
 
@@ -88,13 +92,15 @@ function add(
 
 function pickupsBetween(
     samples: readonly MetricSample[],
+    roles: readonly string[],
     { from, to }: Pick<Window, 'from' | 'to'>
 ): { picked: Record<string, Buckets> } | { unread: string } {
     const picked: Record<string, Buckets> = {}
-    const pickupRoles = new Set(
-        samples.filter(({ lateness }) => Object.keys(lateness).length > 0).map(({ role }) => role)
-    )
-    const workers = samples.filter(({ role }) => pickupRoles.has(role))
+    const unscraped = roles.find((role) => !samples.some((sample) => sample.role === role))
+    if (unscraped) {
+        return { unread: `no metrics from ${unscraped}` }
+    }
+    const workers = samples.filter(({ role }) => roles.includes(role))
     for (const [worker, series] of Map.groupBy(workers, ({ role, replica }) => `${role}-${replica}`)) {
         const sorted = [...series].sort((a, b) => a.at - b.at)
         const first = sorted.findLastIndex(({ at }) => at <= from)
@@ -128,7 +134,11 @@ const pickupP99Under: BarDefinition = {
     read: ({ samples }, { from, to, last }, params) => {
         const { seconds, queues } = PickupParams.parse(params)
         const until = last ? Math.max(to, ...samples.map(({ at }) => at)) : to
-        const pickups = pickupsBetween(samples, { from, to: until })
+        const pickups = pickupsBetween(
+            samples,
+            queues.map((queue) => WORKER_OF[queue]),
+            { from, to: until }
+        )
         if ('unread' in pickups) {
             return pickups
         }

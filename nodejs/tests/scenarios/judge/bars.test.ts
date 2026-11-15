@@ -27,21 +27,29 @@ type Picks = Record<string, number[]>
 const scrapedEvery5s = (
     untilS: number,
     picksAt: (atS: number) => Picks,
-    startedAtS: (atS: number) => number = () => -60,
-    replica = 0
+    {
+        startedAtS = () => -60,
+        queues = ['hogflow', 'email'],
+    }: { startedAtS?: (atS: number) => number; queues?: string[] } = {}
 ): MetricSample[] =>
-    Array.from({ length: untilS / 5 + 1 }, (_, i) => i * 5).map((atS) => ({
-        role: 'cdp-cyclotron-worker',
-        replica,
-        at: T + atS * 1000,
-        startedAt: T / 1000 + startedAtS(atS),
-        cpuSeconds: 1,
-        rssBytes: 1,
-        processed: {},
-        pgClientErrors: 0,
-        consumerLoopErrors: 0,
-        lateness: Object.fromEntries(Object.entries(picksAt(atS)).map(([queue, late]) => [queue, pickedUp(...late)])),
-    }))
+    Array.from({ length: untilS / 5 + 1 }, (_, i) => i * 5).flatMap((atS) =>
+        queues.map((queue) => ({
+            role: `cdp-cyclotron-worker-${queue}`,
+            replica: 0,
+            at: T + atS * 1000,
+            startedAt: T / 1000 + startedAtS(atS),
+            cpuSeconds: 1,
+            rssBytes: 1,
+            processed: {},
+            pgClientErrors: 0,
+            consumerLoopErrors: 0,
+            lateness: Object.fromEntries(
+                Object.entries(picksAt(atS))
+                    .filter(([picked]) => picked === queue)
+                    .map(([picked, late]) => [picked, pickedUp(...late)])
+            ),
+        }))
+    )
 
 const prompt = (atS: number): Picks => ({ hogflow: times(atS, 0.5), email: times(atS, 0.5) })
 
@@ -158,7 +166,7 @@ describe('judgeBars', () => {
                         atS <= 90
                             ? lateAfter('email', 60)(atS)
                             : { hogflow: times(atS - 90, 0.5), email: times(atS - 90, 0.5) },
-                    (atS) => (atS <= 90 ? -60 : 90)
+                    { startedAtS: (atS) => (atS <= 90 ? -60 : 90) }
                 ),
             },
             [HELD[0], broke(1, 10, 60, 10, 'email')],
@@ -181,12 +189,22 @@ describe('judgeBars', () => {
         [
             'the worker metrics stopped answering early in the 10x step',
             { samples: scrapedEvery5s(65, prompt) },
-            [HELD[0], unjudged(1, `no metrics from cdp-cyclotron-worker-0 after ${iso(65)} in the 10x step`)],
+            [HELD[0], unjudged(1, `no metrics from cdp-cyclotron-worker-hogflow-0 after ${iso(65)} in the 10x step`)],
         ],
         [
-            'a worker that had not picked up yet stopped answering while another kept picking up',
-            { samples: [...scrapedEvery5s(120, prompt), ...scrapedEvery5s(65, () => ({}), undefined, 1)] },
-            [HELD[0], unjudged(1, `no metrics from cdp-cyclotron-worker-1 after ${iso(65)} in the 10x step`)],
+            'the email worker stopped answering before its first pickup while the hogflow worker kept picking up',
+            {
+                samples: [
+                    ...scrapedEvery5s(120, prompt, { queues: ['hogflow'] }),
+                    ...scrapedEvery5s(30, () => ({}), { queues: ['email'] }),
+                ],
+            },
+            [HELD[0], unjudged(1, `no metrics from cdp-cyclotron-worker-email-0 after ${iso(30)} in the 1x step`)],
+        ],
+        [
+            'the email worker was never scraped',
+            { samples: scrapedEvery5s(120, prompt, { queues: ['hogflow'] }) },
+            [HELD[0], unjudged(1, 'no metrics from cdp-cyclotron-worker-email in the 1x step')],
         ],
         [
             'the drive was interrupted before its 10x step',
