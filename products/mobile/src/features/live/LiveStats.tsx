@@ -43,22 +43,17 @@ export function LiveStats({
         {
             key: 'users-online',
             label: 'Users online',
-            about:
-                audience === 'web'
-                    ? 'People active on your website right now.'
-                    : 'People active across this project right now.',
+            about: 'Users active right now.',
             value: usersOnline,
         },
         {
             key: 'unique-visitors',
             label: audience === 'web' ? 'Unique visitors' : 'Active users',
             about:
-                audience === 'web'
-                    ? 'Distinct visitors in the last 30 minutes.'
-                    : 'Unique user IDs across web and mobile in the last 30 min.',
+                audience === 'web' ? 'Unique visitors in the last 30 minutes.' : 'Unique users in the last 30 minutes.',
             value: uniqueVisitors,
         },
-        { key: 'pageviews', label: 'Pageviews', about: 'Total pages viewed in the last 30 minutes.', value: pageviews },
+        { key: 'pageviews', label: 'Pageviews', about: 'Pages viewed in the last 30 minutes.', value: pageviews },
     ]
     return (
         <View style={styles.card} testID="live-stats">
