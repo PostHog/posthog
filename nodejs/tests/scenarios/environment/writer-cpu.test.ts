@@ -53,4 +53,22 @@ describe('writerCpuOf', () => {
 
         await expect(read).resolves.toEqual(minutes.map((minute) => ({ at: T + minute * MINUTE, percent: 50 })))
     })
+
+    it('stops waiting for CloudWatch once the run is interrupted', async () => {
+        const interrupted = new AbortController()
+        let settled = false
+        const read = writerCpuOf(
+            publishingAfter(60 * MINUTE),
+            MANIFEST,
+            { startedAt: T, endedAt: T + 2 * MINUTE + 5_000 },
+            interrupted.signal
+        ).finally(() => (settled = true))
+        await jest.advanceTimersByTimeAsync(MINUTE)
+
+        interrupted.abort()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(settled).toBe(true)
+        await expect(read).resolves.toEqual([])
+    })
 })

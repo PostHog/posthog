@@ -60,7 +60,7 @@ export interface Environment {
     dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
-    writerCpu(manifest: RunManifest, window: DriveWindow): Promise<CpuPoint[]>
+    writerCpu(manifest: RunManifest, window: DriveWindow, signal: AbortSignal): Promise<CpuPoint[]>
     down(): Promise<void>
 }
 
@@ -71,7 +71,13 @@ export type Action =
     | { kind: 'freeze'; role: Role }
     | { kind: 'pg.terminate'; share: number }
     | { kind: 'edge.fault'; rule: FaultRule }
-    | { kind: 'rds.failover'; manifest: RunManifest; holdMs: number; commits: () => readonly WriterSample[] }
+    | {
+          kind: 'rds.failover'
+          manifest: RunManifest
+          holdMs: number
+          commits: () => readonly WriterSample[]
+          signal: AbortSignal
+      }
 
 export type Actuation = FaultHold & { journal?(): FailoverJournal }
 
@@ -209,6 +215,7 @@ export function createEnvironment({
                         manifest: action.manifest,
                         holdMs: action.holdMs,
                         commits: action.commits,
+                        signal: action.signal,
                     })
             }
         },
@@ -217,7 +224,7 @@ export function createEnvironment({
 
         groupLag: (group) => groupLag(group, docker),
 
-        writerCpu: (manifest, window) => writerCpuOf(aws ?? awsCli(env), manifest, window),
+        writerCpu: (manifest, window, signal) => writerCpuOf(aws ?? awsCli(env), manifest, window, signal),
 
         down: stop,
     }
