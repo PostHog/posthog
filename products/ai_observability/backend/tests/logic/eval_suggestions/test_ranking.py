@@ -393,7 +393,7 @@ def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
 ) -> None:
     card = _review_card(call_types)
 
-    calibration = Calibration(review_fails=5, caught=4, review_passes=15, false_alarms=0, unjudged=0)
+    calibration = Calibration(review_fails=5, caught=4, review_passes=15, judged_passes=15, false_alarms=0, unjudged=0)
 
     proposal = ranking.review_proposal(card, PROFILE, judge_model="gpt-5-mini", calibration=calibration)
 

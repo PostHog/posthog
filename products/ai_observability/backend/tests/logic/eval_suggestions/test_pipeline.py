@@ -197,7 +197,14 @@ REVIEW_TITLE = "Replies promise refund dates"
 
 
 def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[str, Any]:
-    counts = {"review_fails": 6, "caught": caught, "review_passes": 24, "false_alarms": false_alarms, "unjudged": 0}
+    counts = {
+        "review_fails": 6,
+        "caught": caught,
+        "review_passes": 24,
+        "judged_passes": 24,
+        "false_alarms": false_alarms,
+        "unjudged": 0,
+    }
     return {"status": "ok", "model": "gpt-5-mini", "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
 
 

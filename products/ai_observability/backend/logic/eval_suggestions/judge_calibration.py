@@ -39,6 +39,9 @@ MAX_OUTPUT_TOKENS = 2048
 MIN_CAUGHT_SHARE = 0.6
 # One false alarm per two review fails at most, so the real failures stay the bulk of what the judge flags.
 FAILS_PER_FALSE_ALARM = 2
+# A judge is trusted on calls it should pass only after it returned a verdict on this many, so a judge that fails
+# everything, or whose requests on passes all failed, cannot look clean.
+MIN_JUDGED_PASSES = 5
 # Calibration calls the OpenAI and Anthropic APIs through the Go gateway. A judge on another provider's default is
 # not calibrated, so the review does not run for it.
 GATEWAY_PROVIDERS: dict[str, Literal["openai", "anthropic"]] = {
@@ -95,6 +98,8 @@ class Calibration:
     review_fails: int
     caught: int
     review_passes: int
+    # Review passes the judge returned a verdict on. Only these can show a false alarm.
+    judged_passes: int
     false_alarms: int
     # Calls without a verdict: the request failed, the reply held none, or the deadline left no time to start it.
     unjudged: int
@@ -124,12 +129,15 @@ def build_client(team_id: int, run_id: str, model: str) -> anthropic.Anthropic |
 
 
 def calibration_calls(card: ReviewCard) -> list[int]:
-    """The review's fails, then its passes, CALIBRATION_CALLS at most. Calls the question does not apply to stay
-    out, since a fail rate counts only the calls it applies to."""
+    """The review's fails and passes, CALIBRATION_CALLS at most, half for each when both have that many: a judge
+    tested on fails alone would pass by failing everything. Calls the question does not apply to stay out, since a
+    fail rate counts only the calls it applies to."""
     labels = sorted(card.labels.items())
-    fails = [number for number, verdict in labels if verdict == "fail"][:CALIBRATION_CALLS]
+    fails = [number for number, verdict in labels if verdict == "fail"]
     passes = [number for number, verdict in labels if verdict == "pass"]
-    return fails + passes[: CALIBRATION_CALLS - len(fails)]
+    fail_slots = max(CALIBRATION_CALLS // 2, CALIBRATION_CALLS - len(passes))
+    picked_fails = fails[:fail_slots]
+    return picked_fails + passes[: CALIBRATION_CALLS - len(picked_fails)]
 
 
 def judge_request(card: ReviewCard, rendering: Rendering, number: int, model: str) -> JudgeRequest:
@@ -244,6 +252,7 @@ def calibrate(card: ReviewCard, numbers: Sequence[int], verdicts: Sequence[Verdi
         review_fails=sum(1 for label, _ in pairs if label == "fail"),
         caught=sum(1 for label, verdict in pairs if label == "fail" and verdict == "fail"),
         review_passes=sum(1 for label, _ in pairs if label == "pass"),
+        judged_passes=sum(1 for label, verdict in pairs if label == "pass" and verdict is not None),
         false_alarms=sum(1 for label, verdict in pairs if label == "pass" and verdict == "fail"),
         unjudged=sum(1 for _, verdict in pairs if verdict is None),
     )
@@ -253,6 +262,7 @@ def keeps(calibration: Calibration) -> bool:
     fails = calibration.review_fails
     return (
         fails > 0
+        and calibration.judged_passes >= MIN_JUDGED_PASSES
         and calibration.caught / fails >= MIN_CAUGHT_SHARE
         and calibration.false_alarms <= max(1, fails // FAILS_PER_FALSE_ALARM)
     )
@@ -260,9 +270,9 @@ def keeps(calibration: Calibration) -> bool:
 
 def measured(card: ReviewCard, calibration: Calibration) -> ReviewCard:
     """The card with the judge's own fail count over the review's applicable calls. When the review passed more
-    calls than calibration read, the judge's false alarms among those it read stand for the rest too."""
+    calls than the judge returned verdicts on, its false alarms among those stand for the rest too."""
     fails = sum(1 for verdict in card.labels.values() if verdict == "fail")
     caught = calibration.caught * fails / calibration.review_fails if calibration.review_fails else 0.0
     passes = card.of - fails
-    false_alarms = calibration.false_alarms * passes / calibration.review_passes if calibration.review_passes else 0.0
+    false_alarms = calibration.false_alarms * passes / calibration.judged_passes if calibration.judged_passes else 0.0
     return replace(card, failed=round(caught + false_alarms))
