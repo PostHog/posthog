@@ -79,7 +79,6 @@ class FlexFirstChatOpenAI(ChatOpenAI):
                 "timeout": FLEX_CALL_TIMEOUT if self._flex_requested else self.request_timeout,
             }
             max_retries = 0 if self._flex_requested else self.max_retries
-            # boffin: Completion and Responses resources share their root client's retry budget.
             self.root_client.max_retries = DEFAULT_MAX_RETRIES if max_retries is None else max_retries
             self.root_async_client.max_retries = DEFAULT_MAX_RETRIES if max_retries is None else max_retries
         return super()._get_request_payload(input_, stop=stop, **kwargs)
