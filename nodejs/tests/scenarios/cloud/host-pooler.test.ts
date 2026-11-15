@@ -165,7 +165,7 @@ class FakeHost implements PoolerHost {
         ) {
             return Promise.reject(new Error(`password authentication failed for user "${user}"`))
         }
-        if (!(pooler.settings.track_extra_parameters ?? '').split(/\s*,\s*/).includes('statement_timeout')) {
+        if (!(pooler.settings.ignore_startup_parameters ?? '').split(/\s*,\s*/).includes('statement_timeout')) {
             return Promise.reject(new Error('unsupported startup parameter: statement_timeout'))
         }
         if (pooler.databases[database] !== `host=${ENDPOINT} port=5432 dbname=cyclotron_node`) {
@@ -282,12 +282,14 @@ describe('host-pooler', () => {
         }
     })
 
-    it('keeps the parameters a profile tracks while letting the runner set its statement timeout', async () => {
-        await expect(poolOnHost(PUBLIC_IMAGE, RUN_ID, { track_extra_parameters: 'search_path' })).resolves.toBe(0)
+    it('keeps the startup parameters a profile ignores while letting the runner log in with its statement timeout', async () => {
+        await expect(
+            poolOnHost(PUBLIC_IMAGE, RUN_ID, { ignore_startup_parameters: 'extra_float_digits' })
+        ).resolves.toBe(0)
 
         for (const { settings } of host.poolers()) {
-            expect(settings.track_extra_parameters.split(/\s*,\s*/).sort()).toEqual([
-                'search_path',
+            expect(settings.ignore_startup_parameters.split(/\s*,\s*/).sort()).toEqual([
+                'extra_float_digits',
                 'statement_timeout',
             ])
         }

@@ -43,12 +43,16 @@ type Credentials = z.infer<typeof Credentials>
 
 const quoted = (value: string): string => `"${value.replaceAll('"', '""')}"`
 
-function configOf(pooler: Pooler, cluster: z.infer<typeof Cluster>, port: number): string {
-    const tracked = String(pooler.settings.track_extra_parameters ?? '')
+function ignoredParametersOf(pooler: Pooler): string {
+    const ignored = String(pooler.settings.ignore_startup_parameters ?? '')
         .split(',')
         .map((parameter) => parameter.trim())
         .filter((parameter) => parameter !== '' && parameter !== RUNNER_PARAMETER)
-    const settings = { ...pooler.settings, track_extra_parameters: [...tracked, RUNNER_PARAMETER].join(', ') }
+    return [...ignored, RUNNER_PARAMETER].join(', ')
+}
+
+function configOf(pooler: Pooler, cluster: z.infer<typeof Cluster>, port: number): string {
+    const settings = { ...pooler.settings, ignore_startup_parameters: ignoredParametersOf(pooler) }
     return [
         '[databases]',
         `${DATABASE} = host=${cluster.Endpoint} port=${cluster.Port} dbname=${DATABASE}`,
