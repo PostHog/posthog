@@ -24,7 +24,6 @@ const TRACK_MIN_DAY = 12
 const TRACK_MIN_DAYS = 21
 const TRACK_MAX_PAST_DAYS = 90
 const TRACK_MAX_FUTURE_DAYS = CALENDAR_DAYS_AFTER
-const TRACK_PAGE_SIZE = 20
 const TRACK_LABEL_ROOM = 120
 
 function trackScale(track: Track, width: number): Scale {
@@ -203,12 +202,10 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
                 {width > 0 && (
                     <TrackCardContext.Provider value={state}>
                         <DataTable
-                            key={rows.length > TRACK_PAGE_SIZE ? 'paged' : 'single'}
                             columns={COLUMNS}
                             data={rows}
                             size="sm"
                             getRowId={(lane) => lane.key}
-                            pageSize={rows.length > TRACK_PAGE_SIZE ? TRACK_PAGE_SIZE : undefined}
                             rowClassName={() => 'group/track'}
                         />
                     </TrackCardContext.Provider>

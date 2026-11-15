@@ -155,6 +155,18 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.LOGICMONITOR, "alerts", "logicmonitor", "incident"),
     (ExternalDataSourceType.AIRBRAKE, "groups", "airbrake", "issue"),
     (ExternalDataSourceType.MUX, "errors", "mux", "issue"),
+    # Tier-2 code, secret and cloud security scanners
+    (ExternalDataSourceType.SONARCLOUD, "issues", "sonarcloud", "scanner_finding"),
+    (ExternalDataSourceType.CHECKMARX, "scan_results", "checkmarx", "scanner_finding"),
+    (ExternalDataSourceType.VERACODE, "findings", "veracode", "scanner_finding"),
+    (ExternalDataSourceType.VERACODE, "sca_findings", "veracode_sca", "scanner_finding"),
+    (ExternalDataSourceType.SEMGREP, "sca_findings", "semgrep_sca", "scanner_finding"),
+    (ExternalDataSourceType.GITGUARDIAN, "secret_incidents", "gitguardian", "scanner_finding"),
+    (ExternalDataSourceType.INFISICAL, "secret_scanning_findings", "infisical", "scanner_finding"),
+    (ExternalDataSourceType.AWSMACIE, "findings", "aws_macie", "scanner_finding"),
+    (ExternalDataSourceType.SENTINELONE, "threats", "sentinelone", "scanner_finding"),
+    (ExternalDataSourceType.JFROGARTIFACTORY, "xray_violations", "jfrog_xray", "scanner_finding"),
+    (ExternalDataSourceType.DYNATRACE, "security_problems", "dynatrace_security", "scanner_finding"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]

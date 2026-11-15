@@ -125,6 +125,12 @@ class TestLLMJudgeVerdictMapping:
         assert judgment.model
         assert judgment.persisted_metadata() == {"rationale": judgment.rationale, "kind": kind}
 
+    def test_the_model_writes_its_rationale_before_its_verdict(self) -> None:
+        fields = list(LLMDetectionVerdict.model_json_schema()["properties"])
+
+        assert fields.index("rationale") < fields.index("is_anomaly")
+        assert fields.index("rationale") < fields.index("kind")
+
     def test_too_short_a_series_does_not_call_the_model(self) -> None:
         with patch.object(LLMSeriesJudge, "_ask_model") as ask:
             judgment = LLMSeriesJudge({"type": "llm"}).judge_latest(

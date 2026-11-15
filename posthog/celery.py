@@ -6,7 +6,6 @@ import threading
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.dispatch import receiver
 
 import structlog
 from celery import Celery, bootsteps
@@ -27,8 +26,6 @@ from celery.signals import (
     worker_process_shutdown,
     worker_ready,
 )
-from django_structlog.celery import signals
-from django_structlog.celery.steps import DjangoStructLogInitStep
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
 
@@ -106,9 +103,6 @@ app.autodiscover_tasks()
 # https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
 app.conf.broker_pool_limit = 0
 
-if app.steps:
-    app.steps["worker"].add(DjangoStructLogInitStep)
-
 task_timings: dict[str, float] = {}
 
 
@@ -174,14 +168,6 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     logging_config.dictConfig(logs.LOGGING)
-
-
-@receiver(signals.bind_extra_task_metadata)
-def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None):
-    import structlog
-
-    if task:
-        structlog.contextvars.bind_contextvars(task_name=task.name)
 
 
 @celeryd_init.connect
