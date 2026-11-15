@@ -5,6 +5,7 @@ rest, a rare severe failure can win and a common harmless one can lose, because 
 weekly failures by severity, uncovered scope and running cost.
 """
 
+import re
 import math
 import hashlib
 from collections import Counter
@@ -68,6 +69,10 @@ REVIEW_SEVERITY = 1.0
 REVIEW_TEMPLATE_KEY = "review"
 # The property that names each kind of call type on a live generation. A call type named by its input has none.
 CALL_TYPE_PROPERTIES = {"prompt_name": "$ai_prompt_name", "span_name": "$ai_span_name"}
+# Words that two phrasings of the same check swap freely, left out of a reviewed card's dedupe key.
+FILLER_WORDS = frozenset(
+    "a an the and or of to in on for is are it its that this whether if check checks does do".split()
+)
 
 # What a judge runs on when the team has no provider key yet: the evaluator's OpenAI default.
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
@@ -485,12 +490,26 @@ def screened_proposal(
 
 def call_type_filters(call_types: Sequence[CallTypeRow]) -> list[dict[str, Any]]:
     """An exact filter on the property that names the call types, or [] for every generation when one property
-    does not name them all."""
+    does not name them all. A generation with a prompt name belongs to that prompt's call type even when it has a
+    span name too, so a span-name filter leaves out generations with a prompt name."""
     sources = {call_type.source for call_type in call_types}
-    key = CALL_TYPE_PROPERTIES.get(next(iter(sources))) if len(sources) == 1 else None
+    source = next(iter(sources)) if len(sources) == 1 else ""
+    key = CALL_TYPE_PROPERTIES.get(source)
     if key is None:
         return []
-    return [{"key": key, "value": sorted(c.name for c in call_types), "operator": "exact", "type": "event"}]
+    names = {"key": key, "value": sorted(c.name for c in call_types), "operator": "exact", "type": "event"}
+    if source != "span_name":
+        return [names]
+    return [names, {"key": CALL_TYPE_PROPERTIES["prompt_name"], "value": [], "operator": "is_not_set", "type": "event"}]
+
+
+def review_dedupe_key(card: ReviewCard) -> str:
+    """The card's call types and the words of what its judge checks. A later review of the same failure writes a
+    new title and judge prompt, so neither is in the key, and the check's case, punctuation, word order and filler
+    words are left out too. A check reworded beyond that gets a new key."""
+    keys = ",".join(sorted(c.key for c in card.call_types))
+    words = sorted(set(re.findall(r"\w+", card.checks.lower())) - FILLER_WORDS)
+    return bounded_key(f"review:{keys}:{' '.join(words)}")
 
 
 def review_proposal(card: ReviewCard, profile: TeamProfile, *, judge_model: str) -> Proposal:
@@ -500,11 +519,10 @@ def review_proposal(card: ReviewCard, profile: TeamProfile, *, judge_model: str)
     weekly_units = 7 * sum(c.calls for c in card.call_types) if filters else profile.generations
     cost = judge_cost(weekly_units, profile.mean_input_tokens, judge_model)
     text = cards.review_text(card, cards.cost_clause(cost.weekly_cost_usd, free=False))
-    keys = ",".join(sorted(c.key for c in card.call_types))
     return Proposal(
         kind=EvalSuggestionKind.NEW_LLM_JUDGE,
         template_key=REVIEW_TEMPLATE_KEY,
-        dedupe_key=bounded_key(f"review:{keys}:{card.title.lower()}"),
+        dedupe_key=review_dedupe_key(card),
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
