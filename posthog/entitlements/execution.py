@@ -53,21 +53,18 @@ def list_behind_reactor_keys(organization_id: str) -> list[str]:
     return get_behind_reactor_keys(organization_id, load_entitlements(organization_id))
 
 
-_REACTOR_LOCK_TIMEOUT_MS = 30_000
+_REACTOR_LOCK_TIMEOUT_MS = 5_000
 
 
 @contextmanager
 def _reactor_execution(organization_id: str, reactor_key: str) -> Iterator[None]:
-    with transaction.atomic(using="default"):
+    with transaction.atomic(using="default", durable=True):
         with connections["default"].cursor() as cursor:
-            cursor.execute("SHOW lock_timeout")
-            previous_timeout = cursor.fetchone()[0]
             cursor.execute("SELECT set_config('lock_timeout', %s, true)", [f"{_REACTOR_LOCK_TIMEOUT_MS}ms"])
             cursor.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 [f"entitlement-reactor:{UUID(organization_id)}:{reactor_key}"],
             )
-            cursor.execute("SELECT set_config('lock_timeout', %s, true)", [previous_timeout])
         yield
 
 

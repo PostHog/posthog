@@ -1,11 +1,14 @@
 from typing import Any, cast
 
+import pytest
 from unittest.mock import patch
 
+from django.db import OperationalError, connection, transaction
 from django.db.models.query import QuerySet
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
+import psycopg
 from parameterized import parameterized
 
 from posthog.entitlements.contracts import EntitlementChange, EntitlementReactor, Entitlements, FeatureEntry
@@ -175,3 +178,101 @@ class TestEntitlementExecution(TestCase):
         self.organization.refresh_from_db()
         assert self.organization.available_product_features == previous_features
         assert not OrganizationEntitlementAppliedState.objects.filter(organization=self.organization).exists()
+
+
+class TestReactorTransaction(TransactionTestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Fixture organization")
+        Organization.objects.filter(id=self.organization.id).update(
+            available_product_features=[{"key": "fixture", "limit": 2}]
+        )
+        self.effect = OrganizationEventsRetentionConfig.objects.create(
+            organization=self.organization, default_events_retention_months=1
+        )
+        self.checkpoint = OrganizationEntitlementAppliedState.objects.create(
+            organization=self.organization,
+            reactor_key="fixture",
+            snapshot=[{"key": "fixture", "limit": 1, "unit": None}],
+            applied_at=timezone.now(),
+        )
+        self.lock_timeouts: list[str] = []
+        self.fail_after_write = False
+        registry = EntitlementReactorRegistry(
+            reactors=(EntitlementReactor(key="fixture", feature_keys=frozenset({"fixture"}), react=self.react),)
+        )
+        registry_patch = patch("posthog.entitlements.execution.get_entitlement_reactor_registry", return_value=registry)
+        registry_patch.start()
+        self.addCleanup(registry_patch.stop)
+
+    def react(self, change: EntitlementChange) -> None:
+        self.lock_timeouts.append(self.lock_timeout())
+        OrganizationEventsRetentionConfig.objects.filter(organization_id=change.organization_id).update(
+            default_events_retention_months=change.current.limit("fixture")
+        )
+        if self.fail_after_write:
+            raise RuntimeError("Fixture failure after product write")
+
+    def lock_timeout(self) -> str:
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW lock_timeout")
+            return cursor.fetchone()[0]
+
+    def assert_persisted_limit(self, limit: int) -> None:
+        self.effect.refresh_from_db()
+        self.checkpoint.refresh_from_db()
+        assert self.effect.default_events_retention_months == limit
+        assert self.checkpoint.snapshot == [{"key": "fixture", "limit": limit, "unit": None}]
+
+    def test_rejects_outer_transaction_before_reactor_writes(self) -> None:
+        with self.assertRaisesMessage(RuntimeError, "durable atomic block cannot be nested"), transaction.atomic():
+            execute_entitlement_reactor(str(self.organization.id), "fixture")
+        assert self.lock_timeouts == []
+        self.assert_persisted_limit(1)
+        assert execute_entitlement_reactor(str(self.organization.id), "fixture").applied
+        self.assert_persisted_limit(2)
+
+    @parameterized.expand([("commit", False), ("rollback", True)])
+    def test_timeout_does_not_escape_reactor_transaction(self, _name: str, fail_after_write: bool) -> None:
+        previous_timeout = self.lock_timeout()
+        self.fail_after_write = fail_after_write
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '17s'")
+            if fail_after_write:
+                with self.assertRaisesMessage(RuntimeError, "Fixture failure after product write"):
+                    execute_entitlement_reactor(str(self.organization.id), "fixture")
+            else:
+                assert execute_entitlement_reactor(str(self.organization.id), "fixture").applied
+            assert self.lock_timeouts == ["5s"]
+            assert self.lock_timeout() == "17s"
+            self.assert_persisted_limit(1 if fail_after_write else 2)
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT set_config('lock_timeout', %s, false)", [previous_timeout])
+
+    @parameterized.expand([("advisory",), ("checkpoint",)])
+    @pytest.mark.timeout(30)
+    def test_lock_contention_rolls_back_and_can_retry(self, lock_kind: str) -> None:
+        previous_timeout = self.lock_timeout()
+        with psycopg.connect(**connection.get_connection_params()) as blocker:
+            with blocker.transaction():
+                if lock_kind == "advisory":
+                    blocker.execute(
+                        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                        [f"entitlement-reactor:{self.organization.id}:fixture"],
+                    )
+                else:
+                    blocker.execute(
+                        "SELECT id FROM posthog_organizationentitlementappliedstate WHERE id = %s FOR UPDATE",
+                        [self.checkpoint.id],
+                    )
+                blocker_timeout = blocker.execute("SHOW lock_timeout").fetchone()
+                with self.assertRaises(OperationalError) as error:
+                    execute_entitlement_reactor(str(self.organization.id), "fixture")
+                assert isinstance(error.exception.__cause__, psycopg.errors.LockNotAvailable)
+                assert self.lock_timeout() == previous_timeout
+                assert blocker.execute("SHOW lock_timeout").fetchone() == blocker_timeout
+                self.assert_persisted_limit(1)
+        assert execute_entitlement_reactor(str(self.organization.id), "fixture").applied
+        self.assert_persisted_limit(2)
+        assert self.lock_timeouts == ["5s"] * (2 if lock_kind == "checkpoint" else 1)
