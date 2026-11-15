@@ -363,6 +363,7 @@ export interface IntegrationConfigCreateApi {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `google-tag-manager` - Google Tag Manager
      * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram

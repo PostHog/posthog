@@ -7476,6 +7476,7 @@ export namespace Schemas {
         | "google-calendar"
         | "google-search-console"
         | "google-sheets"
+        | "google-tag-manager"
         | "linkedin-ads"
         | "snapchat"
         | "stripe"
