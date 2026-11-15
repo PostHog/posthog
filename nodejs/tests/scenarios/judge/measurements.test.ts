@@ -84,6 +84,16 @@ const VALVE: ValveTimelineEntry = {
     releasedAt: isoAt(1100),
 }
 
+const FAILOVER: ValveTimelineEntry = {
+    ...VALVE,
+    valve: 'pg.failover',
+    target: 'cyclotron',
+    observations: [
+        { name: 'cluster_writer', at: isoAt(720) },
+        { name: 'first_probe_commit', at: isoAt(740) },
+    ],
+}
+
 const everySecondOf = (fromS: number, toS: number, step = 1): number[] =>
     Array.from({ length: Math.floor((toS - fromS) / step) + 1 }, (_, i) => fromS + i * step)
 
@@ -372,6 +382,27 @@ describe('measurements', () => {
             [{ value: 1 }],
         ],
         [
+            'times each recovery stage the failover observed from its intent',
+            'seconds_to_cluster_writer',
+            () => false,
+            [FAILOVER],
+            [{ value: 20 }],
+        ],
+        [
+            'times the first probe commit on the promoted writer, not the first commit after a failure',
+            'seconds_to_first_probe_commit',
+            between(710, 714),
+            [FAILOVER],
+            [{ value: 40 }],
+        ],
+        [
+            'censors a recovery stage the failover never observed',
+            'seconds_to_sql_writer',
+            () => false,
+            [FAILOVER],
+            [{ value: null, censored: true }],
+        ],
+        [
             'reads no failure in the valve phase as no wait for a commit',
             'seconds_to_first_probe_commit',
             () => false,
@@ -563,6 +594,15 @@ describe('measurements', () => {
                 { ...VALVE, intentAt: isoAt(900) },
             ],
             { baseline: { from: atS(0), to: atS(700) }, valve: { from: atS(700), to: atS(1500) } },
+        ],
+        [
+            'starts the fail-back phase at the release intent, not when the fail-back was observed',
+            [{ ...FAILOVER, releaseIntentAt: isoAt(1000), releasedAt: isoAt(1040) }],
+            {
+                baseline: { from: atS(0), to: atS(700) },
+                valve: { from: atS(700), to: atS(1000) },
+                failback: { from: atS(1000), to: atS(1500) },
+            },
         ],
         [
             'reads the whole drive as baseline when no valve applied',

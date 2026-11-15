@@ -6,6 +6,7 @@ import { internalFetch } from '~/common/utils/request'
 
 import type { Named } from '../cards'
 import type { Definition } from '../cards/definitions'
+import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
 import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
@@ -149,11 +150,12 @@ export type Phase = { from: number; to: number }
 export type Phases = { baseline: Phase; valve?: Phase; failback?: Phase }
 
 export function phasesOf(drive: DriveWindow, timeline: readonly ValveTimelineEntry[]): Phases {
-    const applied = timeline.flatMap(({ intentAt, releasedAt }) =>
-        intentAt === undefined
+    const applied = timeline.flatMap(({ intentAt, releaseIntentAt, releasedAt }) => {
+        const released = releaseIntentAt ?? releasedAt
+        return intentAt === undefined
             ? []
-            : [{ intent: Date.parse(intentAt), released: releasedAt === undefined ? Infinity : Date.parse(releasedAt) }]
-    )
+            : [{ intent: Date.parse(intentAt), released: released === undefined ? Infinity : Date.parse(released) }]
+    })
     if (applied.length === 0) {
         return { baseline: { from: drive.startedAt, to: drive.endedAt } }
     }
@@ -397,13 +399,37 @@ const inPhase = (
     },
 })
 
+function sinceIntent(timeline: readonly ValveTimelineEntry[], name: ObservationName): Measured[] | undefined {
+    const journalled = timeline.find(({ intentAt, observations }) => intentAt !== undefined && observations)
+    if (journalled === undefined) {
+        return undefined
+    }
+    const observation = journalled.observations!.find((candidate) => candidate.name === name)
+    return observation === undefined
+        ? [{ value: null, censored: true }]
+        : [{ value: seconds(Date.parse(observation.at) - Date.parse(journalled.intentAt!)) }]
+}
+
+const observed = (name: string, observation: ObservationName): MeasurementDefinition => ({
+    name,
+    params: z.object({}).strict(),
+    unit: 's',
+    measure: ({ timeline }) => sinceIntent(timeline, observation) ?? [],
+})
+
 export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
+    observed('seconds_to_cluster_writer', 'cluster_writer'),
+    observed('seconds_to_sql_writer', 'sql_writer'),
     inPhase('writer_unavailable_seconds', 's', 'valve', ({ writer }, phase) => writerUnavailable(writer, phase)),
     inPhase('failback_writer_unavailable_seconds', 's', 'failback', ({ writer }, phase) =>
         writerUnavailable(writer, phase)
     ),
-    inPhase('seconds_to_first_probe_commit', 's', 'valve', ({ writer }, phase) =>
-        firstCommitAfterFailure(writer, phase)
+    inPhase(
+        'seconds_to_first_probe_commit',
+        's',
+        'valve',
+        ({ writer, timeline }, phase) =>
+            sinceIntent(timeline, 'first_probe_commit') ?? firstCommitAfterFailure(writer, phase)
     ),
     inPhase('queue_lag_peak_seconds', 's', 'valve', ({ queue }, phase) => {
         const ages = counted(queue)
