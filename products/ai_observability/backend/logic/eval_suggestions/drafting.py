@@ -17,8 +17,8 @@ from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import Product, build_openai_client, team_distinct_id
 from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
 
+from .prices import MODEL_PRICES
 from .profile import StructuredGap, TeamProfile
-from .ranking import MODEL_PRICES
 from .screening import AI_PRODUCT
 
 logger = structlog.get_logger(__name__)

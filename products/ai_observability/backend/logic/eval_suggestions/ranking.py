@@ -25,6 +25,7 @@ from . import cards, catalog
 from .adapters import AdaptedCheck
 from .coverage import EvalFix, fix_dedupe_key
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
+from .prices import MODEL_PRICES
 from .profile import StructuredGap, TeamProfile, normalize_segment_value
 from .stats import wilson_interval
 
@@ -61,20 +62,6 @@ SEVERITY: dict[str, float] = {
 FIX_SEVERITY = 1.0
 
 
-@frozen
-class ModelPrice:
-    input_per_token: float
-    output_per_token: float
-
-
-# ponytail: list prices of each provider's default model, read for estimates only. Model prices live in the
-# Node ingestion package, which the Python image does not ship; move this to a shared file when a caller
-# outside eval suggestions needs prices. A test keeps every provider default priced here.
-MODEL_PRICES: dict[str, ModelPrice] = {
-    "gpt-5-mini": ModelPrice(input_per_token=0.25e-6, output_per_token=2e-6),
-    "claude-haiku-4-5": ModelPrice(input_per_token=1e-6, output_per_token=5e-6),
-    "gemini-2.5-flash": ModelPrice(input_per_token=0.3e-6, output_per_token=2.5e-6),
-}
 # What a judge runs on when the team has no provider key yet: the evaluator's OpenAI default.
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
 
