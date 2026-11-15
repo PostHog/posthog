@@ -14,14 +14,6 @@ import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.sch
 import { codeEmailLogic } from './codeEmailLogic'
 import { CodeEmailTabs } from './CodeEmailTabs'
 
-// The summary table needs metric queries to draw its issue tags, so a stand-in exposes one tag's click.
-// WorkflowMetrics, which turns that click into a drilldown, stays real.
-jest.mock('../../Workflows/WorkflowMetricsSummary', () => ({
-    WorkflowMetricsSummary: ({ onMetricClick }: { onMetricClick?: (metric: string) => void }) => (
-        <button onClick={() => onMetricClick?.('email_bounced_transient')}>3 soft bounced</button>
-    ),
-}))
-
 const codeEmail: CodeEmailApi = {
     id: 'email-id',
     key: 'password-reset',
@@ -52,7 +44,23 @@ describe('CodeEmailTabs', () => {
                 return [200, { results: sends, has_more: false }]
             },
         },
-        post: { '/api/environments/:team_id/query/': { results: [] } },
+        post: {
+            '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+                const { query } = ((await request.json()) as { query: { query: string } }).query
+                const isEmailTotals = query.includes('instance_id, metric_name') && query.includes('email_bounced_hard')
+                return [
+                    200,
+                    {
+                        results: isEmailTotals
+                            ? [
+                                  [10, 'email-step', 'email_sent'],
+                                  [3, 'email-step', 'email_bounced_transient'],
+                              ]
+                            : [],
+                    },
+                ]
+            },
+        },
     })
 
     const mountTabs = (): void => {
@@ -143,12 +151,20 @@ describe('CodeEmailTabs', () => {
     })
 
     it('opens the run logs behind a clicked email metric on this page, also from a link opened again or saved before the Sends list, until the reader picks Sends', async () => {
-        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        useMocks(
+            mocks(() => [
+                200,
+                {
+                    id: 'flow-id',
+                    actions: [{ id: 'email-step', name: 'Password reset email', type: 'function_email', config: {} }],
+                },
+            ])
+        )
         renderTabs()
         router.actions.push(urls.transactionalCodeEmail('email-id'))
         const page = router.values.location.pathname
 
-        fireEvent.click(await screen.findByText('3 soft bounced'))
+        fireEvent.click(await screen.findByText(/^3 soft bounced/))
 
         expect(await screen.findByText('Re-run…')).toBeInTheDocument()
         expect(router.values.location.pathname).toEqual(page)
