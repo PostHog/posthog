@@ -351,6 +351,7 @@ describe('workflowLogic email step "from" validation', () => {
         ["a sender the editor can't see", { integrationId: 99 }, null],
         ['an unverified sender in the rotation', { integrationId: 42, integrationIds: [42, 43] }, "isn't verified yet"],
         ['an unverified primary sender a rotation replaces', { integrationId: 43, integrationIds: [42] }, null],
+        ['an unverified sender stored as text, which names no sender', { integrationId: '43' }, null],
     ])('shows the sender error, if any, for %s before any save attempt', async (_name, fromValue, message) => {
         const senders = [
             { id: 42, kind: 'email', config: { verified: true, email: 'hi@example.com' } },
