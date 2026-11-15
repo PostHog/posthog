@@ -5,7 +5,7 @@ import path from 'path'
 
 import { LoadedCard, load } from '../cards'
 import type { JournalEntry } from '../judge/judge'
-import { SeedState, drive, scheduleOf } from './generator'
+import { SeedState, drive } from './generator'
 import type { OfferContext } from './traffic'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
@@ -381,63 +381,76 @@ describe('drive', () => {
         expect(await firstTeamsFor(1)).toEqual(first)
         expect(await firstTeamsFor(2)).not.toEqual(first)
     })
-})
 
-describe('scheduleOf', () => {
-    const twoKinds = (drive: Partial<LoadedCard['card']['drive']>): LoadedCard => ({
-        ...SMOKE,
-        card: {
-            ...SMOKE.card,
-            drive: {
-                ...SMOKE.card.drive,
-                traffic: [
-                    { name: 'event_email', params: {} },
-                    { name: 'event_webhook', params: {} },
-                ],
-                ...drive,
-            },
-        },
-        profile: {
-            ...SMOKE.profile,
-            traffic: { event_email: { ratePerSecond: 2 }, event_webhook: { ratePerSecond: 1 } },
-        },
-    })
-
-    const unitsPerStep = (loaded: LoadedCard, stepsEndAtMs: number[]): Record<string, number>[] =>
-        stepsEndAtMs.map((endsAtMs, i) => {
-            const startsAtMs = i === 0 ? 0 : stepsEndAtMs[i - 1]
-            const inStep = scheduleOf(loaded).filter(({ atMs }) => atMs >= startsAtMs && atMs < endsAtMs)
-            return Object.fromEntries(
-                [...Map.groupBy(inStep, ({ kind }) => kind.name)].map(([name, units]) => [name, units.length])
-            )
-        })
-
-    it.each<[string, Partial<LoadedCard['card']['drive']>, number[], Record<string, number>[]]>([
+    it.each<[string, Partial<LoadedCard['card']['drive']>, Record<string, number>[]]>([
         [
             'a card without a ramp offers the base rates for the whole drive',
-            { for: '20s' },
-            [10_000, 20_000],
+            { for: '2s' },
             [
-                { event_email: 20, event_webhook: 10 },
-                { event_email: 20, event_webhook: 10 },
+                { email: 4, webhook: 2 },
+                { email: 4, webhook: 2 },
             ],
         ],
         [
             'a ramped card multiplies every base rate by its step and keeps the split between kinds',
             {
-                for: '20s',
+                for: '2s',
                 ramp: [
-                    { scale: 1, for: '10s' },
-                    { scale: 10, for: '10s' },
+                    { scale: 1, for: '1s' },
+                    { scale: 10, for: '1s' },
                 ],
             },
-            [10_000, 20_000],
             [
-                { event_email: 20, event_webhook: 10 },
-                { event_email: 200, event_webhook: 100 },
+                { email: 4, webhook: 2 },
+                { email: 40, webhook: 20 },
             ],
         ],
-    ])('%s', (_story, drive, stepsEndAtMs, expected) => {
-        expect(unitsPerStep(twoKinds(drive), stepsEndAtMs)).toEqual(expected)
+    ])('%s', async (_story, ramped, expected) => {
+        const card: LoadedCard = {
+            ...SMOKE,
+            card: {
+                ...SMOKE.card,
+                drive: {
+                    ...SMOKE.card.drive,
+                    traffic: [
+                        { name: 'event_email', params: {} },
+                        { name: 'event_webhook', params: {} },
+                    ],
+                    ...ramped,
+                },
+            },
+            profile: {
+                ...SMOKE.profile,
+                traffic: { event_email: { ratePerSecond: 4 }, event_webhook: { ratePerSecond: 2 } },
+            },
+        }
+        const journal: JournalEntry[] = []
+        const seeded = {
+            teamIds: [7],
+            flowIds: { event_email: { 7: 'email-flow' }, event_webhook: { 7: 'webhook-flow' } },
+        }
+        const startedAt = Date.now()
+        const driving = drive(card, seeded, { record: (entry) => journal.push(entry) }, NEVER_ABORTED, {
+            producer: { produce: ACKNOWLEDGED },
+            eventsTopic: 'scenario_events_test',
+            cdpApi: CDP_API,
+            sesFeedback: NO_FEEDBACK,
+            runId: 'run-a',
+        })
+
+        await jest.advanceTimersByTimeAsync(2000)
+        await driving
+
+        const offeredIn = (fromMs: number): Record<string, number> => {
+            const inStep = journal.filter(
+                ({ offeredAt }) => offeredAt - startedAt >= fromMs && offeredAt - startedAt < fromMs + 1000
+            )
+            return Object.fromEntries(
+                [
+                    ...Map.groupBy(inStep, ({ expect }) => (expect.deliveries.includes('email') ? 'email' : 'webhook')),
+                ].map(([kind, units]) => [kind, units.length])
+            )
+        }
+        expect([offeredIn(0), offeredIn(1000)]).toEqual(expected)
     })
 })

@@ -56,6 +56,7 @@ function environmentWhoseResetFails(): Environment {
         roles: () => [],
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         actuate: () => Promise.reject(new Error('the main test schedules no valves')),
+        writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
         down: () => Promise.resolve(),

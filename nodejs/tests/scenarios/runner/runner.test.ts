@@ -122,6 +122,7 @@ describe('runner', () => {
                 metricsUrl: processMetrics.url,
             })),
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
+        writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
@@ -681,6 +682,7 @@ describe('runner through seed, drive and judge', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
+        writerCpu: () => Promise.reject(new Error('a local run reads no writer CPU')),
         down: async () => {
             await roles?.stop()
             roles = undefined

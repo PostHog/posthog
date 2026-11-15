@@ -65,17 +65,6 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 - **Evidence:** the host uploads its evidence with a checksum manifest to the run's prefix in the evidence bucket.
 - **Locally:** the card is `invalid` at the valve, because only a run host carries the run manifest.
 
-### Run the scale card in the cloud
-
-`cyclotron-scale` runs the same way, with the same controller, profiles and evidence.
-It ramps the profile's rates through 1x, 2x and 5x for 5 minutes each, then holds 10x for 30 minutes.
-
-- **What it answers:** whether the Cyclotron writer and the workers keep up at 10x, and at which step they stop.
-- **Pass bars:** the writer's CPU stays under 70% in every step, read from CloudWatch, and the p99 job pickup stays at or under 5 seconds on every queue, read from the workers' lateness histogram.
-- **Breaking point:** the first step where a bar fails names its scale, its start and the units offered per second in it.
-- **Load admission:** judged on the 1x step, at the profile's own rates.
-- **Locally:** the card is `invalid` at its writer CPU bar, because only a run host can read the writer's CPU.
-
 ## Glossary
 
 | Term              | Meaning                                                                                                                                                                                                                                             |
@@ -422,8 +411,13 @@ A card names its profile, its seed, the number of teams to seed, its traffic kin
 `drive.minOffered` is the share of target units that must count as offered for the run to judge, 0.9 by default.
 `drive.ramp` splits the drive into steps, each with a `scale` that multiplies every traffic kind's profile rate and a `for`; the steps add up to `drive.for`.
 A card without a ramp drives at 1x throughout.
-`bars` lists pass bars that every ramp step must stay under: `writer_cpu_under` with `percent`, and `pickup_p99_under` with `seconds`.
-The first step where a bar fails is the bar's breaking point, and the run fails; a bar that cannot be read in a step makes the run `invalid`.
+`bars` lists pass bars that every ramp step must stay under:
+
+- `writer_cpu_under` with `percent`: the highest CloudWatch `CPUUtilization` minute of the run cluster's writer. Only whole minutes inside a step count, and every one of them needs a reading. It reads only on a run host.
+- `pickup_p99_under` with `seconds` and `queues`: the p99 of `cdp_cyclotron_job_lateness_seconds` on each named queue, from the worker scrapes. A p99 beyond the histogram's largest bucket reads as that bucket, and a named queue with no pickup in a step reads as the step's length, and the last step also counts pickups after the drive ends. A worker whose scrapes stop for more than 15 seconds leaves the step unread.
+
+The first step where a bar fails is the bar's breaking point, and the run fails. A bar that cannot be read in a step makes the run `invalid`.
+A ramped card is admitted on its first step, at the profile's own rates.
 
 ```yaml
 id: email-worker-killed
@@ -807,20 +801,21 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 
 **Verdict**
 
-| Property            | Type            | Meaning                                                                                                     |
-| ------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
-| `status`            | string          | `passed`, `failed` or `invalid`                                                                             |
-| `status_reason`     | string          | Why, in one line                                                                                            |
-| `started_at`        | string          | ISO 8601 time the run started                                                                               |
-| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                     |
-| `duration_s`        | number          | Seconds from start to end                                                                                   |
-| `units_target`      | number or null  | Units the profile asked for                                                                                 |
-| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended |
-| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                         |
-| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                |
-| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error        |
-| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                         |
-| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                  |
+| Property            | Type            | Meaning                                                                                                                                                                                   |
+| ------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`            | string          | `passed`, `failed` or `invalid`                                                                                                                                                           |
+| `status_reason`     | string          | Why, in one line                                                                                                                                                                          |
+| `started_at`        | string          | ISO 8601 time the run started                                                                                                                                                             |
+| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                                                                                                   |
+| `duration_s`        | number          | Seconds from start to end                                                                                                                                                                 |
+| `units_target`      | number or null  | Units the profile asked for                                                                                                                                                               |
+| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended                                                                               |
+| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                                                                                       |
+| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                                                                                              |
+| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                                                                                      |
+| `bars`              | array           | One entry per bar: its name, unit and whether it passed, with the breaking point (the step's scale and start, units offered per second, the queue and the value) or why it was not judged |
+| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                       |
+| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                                                                                                |
 
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:

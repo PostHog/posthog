@@ -9,6 +9,8 @@ import { isPortFree } from '~/tests/helpers/service-process'
 import { Profile, ROLE_RESTART_BACKOFF_MS } from '../cards'
 import { Aws, awsCli } from '../cloud/aws'
 import type { RunManifest } from '../cloud/lease'
+import type { CpuPoint } from '../judge/bars'
+import type { DriveWindow } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
 import { FaultHold, FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
 import { FailoverJournal, FailoverOptions, failOver, sqlIdentityOf } from './failover'
@@ -44,6 +46,7 @@ import {
     terminateRoleConnections,
 } from './stack'
 import { RoleExit, createSupervisor } from './supervisor'
+import { writerCpuOf } from './writer-cpu'
 
 export type { RoleExit } from './supervisor'
 
@@ -57,6 +60,7 @@ export interface Environment {
     dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
+    writerCpu(manifest: RunManifest, window: DriveWindow): Promise<CpuPoint[]>
     down(): Promise<void>
 }
 
@@ -212,6 +216,8 @@ export function createEnvironment({
         exits: (): RoleExit[] => supervisor.exits(),
 
         groupLag: (group) => groupLag(group, docker),
+
+        writerCpu: (manifest, window) => writerCpuOf(aws ?? awsCli(env), manifest, window),
 
         down: stop,
     }

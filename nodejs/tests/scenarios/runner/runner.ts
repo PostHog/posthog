@@ -20,8 +20,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { residentBacklogOf } from '../backlog/backlog'
-import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, stepsOf } from '../cards'
-import { Aws, awsCli } from '../cloud/aws'
+import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, Step, stepsOf } from '../cards'
 import { runManifestOf } from '../cloud/lease'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
@@ -35,7 +34,6 @@ import {
     secretsOf,
 } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
-import { writerCpuOf } from '../environment/writer-cpu'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { BarResult, CpuPoint, judgeBars } from '../judge/bars'
@@ -284,12 +282,17 @@ async function seedWithin(
     }
 }
 
-export type RunnerOptions = { seedWithinMs?: number; aws?: Aws }
+const firstStepOf = (drive: DriveWindow, [first]: Step[]): DriveWindow => ({
+    ...drive,
+    endedAt: Math.min(drive.endedAt, drive.startedAt + first.toMs),
+})
+
+export type RunnerOptions = { seedWithinMs?: number }
 
 export function createRunner(
     environment: Environment,
     env: NodeJS.ProcessEnv = process.env,
-    { seedWithinMs = SEED_WITHIN_MS, aws }: RunnerOptions = {}
+    { seedWithinMs = SEED_WITHIN_MS }: RunnerOptions = {}
 ): Runner {
     const stateDir = defaultStateDir(env)
     const manifest = runManifestOf(env)
@@ -303,7 +306,7 @@ export function createRunner(
         if (manifest === undefined) {
             return { unread: 'no writer CPU reading off a run host' }
         }
-        return writerCpuOf(aws ?? awsCli(env), manifest, window).catch((error: unknown) => ({
+        return environment.writerCpu(manifest, window).catch((error: unknown) => ({
             unread: `the writer CPU read failed: ${messageOf(error)}`,
         }))
     }
@@ -440,11 +443,10 @@ export function createRunner(
                 }
                 const measurements = measure(card.measure, evidence)
                 const steps = stepsOf(card.drive)
-                // A ramped card admits its load on the first step, at the profile's own rates.
-                const admittedOn = card.drive.ramp
-                    ? { ...driveWindow, endedAt: Math.min(driveWindow.endedAt, driveWindow.startedAt + steps[0].toMs) }
-                    : driveWindow
-                const admissions = admissionsOf(profile, baselineOf({ ...evidence, drive: admittedOn }))
+                const admissions = admissionsOf(
+                    profile,
+                    baselineOf({ ...evidence, drive: firstStepOf(driveWindow, steps) })
+                )
                 const bars = judgeBars(card.bars, {
                     ...evidence,
                     steps,

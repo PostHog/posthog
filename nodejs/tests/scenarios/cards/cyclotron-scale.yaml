@@ -36,7 +36,8 @@ bars:
     - name: pickup_p99_under
       params:
           seconds: 5
+          queues:
+              - hogflow
+              - email
 measure:
     - name: delivery_latency_ms
-    - name: baseline_claims_per_second
-    - name: baseline_new_jobs_per_second

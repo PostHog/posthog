@@ -85,10 +85,7 @@ export async function seed(
     return { teamIds, flowIds }
 }
 
-export function scheduleOf({
-    card,
-    profile,
-}: Pick<LoadedCard, 'card' | 'profile'>): { kind: TrafficKind; atMs: number }[] {
+function scheduleOf({ card, profile }: Pick<LoadedCard, 'card' | 'profile'>): { kind: TrafficKind; atMs: number }[] {
     return card.drive.traffic
         .flatMap(({ name }) => {
             const kind = trafficKind(name)
