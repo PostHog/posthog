@@ -485,6 +485,11 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
             ("parent_without_value", {"source": "promql", "query": 'label_values(up{job="$job"}, instance)'}, "$job"),
             ("unknown_function", {"source": "promql", "query": "sum(up)"}, "label_values"),
             ("bad_label", {"source": "promql", "query": "label_values(up, 1abc)"}, "not a label name"),
+            (
+                "promql_too_long",
+                {"source": "promql", "query": "label_values(up, job)" + " " * 9000},
+                "cannot be longer than 8192 characters",
+            ),
             ("empty_query", {"source": "sql", "query": " "}, "Write a query"),
             ("invalid_regex", {"source": "promql", "query": "label_values(job)", "regex": "("}, "regex cannot be used"),
         ]

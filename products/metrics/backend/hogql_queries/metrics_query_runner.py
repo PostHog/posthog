@@ -53,7 +53,7 @@ from products.metrics.backend.facade.enums import (
     MetricRangeFunction,
     MetricType,
 )
-from products.metrics.backend.promql import run_promql_range
+from products.metrics.backend.promql import check_promql_length, run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.query_interval import resolve_query_interval
 from products.metrics.backend.sql_mode import run_metrics_sql
@@ -212,9 +212,12 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         if language == MetricsQueryLanguage.PROMQL:
             if not (self.query.promql or "").strip():
                 raise ValueError("Write a PromQL query first.")
+            check_promql_length(self.query.promql or "")
             promql = substitute_promql(self.query.promql or "", variables)
             if promql.unresolved:
                 raise ValueError(unresolved_message(promql.unresolved))
+            # Variable values can make the expression longer than the text that was sent.
+            check_promql_length(promql.text)
             # A variable set to All writes `label=~".*"`, which matches every series.
             text = drop_match_all_matchers(promql.text) if promql.text != self.query.promql else promql.text
             return run_promql_range(self.team, text, date_from, date_to, interval)

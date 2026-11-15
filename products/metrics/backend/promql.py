@@ -16,7 +16,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries, PromQLQueryError
+from products.metrics.backend.facade.contracts import MAX_PROMQL_LENGTH, MetricPoint, MetricSeries, PromQLQueryError
 from products.metrics.backend.metric_query_runner import _align_to_interval, _interval_step, _resolve_interval
 from products.metrics.backend.query_counts import record_promql_query
 from products.metrics.backend.series import rank_and_fill_series
@@ -37,6 +37,12 @@ _SHARED_HISTOGRAM_QUANTILES = re.compile(
 # does not know them, so they become the chart's date range before the query goes out. A `\$__range` in a
 # regex matcher is an escaped literal dollar, so it stays.
 _RANGE_VARIABLE = re.compile(r"(?<!\\)\$\{__range(?P<braced>_s|_ms)?\}|(?<!\\)\$__range(?P<plain>_s|_ms)?\b")
+
+
+def check_promql_length(expr: str) -> None:
+    """Raises `ValueError` for an expression longer than the metrics API accepts."""
+    if len(expr) > MAX_PROMQL_LENGTH:
+        raise ValueError(f"A PromQL query cannot be longer than {MAX_PROMQL_LENGTH} characters.")
 
 
 def _sample_value(raw: Any) -> float | None:
