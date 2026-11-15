@@ -65,6 +65,17 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 - **Evidence:** the host uploads its evidence with a checksum manifest to the run's prefix in the evidence bucket.
 - **Locally:** the card is `invalid` at the valve, because only a run host carries the run manifest.
 
+### Run the scale card in the cloud
+
+`cyclotron-scale` runs the same way, with the same controller, profiles and evidence.
+It ramps the profile's rates through 1x, 2x and 5x for 5 minutes each, then holds 10x for 30 minutes.
+
+- **What it answers:** whether the Cyclotron writer and the workers keep up at 10x, and at which step they stop.
+- **Pass bars:** the writer's CPU stays under 70% in every step, read from CloudWatch, and the p99 job pickup stays at or under 5 seconds on every queue, read from the workers' lateness histogram.
+- **Breaking point:** the first step where a bar fails names its scale, its start and the units offered per second in it.
+- **Load admission:** judged on the 1x step, at the profile's own rates.
+- **Locally:** the card is `invalid` at its writer CPU bar, because only a run host can read the writer's CPU.
+
 ## Glossary
 
 | Term              | Meaning                                                                                                                                                                                                                                             |
@@ -191,16 +202,17 @@ The first slice is local only, on real time.
 Each card is drawn from a failure class on the delivery path.
 `smoke` ships with the runner; each other card lands with the valves and traffic kinds it uses, and only cards in `cards/` can run.
 
-| Card                            | Traffic                                               | Valves                                                                                                   | Invariants                                                                                  | Failure class                                |
-| ------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `smoke`                         | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                     | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)                   | Baseline: proves the judging loop            |
-| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                            | `at_least_once`, `duplicate_sends` (gate 3), `refused_at_intake`                            | A worker dying mid-batch                     |
-| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                       | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                            | A frozen pod losing sends                    |
-| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1 for 5 seconds, `when` 1 job runs on `hogflow`                              | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                            | A dropped Postgres connection stranding jobs |
-| `destination-errors`            | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | Destination 429 and 503 retry storms         |
-| `ses-throttled`                 | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                               | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | SES throttling                               |
-| `ses-bounce-suppresses`         | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                             | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed`      | Dropped SES feedback, so no suppression      |
-| `cyclotron-failover-under-load` | `event_email`, `event_webhook`, `transactional_email` | `pg.failover` on `cyclotron` at 15 minutes for 30 minutes, in a 75-minute drive                          | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact` | A Cyclotron writer failover under load       |
+| Card                            | Traffic                                               | Valves                                                                                                                                          | Invariants                                                                                  | Failure class                                |
+| ------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `smoke`                         | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                                                            | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)                   | Baseline: proves the judging loop            |
+| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                   | `at_least_once`, `duplicate_sends` (gate 3), `refused_at_intake`                            | A worker dying mid-batch                     |
+| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                              | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                            | A frozen pod losing sends                    |
+| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1 for 5 seconds, `when` 1 job runs on `hogflow`                                                                     | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                            | A dropped Postgres connection stranding jobs |
+| `destination-errors`            | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart                                        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | Destination 429 and 503 retry storms         |
+| `ses-throttled`                 | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                                                                      | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | SES throttling                               |
+| `ses-bounce-suppresses`         | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                                                                    | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed`      | Dropped SES feedback, so no suppression      |
+| `cyclotron-failover-under-load` | `event_email`, `event_webhook`, `transactional_email` | `pg.failover` on `cyclotron` at 15 minutes for 30 minutes, in a 75-minute drive                                                                 | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact` | A Cyclotron writer failover under load       |
+| `cyclotron-scale`               | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x and 5x, then hold 10x for 30 minutes, with the bars `writer_cpu_under` 70% and `pickup_p99_under` 5 seconds | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact` | Cyclotron falling behind at 10x load         |
 
 ## Call paths
 
@@ -367,7 +379,10 @@ sequenceDiagram
     else an invariant broke
         J-->>R: first violation, unit ids
         Note over R: failed
-    else only a valve was never observed
+    else a bar failed at a ramp step
+        J-->>R: breaking point: step, offered rate, value
+        Note over R: failed
+    else only a valve was never observed, or a bar could not be read
         V-->>R: requested, not observed
         Note over R: invalid
     end
@@ -405,6 +420,10 @@ The other interfaces are internal seams; each module keeps the responsibilities 
 The schema is `Card` in `cards/schema.ts`.
 A card names its profile, its seed, the number of teams to seed, its traffic kinds and their duration, its valve entries, `convergeWithin`, its invariants and measurements, and its gates.
 `drive.minOffered` is the share of target units that must count as offered for the run to judge, 0.9 by default.
+`drive.ramp` splits the drive into steps, each with a `scale` that multiplies every traffic kind's profile rate and a `for`; the steps add up to `drive.for`.
+A card without a ramp drives at 1x throughout.
+`bars` lists pass bars that every ramp step must stay under: `writer_cpu_under` with `percent`, and `pickup_p99_under` with `seconds`.
+The first step where a bar fails is the bar's breaking point, and the run fails; a bar that cannot be read in a step makes the run `invalid`.
 
 ```yaml
 id: email-worker-killed
@@ -449,7 +468,8 @@ A valve entry names a valve, its target (a role, `postgres`, `ses` or `hooks.exa
 `load` returns the card, the profile and their hashes, or throws one `CardError` that lists every problem at once.
 It rejects:
 
-- unknown valve, traffic kind, invariant and measurement names, and parameters or doses that fail their definition's schema;
+- unknown valve, traffic kind, invariant, measurement and bar names, and parameters or doses that fail their definition's schema;
+- ramp steps that do not add up to `drive.for`;
 - a `role.kill`, `role.freeze` or `pg.drop_connections` card whose `convergeWithin` does not exceed the janitor's stall timeout, its sweep interval, its first-retry spread and its backoff for repeated stalls, plus the role restart backoff, read from the profile settings or the repository defaults;
 - a `pg.drop_connections` entry scheduled by `at`: the main pools close idle connections quickly, so it waits for running jobs with `when`;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;

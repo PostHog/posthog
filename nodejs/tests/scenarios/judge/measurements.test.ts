@@ -34,6 +34,7 @@ const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 
     processed: {},
     pgClientErrors: 0,
     consumerLoopErrors: 0,
+    lateness: {},
 })
 
 const offered = (unitId: string, offeredAtMs: number): JournalEntry => ({
@@ -229,6 +230,7 @@ describe('measurements', () => {
                 processed: {},
                 pgClientErrors: 0,
                 consumerLoopErrors: 0,
+                lateness: {},
             })
             expect(samples.at(-1)!.rssBytes).toBeGreaterThan(0)
             expect(host).toEqual<HostSample[]>([
@@ -316,21 +318,37 @@ describe('measurements', () => {
         }
     })
 
-    it.each<[string, string[], Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors'>]>([
+    it.each<[string, string[], Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors' | 'lateness'>]>(
         [
-            'a worker with Cyclotron claims on two queues and errors in two pools',
             [
-                'cdp_cyclotron_jobs_processed{queue="email",source="postgres-v2"} 7',
-                'cdp_cyclotron_jobs_processed{queue="hogflow",source="postgres-v2"} 3',
-                'cdp_cyclotron_jobs_processed{queue="hogflow",source="kafka"} 100',
-                'cdp_cyclotron_v2_pg_client_errors_total{pool="worker"} 2',
-                'cdp_cyclotron_v2_pg_client_errors_total{pool="janitor"} 1',
-                'cdp_cyclotron_v2_consumer_loop_errors_total{queue="email"} 4',
+                'a worker with Cyclotron claims on two queues, errors in two pools and pickups of both waits',
+                [
+                    'cdp_cyclotron_jobs_processed{queue="email",source="postgres-v2"} 7',
+                    'cdp_cyclotron_jobs_processed{queue="hogflow",source="postgres-v2"} 3',
+                    'cdp_cyclotron_jobs_processed{queue="hogflow",source="kafka"} 100',
+                    'cdp_cyclotron_v2_pg_client_errors_total{pool="worker"} 2',
+                    'cdp_cyclotron_v2_pg_client_errors_total{pool="janitor"} 1',
+                    'cdp_cyclotron_v2_consumer_loop_errors_total{queue="email"} 4',
+                    'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="scheduled"} 6',
+                    'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="scheduled"} 7',
+                    'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="deferred"} 1',
+                    'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="deferred"} 2',
+                    'cdp_cyclotron_job_lateness_seconds_count{queue="email",wait="scheduled"} 7',
+                ],
+                {
+                    processed: { email: 7, hogflow: 3 },
+                    pgClientErrors: 3,
+                    consumerLoopErrors: 4,
+                    lateness: { email: { '5': 7, '+Inf': 9 } },
+                },
             ],
-            { processed: { email: 7, hogflow: 3 }, pgClientErrors: 3, consumerLoopErrors: 4 },
-        ],
-        ['a role whose labelled counters never moved', [], { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0 }],
-    ])('samples the Cyclotron counters of %s', (_story, lines, counters) => {
+            [
+                'a role whose labelled counters never moved',
+                [],
+                { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0, lateness: {} },
+            ],
+        ]
+    )('samples the Cyclotron counters of %s', (_story, lines, counters) => {
         const text = [METRICS, '# HELP cdp_cyclotron_jobs_processed The number of jobs', ...lines].join('\n')
 
         expect(sampleOf({ role: ROLE, replica: 0, metricsUrl: '' }, FROM, text)).toEqual({

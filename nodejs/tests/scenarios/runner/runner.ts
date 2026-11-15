@@ -20,7 +20,8 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { residentBacklogOf } from '../backlog/backlog'
-import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
+import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, stepsOf } from '../cards'
+import { Aws, awsCli } from '../cloud/aws'
 import { runManifestOf } from '../cloud/lease'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
@@ -34,8 +35,10 @@ import {
     secretsOf,
 } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
+import { writerCpuOf } from '../environment/writer-cpu'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
+import { BarResult, CpuPoint, judgeBars } from '../judge/bars'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
 import {
     DriveWindow,
@@ -75,6 +78,7 @@ export type RunResult = {
     invariants: InvariantResult[]
     measurements: Measurement[]
     admissions: Admission[]
+    bars: BarResult[]
     timeline: ValveTimelineEntry[]
     startedAt: string
     endedAt: string
@@ -97,7 +101,7 @@ const PROBED_QUEUES: Queue[] = ['hogflow', 'email']
 
 type Outcome = Pick<
     RunResult,
-    'status' | 'statusReason' | 'units' | 'convergence' | 'invariants' | 'measurements' | 'admissions'
+    'status' | 'statusReason' | 'units' | 'convergence' | 'invariants' | 'measurements' | 'admissions' | 'bars'
 >
 
 type Probes = { commits(): readonly WriterSample[]; stop(): Promise<Probed> }
@@ -280,17 +284,29 @@ async function seedWithin(
     }
 }
 
-export type RunnerOptions = { seedWithinMs?: number }
+export type RunnerOptions = { seedWithinMs?: number; aws?: Aws }
 
 export function createRunner(
     environment: Environment,
     env: NodeJS.ProcessEnv = process.env,
-    { seedWithinMs = SEED_WITHIN_MS }: RunnerOptions = {}
+    { seedWithinMs = SEED_WITHIN_MS, aws }: RunnerOptions = {}
 ): Runner {
     const stateDir = defaultStateDir(env)
     const manifest = runManifestOf(env)
     let restartRequired: Error | undefined
     let ranManifest = false
+
+    const writerCpuFor = async (bars: Named[], window: DriveWindow): Promise<CpuPoint[] | { unread: string }> => {
+        if (!bars.some(({ name }) => name === 'writer_cpu_under')) {
+            return []
+        }
+        if (manifest === undefined) {
+            return { unread: 'no writer CPU reading off a run host' }
+        }
+        return writerCpuOf(aws ?? awsCli(env), manifest, window).catch((error: unknown) => ({
+            unread: `the writer CPU read failed: ${messageOf(error)}`,
+        }))
+    }
 
     return {
         async up() {
@@ -349,6 +365,7 @@ export function createRunner(
                 invariants: [],
                 measurements: [],
                 admissions: [],
+                bars: [],
             }
             let stopHealth: (() => Promise<string[]>) | undefined
             let sampler: Sampler | undefined
@@ -422,7 +439,17 @@ export function createRunner(
                     timeline: valves.timeline(),
                 }
                 const measurements = measure(card.measure, evidence)
-                const admissions = admissionsOf(profile, baselineOf(evidence))
+                const steps = stepsOf(card.drive)
+                // A ramped card admits its load on the first step, at the profile's own rates.
+                const admittedOn = card.drive.ramp
+                    ? { ...driveWindow, endedAt: Math.min(driveWindow.endedAt, driveWindow.startedAt + steps[0].toMs) }
+                    : driveWindow
+                const admissions = admissionsOf(profile, baselineOf({ ...evidence, drive: admittedOn }))
+                const bars = judgeBars(card.bars, {
+                    ...evidence,
+                    steps,
+                    writerCpu: await writerCpuFor(card.bars, driveWindow),
+                })
                 const verdict = statusOf({
                     admissions,
                     minOffered: card.drive.minOffered,
@@ -434,8 +461,9 @@ export function createRunner(
                     exits: environment.exits().slice(exitsBefore),
                     writer: probed.writer,
                     drive: driveWindow,
+                    bars,
                 })
-                outcome = { ...verdict, units, convergence, invariants, measurements, admissions }
+                outcome = { ...verdict, units, convergence, invariants, measurements, admissions, bars }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
                 }

@@ -24,6 +24,7 @@ export type MetricSample = {
     processed: Record<string, number>
     pgClientErrors: number
     consumerLoopErrors: number
+    lateness: Record<string, Record<string, number>>
 }
 
 export type MissedScrape = { role: string; replica: number; at: number }
@@ -518,6 +519,17 @@ function processedOf(text: string): Record<string, number> {
     return processed
 }
 
+function latenessOf(text: string): Record<string, Record<string, number>> {
+    const lateness: Record<string, Record<string, number>> = {}
+    for (const { labels, value } of seriesOf(text, 'cdp_cyclotron_job_lateness_seconds_bucket')) {
+        if (labels.queue !== undefined && labels.le !== undefined) {
+            const buckets = (lateness[labels.queue] ??= {})
+            buckets[labels.le] = (buckets[labels.le] ?? 0) + value
+        }
+    }
+    return lateness
+}
+
 export function sampleOf({ role, replica }: Target, at: number, text: string): MetricSample | undefined {
     const startedAt = gauge(text, 'process_start_time_seconds')
     const cpuSeconds = gauge(text, 'process_cpu_seconds_total')
@@ -534,6 +546,7 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               processed: processedOf(text),
               pgClientErrors: totalOf(text, 'cdp_cyclotron_v2_pg_client_errors_total'),
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
+              lateness: latenessOf(text),
           }
 }
 

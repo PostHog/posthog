@@ -697,6 +697,8 @@ describe('runner through seed, drive and judge', () => {
             measures = SMOKE.card.measure,
             load: loadTargets,
             backlog,
+            ramp,
+            bars = [],
         }: {
             replicas?: Profile['replicas']
             parks?: number
@@ -704,6 +706,8 @@ describe('runner through seed, drive and judge', () => {
             measures?: Named[]
             load?: Profile['load']
             backlog?: Backlog
+            ramp?: LoadedCard['card']['drive']['ramp']
+            bars?: Named[]
         } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
@@ -712,9 +716,10 @@ describe('runner through seed, drive and judge', () => {
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }] },
+                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }], ramp },
                 invariants,
                 measure: measures,
+                bars,
                 valves,
                 convergeWithin: valves.length > 0 ? '8s' : '3s',
             })
@@ -1154,6 +1159,24 @@ describe('runner through seed, drive and judge', () => {
             status: 'invalid',
             statusReason: 'pg.failover on cyclotron was not observed: pg.failover runs only on a run host',
             timeline: [{ valve: 'pg.failover', target: 'cyclotron', error: 'pg.failover runs only on a run host' }],
+        })
+    }, 30_000)
+
+    it('calls the scale card invalid at its writer CPU bar on a host without a run manifest', async () => {
+        const { bars } = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card
+        const ramp = [
+            { scale: 1, for: '1s' },
+            { scale: 2, for: '1s' },
+        ]
+
+        const result = await run('all', [], undefined, { ramp, bars })
+
+        expect(result.status).toBe('invalid')
+        expect(result.bars[0]).toEqual({
+            name: 'writer_cpu_under',
+            unit: '%',
+            passed: false,
+            unjudged: 'no writer CPU reading off a run host in the 1x step',
         })
     }, 30_000)
 

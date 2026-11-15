@@ -5,7 +5,7 @@ import path from 'path'
 
 import { LoadedCard, load } from '../cards'
 import type { JournalEntry } from '../judge/judge'
-import { SeedState, drive } from './generator'
+import { SeedState, drive, scheduleOf } from './generator'
 import type { OfferContext } from './traffic'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
@@ -380,5 +380,64 @@ describe('drive', () => {
         expect(first).toHaveLength(8)
         expect(await firstTeamsFor(1)).toEqual(first)
         expect(await firstTeamsFor(2)).not.toEqual(first)
+    })
+})
+
+describe('scheduleOf', () => {
+    const twoKinds = (drive: Partial<LoadedCard['card']['drive']>): LoadedCard => ({
+        ...SMOKE,
+        card: {
+            ...SMOKE.card,
+            drive: {
+                ...SMOKE.card.drive,
+                traffic: [
+                    { name: 'event_email', params: {} },
+                    { name: 'event_webhook', params: {} },
+                ],
+                ...drive,
+            },
+        },
+        profile: {
+            ...SMOKE.profile,
+            traffic: { event_email: { ratePerSecond: 2 }, event_webhook: { ratePerSecond: 1 } },
+        },
+    })
+
+    const unitsPerStep = (loaded: LoadedCard, stepsEndAtMs: number[]): Record<string, number>[] =>
+        stepsEndAtMs.map((endsAtMs, i) => {
+            const startsAtMs = i === 0 ? 0 : stepsEndAtMs[i - 1]
+            const inStep = scheduleOf(loaded).filter(({ atMs }) => atMs >= startsAtMs && atMs < endsAtMs)
+            return Object.fromEntries(
+                [...Map.groupBy(inStep, ({ kind }) => kind.name)].map(([name, units]) => [name, units.length])
+            )
+        })
+
+    it.each<[string, Partial<LoadedCard['card']['drive']>, number[], Record<string, number>[]]>([
+        [
+            'a card without a ramp offers the base rates for the whole drive',
+            { for: '20s' },
+            [10_000, 20_000],
+            [
+                { event_email: 20, event_webhook: 10 },
+                { event_email: 20, event_webhook: 10 },
+            ],
+        ],
+        [
+            'a ramped card multiplies every base rate by its step and keeps the split between kinds',
+            {
+                for: '20s',
+                ramp: [
+                    { scale: 1, for: '10s' },
+                    { scale: 10, for: '10s' },
+                ],
+            },
+            [10_000, 20_000],
+            [
+                { event_email: 20, event_webhook: 10 },
+                { event_email: 200, event_webhook: 100 },
+            ],
+        ],
+    ])('%s', (_story, drive, stepsEndAtMs, expected) => {
+        expect(unitsPerStep(twoKinds(drive), stepsEndAtMs)).toEqual(expected)
     })
 })

@@ -22,6 +22,7 @@ const passed = (cardId: string): RunResult => ({
     cardHash: 'card-hash',
     profileHash: 'profile-hash',
     origin: 'local-agent',
+    bars: [],
     invariants: [],
     measurements: [],
     admissions: [],
