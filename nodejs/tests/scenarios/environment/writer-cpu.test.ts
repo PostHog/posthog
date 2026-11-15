@@ -54,6 +54,26 @@ describe('writerCpuOf', () => {
         await expect(read).resolves.toEqual(minutes.map((minute) => ({ at: T + minute * MINUTE, percent: 50 })))
     })
 
+    it('stops waiting for a CloudWatch read that has not answered by the deadline', async () => {
+        let settled = false
+        const read = writerCpuOf(
+            {
+                call: (_args, signal) =>
+                    new Promise((_resolve, reject) =>
+                        signal?.addEventListener('abort', () => reject(new Error('aws cloudwatch was cancelled')))
+                    ),
+                text: () => Promise.reject(new Error('the CPU read only calls')),
+            },
+            MANIFEST,
+            { startedAt: T, endedAt: T + 2 * MINUTE + 5_000 }
+        ).finally(() => (settled = true))
+
+        await jest.advanceTimersByTimeAsync(5 * MINUTE)
+
+        expect(settled).toBe(true)
+        await expect(read).resolves.toEqual([])
+    })
+
     it('stops waiting for CloudWatch when the run is interrupted while a read is in flight', async () => {
         const interrupted = new AbortController()
         const aws = publishingAfter(60 * MINUTE)

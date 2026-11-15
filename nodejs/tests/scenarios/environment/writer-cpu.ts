@@ -16,34 +16,45 @@ export async function writerCpuOf(
     signal?: AbortSignal
 ): Promise<CpuPoint[]> {
     const lastMinute = Math.floor(window.endedAt / MINUTE_MS) * MINUTE_MS - MINUTE_MS
-    const deadline = Date.now() + PUBLISH_WAIT_MS
-    let points = await readWriterCpu(aws, manifest, window, signal)
-    while (!points.some(({ at }) => at === lastMinute) && Date.now() < deadline && !signal?.aborted) {
-        await pollWait(signal)
-        if (signal?.aborted) {
-            break
+    const expired = new AbortController()
+    const timer = setTimeout(() => expired.abort(), PUBLISH_WAIT_MS)
+    const stop = signal ? AbortSignal.any([signal, expired.signal]) : expired.signal
+    let points: CpuPoint[] = []
+    try {
+        points = await readWriterCpu(aws, manifest, window, stop)
+        while (!points.some(({ at }) => at === lastMinute) && !stop.aborted) {
+            await pollWait(stop)
+            if (stop.aborted) {
+                break
+            }
+            points = await readWriterCpu(aws, manifest, window, stop)
         }
-        points = await readWriterCpu(aws, manifest, window, signal)
+    } catch (error) {
+        if (!stop.aborted) {
+            throw error
+        }
+    } finally {
+        clearTimeout(timer)
     }
     return points
 }
 
-const pollWait = (signal: AbortSignal | undefined): Promise<void> =>
+const pollWait = (signal: AbortSignal): Promise<void> =>
     new Promise((resolve) => {
         const done = (): void => {
             clearTimeout(timer)
-            signal?.removeEventListener('abort', done)
+            signal.removeEventListener('abort', done)
             resolve()
         }
         const timer = setTimeout(done, POLL_MS)
-        signal?.addEventListener('abort', done, { once: true })
+        signal.addEventListener('abort', done, { once: true })
     })
 
 async function readWriterCpu(
     aws: Aws,
     manifest: RunManifest,
     { startedAt, endedAt }: DriveWindow,
-    signal: AbortSignal | undefined
+    signal: AbortSignal
 ): Promise<CpuPoint[]> {
     const query = {
         Id: 'cpu',
