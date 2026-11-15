@@ -1544,32 +1544,42 @@ def _copy_static_cohort_rows_to_pg(
         if replace_marker is not None
         else (cohort.last_replace_floor or cohort.last_replace_marker)
     )
-    timestamp_filter = f" AND {REPLACE_KEEPS_ROW}" if keep_marker is not None else ""
+    kept = REPLACE_KEEPS_ROW if keep_marker is not None else "1"
     counted = (
-        "max(_offset = %(replace_offset)s AND _timestamp = %(marker)s)"
+        "_offset = %(replace_offset)s AND _timestamp = %(marker)s"
         if replace_marker is not None
-        else "max(_timestamp) >= %(counted_since)s"
+        else "_timestamp >= %(counted_since)s"
     )
-    # The table is sorted by person_id within a cohort, so this streams the GROUP BY instead of
-    # holding every remaining person_id in a hash table.
-    read_settings: dict[str, Any] = {"optimize_aggregation_in_order": 1}
+    read_settings: dict[str, Any] = {}
     if replace_marker is not None:
         read_settings |= REPLACE_READ_SETTINGS
     counted_since = written_since or "1970-01-01 00:00:00"
     new_rows_read = 0
+    exhausted = False
 
-    # Use cursor-based pagination to stream from ClickHouse in pages instead of
-    # loading all rows into memory at once. Cursor-based avoids the O(n²) cost
-    # of LIMIT/OFFSET where later pages must scan and discard all preceding rows.
+    # Pages are read in the sort key's order with a plain LIMIT, and both the keep rule and the grouping by person
+    # happen here, not in ClickHouse. A GROUP BY made every page read from its cursor to the end of the cohort, and
+    # so did filtering rows: a replace leaves the older rows in their own part, and a part whose rows are all
+    # filtered out is scanned to its end before the in-order read can merge it. Either way the copy's reads grew
+    # with the square of the cohort's size. Unfiltered, every part's read stops at the limit. A full page holds back
+    # its last person, whose rows may continue on the next page, and the next page starts at that person.
     def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
-        nonlocal new_rows_read
+        nonlocal new_rows_read, exhausted
+        while not exhausted:
+            persons, cursor = _read_page(cursor, batch_size)
+            if persons:
+                return persons, cursor
+        return [], cursor
+
+    def _read_page(cursor: str, batch_size: int) -> tuple[list[str], str]:
+        nonlocal new_rows_read, exhausted
         if replace_marker is not None:
             require_current_population_marker(cohort.pk, replace_marker)
         # Tagged per page, because the batch writer between pages may retag.
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_sync_page")
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT person_id, {counted} FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s{timestamp_filter} AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
+            f"SELECT person_id, {kept}, {counted} FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id >= %(cursor)s ORDER BY person_id LIMIT %(limit)s",
             {
                 "cohort_id": cohort.pk,
                 "team_id": team_id,
@@ -1587,10 +1597,25 @@ def _copy_static_cohort_rows_to_pg(
             team_id=team_id,
         )
         if not rows:
+            exhausted = True
             return [], cursor
-        new_rows_read += sum(1 for _, is_written_since in rows if is_written_since)
-        items = [str(r[0]) for r in rows]
-        return items, items[-1]
+        # Per person: whether any row is one to keep, and whether any kept row counts toward the gate.
+        by_person: dict[str, tuple[bool, bool]] = {}
+        for person_id, is_kept, is_counted in rows:
+            key = str(person_id)
+            was_kept, was_counted = by_person.get(key, (False, False))
+            by_person[key] = (was_kept or bool(is_kept), was_counted or bool(is_kept and is_counted))
+        persons = list(by_person)
+        if len(rows) < batch_size:
+            exhausted = True
+        elif len(persons) > 1:
+            cursor = persons.pop()
+        else:
+            # A person has a handful of rows, so one filling a whole page means something else is wrong.
+            raise RuntimeError(f"A page of {batch_size} rows held only one person of static cohort {cohort.pk}")
+        kept_persons = [person for person in persons if by_person[person][0]]
+        new_rows_read += sum(1 for person in kept_persons if by_person[person][1])
+        return kept_persons, cursor
 
     batch_iterator = CursorBatchIterator(
         fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"

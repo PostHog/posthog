@@ -600,11 +600,11 @@ class TestCohortUtils(BaseTest):
         person = _create_person(team_id=self.team.id, distinct_ids=["person"], uuid=uuid.uuid4())
         flush_persons_and_events()
 
-        # The first pass reads an empty replica. The second pass reads the row, then the empty page that ends it.
+        # The first pass reads an empty replica. The second reads the row on a short page, which ends it.
         with (
             patch(
                 "products.cohorts.backend.models.util.sync_execute",
-                side_effect=[[], [(str(person.uuid), 1)], []],
+                side_effect=[[], [(str(person.uuid), 1, 1)]],
             ),
             patch("products.cohorts.backend.models.util.time.sleep"),
         ):
