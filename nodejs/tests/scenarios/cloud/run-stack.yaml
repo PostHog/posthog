@@ -157,7 +157,8 @@ Resources:
                 Fn::Base64:
                     Fn::Sub: |
                         #!/bin/bash
-                        set -euo pipefail
+                        set -Eeuo pipefail
+                        trap poweroff ERR
                         shutdown -h "+$(( ($(date -d '${ExpiresAt}' +%s) - $(date +%s)) / 60 ))"
                         mkdir -p /opt/posthog
                         cd /opt/posthog
