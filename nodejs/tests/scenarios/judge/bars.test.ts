@@ -30,9 +30,10 @@ const scrapedEvery5s = (
     {
         startedAtS = () => -60,
         queues = ['hogflow', 'email'],
-    }: { startedAtS?: (atS: number) => number; queues?: string[] } = {}
+        offsetS = 0,
+    }: { startedAtS?: (atS: number) => number; queues?: string[]; offsetS?: number } = {}
 ): MetricSample[] =>
-    Array.from({ length: untilS / 5 + 1 }, (_, i) => i * 5).flatMap((atS) =>
+    Array.from({ length: untilS / 5 + 1 }, (_, i) => i * 5 + offsetS).flatMap((atS) =>
         queues.map((queue) => ({
             role: `cdp-cyclotron-worker-${queue}`,
             replica: 0,
@@ -180,6 +181,17 @@ describe('judgeBars', () => {
                 })),
             },
             [HELD[0], broke(1, 10, 60, 10, 'email')],
+        ],
+        [
+            'a scrape after the step boundary reported late pickups from the end of the 1x step',
+            {
+                samples: scrapedEvery5s(
+                    120,
+                    (atS) => ({ ...prompt(atS), email: [...times(atS, 0.5), ...times(atS >= 62 ? 5 : 0, 8)] }),
+                    { offsetS: -3 }
+                ),
+            },
+            [HELD[0], broke(1, 1, 0, 10, 'email')],
         ],
         [
             'jobs due in the 10x step were picked up late after the drive ended',

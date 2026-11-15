@@ -104,12 +104,17 @@ function pickupsBetween(
     for (const [worker, series] of Map.groupBy(workers, ({ role, replica }) => `${role}-${replica}`)) {
         const sorted = [...series].sort((a, b) => a.at - b.at)
         const first = sorted.findLastIndex(({ at }) => at <= from)
-        const covered = sorted.slice(Math.max(first, 0)).filter(({ at }) => at <= to)
-        const bounds = [...covered.map(({ at }) => at), to]
+        const inside = sorted.slice(Math.max(first, 0)).filter(({ at }) => at <= to)
+        const bounds = [...inside.map(({ at }) => at), to]
         const gap = bounds.findIndex((at, i) => i > 0 && at - bounds[i - 1] > SCRAPE_GAP_MS)
         if (first < 0 || gap > 0) {
             return { unread: `no metrics from ${worker} after ${iso(first < 0 ? from : bounds[gap - 1])}` }
         }
+        // A scrape interval that straddles the step's end counts in both steps, so late pickups at a step's tail
+        // never pass into the next step's larger volume unjudged.
+        const last = inside.at(-1)!
+        const next = sorted.find(({ at }) => at > to)
+        const covered = last.at < to && next && next.at - last.at <= SCRAPE_GAP_MS ? [...inside, next] : inside
         covered.slice(1).forEach((sample, i) => {
             const previous = covered[i]
             add(picked, sample.lateness, sample.startedAt === previous.startedAt ? previous.lateness : {})

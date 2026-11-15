@@ -60,7 +60,7 @@ export interface Environment {
     dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
-    writerCpu(manifest: RunManifest, window: DriveWindow): Promise<CpuPoint[]>
+    writerCpu(manifest: RunManifest, window: DriveWindow, signal: AbortSignal): Promise<CpuPoint[]>
     down(): Promise<void>
 }
 
@@ -224,7 +224,7 @@ export function createEnvironment({
 
         groupLag: (group) => groupLag(group, docker),
 
-        writerCpu: (manifest, window) => writerCpuOf(aws ?? awsCli(env), manifest, window),
+        writerCpu: (manifest, window, signal) => writerCpuOf(aws ?? awsCli(env), manifest, window, signal),
 
         down: stop,
     }

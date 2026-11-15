@@ -299,14 +299,18 @@ export function createRunner(
     let restartRequired: Error | undefined
     let ranManifest = false
 
-    const writerCpuFor = async (bars: Named[], window: DriveWindow): Promise<CpuPoint[] | { unread: string }> => {
+    const writerCpuFor = async (
+        bars: Named[],
+        window: DriveWindow,
+        signal: AbortSignal
+    ): Promise<CpuPoint[] | { unread: string }> => {
         if (!bars.some(({ name }) => name === 'writer_cpu_under')) {
             return []
         }
         if (manifest === undefined) {
             return { unread: 'no writer CPU reading off a run host' }
         }
-        return environment.writerCpu(manifest, window).catch((error: unknown) => ({
+        return environment.writerCpu(manifest, window, signal).catch((error: unknown) => ({
             unread: `the writer CPU read failed: ${messageOf(error)}`,
         }))
     }
@@ -450,7 +454,7 @@ export function createRunner(
                 const bars = judgeBars(card.bars, {
                     ...evidence,
                     steps,
-                    writerCpu: await writerCpuFor(card.bars, driveWindow),
+                    writerCpu: await writerCpuFor(card.bars, driveWindow, signal),
                 })
                 const verdict = statusOf({
                     admissions,
