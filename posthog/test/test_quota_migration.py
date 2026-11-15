@@ -21,6 +21,7 @@ from redis.exceptions import (
     RedisClusterException,
     TimeoutError as RedisTimeoutError,
 )
+from structlog.testing import capture_logs
 
 from posthog import quota_redis
 from posthog.quota_migration import (
@@ -336,14 +337,25 @@ class TestQuotaMigration(SimpleTestCase):
 
     def test_outage_cooldown_and_recovery(self) -> None:
         labels = {"operation": "add", "resource": self.key}
+        sensitive_message = "redis://user:secret@quota-secondary.test/0 member=private-token"
         with (
+            capture_logs() as logs,
             patch("posthog.quota_migration.monotonic", return_value=100),
-            patch.object(self.secondary, "zadd", side_effect=RedisTimeoutError("unavailable")) as write,
+            patch.object(self.secondary, "zadd", side_effect=RedisTimeoutError(sensitive_message)) as write,
         ):
             add_limited_team_tokens(self.resource, {"first": 1900000100}, self.cache)
             add_limited_team_tokens(self.resource, {"second": 1900000100}, self.cache)
             assert write.call_count == 1
             assert REGISTRY.get_sample_value("billing_quota_secondary_operation_failed", labels) == 1
+        assert logs == [
+            {
+                "event": "quota_secondary_operation_failed",
+                "operation": "add",
+                "resource": self.key,
+                "error_type": "TimeoutError",
+                "log_level": "warning",
+            }
+        ]
         with patch("posthog.quota_migration.monotonic", return_value=1000):
             assert REGISTRY.get_sample_value("billing_quota_secondary_operation_failed", labels) == 1
         with patch("posthog.quota_migration.monotonic", return_value=131):
@@ -419,10 +431,12 @@ class TestQuotaMigration(SimpleTestCase):
         QUOTA_COMPARE_LAST_SUCCESS.set(123)
         self.shared.zadd(self.key, {"missing": 10})
         with (
+            capture_logs() as logs,
             patch("posthog.quota_migration.sleep"),
-            patch.object(self.secondary, "zrange", side_effect=[[], RedisTimeoutError("unavailable")]),
+            patch.object(self.secondary, "zrange", side_effect=[[], RedisTimeoutError("member=private-token")]),
         ):
             assert not compare_quota_stores([self.key])
+        assert logs == [{"event": "quota_comparison_failed", "error_type": "TimeoutError", "log_level": "warning"}]
         assert QUOTA_COMPARE_MISMATCHES.labels(key=self.key)._value.get() == 7
         assert QUOTA_COMPARE_LAST_SUCCESS._value.get() == 123
 

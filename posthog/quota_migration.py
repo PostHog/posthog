@@ -5,11 +5,14 @@ from time import monotonic, sleep, time
 from django.conf import settings
 from django.utils import timezone
 
+import structlog
 from prometheus_client import Counter, Gauge
 
 from posthog.dataclasses import frozen
 from posthog.quota_redis import QuotaRedisClient, get_secondary_quota_redis_client
 from posthog.redis import get_client
+
+logger = structlog.get_logger(__name__)
 
 QUOTA_SECONDARY_OPERATIONS = Counter(
     "billing_quota_secondary_operations_total", "Optional quota Redis operations", ["operation", "result"]
@@ -64,12 +67,15 @@ def run_secondary_quota_operation[T](
         if client is None:
             return None
         result = callback(client)
-    except Exception:
+    except Exception as error:
         # Include configuration/discovery failures: even an invalid optional URL must
         # leave shared Redis authoritative. A dead store costs one timeout per cooldown.
         _retry_after[url] = monotonic() + SECONDARY_RETRY_DELAY_SECONDS
         QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="failure").inc()
         QUOTA_SECONDARY_OPERATION_FAILED.labels(operation=operation, resource=resource).set(1)
+        logger.warning(
+            "quota_secondary_operation_failed", operation=operation, resource=resource, error_type=type(error).__name__
+        )
         return None
     QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="success").inc()
     QUOTA_SECONDARY_OPERATION_FAILED.labels(operation=operation, resource=resource).set(0)
@@ -138,9 +144,10 @@ def compare_quota_stores(keys: Sequence[str]) -> bool:
                 if first:
                     second = differences(key)
                     counts[key] = sum(second.get(token) == value for token, value in first.items())
-    except Exception:
+    except Exception as error:
         # Preserve the last result and its timestamp. Missing data cannot establish parity.
         QUOTA_COMPARE_FAILURES.inc()
+        logger.warning("quota_comparison_failed", error_type=type(error).__name__)
         return False
     for key, count in counts.items():
         QUOTA_COMPARE_MISMATCHES.labels(key=key).set(count)
