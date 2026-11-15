@@ -43,7 +43,7 @@ from . import (
 )
 from .adapters import AdaptedCheck, compile_check
 from .applicability import applicable, content_profile
-from .config import SuggestionSettings, is_enabled_for_organization
+from .config import SuggestionSettings, runs_for_organization
 from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
 from .measure import (
     Measurement,
@@ -241,7 +241,7 @@ def measure_stage(
         return 0
     team = run.team
     # The weekly plan can be days old, so an organization taken off the rollout since then gets nothing new.
-    if not is_enabled_for_organization(str(team.organization_id)):
+    if not runs_for_organization(str(team.organization_id)):
         runs.fail_run(team_id, run_id, "The organization is no longer in the eval suggestions rollout")
         return 0
     stages = _Stages()

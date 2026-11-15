@@ -174,7 +174,7 @@ def _run_stages(
 @pytest.fixture(autouse=True)
 def _organization_in_rollout() -> Any:
     with patch(
-        "products.ai_observability.backend.logic.eval_suggestions.pipeline.is_enabled_for_organization",
+        "products.ai_observability.backend.logic.eval_suggestions.pipeline.runs_for_organization",
         return_value=True,
     ):
         yield
@@ -429,7 +429,7 @@ class TestRunRecords(BaseTest):
 
         assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
 
-    @patch.object(pipeline, "is_enabled_for_organization", return_value=False)
+    @patch.object(pipeline, "runs_for_organization", return_value=False)
     @patch.object(pipeline.coverage_stage, "fetch_coverage")
     def test_a_run_for_an_organization_out_of_the_rollout_does_nothing(
         self, fetch_coverage: MagicMock, _flag: MagicMock
