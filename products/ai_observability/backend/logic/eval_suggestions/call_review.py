@@ -313,13 +313,22 @@ def _content_text(value: Any, *, with_tools: bool = True) -> str:
     return f"{role}: {text}" if isinstance(role, str) and role and text else text
 
 
-def _split_system(messages: Any) -> tuple[str, str]:
+@frozen
+class _InputParts:
+    system: str
+    conversation: str
+
+
+def _split_system(messages: Any) -> _InputParts:
     """The system prompt, and the rest of the input as text."""
     if not isinstance(messages, list):
-        return "", _content_text(messages)
+        return _InputParts(system="", conversation=_content_text(messages))
     system = [m for m in messages if isinstance(m, dict) and m.get("role") in SYSTEM_ROLES]
     rest = [m for m in messages if not (isinstance(m, dict) and m.get("role") in SYSTEM_ROLES)]
-    return "\n".join(_content_text(m.get("content") or m.get("parts")) for m in system), _content_text(rest)
+    return _InputParts(
+        system="\n".join(_content_text(m.get("content") or m.get("parts")) for m in system),
+        conversation=_content_text(rest),
+    )
 
 
 def _tool_calls_only(output: Any) -> bool:
@@ -335,13 +344,13 @@ def parse_call(row: ReviewCallRow) -> SampledCall | None:
         return None
     if _tool_calls_only(output) or not _content_text(output).strip():
         return None
-    system, conversation = _split_system(_parsed(row.input))
+    parts = _split_system(_parsed(row.input))
     return SampledCall(
         event_uuid=row.event_uuid,
         trace_id=row.trace_id,
         call_type=row.call_type,
-        system=system,
-        conversation=conversation,
+        system=parts.system,
+        conversation=parts.conversation,
         output=_content_text(output),
     )
 
