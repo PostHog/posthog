@@ -36,10 +36,12 @@ export type FailoverOptions = {
     commits(): readonly WriterSample[]
     pollMs?: number
     observeWithinMs?: number
+    signal?: AbortSignal
 }
 
 const POLL_MS = 1000
 const OBSERVE_WITHIN_MS = 5 * 60_000
+export const FAILOVER_RELEASE_WITHIN_MS = 2 * OBSERVE_WITHIN_MS
 const MINUTE_MS = 60_000
 const CAPACITY_MINUTES = 5
 const CAPACITY_FRESH_WITHIN_MS = 3 * MINUTE_MS
@@ -59,16 +61,26 @@ type CapacityData = { MetricDataResults: { Timestamps: string[]; Values: number[
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+type Outcome<T> = { value: T } | { error: unknown } | { stopped: true }
+
 // The aws CLI and the identity query can stall past any deadline, so a stop abandons the answer instead of awaiting it.
-const answerBefore = <T>(work: Promise<T>, stop: AbortSignal): Promise<T | undefined> =>
+const outcomeBefore = <T>(work: Promise<T>, stop: AbortSignal): Promise<Outcome<T>> =>
     new Promise((resolve) => {
-        const abandon = (): void => resolve(undefined)
-        work.then(resolve, abandon).finally(() => stop.removeEventListener('abort', abandon))
+        const abandon = (): void => resolve({ stopped: true })
+        work.then(
+            (value) => resolve({ value }),
+            (error: unknown) => resolve({ error })
+        ).finally(() => stop.removeEventListener('abort', abandon))
         if (stop.aborted) {
             return abandon()
         }
         stop.addEventListener('abort', abandon, { once: true })
     })
+
+const answerBefore = async <T>(work: Promise<T>, stop: AbortSignal): Promise<T | undefined> => {
+    const outcome = await outcomeBefore(work, stop)
+    return 'value' in outcome ? outcome.value : undefined
+}
 
 export async function sqlIdentityOf(url: string): Promise<SqlIdentity> {
     const named = new URL(url)
@@ -92,6 +104,7 @@ export async function failOver({
     commits,
     pollMs = POLL_MS,
     observeWithinMs = OBSERVE_WITHIN_MS,
+    signal,
 }: FailoverOptions): Promise<FailoverActuation> {
     const cluster = manifest.stackName
     const writer = `${cluster}-writer`
@@ -99,6 +112,17 @@ export async function failOver({
     const journal: FailoverJournal = {}
     const refuse = (reason: string): never => {
         throw new Error(`pg.failover refused: ${reason}`)
+    }
+    const applying = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(observeWithinMs)])
+    const required = async <T>(work: Promise<T>): Promise<T> => {
+        const outcome = await outcomeBefore(work, applying)
+        if ('stopped' in outcome) {
+            refuse(`AWS had not answered when the apply stopped, on release or after ${observeWithinMs / 1000}s`)
+        }
+        if ('error' in outcome) {
+            throw outcome.error
+        }
+        return (outcome as { value: T }).value
     }
 
     const describe = async (): Promise<Cluster> =>
@@ -110,7 +134,7 @@ export async function failOver({
     const writerOf = (described: Cluster): string | undefined =>
         described.DBClusterMembers?.find(({ IsClusterWriter }) => IsClusterWriter)?.DBInstanceIdentifier
 
-    const { Account } = (await aws.call(['sts', 'get-caller-identity'])) as { Account: string }
+    const { Account } = (await required(aws.call(['sts', 'get-caller-identity']))) as { Account: string }
     if (Account !== manifest.account) {
         refuse(`the caller is in account ${Account}, not the run's account ${manifest.account}`)
     }
@@ -121,7 +145,7 @@ export async function failOver({
             `the lease has ${Math.floor(leaseLeftMs / 1000)}s left, under the ${neededMs / 1000}s the hold, settle and fail-back need`
         )
     }
-    const described = await describe()
+    const described = await required(describe())
     const tagged = described.TagList?.some(({ Key, Value }) => Key === RUN_TAG && Value === manifest.runId)
     const members = (described.DBClusterMembers ?? []).map(({ DBInstanceIdentifier }) => DBInstanceIdentifier).sort()
     if (!tagged) {
@@ -137,23 +161,32 @@ export async function failOver({
     }
     await requireIdleReader()
 
-    const promote = async (to: string): Promise<{ intentAt: string; ambiguous?: string; refused?: string }> => {
+    const promote = async (
+        to: string,
+        stop: AbortSignal
+    ): Promise<{ intentAt: string; ambiguous?: string; refused?: string }> => {
         const intentAt = new Date().toISOString()
-        try {
-            await aws.call([
+        const outcome = await outcomeBefore(
+            aws.call([
                 'rds',
                 'failover-db-cluster',
                 '--db-cluster-identifier',
                 cluster,
                 '--target-db-instance-identifier',
                 to,
-            ])
+            ]),
+            stop
+        )
+        if ('value' in outcome) {
             return { intentAt }
-        } catch (error) {
-            return error instanceof AwsError && error.code !== undefined && !SERVER_FAULT.test(error.code)
-                ? { intentAt, refused: messageOf(error) }
-                : { intentAt, ambiguous: messageOf(error) }
         }
+        if ('stopped' in outcome) {
+            return { intentAt, ambiguous: `AWS had not answered within ${observeWithinMs / 1000}s or before release` }
+        }
+        const { error } = outcome
+        return error instanceof AwsError && error.code !== undefined && !SERVER_FAULT.test(error.code)
+            ? { intentAt, refused: messageOf(error) }
+            : { intentAt, ambiguous: messageOf(error) }
     }
 
     const observe = async (
@@ -170,40 +203,42 @@ export async function failOver({
         const record = (name: ObservationName, at: number): void => {
             if (!seen(name) && at <= deadline && !stop.aborted) {
                 into.push({ name, at: new Date(at).toISOString() })
+                into.sort((a, b) => OBSERVATIONS.indexOf(a.name) - OBSERVATIONS.indexOf(b.name))
             }
         }
-        for (;;) {
-            if (!seen('cluster_writer')) {
+        // Each stage polls on its own, so a stalled cluster read never delays or censors the SQL and commit stages.
+        const poll = async (name: ObservationName, seenAt: () => Promise<number | undefined>): Promise<void> => {
+            while (!seen(name)) {
+                const at = await seenAt()
+                if (at !== undefined) {
+                    record(name, at)
+                }
+                if (seen(name) || stop.aborted || Date.now() > deadline) {
+                    return
+                }
+                await sleep(pollMs, undefined, { signal: stop }).catch(() => undefined)
+            }
+        }
+        await Promise.all([
+            poll('cluster_writer', async () => {
                 const current = await answerBefore(describe(), stop)
-                if (current && writerOf(current) === to) {
-                    record('cluster_writer', Date.now())
-                }
-            }
-            if (!seen('sql_writer')) {
+                return current && writerOf(current) === to ? Date.now() : undefined
+            }),
+            poll('sql_writer', async () => {
                 const sql = await answerBefore(identity(), stop)
-                if (sql?.instance === to && !sql.inRecovery) {
-                    record('sql_writer', Date.now())
-                }
-            }
-            if (!seen('first_probe_commit')) {
+                return sql?.instance === to && !sql.inRecovery ? Date.now() : undefined
+            }),
+            poll('first_probe_commit', () => {
                 const commit = commits().find(
                     (sample) => sample.ok && sample.instance === to && sample.at + sample.latencyMs > since
                 )
-                if (commit) {
-                    record('first_probe_commit', commit.at + commit.latencyMs)
-                }
-            }
-            if (OBSERVATIONS.every(seen)) {
-                return true
-            }
-            if (stop.aborted || Date.now() > deadline) {
-                return false
-            }
-            await sleep(pollMs, undefined, { signal: stop }).catch(() => undefined)
-        }
+                return Promise.resolve(commit && commit.at + commit.latencyMs)
+            }),
+        ])
+        return OBSERVATIONS.every(seen)
     }
 
-    const settled = async (): Promise<Cluster | undefined> => {
+    const settled = async (movingFrom: string | undefined): Promise<Cluster | undefined> => {
         const stop = AbortSignal.timeout(observeWithinMs)
         let last: Cluster | undefined
         while (!stop.aborted) {
@@ -212,7 +247,7 @@ export async function failOver({
                 break
             }
             last = current ?? last
-            if (current?.Status === 'available') {
+            if (current?.Status === 'available' && writerOf(current) !== movingFrom) {
                 return current
             }
             await sleep(pollMs, undefined, { signal: stop }).catch(() => undefined)
@@ -235,7 +270,7 @@ export async function failOver({
             : `${to} did not show ${missing.join(', ')} within ${observeWithinMs / 1000}s of the ${what} intent`
     }
 
-    const promoted = await promote(reader)
+    const promoted = await promote(reader, applying)
     journal.intentAt = promoted.intentAt
     journal.observations = []
     let observing: Promise<boolean> | undefined
@@ -258,15 +293,22 @@ export async function failOver({
         release: () =>
             (released ??= (async () => {
                 try {
-                    const current = await settled()
+                    // The control plane can show the old writer for a while after it accepted the promotion.
+                    const mayStillLand =
+                        promoted.refused === undefined &&
+                        !journal.observations!.some(({ name }) => name === 'cluster_writer')
+                    const current = await settled(mayStillLand ? writer : undefined)
                     if (current?.Status !== 'available') {
                         journal.releaseError = `${cluster} stayed ${current?.Status ?? 'unanswered'} for ${observeWithinMs / 1000}s after the hold, so the fail-back did not start`
                         return
                     }
                     if (writerOf(current) === writer) {
+                        if (mayStillLand) {
+                            journal.releaseError = `${reader} had not taken over ${observeWithinMs / 1000}s after the hold, so the failover request may still land`
+                        }
                         return
                     }
-                    const failback = await promote(writer)
+                    const failback = await promote(writer, AbortSignal.timeout(observeWithinMs))
                     journal.releaseIntentAt = failback.intentAt
                     journal.releaseObservations = []
                     const ok =
@@ -302,16 +344,18 @@ export async function failOver({
                 Stat: 'Maximum',
             },
         }
-        const { MetricDataResults } = (await aws.call([
-            'cloudwatch',
-            'get-metric-data',
-            '--metric-data-queries',
-            JSON.stringify([query]),
-            '--start-time',
-            new Date(until - 2 * CAPACITY_MINUTES * MINUTE_MS).toISOString(),
-            '--end-time',
-            new Date(until).toISOString(),
-        ])) as CapacityData
+        const { MetricDataResults } = (await required(
+            aws.call([
+                'cloudwatch',
+                'get-metric-data',
+                '--metric-data-queries',
+                JSON.stringify([query]),
+                '--start-time',
+                new Date(until - 2 * CAPACITY_MINUTES * MINUTE_MS).toISOString(),
+                '--end-time',
+                new Date(until).toISOString(),
+            ])
+        )) as CapacityData
         const [{ Timestamps, Values, StatusCode }] = MetricDataResults
         if (StatusCode !== undefined && StatusCode !== 'Complete') {
             refuse(`${reader}'s capacity read came back ${StatusCode}, not Complete`)

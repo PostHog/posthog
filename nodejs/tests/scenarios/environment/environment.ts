@@ -67,7 +67,13 @@ export type Action =
     | { kind: 'freeze'; role: Role }
     | { kind: 'pg.terminate'; share: number }
     | { kind: 'edge.fault'; rule: FaultRule }
-    | { kind: 'rds.failover'; manifest: RunManifest; holdMs: number; commits: () => readonly WriterSample[] }
+    | {
+          kind: 'rds.failover'
+          manifest: RunManifest
+          holdMs: number
+          commits: () => readonly WriterSample[]
+          signal: AbortSignal
+      }
 
 export type Actuation = FaultHold & { journal?(): FailoverJournal }
 
@@ -205,6 +211,7 @@ export function createEnvironment({
                         manifest: action.manifest,
                         holdMs: action.holdMs,
                         commits: action.commits,
+                        signal: action.signal,
                     })
             }
         },

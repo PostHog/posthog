@@ -20,6 +20,7 @@ function runOf(options: Partial<FakeCloudOptions> = {}): Run {
 const probeThroughPooler = ({ cloud, cluster }: Run): (() => WriterSample[]) => {
     const samples: WriterSample[] = []
     return () => {
+        cloud.tick()
         samples.push({ at: Date.now(), monoMs: 0, ok: true, latencyMs: 0, instance: cloud.writerOf(cluster) })
         return samples
     }
@@ -30,7 +31,10 @@ const failOverOn = (run: Run, overrides: Partial<FailoverOptions> = {}) =>
         aws: run.cloud,
         manifest: run.manifest,
         holdMs: HOLD_MS,
-        identity: () => Promise.resolve({ instance: run.cloud.writerOf(run.cluster)!, inRecovery: false }),
+        identity: () => {
+            run.cloud.tick()
+            return Promise.resolve({ instance: run.cloud.writerOf(run.cluster)!, inRecovery: false })
+        },
         commits: probeThroughPooler(run),
         pollMs: 5,
         observeWithinMs: OBSERVE_WITHIN_MS,
@@ -245,7 +249,10 @@ describe('pg.failover', () => {
                 stall()
                 return actuation.observed()
             },
-            { unobserved: expect.stringMatching(/did not show cluster_writer/) },
+            {
+                observations: OBSERVED.slice(1),
+                unobserved: expect.stringMatching(/did not show cluster_writer within/),
+            },
         ],
         [
             'bounds a fail-back whose settle read never answers',
@@ -307,6 +314,74 @@ describe('pg.failover', () => {
             endsOn === 'writer' ? [run.reader, run.writer] : [run.reader]
         )
         expect(actuation.journal()).toMatchObject(journalled)
+    })
+
+    it.each<[string, Partial<FakeCloudOptions>, 'writer' | 'reader', Record<string, unknown>]>([
+        [
+            'fails back a promotion the cluster shows only after the release began',
+            { failover: { takesMs: 100, showsAfterMs: 50 } },
+            'writer',
+            { releaseIntentAt: expect.any(String), releaseObservations: OBSERVED },
+        ],
+        [
+            'records an accepted promotion the cluster never showed instead of calling the release clean',
+            { failover: { takesMs: Infinity, showsAfterMs: Infinity } },
+            'reader',
+            {
+                releaseError: expect.stringMatching(
+                    /-reader had not taken over 0\.4s after the hold, so the failover request may still land/
+                ),
+            },
+        ],
+    ])('%s', async (_story, options, endsOn, journalled) => {
+        const run = runOf(options)
+        const actuation = await failOverOn(run)
+        await expect(actuation.observed(AbortSignal.abort())).resolves.toBe(false)
+
+        await actuation.release()
+
+        expect(run.cloud.promotions.map(({ to }) => to)).toEqual(
+            endsOn === 'writer' ? [run.reader, run.writer] : [run.reader]
+        )
+        expect(actuation.journal()).toMatchObject(journalled)
+    })
+
+    it.each<[string, string, number, (actuation: Promise<FailoverActuation>) => Promise<unknown>]>([
+        [
+            'refuses a failover whose precondition read never answers once the apply stops',
+            'sts',
+            60_000,
+            (applied) =>
+                expect(applied).rejects.toThrow(/^pg\.failover refused: AWS had not answered when the apply stopped/),
+        ],
+        [
+            'leaves a failover request that never answers ambiguous, and records it at release',
+            'rds',
+            OBSERVE_WITHIN_MS,
+            async (applied) => {
+                const actuation = await applied
+                await expect(actuation.observed()).resolves.toBe(false)
+                await actuation.release()
+                expect(actuation.journal()).toMatchObject({
+                    unobserved: expect.stringMatching(
+                        /^failover request ambiguous, not observed: AWS had not answered/
+                    ),
+                    releaseError: expect.stringMatching(/the failover request may still land/),
+                })
+            },
+        ],
+    ])('%s', async (_story, stalls, observeWithinMs, expectApplied) => {
+        const run = runOf()
+        const stopped = new AbortController()
+        const aws = {
+            call: (args: string[]): Promise<unknown> =>
+                args[0] === stalls && args[1] !== 'describe-db-clusters'
+                    ? (stopped.abort(), new Promise(() => undefined))
+                    : run.cloud.call(args),
+            text: (args: string[]): Promise<string> => run.cloud.text(args),
+        }
+
+        await expectApplied(failOverOn(run, { aws, signal: stopped.signal, observeWithinMs }))
     })
 
     it('counts no probe commit that ended at the intent, as a stale sample on the new writer would', async () => {

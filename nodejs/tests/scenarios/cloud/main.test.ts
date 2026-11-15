@@ -6,6 +6,7 @@ import { stringify } from 'yaml'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { FAILOVER_RELEASE_WITHIN_MS } from '../environment/failover'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { FakeCloud, FakeCloudOptions, ReaderMinute } from './fake-cloud'
 import { PROFILE } from './fixtures'
@@ -585,6 +586,12 @@ describe('cloud controller', () => {
         ['it is interrupted while the card runs', {}, () => undefined, true],
         ['the card ignores the stop', { card: { ignoresStop: true } }, () => undefined, false],
         [
+            'the card spends its whole fail-back budget cleaning up',
+            { card: { stopTakesMs: FAILOVER_RELEASE_WITHIN_MS + 60_000 } },
+            () => undefined,
+            true,
+        ],
+        [
             'the stop command fails',
             {},
             (fake) => fake.failWhen('send-command', (args) => args.some((arg) => arg.includes('systemctl stop'))),
@@ -615,7 +622,7 @@ describe('cloud controller', () => {
 
         expect(evidenceAtDelete).toBe(uploaded)
         expect(err.join('\n').includes('did not finish cleanly')).toBe(!uploaded)
-        expect(deletedAt! - interruptedAt!).toBeLessThan(HOUR_MS / 6)
+        expect(deletedAt! - interruptedAt!).toBeLessThan(HOUR_MS / 3)
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
     })
