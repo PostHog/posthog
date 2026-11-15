@@ -61,6 +61,18 @@ export function getEmbedSnippet(surveyId: string): string {
 </script>`
 }
 
+export const COPY_SURVEY_URL_TOOLTIP =
+    'Responses are anonymous. Add the distinct_id query parameter to identify respondents.'
+export const COPY_SURVEY_EMBED_CODE_TOOLTIP = 'Copy HTML snippet to embed this survey in an iframe'
+
+export function copySurveyUrl(surveyId: string): void {
+    copyToClipboard(getSurveyUrl(surveyId), 'survey link')
+}
+
+export function copySurveyEmbedCode(surveyId: string): void {
+    copyToClipboard(getEmbedSnippet(surveyId), 'embed code')
+}
+
 export function CopySurveyLink({
     surveyId,
     enableIframeEmbedding,
@@ -74,22 +86,18 @@ export function CopySurveyLink({
         <div className={`flex flex-row gap-2 ${className ?? ''}`}>
             <LemonButton
                 icon={<IconLink />}
-                onClick={() => {
-                    copyToClipboard(getSurveyUrl(surveyId), 'survey link')
-                }}
+                onClick={() => copySurveyUrl(surveyId)}
                 size="small"
-                tooltip="Responses are anonymous. Add the distinct_id query parameter to identify respondents."
+                tooltip={COPY_SURVEY_URL_TOOLTIP}
             >
                 Copy URL
             </LemonButton>
             {enableIframeEmbedding && (
                 <LemonButton
                     icon={<IconCode />}
-                    onClick={() => {
-                        copyToClipboard(getEmbedSnippet(surveyId), 'embed code')
-                    }}
+                    onClick={() => copySurveyEmbedCode(surveyId)}
                     size="small"
-                    tooltip="Copy HTML snippet to embed this survey in an iframe"
+                    tooltip={COPY_SURVEY_EMBED_CODE_TOOLTIP}
                 >
                     Copy embed code
                 </LemonButton>

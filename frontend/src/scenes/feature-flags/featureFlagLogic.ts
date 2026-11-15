@@ -1971,6 +1971,9 @@ export interface featureFlagLogicActions {
     saveDescriptionInline: (name: string) => {
         name: string
     }
+    saveEvaluationContextsInline: (evaluationContexts: string[]) => {
+        evaluationContexts: string[]
+    }
     saveFeatureFlag: (updatedFlag: Partial<FeatureFlagType>) => Partial<FeatureFlagType>
     saveFeatureFlagFailure: (
         error: string,
@@ -2773,6 +2776,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         saveDescriptionInline: (name: string) => ({ name }),
         saveTagsInline: (tags: string[]) => ({ tags }),
         saveSidebarTags: (tags: string[], evaluationContexts?: string[]) => ({ tags, evaluationContexts }),
+        saveEvaluationContextsInline: (evaluationContexts: string[]) => ({ evaluationContexts }),
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
@@ -5377,6 +5381,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     lemonToast.error(error?.detail || 'Failed to save tags')
                 }
             }
+        },
+        saveEvaluationContextsInline: async ({ evaluationContexts }, breakpoint) => {
+            actions.setFeatureFlag({ ...values.featureFlag, evaluation_contexts: evaluationContexts })
+            await breakpoint(250)
+            actions.saveSidebarTags(values.featureFlag.tags ?? [], evaluationContexts)
         },
         saveSidebarTags: ({ tags, evaluationContexts }) => {
             // The full save sends every loaded field, and a row in another config version refuses most of them.

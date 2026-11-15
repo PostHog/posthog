@@ -11,21 +11,47 @@ the taxonomy, the available primitives, and the wiring rules.
 
 The whole bar is gated by the `SCENE_MENU_BAR` feature flag (see `lib/constants.tsx`).
 
+## Today layout: one flat menu
+
+Under the `today-rail-nav` flag, a scene with a `<SceneTitleSection>` shows no menu bar.
+Instead the title row holds one "More actions" button after the scene name, and it opens one searchable list (`SceneFlatMenu.tsx`).
+Scenes declare their menus once with the same primitives.
+The primitives read `SceneMenuBarRenderContext` and render the flat shape, so do not branch on the flag in a scene's menu bar.
+A Today-layout scene without a title, and every scene with `today-rail-nav` off, keep the menu bar.
+
+How the declared menus map to the list:
+
+- **Menus become sections**, in the order the scene declares them, with a separator between them.
+  File's items lead the list without a label.
+  Every other menu is labeled with its own label (Edit, View, Staff only, Help, or any other label as written).
+  A disabled or empty menu is left out, not grayed out.
+- **Submenus flatten** into a labeled group in place, so the search finds their rows.
+  The search only reaches one menu level.
+  Pass `keepAsSubmenu` to keep a real submenu: use it for a long list of toggles (Web analytics' visible tiles) and for a submenu that holds another submenu (Dashboard's Customize).
+  Rows inside a kept submenu stay out of the search and the destructive group.
+- **Destructive items** (`variant="destructive"`) move to one last group at the bottom of the list, whichever menu declares them.
+  Keep them at the bottom of File for the menu bar, and keep any `AccessControlAction` wrapper.
+- **A `SceneMenuBarPopover`** is one row, its label plus "…" ("Metadata…"), in its declared place.
+  The row closes the menu and opens the same content in a popover anchored to the button, so text inputs work there.
+- **Help** (Settings, Docs, Support) is the last section before the destructive group.
+  A titled scene that renders no menu bar gets the button with only the Help section.
+- Labels and separators that would lead, trail, double up or label nothing hide, also while a search filters the rows.
+
 ## Components
 
 All primitives live in `frontend/src/layout/scenes/components/SceneMenuBar.tsx`.
 
-| Component                                              | Use for                                                                                                                                                                                                                                                  |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<SceneMenuBar>`                                       | Top-level wrapper; renders above `<SceneTitleSection>`. Includes the universal right cluster (PostHog AI / Docs / Support).                                                                                                                              |
-| `<SceneMenuBarMenu label>`                             | Top-level menu (File / Edit / View / Metadata / Staff only).                                                                                                                                                                                             |
-| `<SceneMenuBarSubMenu label>`                          | Nested sub-menu inside a `SceneMenuBarMenu` (e.g. `Create`, `Export`, `Add to notebook`). Auto-prepends a blank icon slot to the trigger so the label aligns with icon-bearing siblings — pass `withIconBlank={false}` to opt out.                       |
-| `<SceneMenuBarItem>`                                   | Standard menu item (action / navigation).                                                                                                                                                                                                                |
-| `<SceneMenuBarCheckboxItem>`                           | Toggle item — reflects boolean state via checkmark.                                                                                                                                                                                                      |
-| `<SceneMenuBarRadioGroup>` + `<SceneMenuBarRadioItem>` | One-of-many mutually-exclusive options.                                                                                                                                                                                                                  |
-| `<SceneMenuBarSeparator>`                              | Horizontal divider between groups.                                                                                                                                                                                                                       |
-| `<SceneMenuBarShortcut>`                               | Right-aligned keyboard shortcut hint.                                                                                                                                                                                                                    |
-| `<SceneMenuBarPopover label>`                          | Drop-in alternative to `SceneMenuBarMenu` when content needs rich form controls (text inputs, comboboxes). Uses Popover under the hood — Menu.Popup intercepts keystrokes and blocks inputs. Trigger does NOT participate in CompositeRoot keyboard nav. |
+| Component                                              | Use for                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<SceneMenuBar>`                                       | Top-level wrapper; renders above `<SceneTitleSection>`. Includes the universal right cluster (PostHog AI / Docs / Support).                                                                                                                                                                   |
+| `<SceneMenuBarMenu label>`                             | Top-level menu (File / Edit / View / Metadata / Staff only).                                                                                                                                                                                                                                  |
+| `<SceneMenuBarSubMenu label>`                          | Nested sub-menu inside a `SceneMenuBarMenu` (e.g. `Create`, `Export`, `Add to notebook`). Auto-prepends a blank icon slot to the trigger so the label aligns with icon-bearing siblings — pass `withIconBlank={false}` to opt out. The flat menu flattens it unless you pass `keepAsSubmenu`. |
+| `<SceneMenuBarItem>`                                   | Standard menu item (action / navigation).                                                                                                                                                                                                                                                     |
+| `<SceneMenuBarCheckboxItem>`                           | Toggle item — reflects boolean state via checkmark.                                                                                                                                                                                                                                           |
+| `<SceneMenuBarRadioGroup>` + `<SceneMenuBarRadioItem>` | One-of-many mutually-exclusive options.                                                                                                                                                                                                                                                       |
+| `<SceneMenuBarSeparator>`                              | Horizontal divider between groups.                                                                                                                                                                                                                                                            |
+| `<SceneMenuBarShortcut>`                               | Right-aligned keyboard shortcut hint.                                                                                                                                                                                                                                                         |
+| `<SceneMenuBarPopover label>`                          | Drop-in alternative to `SceneMenuBarMenu` when content needs rich form controls (text inputs, comboboxes). Uses Popover under the hood — Menu.Popup intercepts keystrokes and blocks inputs. Trigger does NOT participate in CompositeRoot keyboard nav.                                      |
 
 ## Canonical menu set (in order)
 
@@ -42,6 +68,7 @@ All primitives live in `frontend/src/layout/scenes/components/SceneMenuBar.tsx`.
 > `<SceneMenuBarSeparator>` if there's a toggle group. Don't create a separate `State` menu.
 
 Right cluster is fixed and universal: **PostHog AI · Docs · Support**. Do not add to it.
+Under the Today layout Docs and Support move to the Help menu, which the bar adds itself.
 
 ## Rules
 
@@ -73,6 +100,9 @@ Append `…` to the item label as a Mac-style affordance for items that open add
 - Cross-sells: Cohort, Survey, Dashboard, Notebook, Endpoint, Subscription, Alert, Share or embed.
 
 ### Empty menus
+
+The flat menu leaves an empty or disabled menu out.
+The rest of this section is about the menu bar.
 
 `SceneMenuBarMenu` auto-disables its trigger when its children render nothing at compile
 time — e.g. `{false && <Item/>}`, `{null}`, or an empty fragment. The trigger stays

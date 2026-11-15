@@ -89,6 +89,10 @@ jest.mock('./DashboardTemplateEditor', () => ({
     DashboardTemplateEditor: () => null,
 }))
 
+jest.mock('./dashboards/templates/DashboardTemplateModal', () => ({
+    DashboardTemplateModal: () => null,
+}))
+
 jest.mock('./DeleteDashboardModal', () => ({
     DeleteDashboardModal: () => null,
 }))

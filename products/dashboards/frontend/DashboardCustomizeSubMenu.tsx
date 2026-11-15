@@ -30,7 +30,7 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
     const layoutAvailable = currentLayoutSize !== 'xs'
 
     return (
-        <SceneMenuBarSubMenu label="Customize">
+        <SceneMenuBarSubMenu label="Customize" keepAsSubmenu>
             <SceneMenuBarSubMenu label="Tile density">
                 <SceneMenuBarRadioGroup
                     value={dashboard.customization?.tile_spacing ?? 'standard'}

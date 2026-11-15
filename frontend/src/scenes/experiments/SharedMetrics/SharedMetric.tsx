@@ -5,8 +5,10 @@ import { IconBalance, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -19,6 +21,7 @@ import {
     SceneMenuBar,
     SceneMenuBarItem,
     SceneMenuBarMenu,
+    SceneMenuBarPopover,
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -97,6 +100,7 @@ export function SharedMetric(): JSX.Element {
         useActions(sharedMetricLogic)
 
     const { currentTeam, currentProjectId } = useValues(teamLogic)
+    const { hasFileItems } = useValues(sceneFileLogic)
     const [deleteCheckLoading, setDeleteCheckLoading] = useState(false)
 
     const runningExperiments = (sharedMetric?.linked_experiments || []).filter((experiment) => experiment.is_running)
@@ -121,6 +125,14 @@ export function SharedMetric(): JSX.Element {
             })
         } finally {
             setDeleteCheckLoading(false)
+        }
+    }
+
+    const saveTags = (tags: string[]): void => {
+        setSharedMetric({ tags })
+        // A new or duplicated metric keeps its tags until the first save.
+        if (action === 'update') {
+            updateSharedMetric(false)
         }
     }
 
@@ -149,43 +161,49 @@ export function SharedMetric(): JSX.Element {
 
     return (
         <SceneContent>
-            {sceneMenuBarEnabled && action === 'update' && (
+            {sceneMenuBarEnabled && (
                 <SceneMenuBar>
-                    <SceneMenuBarMenu label="File" dataAttr="shared-metric-menubar-file">
+                    <SceneMenuBarMenu
+                        label="File"
+                        dataAttr="shared-metric-menubar-file"
+                        disabled={!hasFileItems && action !== 'update'}
+                    >
                         <SceneMenuBarFileItems dataAttrKey="shared-metric" />
                         <SceneMenuBarSeparator />
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.ExperimentSavedMetric}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={sharedMetric.user_access_level}
-                        >
-                            {({ disabledReason }) => (
-                                <SceneMenuBarItem
-                                    variant="destructive"
-                                    opensFloatingUi
-                                    disabled={!!disabledReason || deleteCheckLoading}
-                                    onClick={() => void handleDelete()}
-                                    data-attr="shared-metric-menubar-delete"
-                                >
-                                    <IconTrash />
-                                    Delete
-                                </SceneMenuBarItem>
-                            )}
-                        </AccessControlAction>
+                        {action === 'update' && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ExperimentSavedMetric}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={sharedMetric.user_access_level}
+                            >
+                                {({ disabledReason }) => (
+                                    <SceneMenuBarItem
+                                        variant="destructive"
+                                        disabled={!!disabledReason || deleteCheckLoading}
+                                        onClick={() => void handleDelete()}
+                                        data-attr="shared-metric-menubar-delete"
+                                    >
+                                        <IconTrash />
+                                        Delete
+                                    </SceneMenuBarItem>
+                                )}
+                            </AccessControlAction>
+                        )}
                     </SceneMenuBarMenu>
+                    <SceneMenuBarPopover label="Metadata" dataAttr="shared-metric-menubar-metadata">
+                        <SceneTagsCombobox
+                            onSave={saveTags}
+                            canEdit={!isLegacy}
+                            tags={sharedMetric.tags}
+                            dataAttrKey="shared-metric"
+                        />
+                    </SceneMenuBarPopover>
                 </SceneMenuBar>
             )}
             <ScenePanel>
                 <ScenePanelInfoSection>
                     <SceneTags
-                        onSave={(tags) => {
-                            setSharedMetric({
-                                tags: tags,
-                            })
-                            if (action === 'update') {
-                                updateSharedMetric(false)
-                            }
-                        }}
+                        onSave={saveTags}
                         canEdit={!isLegacy}
                         tags={sharedMetric.tags}
                         dataAttrKey="shared-metric"

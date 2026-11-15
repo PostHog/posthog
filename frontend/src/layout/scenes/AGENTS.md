@@ -5,10 +5,11 @@ This directory owns the **scene action surfaces**:
 - **`ScenePanel`** (`SceneLayout.tsx`): the per-scene action/info side panel. Scenes fill it with
   `<ScenePanelActionsSection>`, `<ScenePanelInfoSection>`, `<ScenePanelLabel>`, `<ScenePanelDivider>`.
   This is the **legacy** action surface.
-- **`SceneMenuBar`** (`components/SceneMenuBar.tsx`): the Mac-style menu bar above `<SceneTitleSection>`
-  that consolidates those actions into File / Edit / View / Metadata / Staff only menus. This is the
-  **new** action surface, gated behind the `SCENE_MENU_BAR` feature flag. Under the `today-rail-nav` flag
-  the menus move into the title row after the scene name, so scenes still render it above `<SceneTitleSection>`.
+- **`SceneMenuBar`** (`components/SceneMenuBar.tsx`): the Mac-style menu bar above `<SceneTitleSection>` that consolidates those actions into File / Edit / View / Metadata / Staff only menus.
+  This is the **new** action surface, gated behind the `SCENE_MENU_BAR` feature flag.
+  Under the `today-rail-nav` flag a titled scene shows one "More actions" button after the scene name instead, which opens every menu as one searchable list (`components/SceneFlatMenu.tsx`).
+  Scenes still render the bar above `<SceneTitleSection>`, and the same primitives render both shapes.
+  The skill below says how menus map to that list.
 
 We are mid-migration (`ScenePanel` to `SceneMenuBar`). Until the flag ships everywhere, **both surfaces
 must stay in sync**.
@@ -76,6 +77,5 @@ adding or moving menu items. This guide is the _when/why_; the skill is the _how
 
 ## Instrumentation is automatic
 
-`SceneMenuBar.tsx` captures `scene menu bar shown` / `menu opened` / `item clicked` centrally, so you
-don't wire analytics per scene. Just give items a stable `data-attr` (`${RESOURCE_TYPE}-menubar-<action>`)
-so the captured `item` is meaningful.
+`SceneMenuBar.tsx` and `SceneFlatMenu.tsx` capture `scene menu bar shown` / `menu opened` / `item clicked` (and `searched` in the flat menu) centrally, so you don't wire analytics per scene.
+Just give items a stable `data-attr` (`${RESOURCE_TYPE}-menubar-<action>`) so the captured `item` is meaningful.

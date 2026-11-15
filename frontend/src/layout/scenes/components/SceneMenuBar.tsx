@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 import { Children, ComponentProps, ReactNode, useContext, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -8,6 +7,15 @@ import { IconExternal, IconGear, IconSidePanel, IconSparkles } from '@posthog/ic
 import {
     Badge,
     Button,
+    DropdownMenuCheckboxItem,
+    DropdownMenuItem,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuSeparator,
+    DropdownMenuShortcut,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
     Menubar,
     MenubarCheckboxItem,
     MenubarContent,
@@ -30,28 +38,19 @@ import { SetupReminderContext } from 'lib/components/ProductEmptyState/setupRemi
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
 
+import { captureSceneMenuBar } from './captureSceneMenuBar'
 import { SceneContentContext } from './SceneContent'
+import { SceneFlatMenu } from './SceneFlatMenu'
+import { SceneFlatMenuGroup } from './SceneFlatMenuGroup'
+import { SceneMenuBarRenderContext } from './sceneMenuBarRenderContext'
 import { useFillSceneMenuBarSlot, useSceneMenuBarSlot } from './SceneMenuBarSlotProvider'
 import { getSceneSettingsUrl } from './sceneSettingsUrl'
-
-/**
- * Central instrumentation for the SceneMenuBar experiment (`SCENE_MENU_BAR` flag). Capturing
- * here means every scene that adopts the bar reports engagement without per-scene wiring.
- * Scene id is read off `sceneLogic` without subscribing so capture never triggers a re-render.
- */
-function captureSceneMenuBar(event: string, properties: Record<string, unknown> = {}): void {
-    posthog.capture(event, {
-        scene: sceneLogic.findMounted()?.values.activeSceneId ?? null,
-        ...properties,
-    })
-}
 
 /**
  * Scene layouts where the surrounding container applies horizontal/vertical padding to
@@ -83,26 +82,37 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
         captureSceneMenuBar('scene menu bar shown')
     }, [])
 
+    if (slot) {
+        return (
+            <>
+                {createPortal(
+                    <SceneFlatMenu>
+                        {children}
+                        <SceneMenuBarHelpMenu />
+                    </SceneFlatMenu>,
+                    slot
+                )}
+                {setupReminder}
+            </>
+        )
+    }
+
     const bar = (
         <div
             data-attr="scene-menu-bar"
             data-scene-layout={layout}
             className={cn(
-                'scene-menu-bar flex items-center',
-                // The title slot places the menus itself. This chrome and these offsets only fit the bar at the scene top.
-                !slot && [
-                    'px-0.5 py-0.5 border-b border-primary justify-between',
-                    // Below `lg` the navigation toggle floats over the top-left corner of the scene.
-                    'max-lg:pl-10',
-                    // Bleed past the scene container's padding so the bar feels full-width — only
-                    // safe when the layout actually has padding to cancel. Unpadded layouts
-                    // (app-raw, plain, etc.) would overflow.
-                    isPaddedLayout && '-mx-4 -mt-4',
-                    // When LemonTabs is the immediately preceding sibling it already bleeds with
-                    // its own -mt-6, leaving the menu bar floating in the flex `gap-y-*`. Pull the
-                    // bar up so they sit flush.
-                    '[.LemonTabs+&]:-mt-6',
-                ],
+                'scene-menu-bar flex items-center px-0.5 py-0.5 border-b border-primary justify-between',
+                // Below `lg` the navigation toggle floats over the top-left corner of the scene.
+                'max-lg:pl-10',
+                // Bleed past the scene container's padding so the bar feels full-width — only
+                // safe when the layout actually has padding to cancel. Unpadded layouts
+                // (app-raw, plain, etc.) would overflow.
+                isPaddedLayout && '-mx-4 -mt-4',
+                // When LemonTabs is the immediately preceding sibling it already bleeds with
+                // its own -mt-6, leaving the menu bar floating in the flex `gap-y-*`. Pull the
+                // bar up so they sit flush.
+                '[.LemonTabs+&]:-mt-6',
                 className
             )}
         >
@@ -116,23 +126,21 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
                 {todayRailEnabled && <SceneMenuBarHelpMenu />}
             </Menubar>
 
-            {!slot && (
-                <Badge className={cn('hidden @[800px]:flex', todayRailEnabled && 'me-1')}>OS-like menu (alpha)</Badge>
-            )}
+            <Badge className={cn('hidden @[800px]:flex', todayRailEnabled && 'me-1')}>OS-like menu (alpha)</Badge>
             {!todayRailEnabled && <SceneMenuBarRightLinks />}
         </div>
     )
 
     return (
         <>
-            {slot ? createPortal(bar, slot) : bar}
+            {bar}
             {setupReminder}
         </>
     )
 }
 
 /** The last menu, as in macOS. Every scene gets it, so scenes never add their own. */
-function SceneMenuBarHelpMenu(): JSX.Element {
+export function SceneMenuBarHelpMenu(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { productKey } = useContext(SceneContentContext)
     const settingsUrl = getSceneSettingsUrl(productKey)
@@ -253,21 +261,27 @@ function SceneMenuBarRightLinks(): JSX.Element {
  * - **Staff only** *(conditional)* — Debug panels, internal toggles.
  *
  * Right cluster includes PostHog AI, Docs, Support, and Settings when configured for the scene's product. Under the
- * Today layout Docs and Support move to the Help menu and Settings moves to the scene title row.
+ * Today layout Docs, Support and Settings move to the Help menu.
  *
  * Full conventions: `.agents/skills/scene-menu-bar/SKILL.md`.
  */
 export type SceneMenuBarLabel = 'File' | 'Edit' | 'View' | 'Metadata' | 'Staff only' | (string & {})
 
+function flatSectionLabel(label: SceneMenuBarLabel): string | undefined {
+    return label === 'File' ? undefined : label
+}
+
+const FLAT_ROW_ICON_SPACER = <span aria-hidden className="size-3.5 shrink-0" />
+
 type SceneMenuBarMenuProps = {
     /** Top-level menu label. Use canonical labels (File / Edit / View / Metadata / Staff only). */
     label: SceneMenuBarLabel
     children: ReactNode
-    /** data-attr applied to the trigger for tests */
+    /** data-attr applied to the trigger for tests. In the flat menu it goes on the section. */
     dataAttr?: string
-    /** Optional content alignment */
+    /** Optional content alignment. The flat menu ignores it. */
     align?: 'start' | 'center' | 'end'
-    /** Class applied to the dropdown content — useful for widening menus that hold rich widgets */
+    /** Class applied to the dropdown content — useful for widening menus that hold rich widgets. The flat menu ignores it. */
     contentClassName?: string
     /**
      * Force the trigger into a disabled state regardless of children. Use when the menu's
@@ -297,8 +311,19 @@ export function SceneMenuBarMenu({
     align = 'start',
     contentClassName,
     disabled,
-}: SceneMenuBarMenuProps): JSX.Element {
+}: SceneMenuBarMenuProps): JSX.Element | null {
+    const render = useContext(SceneMenuBarRenderContext)
     const isDisabled = disabled || hasNoRenderableChildren(children)
+    if (render.kind === 'popover-host') {
+        return null
+    }
+    if (render.kind === 'flat') {
+        return isDisabled ? null : (
+            <SceneFlatMenuGroup label={flatSectionLabel(label)} dataAttr={dataAttr}>
+                {children}
+            </SceneFlatMenuGroup>
+        )
+    }
     return (
         <MenubarMenu
             onOpenChange={(open: boolean) => {
@@ -334,7 +359,10 @@ type SceneMenuBarItemProps = ComponentProps<typeof MenubarItem> & {
      * direct actions ("Delete feature flag") and same-page navigations.
      */
     opensFloatingUi?: boolean
-    /** Hover hint, typically the reason a disabled item can't be used. Applied as the native title. */
+    /**
+     * Hover hint, typically the reason a disabled item can't be used. The menu bar applies it as the native title, the
+     * flat menu as a tooltip beside the row.
+     */
     tooltip?: string
 }
 
@@ -348,26 +376,45 @@ export function SceneMenuBarItem({
     children,
     onClick,
     ...props
-}: SceneMenuBarItemProps): JSX.Element {
+}: SceneMenuBarItemProps): JSX.Element | null {
+    const render = useContext(SceneMenuBarRenderContext)
     const handleClick: NonNullable<SceneMenuBarItemProps['onClick']> = (e) => {
         const dataAttr = (props as Record<string, unknown>)['data-attr']
         captureSceneMenuBar('scene menu bar item clicked', {
             item: typeof dataAttr === 'string' ? dataAttr : typeof children === 'string' ? children : undefined,
+            ...(render.kind === 'flat' ? render.getCaptureProperties() : {}),
         })
         onClick?.(e)
+    }
+    const ellipsis = opensFloatingUi && (
+        // `-ms-2` cancels the item's flex `gap-2` so the ellipsis sits flush against the trailing edge of the label
+        // instead of getting a full gap inserted.
+        <span aria-hidden className="-ms-2">
+            …
+        </span>
+    )
+
+    if (render.kind === 'popover-host') {
+        return null
+    }
+    if (render.kind === 'flat') {
+        const item = (
+            <DropdownMenuItem tooltip={tooltip} onClick={handleClick} {...props}>
+                {children}
+                {ellipsis}
+            </DropdownMenuItem>
+        )
+        if (props.variant !== 'destructive' || !render.inList) {
+            return item
+        }
+        // The footer is a DOM node inside the list, so the filter and arrow keys, which follow document order, reach
+        // the item where it shows. Context survives the portal, so an AccessControlAction wrapper still applies.
+        return render.destructiveFooter ? createPortal(item, render.destructiveFooter) : null
     }
     return (
         <MenubarItem title={tooltip} onClick={handleClick} {...props}>
             {children}
-            {/*
-              `-ms-2` cancels MenubarItem's parent flex `gap-2` so the ellipsis sits flush
-              against the trailing edge of the label instead of getting a full gap inserted.
-            */}
-            {opensFloatingUi && (
-                <span aria-hidden className="-ms-2">
-                    …
-                </span>
-            )}
+            {ellipsis}
         </MenubarItem>
     )
 }
@@ -377,7 +424,8 @@ export function SceneMenuBarItem({
  * checkmark indicator that reflects `checked` state.
  */
 export function SceneMenuBarCheckboxItem(props: ComponentProps<typeof MenubarCheckboxItem>): JSX.Element {
-    return <MenubarCheckboxItem {...props} />
+    const render = useContext(SceneMenuBarRenderContext)
+    return render.kind === 'menubar' ? <MenubarCheckboxItem {...props} /> : <DropdownMenuCheckboxItem {...props} />
 }
 
 /**
@@ -385,22 +433,26 @@ export function SceneMenuBarCheckboxItem(props: ComponentProps<typeof MenubarChe
  * Bind via `value` + `onValueChange`.
  */
 export function SceneMenuBarRadioGroup(props: ComponentProps<typeof MenubarRadioGroup>): JSX.Element {
-    return <MenubarRadioGroup {...props} />
+    const render = useContext(SceneMenuBarRenderContext)
+    return render.kind === 'menubar' ? <MenubarRadioGroup {...props} /> : <DropdownMenuRadioGroup {...props} />
 }
 
 /**
  * One of several mutually-exclusive options inside a `<SceneMenuBarRadioGroup>`.
  */
 export function SceneMenuBarRadioItem(props: ComponentProps<typeof MenubarRadioItem>): JSX.Element {
-    return <MenubarRadioItem {...props} />
+    const render = useContext(SceneMenuBarRenderContext)
+    return render.kind === 'menubar' ? <MenubarRadioItem {...props} /> : <DropdownMenuRadioItem {...props} />
 }
 
 export function SceneMenuBarSeparator(props: ComponentProps<typeof MenubarSeparator>): JSX.Element {
-    return <MenubarSeparator {...props} />
+    const render = useContext(SceneMenuBarRenderContext)
+    return render.kind === 'menubar' ? <MenubarSeparator {...props} /> : <DropdownMenuSeparator {...props} />
 }
 
 export function SceneMenuBarShortcut(props: ComponentProps<typeof MenubarShortcut>): JSX.Element {
-    return <MenubarShortcut {...props} />
+    const render = useContext(SceneMenuBarRenderContext)
+    return render.kind === 'menubar' ? <MenubarShortcut {...props} /> : <DropdownMenuShortcut {...props} />
 }
 
 type SceneMenuBarSubMenuProps = {
@@ -412,9 +464,44 @@ type SceneMenuBarSubMenuProps = {
      * when the trigger already supplies its own leading icon.
      */
     withIconBlank?: boolean
+    /**
+     * In the flat menu of the Today layout, a submenu renders by default as a group of rows under its label, in place,
+     * so the search finds its rows. The search only reaches one menu level. Pass `keepAsSubmenu` to render a real
+     * submenu instead, for a long list of toggles (such as visible tiles) or a submenu that holds another submenu.
+     * Its rows then stay out of the search and the destructive group, and submenus inside it stay submenus.
+     * The legacy menu bar always renders a submenu and ignores this prop.
+     */
+    keepAsSubmenu?: boolean
 }
 
-export function SceneMenuBarSubMenu({ label, children, withIconBlank = true }: SceneMenuBarSubMenuProps): JSX.Element {
+export function SceneMenuBarSubMenu({
+    label,
+    children,
+    withIconBlank = true,
+    keepAsSubmenu = false,
+}: SceneMenuBarSubMenuProps): JSX.Element | null {
+    const render = useContext(SceneMenuBarRenderContext)
+    if (render.kind === 'popover-host') {
+        return null
+    }
+    if (render.kind === 'flat') {
+        if (render.inList && !keepAsSubmenu) {
+            return <SceneFlatMenuGroup label={label}>{children}</SceneFlatMenuGroup>
+        }
+        return (
+            <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                    {withIconBlank && FLAT_ROW_ICON_SPACER}
+                    {label}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                    <SceneMenuBarRenderContext.Provider value={{ ...render, inList: false }}>
+                        {children}
+                    </SceneMenuBarRenderContext.Provider>
+                </DropdownMenuSubContent>
+            </DropdownMenuSub>
+        )
+    }
     return (
         <MenubarSub>
             <MenubarSubTrigger>
@@ -453,6 +540,53 @@ export function SceneMenuBarPopover({
     align = 'start',
     contentClassName,
 }: SceneMenuBarPopoverProps): JSX.Element {
+    const render = useContext(SceneMenuBarRenderContext)
+    const popoverId = dataAttr ?? label
+
+    if (render.kind === 'popover-host') {
+        return (
+            <Popover
+                open={render.openPopoverId === popoverId}
+                onOpenChange={(open: boolean) => {
+                    if (!open) {
+                        render.closePopover()
+                    }
+                }}
+            >
+                <PopoverContent
+                    anchor={render.anchor}
+                    finalFocus={render.anchor}
+                    align={align}
+                    className={cn('w-80 p-2', contentClassName)}
+                >
+                    {children}
+                </PopoverContent>
+            </Popover>
+        )
+    }
+    if (render.kind === 'flat') {
+        const { openPopover, getCaptureProperties } = render
+        return (
+            <SceneFlatMenuGroup>
+                <DropdownMenuItem
+                    data-attr={dataAttr}
+                    onClick={() => {
+                        captureSceneMenuBar('scene menu bar item clicked', {
+                            item: dataAttr ?? label,
+                            ...getCaptureProperties(),
+                        })
+                        openPopover(popoverId)
+                    }}
+                >
+                    {FLAT_ROW_ICON_SPACER}
+                    {label}
+                    <span aria-hidden className="-ms-2">
+                        …
+                    </span>
+                </DropdownMenuItem>
+            </SceneFlatMenuGroup>
+        )
+    }
     return (
         <Popover>
             <PopoverTrigger data-attr={dataAttr} className={MENU_TRIGGER_CLASSES}>

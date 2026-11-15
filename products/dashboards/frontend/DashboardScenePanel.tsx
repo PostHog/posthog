@@ -31,7 +31,6 @@ import { notebooksModel } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
-import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplateModal'
 import { DashboardSaveAsTemplateSceneActions } from './DashboardSaveAsTemplateSceneActions'
 import { deleteDashboardLogic } from './deleteDashboardLogic'
 import { duplicateDashboardLogic } from './duplicateDashboardLogic'
@@ -199,7 +198,6 @@ export function DashboardScenePanel(): JSX.Element | null {
                     </ScenePanelActionsSection>
                 </>
             )}
-            <DashboardTemplateModal />
         </ScenePanel>
     )
 }

@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useMemo } from 'react'
 
-import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPlus, IconPulse, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
+import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -22,12 +23,14 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
     SceneMenuBar,
     SceneMenuBarCheckboxItem,
     SceneMenuBarItem,
     SceneMenuBarMenu,
+    SceneMenuBarPopover,
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -37,6 +40,7 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
+import { SidePanelTab } from '~/types'
 
 import { AddRecordingsToCollectionModal } from './AddRecordingsToCollectionModal'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
@@ -88,6 +92,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const isNewPlaylist = useMemo(() => {
         if (!playlist || playlistLoading) {
@@ -161,6 +167,27 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                 Pinned
                             </SceneMenuBarCheckboxItem>
                         </SceneMenuBarMenu>
+                    )}
+                    {!playlist.is_synthetic && metalyticsInstanceId && featureFlags[FEATURE_FLAGS.METALYTICS] && (
+                        <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
+                            <SceneMenuBarItem
+                                opensFloatingUi
+                                onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
+                                data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
+                            >
+                                <IconPulse />
+                                View metalytics
+                            </SceneMenuBarItem>
+                        </SceneMenuBarMenu>
+                    )}
+                    {(playlist.last_modified_at || playlist.last_modified_by) && (
+                        <SceneMenuBarPopover label="Metadata" dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}>
+                            <SceneActivityIndicator
+                                at={playlist.last_modified_at}
+                                by={playlist.last_modified_by}
+                                prefix="Last modified"
+                            />
+                        </SceneMenuBarPopover>
                     )}
                 </SceneMenuBar>
             )}

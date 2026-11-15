@@ -17,6 +17,7 @@ import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/componen
 
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { DashboardModalLoading } from './DashboardModalLoading'
+import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplateModal'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { DeleteDashboardModal } from './DeleteDashboardModal'
 import { DuplicateDashboardModal } from './DuplicateDashboardModal'
@@ -198,6 +199,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
                     <DashboardInsightColorsModal />
                 </>
             )}
+            <DashboardTemplateModal />
             {user?.is_staff && <DashboardTemplateEditor />}
             {shouldRenderTerraform ? (
                 <Suspense

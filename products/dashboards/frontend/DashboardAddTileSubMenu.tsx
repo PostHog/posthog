@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
 
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { SceneMenuBarItem, SceneMenuBarSeparator, SceneMenuBarSubMenu } from '~/layout/scenes/components/SceneMenuBar'
@@ -35,10 +36,11 @@ export function DashboardAddTileSubMenu(): JSX.Element {
                     {sectionOptions.map((option) => (
                         <SceneMenuBarItem
                             key={option.key}
-                            opensFloatingUi
+                            opensFloatingUi={option.key !== 'group'}
                             onClick={option.onClick}
                             data-attr={`dashboard-menubar-add-${option.key}`}
                         >
+                            <IconBlank />
                             {option.label}
                         </SceneMenuBarItem>
                     ))}
