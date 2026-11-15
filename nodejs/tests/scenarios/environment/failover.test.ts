@@ -219,6 +219,25 @@ describe('pg.failover', () => {
         expect(actuation.journal().observations!.map(({ name }) => name)).not.toContain('sql_writer')
     })
 
+    it('leaves no read that fails after the hold was cancelled unhandled', async () => {
+        const unhandled: unknown[] = []
+        const keep = (reason: unknown): number => unhandled.push(reason)
+        process.on('unhandledRejection', keep)
+        try {
+            const run = runOf()
+            const hold = new AbortController()
+            const actuation = await failOverOn(run, { identity: () => Promise.reject(new Error('connection refused')) })
+            run.cloud.beforeCall('describe-db-clusters', () => hold.abort())
+
+            await expect(actuation.observed(hold.signal)).resolves.toBe(false)
+            await new Promise((resolve) => setImmediate(resolve))
+
+            expect(unhandled).toEqual([])
+        } finally {
+            process.off('unhandledRejection', keep)
+        }
+    })
+
     it.each<[string, (actuation: FailoverActuation, stall: () => void) => Promise<unknown>, Record<string, unknown>]>([
         [
             'bounds an observation whose cluster read never answers',

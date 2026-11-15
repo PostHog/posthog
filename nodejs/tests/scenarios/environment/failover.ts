@@ -63,11 +63,11 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 const answerBefore = <T>(work: Promise<T>, stop: AbortSignal): Promise<T | undefined> =>
     new Promise((resolve) => {
         const abandon = (): void => resolve(undefined)
+        work.then(resolve, abandon).finally(() => stop.removeEventListener('abort', abandon))
         if (stop.aborted) {
             return abandon()
         }
         stop.addEventListener('abort', abandon, { once: true })
-        work.then(resolve, abandon).finally(() => stop.removeEventListener('abort', abandon))
     })
 
 export async function sqlIdentityOf(url: string): Promise<SqlIdentity> {
