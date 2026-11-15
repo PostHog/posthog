@@ -29,9 +29,7 @@ describe('ads account ID pickers', () => {
         cleanup()
     })
 
-    // An agent or API client can store the account ID input as a number, because the backend does not
-    // type-check integration_field inputs. The picker is disabled here so the account list stays null and
-    // the fallback option built from the saved value is what renders.
+    // A disabled picker never loads its account list, so the fallback option built from the saved value renders.
     test.each([
         { name: 'LinkedIn Ads', Picker: LinkedInAdsAccountIdPicker, value: 123456789, label: '123456789' },
         { name: 'Google Ads', Picker: GoogleAdsCustomerIdPicker, value: 1234567890, label: '123-456-7890' },
