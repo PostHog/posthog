@@ -1,0 +1,168 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: One cloud scenario run of cyclotron-failover-under-load, with its run cluster and run host.
+
+Parameters:
+    RunId:
+        Type: String
+        AllowedPattern: '[0-9a-f-]{36}'
+    Commit:
+        Type: String
+        AllowedPattern: '[0-9a-f]{40}'
+    EvidenceBucket:
+        Type: String
+    ExpiresAt:
+        Type: String
+    EngineVersion:
+        Type: String
+    WriterClass:
+        Type: String
+    ReaderMaxAcu:
+        Type: Number
+    ReaderEnabled:
+        Type: String
+        AllowedValues: ['true', 'false']
+        Default: 'false'
+    AvailabilityZone:
+        Type: AWS::EC2::AvailabilityZone::Name
+    DbSubnetGroup:
+        Type: String
+    DatabaseSecurityGroup:
+        Type: AWS::EC2::SecurityGroup::Id
+    ClusterParameterGroup:
+        Type: String
+    InstanceParameterGroup:
+        Type: String
+    MonitoringRole:
+        Type: String
+    HostSubnet:
+        Type: AWS::EC2::Subnet::Id
+    HostSecurityGroup:
+        Type: AWS::EC2::SecurityGroup::Id
+    HostInstanceProfile:
+        Type: String
+    HostClass:
+        Type: String
+    HostEbsGb:
+        Type: Number
+    HostImage:
+        Type: AWS::EC2::Image::Id
+
+Conditions:
+    ReaderEnabled:
+        Fn::Equals: [Ref: ReaderEnabled, 'true']
+
+Resources:
+    Cluster:
+        Type: AWS::RDS::DBCluster
+        DeletionPolicy: Delete
+        UpdateReplacePolicy: Delete
+        Properties:
+            DBClusterIdentifier:
+                Fn::Sub: scn-${RunId}
+            Engine: aurora-postgresql
+            EngineVersion:
+                Ref: EngineVersion
+            DatabaseName: cyclotron_node
+            MasterUsername: posthog
+            ManageMasterUserPassword: true
+            StorageType: aurora-iopt1
+            StorageEncrypted: true
+            DeletionProtection: false
+            BackupRetentionPeriod: 1
+            DBSubnetGroupName:
+                Ref: DbSubnetGroup
+            VpcSecurityGroupIds:
+                - Ref: DatabaseSecurityGroup
+            DBClusterParameterGroupName:
+                Ref: ClusterParameterGroup
+            ServerlessV2ScalingConfiguration:
+                MinCapacity: 1
+                MaxCapacity:
+                    Ref: ReaderMaxAcu
+
+    Writer:
+        Type: AWS::RDS::DBInstance
+        DeletionPolicy: Delete
+        UpdateReplacePolicy: Delete
+        Properties:
+            DBClusterIdentifier:
+                Ref: Cluster
+            DBInstanceIdentifier:
+                Fn::Sub: scn-${RunId}-writer
+            DBInstanceClass:
+                Ref: WriterClass
+            Engine: aurora-postgresql
+            PromotionTier: 0
+            AvailabilityZone:
+                Ref: AvailabilityZone
+            DBParameterGroupName:
+                Ref: InstanceParameterGroup
+            MonitoringInterval: 1
+            MonitoringRoleArn:
+                Ref: MonitoringRole
+
+    Reader:
+        Type: AWS::RDS::DBInstance
+        Condition: ReaderEnabled
+        DependsOn: Writer
+        DeletionPolicy: Delete
+        UpdateReplacePolicy: Delete
+        Properties:
+            DBClusterIdentifier:
+                Ref: Cluster
+            DBInstanceIdentifier:
+                Fn::Sub: scn-${RunId}-reader
+            DBInstanceClass: db.serverless
+            Engine: aurora-postgresql
+            PromotionTier: 15
+            AvailabilityZone:
+                Ref: AvailabilityZone
+            DBParameterGroupName:
+                Ref: InstanceParameterGroup
+            MonitoringInterval: 1
+            MonitoringRoleArn:
+                Ref: MonitoringRole
+
+    Host:
+        Type: AWS::EC2::Instance
+        DependsOn: Writer
+        DeletionPolicy: Delete
+        UpdateReplacePolicy: Delete
+        Properties:
+            ImageId:
+                Ref: HostImage
+            InstanceType:
+                Ref: HostClass
+            AvailabilityZone:
+                Ref: AvailabilityZone
+            SubnetId:
+                Ref: HostSubnet
+            SecurityGroupIds:
+                - Ref: HostSecurityGroup
+            IamInstanceProfile:
+                Ref: HostInstanceProfile
+            InstanceInitiatedShutdownBehavior: terminate
+            PropagateTagsToVolumeOnCreation: true
+            MetadataOptions:
+                HttpTokens: required
+            BlockDeviceMappings:
+                - DeviceName: /dev/sda1
+                  Ebs:
+                      VolumeType: gp3
+                      VolumeSize:
+                          Ref: HostEbsGb
+                      DeleteOnTermination: true
+                      Encrypted: true
+            UserData:
+                Fn::Base64:
+                    Fn::Sub: |
+                        #!/bin/bash
+                        set -euo pipefail
+                        shutdown -h "+$(( ($(date -d '${ExpiresAt}' +%s) - $(date +%s)) / 60 ))"
+                        mkdir -p /opt/posthog
+                        cd /opt/posthog
+                        git init -q .
+                        git fetch -q --depth 1 https://github.com/PostHog/posthog.git '${Commit}'
+                        git checkout -q FETCH_HEAD
+                        export AWS_REGION='${AWS::Region}' SCENARIO_RUN_ID='${RunId}' SCENARIO_EVIDENCE_BUCKET='${EvidenceBucket}'
+                        exec bash nodejs/tests/scenarios/cloud/host-bootstrap.sh
