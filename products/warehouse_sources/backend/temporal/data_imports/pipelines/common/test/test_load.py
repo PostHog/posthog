@@ -463,26 +463,51 @@ class TestGetIncrementalFieldValue:
 
     @parameterized.expand(
         [
-            ("max_string", pa.string(), "max", decimal.Decimal("100")),
-            ("min_string", pa.string(), "min", decimal.Decimal("9.5")),
-            ("max_large_string", pa.large_string(), "max", decimal.Decimal("100")),
-            ("min_large_string", pa.large_string(), "min", decimal.Decimal("9.5")),
+            ("max_string", pa.string(), "integer", "max", ["9.5", "100", None, "76"], decimal.Decimal("100")),
+            ("min_string", pa.string(), "integer", "min", ["9.5", "100", None, "76"], decimal.Decimal("9.5")),
+            ("max_large_string", pa.large_string(), "numeric", "max", ["9.5", "100", None], decimal.Decimal("100")),
+            ("min_large_string", pa.large_string(), "numeric", "min", ["9.5", "100", None], decimal.Decimal("9.5")),
+            (
+                "max_oversized",
+                pa.string(),
+                "integer",
+                "max",
+                ["9" * 77, "1" + "0" * 77],
+                decimal.Decimal("1" + "0" * 77),
+            ),
+            (
+                "min_oversized",
+                pa.large_string(),
+                "numeric",
+                "min",
+                ["9" * 77, "1" + "0" * 77],
+                decimal.Decimal("9" * 77),
+            ),
+            ("max_placeholder", pa.string(), "integer", "max", ["None", "100", None], decimal.Decimal("100")),
+            ("min_placeholder", pa.large_string(), "numeric", "min", ["None", "100", None], decimal.Decimal("100")),
+            ("all_null", pa.string(), "integer", "max", [None, "None"], None),
+            ("empty", pa.large_string(), "numeric", "min", [], None),
         ]
     )
     def test_numeric_cursor_stored_as_text_aggregates_numerically(
-        self, _name: str, column_type: pa.DataType, aggregate: Literal["max", "min"], expected: decimal.Decimal
+        self,
+        _name: str,
+        column_type: pa.DataType,
+        field_type: str,
+        aggregate: Literal["max", "min"],
+        values: list[Optional[str]],
+        expected: Optional[decimal.Decimal],
     ):
-        # A decimal256 column (e.g. BigQuery BIGNUMERIC) is stringified before the cursor is read.
-        scale = "0" * 38
-        table = pa.table(
-            {"created": pa.array([f"9.5{scale[1:]}", f"100.{scale}", None, f"76.{scale}"], type=column_type)}
-        )
+        values = [val + "0" * 38 if val is not None and "." in val else val for val in values]
+        table = pa.table({"created": pa.array(values, type=column_type)})
+        schema = self._schema("created")
+        schema.incremental_field_type = field_type
 
-        value = get_incremental_field_value(self._schema("created"), table, aggregate=aggregate)
+        value = get_incremental_field_value(schema, table, aggregate=aggregate)
 
         assert value == expected
-        schema = ExternalDataSchema(sync_type_config={"incremental_field_type": "integer"})
-        assert schema.serialize_incremental_value(value) == int(expected)
+        cursor_schema = ExternalDataSchema(sync_type_config={"incremental_field_type": field_type})
+        assert cursor_schema.serialize_incremental_value(value) == (int(expected) if expected is not None else None)
 
     def test_missing_column_raises_actionable_error_matched_by_non_retryable_map(self):
         # A label like "created_at" persisted instead of the real field must fail with guidance

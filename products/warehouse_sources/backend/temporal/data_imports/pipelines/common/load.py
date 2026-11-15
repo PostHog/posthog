@@ -101,22 +101,26 @@ def get_incremental_field_value(
     if normalized_field_name not in table.column_names:
         raise IncrementalFieldMissingFromDataError(incremental_field_name, table)
 
+    if aggregate not in ("max", "min"):
+        raise Exception(f"Unsupported aggregate function for get_incremental_field_value: {aggregate}")
+
     column = table[normalized_field_name]
-    values = column.to_pylist()
+    values = [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
     # A decimal too wide for decimal128 (e.g. BigQuery BIGNUMERIC) reaches here as text. Parse it so
     # the aggregate orders numbers, not strings, and the watermark serializes as a number.
     if schema.incremental_field_type in (IncrementalFieldType.Integer, IncrementalFieldType.Numeric) and (
         pa.types.is_string(column.type) or pa.types.is_large_string(column.type)
     ):
-        values = [None if val is None else decimal.Decimal(val) for val in values]
-    processed_column = pa.array([process_incremental_value(val, schema.incremental_field_type) for val in values])
+        # Python aggregation also accepts values wider than Arrow's decimal256 limit.
+        numeric_values = (decimal.Decimal(val) for val in values if val is not None)
+        return max(numeric_values, default=None) if aggregate == "max" else min(numeric_values, default=None)
+
+    processed_column = pa.array(values)
 
     if aggregate == "max":
         last_value = pc.max(processed_column)
-    elif aggregate == "min":
-        last_value = pc.min(processed_column)
     else:
-        raise Exception(f"Unsupported aggregate function for get_incremental_field_value: {aggregate}")
+        last_value = pc.min(processed_column)
 
     return last_value.as_py()
 
