@@ -358,6 +358,10 @@ This changes setup recommendations and diagnostic actions, not report attributio
 
 ## Validating ad source metric imports
 
+The sync method form shows unavailable methods with an inline explanation, using the capabilities returned for each table.
+For Google Ads and Meta Ads tables that support neither incremental nor append only replication, it recommends full table replication for that table and stats tables such as `ad_stats` or `campaign_stats` for incremental performance data.
+Stats tables contain performance metrics and do not replace the dimension table's data.
+
 Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
 Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.
 See [hourly restrictions](https://fivetran.com/docs/connectors/applications/facebook-ads/custom-reports#breakdowns) and [creative-asset metric restrictions](https://docs.streamkap.com/facebook-ads-source#custom-insights).
