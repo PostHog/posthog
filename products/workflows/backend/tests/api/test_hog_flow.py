@@ -1169,7 +1169,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("deleted_sender", "deleted", "function_email", "can't be found"),
             ("unverified_sender_in_rotation", "rotation", "function_email", "isn't verified yet"),
             ("malformed_sender_id", "malformed", "function_email", "can't be found"),
-            ("zero_padded_sender_id", "zero_padded", "function_email", "can't be found"),
+            ("verified_sender_id_stored_as_text", "text_id", "function_email", "can't be found"),
             ("generic_step_running_the_email_template", "unverified", "function", "isn't verified yet"),
         ]
     )
@@ -1181,7 +1181,7 @@ class TestHogFlowAPI(APIBaseTest):
             "deleted": {"integrationId": unverified.id + 1000},
             "rotation": {"integrationId": verified.id, "integrationIds": [unverified.id]},
             "malformed": {"integrationId": {"id": unverified.id}},
-            "zero_padded": {"integrationId": f"0{verified.id}"},
+            "text_id": {"integrationId": str(verified.id)},
         }
         hog_flow = self._email_flow(senders[case], step_type)
 
@@ -1201,7 +1201,6 @@ class TestHogFlowAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("rotation_replaces_an_unverified_single_sender", "rotation"),
-            ("verified_sender_id_as_digit_string", "digit_string"),
             ("verified_sender_id_as_integral_float", "integral_float"),
         ]
     )
@@ -1210,7 +1209,6 @@ class TestHogFlowAPI(APIBaseTest):
         unverified = self._email_sender(verified=False)
         senders: dict[str, dict[str, Any]] = {
             "rotation": {"integrationId": unverified.id, "integrationIds": [verified.id]},
-            "digit_string": {"integrationId": str(verified.id)},
             "integral_float": {"integrationId": float(verified.id)},
         }
         hog_flow = self._email_flow(senders[case])

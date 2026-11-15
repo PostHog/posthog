@@ -86,7 +86,6 @@ def verified_own_sender_ids(team_id: int) -> frozenset[int]:
 
 
 def own_sender_verification(team_id: int) -> dict[str, bool]:
-    # Keyed by the id as text, so a step that stores the id as a number or a digit string looks it up without parsing.
     return {
         str(sender.id): bool(sender.config.get("verified"))
         for sender in IntegrationManager.email.credentials.list(team_id)
