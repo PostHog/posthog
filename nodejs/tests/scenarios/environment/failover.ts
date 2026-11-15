@@ -96,6 +96,8 @@ export async function sqlIdentityOf(url: string): Promise<SqlIdentity> {
     return { instance: rows[0].instance, inRecovery: rows[0].in_recovery }
 }
 
+type Promoted = { intentAt: string; ambiguous?: string; refused?: string }
+
 export async function failOver({
     aws,
     manifest,
@@ -161,11 +163,7 @@ export async function failOver({
     }
     await requireIdleReader()
 
-    const promote = async (
-        to: string,
-        stop: AbortSignal,
-        intentAt = new Date().toISOString()
-    ): Promise<{ intentAt: string; ambiguous?: string; refused?: string }> => {
+    const promote = async (to: string, stop: AbortSignal, intentAt: string): Promise<Promoted> => {
         const outcome = await outcomeBefore(
             aws.call([
                 'rds',
@@ -270,12 +268,46 @@ export async function failOver({
             : `${to} did not show ${missing.join(', ')} within ${observeWithinMs / 1000}s of the ${what} intent`
     }
 
+    // Observation runs from the intent, so a promotion AWS accepted counts even while the answer to its request stalls.
+    // The answer is awaited only to explain a promotion that was not observed.
+    const unobservedFrom = async (
+        what: string,
+        to: string,
+        intentAt: string,
+        promoting: Promise<Promoted>,
+        into: Observation[],
+        signal?: AbortSignal
+    ): Promise<string | undefined> => {
+        const refusal = new AbortController()
+        let answer: Promoted | undefined
+        void promoting.then((promoted) => {
+            answer = promoted
+            if (promoted.refused !== undefined) {
+                refusal.abort()
+            }
+        })
+        const stop = signal ? AbortSignal.any([signal, refusal.signal]) : refusal.signal
+        if (await observe(to, intentAt, into, stop)) {
+            return undefined
+        }
+        // The hold ends observation even while the answer to the request is still pending.
+        const promoted = answer ??
+            (signal ? await answerBefore(promoting, signal) : await promoting) ?? {
+                intentAt,
+                ambiguous: 'AWS had not answered when the hold ended',
+            }
+        return unobservedOf(what, to, into, promoted)
+    }
+
     if (applying.aborted) {
         refuse('the apply stopped before the failover request was sent')
     }
     const intentAt = new Date().toISOString()
-    // Observation runs from the intent, so a promotion AWS accepted counts even while the answer to the request stalls.
     const promoting = promote(reader, applying, intentAt)
+    let answered: Promoted | undefined
+    void promoting.then((promoted) => {
+        answered = promoted
+    })
     journal.intentAt = intentAt
     journal.observations = []
     let observing: Promise<boolean> | undefined
@@ -284,36 +316,24 @@ export async function failOver({
     return {
         observed: (signal) =>
             (observing ??= (async () => {
-                const refusal = new AbortController()
-                let answered: Awaited<typeof promoting> | undefined
-                void promoting.then((promoted) => {
-                    answered = promoted
-                    if (promoted.refused !== undefined) {
-                        refusal.abort()
-                    }
-                })
-                const stop = signal ? AbortSignal.any([signal, refusal.signal]) : refusal.signal
-                const ok = await observe(reader, intentAt, journal.observations!, stop)
-                // The hold ends observation even while the answer to the request is still pending.
-                const promoted = answered ??
-                    (signal ? await answerBefore(promoting, signal) : await promoting) ?? {
-                        intentAt,
-                        ambiguous: 'AWS had not answered when the hold ended',
-                    }
-                if (promoted.refused !== undefined || !ok) {
-                    journal.unobserved = unobservedOf('failover', reader, journal.observations!, promoted)
-                    return false
-                }
-                return true
+                journal.unobserved = await unobservedFrom(
+                    'failover',
+                    reader,
+                    intentAt,
+                    promoting,
+                    journal.observations!,
+                    signal
+                )
+                return journal.unobserved === undefined
             })()),
 
         release: () =>
             (released ??= (async () => {
                 try {
-                    const promoted = await promoting
+                    // Release never waits for the answer: an unanswered request may still land, which settling covers.
                     // The control plane can show the old writer for a while after it accepted the promotion.
                     const mayStillLand =
-                        promoted.refused === undefined &&
+                        answered?.refused === undefined &&
                         !journal.observations!.some(({ name }) => name === 'cluster_writer')
                     const current = await settled(mayStillLand ? writer : undefined)
                     if (current?.Status !== 'available') {
@@ -326,15 +346,16 @@ export async function failOver({
                         }
                         return
                     }
-                    const failback = await promote(writer, AbortSignal.timeout(observeWithinMs))
-                    journal.releaseIntentAt = failback.intentAt
+                    const failbackAt = new Date().toISOString()
+                    journal.releaseIntentAt = failbackAt
                     journal.releaseObservations = []
-                    const ok =
-                        failback.refused === undefined &&
-                        (await observe(writer, failback.intentAt, journal.releaseObservations))
-                    if (!ok) {
-                        journal.releaseError = unobservedOf('fail-back', writer, journal.releaseObservations, failback)
-                    }
+                    journal.releaseError = await unobservedFrom(
+                        'fail-back',
+                        writer,
+                        failbackAt,
+                        promote(writer, AbortSignal.timeout(observeWithinMs), failbackAt),
+                        journal.releaseObservations
+                    )
                 } catch (error) {
                     journal.releaseError = `the fail-back could not start: ${messageOf(error)}`
                 }
