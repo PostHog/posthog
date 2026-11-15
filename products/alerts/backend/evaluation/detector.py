@@ -52,7 +52,7 @@ from products.alerts.backend.evaluation.delay import (
 from products.alerts.backend.facade.contracts import MovedAlertCheck
 from products.alerts.backend.forecast import scorer as forecast_scorer
 from products.alerts.backend.forecast.access import FORECAST_DETECTOR_NO_CREATOR_MESSAGE
-from products.alerts.backend.forecast.rules import breach_detail
+from products.alerts.backend.forecast.rules import ForecastComparison, breach_detail
 from products.alerts.backend.judge import (
     EarlierFlag,
     JudgeAttribution,
@@ -609,7 +609,9 @@ def simulate_detector_on_insight(
     """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck).
 
     A statistical detector scores every point. The AI detector makes one live check of the
-    latest point, and reads the earlier flags of ``alert_id`` when the alert is saved.
+    latest point, and reads the earlier flags of ``alert_id`` when the alert is saved. The forecast
+    detector scores every point with a rolling one-step forecast, and returns the forecast of each point
+    so the chart can draw the expected range.
 
     ``score=False`` returns the extracted series with no scores: for a caller that only wants
     the points, such as the investigation agent's chart, and must not pay for a model call.
@@ -628,10 +630,6 @@ def simulate_detector_on_insight(
     # Read-only simulation runs outside the alert-check activity, so tag its query directly.
     tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
     detector_type_str = detector_config.get("type", "zscore")
-    if score and detector_type_str == DetectorType.FORECAST.value:
-        # Before the query, so the preview refuses without running it. A preview of a forecast scores
-        # every point with a rolling forecast, which this function does not do.
-        raise ValueError("A preview is not available for the forecast detector yet.")
 
     # Route through the same kind→extractor registry as the alert path (check_detector_alert), so
     # simulation and evaluation can't drift: a kind added to DETECTOR_EXTRACTORS is automatically
@@ -697,12 +695,28 @@ def simulate_detector_on_insight(
         else (),
     )
 
+    if result.is_breakdown and detector_type_str == DetectorType.LLM.value:
+        # One model call per breakdown value is the cost profile the saved-alert path
+        # refuses; the preview must refuse it before the first call, not after the last.
+        raise ValueError("The AI detector does not support breakdown insights yet.")
+
+    scored_series = result.series if result.is_breakdown else result.series[:1]
+    if score and detector_type_str == DetectorType.FORECAST.value:
+        sims = _forecast_sims(
+            scored_series,
+            detector_config,
+            attribution=_judge_attribution(
+                team=insight.team,
+                user=user,
+                evaluation_id=None,
+                is_agent_billable=is_agent_billable,
+                detector_type=detector_type_str,
+            ),
+        )
+    else:
+        sims = [_sim_from_series(s, detector_config, detector_type_str, sim_context) for s in scored_series]
+
     if result.is_breakdown:
-        if detector_type_str == DetectorType.LLM.value:
-            # One model call per breakdown value is the cost profile the saved-alert path
-            # refuses; the preview must refuse it before the first call, not after the last.
-            raise ValueError("The AI detector does not support breakdown insights yet.")
-        breakdown_sims = [_sim_from_series(s, detector_config, detector_type_str, sim_context) for s in result.series]
         return {
             "data": [],
             "dates": [],
@@ -710,13 +724,13 @@ def simulate_detector_on_insight(
             "triggered_indices": [],
             "triggered_dates": [],
             "interval": interval_value,
-            "total_points": sum(sim["total_points"] for sim in breakdown_sims),
-            "anomaly_count": sum(sim["anomaly_count"] for sim in breakdown_sims),
-            "breakdown_results": breakdown_sims,
+            "total_points": sum(sim["total_points"] for sim in sims),
+            "anomaly_count": sum(sim["anomaly_count"] for sim in sims),
+            "breakdown_results": sims,
             **interval_metadata,
         }
 
-    sim = _sim_from_series(result.series[0], detector_config, detector_type_str, sim_context)
+    sim = sims[0]
     sim.pop("label", None)
     return {**sim, "interval": interval_value, **interval_metadata}
 
@@ -774,8 +788,15 @@ def _sim_from_series(
         persisted_metadata = scored.persisted_metadata
     else:
         detection = None
-    if detection is None:
-        detection = DetectionResult(is_anomaly=False)
+    return _shaped_sim(series, detection or DetectionResult(is_anomaly=False), detector_type_str, persisted_metadata)
+
+
+def _shaped_sim(
+    series: ComparableSeries,
+    detection: DetectionResult,
+    detector_type_str: str,
+    persisted_metadata: dict[str, Any],
+) -> dict[str, Any]:
     triggered = detection.triggered_indices or []
     scores = detection.all_scores if detection.all_scores else [None] * len(series.points)
 
@@ -798,3 +819,42 @@ def _sim_from_series(
         sim["rationale"] = persisted_metadata["rationale"]
         sim["kind"] = persisted_metadata.get("kind")
     return sim
+
+
+def _forecast_sims(
+    series: list[ComparableSeries], detector_config: dict[str, Any], *, attribution: JudgeAttribution
+) -> list[dict[str, Any]]:
+    """Score every point of each series with a rolling forecast, and shape each for the simulation chart.
+
+    All the series share one batched forecast call. Each sim carries the forecast of each point, so the
+    chart can draw the expected value and the range, and mark the side that fired.
+    """
+    rolling = forecast_scorer.score_every_point(
+        [np.array([point.value for point in s.points]) for s in series], detector_config, attribution=attribution
+    )
+    sims: list[dict[str, Any]] = []
+    for s, comparisons in zip(series, rolling.comparisons, strict=True):
+        triggered = [index for index, comparison in enumerate(comparisons) if comparison and comparison.fires]
+        sim = _shaped_sim(
+            s,
+            # A forecast has no score.
+            DetectionResult(is_anomaly=bool(triggered), triggered_indices=triggered),
+            DetectorType.FORECAST.value,
+            {},
+        )
+        sim["forecast"] = {
+            "lower_quantile": rolling.levels.lower,
+            "upper_quantile": rolling.levels.upper,
+            **_forecast_points(comparisons),
+        }
+        sims.append(sim)
+    return sims
+
+
+def _forecast_points(comparisons: tuple[ForecastComparison | None, ...]) -> dict[str, list[Any]]:
+    return {
+        "expected": [comparison.expected if comparison else None for comparison in comparisons],
+        "lower": [comparison.lower if comparison else None for comparison in comparisons],
+        "upper": [comparison.upper if comparison else None for comparison in comparisons],
+        "fired_side": [comparison.side if comparison else None for comparison in comparisons],
+    }
