@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -110,5 +113,29 @@ describe('TransactionalEmailsTable', () => {
 
         expect(await screen.findByText('Receipt')).toBeInTheDocument()
         expect(screen.queryByText(/couldn't load/)).not.toBeInTheDocument()
+    })
+
+    it.each([
+        ['leads with sending from code when code sends are on', true, 'Send your first email from code'],
+        ['keeps the template intro when code sends are off', false, 'Create your first transactional email'],
+    ])('%s in an empty tab', async (_case, codeSendsOn, heading) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': { results: [] },
+                '/api/projects/:team_id/transactional_code_emails/': [],
+                '/api/projects/:team_id/integrations/': { results: [] },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE], {
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE]: codeSendsOn,
+        })
+        render(
+            <Provider>
+                <TransactionalEmailsTable />
+            </Provider>
+        )
+
+        expect(await screen.findByText(heading)).toBeInTheDocument()
     })
 })

@@ -1,0 +1,65 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
+
+import { firstCodeSendLogic } from './firstCodeSendLogic'
+
+const TEAM_ID = 42
+
+const codeEmail = (key: string): CodeEmailApi => ({
+    id: `id-${key}`,
+    key,
+    hog_flow_id: `flow-${key}`,
+    description: '',
+    tags: [],
+    sensitive: true,
+    source_url: null,
+    source_origin: null,
+    created_at: '2026-11-15T10:00:00Z',
+    user_access_level: 'editor',
+})
+
+describe('firstCodeSendLogic', () => {
+    let logic: ReturnType<typeof firstCodeSendLogic.build>
+    let stored: CodeEmailApi[]
+
+    beforeEach(() => {
+        jest.useFakeTimers()
+        stored = []
+        useMocks({ get: { [`/api/projects/${TEAM_ID}/transactional_code_emails/`]: () => [200, stored] } })
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: TEAM_ID })
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.useRealTimers()
+    })
+
+    const mount = async (): Promise<void> => {
+        logic = firstCodeSendLogic({ surface: 'email_domain' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+    }
+
+    it('reports the first email once a later check finds it', async () => {
+        await mount()
+        expect(logic.values.firstCodeSend).toEqual({ status: 'waiting' })
+
+        stored = [codeEmail('welcome')]
+        await jest.advanceTimersByTimeAsync(10_000)
+
+        expect(logic.values.firstCodeSend).toEqual({ status: 'arrived', codeEmail: codeEmail('welcome') })
+    })
+
+    it('does not call an email first when the project already sent from code', async () => {
+        stored = [codeEmail('password-reset')]
+        await mount()
+        stored = [codeEmail('password-reset'), codeEmail('welcome')]
+        await jest.advanceTimersByTimeAsync(60_000)
+
+        expect(logic.values.firstCodeSend).toEqual({ status: 'already_sending' })
+    })
+})

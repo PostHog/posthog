@@ -1,0 +1,62 @@
+import { useValues } from 'kea'
+
+import { IconCheckCircle, IconCircleDashed } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
+
+import { openEmailDomainSetupPage } from '../../Channels/EmailDomain/openEmailDomainSetupPage'
+import { sendingDomainLogic } from './sendingDomainLogic'
+
+export function SendingDomainRow(): JSX.Element | null {
+    const { sendingDomain, integrationsFailed } = useValues(sendingDomainLogic)
+
+    if (!sendingDomain) {
+        return integrationsFailed ? null : <LemonSkeleton className="h-14" />
+    }
+
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-wrap items-center gap-2 px-4 py-3">
+            {sendingDomain.status === 'verified' ? (
+                <>
+                    <IconCheckCircle className="text-success text-lg shrink-0" />
+                    <span className="flex-1 min-w-0">
+                        Sending from <code className="break-all">{sendingDomain.email}</code>
+                    </span>
+                    <LemonTag type="success">Domain verified</LemonTag>
+                </>
+            ) : sendingDomain.status === 'pending' ? (
+                <>
+                    <IconCircleDashed className="text-secondary text-lg shrink-0" />
+                    <span className="flex-1 min-w-0">
+                        <code className="break-all">{sendingDomain.domain}</code> is waiting for its DNS records. Emails
+                        to your users need a verified domain.
+                    </span>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        to={urls.workflowsEmailDomain(sendingDomain.integrationId)}
+                        data-attr="send-from-code-check-dns-records"
+                    >
+                        Check DNS records
+                    </LemonButton>
+                </>
+            ) : (
+                <>
+                    <IconCircleDashed className="text-secondary text-lg shrink-0" />
+                    <span className="flex-1 min-w-0">
+                        Set up the domain you send from. Emails to your users need a verified domain.
+                    </span>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={() => openEmailDomainSetupPage('transactional')}
+                        data-attr="send-from-code-set-up-domain"
+                    >
+                        Set up a domain
+                    </LemonButton>
+                </>
+            )}
+        </LemonCard>
+    )
+}
