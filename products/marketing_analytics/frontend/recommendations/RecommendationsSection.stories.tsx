@@ -206,7 +206,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         subject: 'funnel analysis tool',
         campaign: 'Search - Product',
         action: 'Add as a keyword in Google Ads',
-        reason: "3800 organic impressions at position 24.0, not bought. It ranks on https://example.com/funnels, which this campaign's ads link to",
+        reason: "3,800 organic impressions at position 24.0, not bought. It ranks on https://example.com/funnels, which this campaign's ads link to",
         impact: 420,
         impactDirection: 'invest',
         impactType: 'estimated',
