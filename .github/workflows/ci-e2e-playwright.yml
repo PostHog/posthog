@@ -870,12 +870,20 @@ jobs:
             - parallel:
                   - name: Apply postgres and clickhouse migrations and setup dev
                     run: |
+                        # --skip-checks on each manage.py call below: the Django system-check
+                        # pass costs about 24s of wall clock per invocation here, and this step
+                        # runs three of them while the frontend build next door saturates every
+                        # core. The checks are development-time validation, not part of applying
+                        # migrations; ci-backend's check-migrations job runs them for every PR.
+                        # The multinode migration smoke and hogli's migrate already pass the
+                        # flag for the same reason.
+
                         # Postgres migrations must run first — ClickHouse migration 0026
                         # depends on the posthog_instancesetting table in Postgres.
                         # On cache hit this is near no-op; on cache miss it's a full migrate.
                         # Either way, any PR-added migrations get applied here.
                         TIMEFORMAT='Django migrations: %3R seconds'
-                        time python manage.py migrate --noinput
+                        time python manage.py migrate --noinput --skip-checks
 
                         # Run Rust migrations for persons e2e test database
                         PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
@@ -896,7 +904,7 @@ jobs:
                         }
 
                         TIMEFORMAT='ClickHouse migrations: %3R seconds'
-                        time python manage.py migrate_clickhouse 2>&1
+                        time python manage.py migrate_clickhouse --skip-checks 2>&1
 
                         # Person/group reads go through personhog (no ORM fallback), so the replica
                         # and router must be running before setup_dev creates demo persons.
@@ -904,7 +912,7 @@ jobs:
                         time COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
 
                         TIMEFORMAT='Demo data setup: %3R seconds'
-                        time python manage.py setup_dev
+                        time python manage.py setup_dev --skip-checks
 
                   - name: Build frontend and collect static files
                     run: |
