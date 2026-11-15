@@ -53,6 +53,7 @@ from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, 
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, project_context, report_matrix
 from products.signals.dags.inbox_ranking.nn.examples import (
+    BIRTH_HORIZONS,
     NN_HEADS,
     build_examples,
     examples_arrow,
@@ -165,7 +166,7 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
 
     dates = snapshot_dates(partition_key, settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS)
-    snapshots = load_snapshots(client, bucket, prefix, dates)
+    snapshots = load_snapshots(client, bucket, prefix, dates, birth_horizons=BIRTH_HORIZONS)
     if dates[-1] not in snapshots:
         context.log.warning(f"no state and labels snapshots for dt={partition_key}; nn skips this partition")
         context.add_output_metadata({"skipped": dagster.MetadataValue.bool(True)})

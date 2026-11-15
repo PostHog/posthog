@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 import numpy as np
+import pandas as pd
 import dagster
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -34,6 +35,7 @@ from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
 from products.signals.dags.inbox_ranking.nn import dag as nn_dag
 from products.signals.dags.inbox_ranking.nn.examples import (
+    BIRTH_HORIZONS,
     NN_HEAD_NAMES,
     build_examples,
     examples_arrow,
@@ -55,9 +57,11 @@ from products.signals.dags.inbox_ranking.training.dag import (
     METADATA_FILE,
     PROMOTION_FILE,
     check_recipe,
+    load_snapshots,
     model_object_key,
     served_object_key,
 )
+from products.signals.dags.inbox_ranking.training.examples import drop_without_training_consent
 from products.signals.dags.inbox_ranking.training.families import (
     AA_SEED_OFFSET,
     MODEL_FAMILIES,
@@ -483,3 +487,36 @@ def test_examples_depend_on_the_whole_lookback_window():
         assert isinstance(mapping, dagster.TimeWindowPartitionMapping)
         assert mapping.start_offset == -settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS
         assert mapping.end_offset == 0
+
+
+def test_birth_grain_trim_keeps_the_examples_of_the_full_snapshots():
+    inbox = _SyntheticInbox()
+    dates = sorted(inbox.snapshots())
+    deleted = "r-5-0"
+    objects: dict[str, bytes] = {}
+    for date, snapshot in inbox.snapshots().items():
+        state = snapshot.state.assign(status="ready", pg_updated_at=snapshot.state["report_created_at"])
+        labels = snapshot.labels.assign(latest_status_event="ready", status_event_team_id=state["report_team_id"])
+        if date > D0 + datetime.timedelta(days=10):
+            state = state.drop(deleted)
+        for table, frame in ((STATE_TABLE, state), (LABELS_TABLE, labels)):
+            objects[partition_object_key(PREFIX, table, date.isoformat())] = _parquet(
+                pa.Table.from_pandas(frame.reset_index(), preserve_index=False)
+            )
+    embeddings = inbox.embeddings().to_pandas()
+    late = embeddings["report_id"] == "r-8-1"
+    embeddings.loc[late, "embedding_inserted_at"] += pd.Timedelta(days=3)
+    embeddings = embeddings[embeddings["report_id"] != "r-9-2"]
+    extras = report_vectors(pa.Table.from_pandas(embeddings, schema=inbox.embeddings().schema, preserve_index=False))
+
+    def examples(birth_horizons: tuple[int, ...] | None) -> tuple[pa.Table, int]:
+        snapshots = load_snapshots(_S3(objects), "bucket", PREFIX, dates, birth_horizons=birth_horizons)
+        consented, _ = drop_without_training_consent(snapshots, frozenset({2}))
+        built = build_examples(consented, extras, holdout_days=HOLDOUT_DAYS)
+        return examples_arrow(built), sum(len(snapshot.state) for snapshot in snapshots.values())
+
+    full, full_rows = examples(None)
+    trimmed, trimmed_rows = examples(BIRTH_HORIZONS)
+    assert trimmed_rows < full_rows / 2
+    assert np.nansum(full.column("fixed_label").to_numpy(zero_copy_only=False)) > 0
+    assert trimmed.equals(full, check_metadata=True)
