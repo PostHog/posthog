@@ -3562,9 +3562,12 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         ]
     )
     @time_machine.travel("2026-06-15T00:30:00Z", tick=False)
+    @override_settings(BILLING_STATE_REDIS_URL="redis://quota-failed-org.test:6379/0")
     def test_failed_period_recount_preserves_existing_block(
         self, _name: str, persisted_expiry: str | None, redis_expiry: str, expected_expiry: str | None
     ) -> None:
+        secondary = get_client("redis://quota-failed-org.test:6379/0")
+        secondary.flushdb()
         self._set_self_driving_usage(0)
         assert self.organization.usage is not None
         if persisted_expiry:
@@ -3599,6 +3602,13 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         )
         assert (
             get_client().zscore(
+                f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
+                self.team.api_token,
+            )
+            == expected_timestamp
+        )
+        assert (
+            secondary.zscore(
                 f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
                 self.team.api_token,
             )

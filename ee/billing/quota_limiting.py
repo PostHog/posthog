@@ -27,6 +27,8 @@ from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
+from posthog.quota_migration import QuotaReconciliationSnapshots, run_secondary_quota_operation, snapshot_quota_stores
+from posthog.quota_redis import reconcile_quota_set, replace_quota_set
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     combine_posthog_code_credits,
@@ -201,11 +203,15 @@ def replace_limited_team_tokens(
     """
     Replaces the all tokens in the cache with the new ones.
     """
+    key = f"{cache_key.value}{resource.value}"
     pipe = get_client().pipeline()
-    pipe.delete(f"{cache_key.value}{resource.value}")
+    pipe.delete(key)
     if tokens:
-        pipe.zadd(f"{cache_key.value}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+        pipe.zadd(key, tokens)  # type: ignore[arg-type]
     pipe.execute()
+    run_secondary_quota_operation(
+        "replace", lambda client: replace_quota_set(client, key, tokens), resource=key, maintenance=True
+    )
 
 
 def reconcile_limited_team_tokens(
@@ -213,6 +219,8 @@ def reconcile_limited_team_tokens(
     snapshot_tokens: Iterable[str],
     tokens: Mapping[str, int],
     cache_key: QuotaLimitingCaches,
+    *,
+    store_snapshots: QuotaReconciliationSnapshots | None = None,
 ) -> None:
     """
     Writes one quota run's verdict into the cache without discarding entries the run never saw.
@@ -227,14 +235,24 @@ def reconcile_limited_team_tokens(
     Expired scores are purged so entries that lapsed on their own do not accumulate.
     """
     key = f"{cache_key.value}{resource.value}"
-    stale_tokens = [token for token in snapshot_tokens if token not in tokens]
+    now = timezone.now().timestamp()
+    shared_tokens = store_snapshots.shared[key] if store_snapshots is not None else snapshot_tokens
+    stale_tokens = [token for token in shared_tokens if token not in tokens]
     pipe = get_client().pipeline()
-    pipe.zremrangebyscore(key, "-inf", timezone.now().timestamp())
+    pipe.zremrangebyscore(key, "-inf", now)
     if stale_tokens:
         pipe.zrem(key, *stale_tokens)
     if tokens:
-        pipe.zadd(key, tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+        pipe.zadd(key, tokens)  # type: ignore[arg-type]
     pipe.execute()
+    if store_snapshots is not None and store_snapshots.secondary is not None:
+        secondary_tokens = store_snapshots.secondary[key]
+        run_secondary_quota_operation(
+            "reconcile",
+            lambda client: reconcile_quota_set(client, key, secondary_tokens, tokens, now),
+            resource=key,
+            maintenance=True,
+        )
 
 
 def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches) -> None:
@@ -242,6 +260,11 @@ def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], 
         return
     redis_client = get_client()
     redis_client.zadd(f"{cache_key.value}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+    run_secondary_quota_operation(
+        "add",
+        lambda client: client.zadd(f"{cache_key.value}{resource.value}", tokens),  # type: ignore[arg-type]
+        resource=f"{cache_key.value}{resource.value}",
+    )
 
 
 def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache_key: QuotaLimitingCaches) -> None:
@@ -253,6 +276,8 @@ def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache
 
     redis_client = get_client()
     redis_client.zrem(f"{cache_key.value}{resource.value}", *tokens)
+    key = f"{cache_key.value}{resource.value}"
+    run_secondary_quota_operation("remove", lambda client: client.zrem(key, *tokens), resource=key)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
@@ -1715,6 +1740,18 @@ def update_all_orgs_billing_quotas(
         )
         for resource in QuotaResource
     }
+    store_snapshots = snapshot_quota_stores(
+        {
+            **{
+                f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{resource}": tokens
+                for resource, tokens in previously_quota_limited_team_tokens.items()
+            },
+            **{
+                f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY.value}{resource}": tokens
+                for resource, tokens in previously_quota_limiting_suspended_team_tokens.items()
+            },
+        }
+    )
     previously_quota_limited_team_token_sets = {
         field: set(tokens) for field, tokens in previously_quota_limited_team_tokens.items()
     }
@@ -1968,6 +2005,7 @@ def update_all_orgs_billing_quotas(
 
     # A failed decision must not remove that organization's existing Redis state.
     if failed_team_tokens:
+        store_snapshots = store_snapshots.without_tokens(failed_team_tokens)
         for field in previously_quota_limited_team_tokens:
             previously_quota_limited_team_tokens[field] = [
                 token for token in previously_quota_limited_team_tokens[field] if token not in failed_team_tokens
@@ -1986,6 +2024,7 @@ def update_all_orgs_billing_quotas(
                 previously_quota_limited_team_tokens[field],
                 quota_limited_teams[field],
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+                store_snapshots=store_snapshots,
             )
         for field in quota_limiting_suspended_teams:
             reconcile_limited_team_tokens(
@@ -1993,6 +2032,7 @@ def update_all_orgs_billing_quotas(
                 previously_quota_limiting_suspended_team_tokens[field],
                 quota_limiting_suspended_teams[field],
                 QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
+                store_snapshots=store_snapshots,
             )
         # Re-project every team limited before or after this run: the blob TTL is the limit's end,
         # which can move for a team that stays limited.
