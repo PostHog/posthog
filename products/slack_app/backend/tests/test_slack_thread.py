@@ -11,6 +11,7 @@ from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (
+    PROGRESS_MESSAGE_HEADERS,
     UPSTREAM_PROVIDER_FAILURE_MESSAGE,
     SlackThreadContext,
     SlackThreadHandler,
@@ -211,11 +212,26 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         mock_client.chat_delete.assert_not_called()
 
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_progress_header_stays_the_same_across_updates_of_one_run(self, mock_get_client, _mock_find_progress):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+
+        headers = set()
+        for stage in ("Waking up the hedgehog", "Paws on the keyboard", "Cloning repository"):
+            handler = SlackThreadHandler(context)
+            handler.task_run_id = "run-abc"
+            handler.post_or_update_progress(stage, task_url=None)
+            headers.add(mock_client.chat_postMessage.call_args.kwargs["text"].split("\n")[0])
+
+        assert len(headers) == 1
+        assert headers <= set(PROGRESS_MESSAGE_HEADERS)
+
     @parameterized.expand(
-        [
-            ("current_card", "*Hedgehog on the job* :hedgehog:\nPaws on the keyboard"),
-            ("card_posted_before_copy_change", "*Working on task...* :hourglass_flowing_sand:\nStage: In progress..."),
-        ]
+        [(f"header_{i}", f"{header}\nPaws on the keyboard") for i, header in enumerate(PROGRESS_MESSAGE_HEADERS)]
+        + [("card_posted_before_copy_change", "*Working on task...* :hourglass_flowing_sand:\nStage: In progress...")]
     )
     @patch.object(SlackThreadHandler, "_get_client")
     def test_delete_progress_finds_the_progress_card(self, _name, card_text, mock_get_client):
