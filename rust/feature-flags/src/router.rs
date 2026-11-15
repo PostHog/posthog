@@ -116,6 +116,8 @@ pub struct State {
     /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
     /// Used by the /flags/definitions endpoint
     pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    /// The definitions v2 entry (flags_with_cohorts_v2.json), read for `v=2` requests
+    pub flags_with_cohorts_v2_hypercache_reader: Arc<HyperCacheReader>,
     /// Billable status of each team's current flag definitions, keyed by ETag, so a 304 on
     /// /flags/definitions for survey-only or product-tour-only definitions goes unbilled
     /// without a payload read on every poll
@@ -224,6 +226,7 @@ pub fn router(
     flags_hypercache_reader: Arc<HyperCacheReader>,
     flag_definitions_cache: Arc<FlagDefinitionsCache>,
     flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    flags_with_cohorts_v2_hypercache_reader: Arc<HyperCacheReader>,
     team_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
     rayon_dispatcher: RayonDispatcher,
@@ -248,6 +251,7 @@ pub fn router(
         flags_hypercache_reader,
         flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
+        flags_with_cohorts_v2_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
         rayon_dispatcher,
@@ -276,6 +280,7 @@ pub(crate) fn router_with_rate_limiter_clock<C>(
     flags_hypercache_reader: Arc<HyperCacheReader>,
     flag_definitions_cache: Arc<FlagDefinitionsCache>,
     flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    flags_with_cohorts_v2_hypercache_reader: Arc<HyperCacheReader>,
     team_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
     rayon_dispatcher: RayonDispatcher,
@@ -435,6 +440,7 @@ where
         flags_hypercache_reader,
         flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
+        flags_with_cohorts_v2_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
         rayon_dispatcher,

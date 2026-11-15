@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::api::flag_definitions::FLAG_DEFINITIONS_V2_OBJECT_NAME;
 use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter, UsageReporter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::membership::{
@@ -421,6 +422,38 @@ pub async fn serve_with_rate_limiter_clock<C>(
         flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
     }
 
+    // The definitions v2 entry lives in Redis only. Its reader takes the legacy reader's Redis
+    // client, so both entries are read from the same cluster, and it never reads S3.
+    let flags_with_cohorts_v2_config = HyperCacheConfig {
+        object_name: FLAG_DEFINITIONS_V2_OBJECT_NAME.to_string(),
+        ..flags_with_cohorts_config.clone()
+    };
+    let flags_with_cohorts_v2_hypercache_reader = match flags_with_cohorts_s3.clone() {
+        Some(s3) => Arc::new(HyperCacheReader::new_with_s3_client(
+            flags_with_cohorts_redis_client.clone(),
+            s3,
+            flags_with_cohorts_v2_config,
+        )),
+        None => match HyperCacheReader::new(
+            flags_with_cohorts_redis_client.clone(),
+            flags_with_cohorts_v2_config,
+        )
+        .await
+        {
+            Ok(reader) => Arc::new(reader),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create flags with cohorts v2 HyperCacheReader: {:?}",
+                    e
+                );
+                handles.fail_init(format!(
+                    "flags with cohorts v2 hypercache init failed: {e:?}"
+                ));
+                return;
+            }
+        },
+    };
+
     let flags_with_cohorts_hypercache_reader = match flags_with_cohorts_s3 {
         Some(s3) => Arc::new(HyperCacheReader::new_with_s3_client(
             flags_with_cohorts_redis_client,
@@ -608,6 +641,7 @@ pub async fn serve_with_rate_limiter_clock<C>(
         flags_hypercache_reader,
         flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
+        flags_with_cohorts_v2_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
         rayon_dispatcher,

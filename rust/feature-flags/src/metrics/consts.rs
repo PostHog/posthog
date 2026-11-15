@@ -389,6 +389,10 @@ pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_ca
 // redis_error = the etag read failed or the stored value did not decode)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
 
+// Labels: requested (v2 = exactly `v=2`, legacy = everything else), served (the cache entry
+// that answered: v2, or legacy when the team has no v2 entry), library (the SDK name).
+pub const FLAG_DEFINITIONS_FEED_COUNTER: &str = "flags_flag_definitions_feed_total";
+
 // Billing decision for a /flags/definitions 304. Labels: outcome (billable, not_billable,
 // unknown = the payload was unreadable, slow, or not served from Redis, so the poll went
 // unbilled). Compare with the etag `hit` counter to see how many 304s went unbilled.
