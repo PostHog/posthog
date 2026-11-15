@@ -80,7 +80,8 @@ describe('firstCodeSendLogic', () => {
 
     it.each([
         ['the first email when it is newer than the page', '2026-11-15T10:00:01Z', 'arrived'],
-        ['no first email when it is older than the page', '2026-11-15T09:59:59Z', 'already_sending'],
+        ['the first email when the browser clock runs ahead of the server', '2026-11-15T09:58:00Z', 'arrived'],
+        ['no first email when it is older than the page', '2026-11-15T09:50:00Z', 'already_sending'],
     ])('after a failed first check, reports %s', async (_case, createdAt, status) => {
         jest.setSystemTime(new Date('2026-11-15T10:00:00Z'))
         listFails = true
