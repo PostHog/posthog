@@ -643,10 +643,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("welcome", None),
         ]
         assert (detail["code_email_id"], detail["sensitive"]) == (str(code_email.id), False)
-        assert sorted((r["label"], r["template_id"] is not None, r["code_email_id"]) for r in stats) == [
-            ("Password reset", True, None),
-            ("order-shipped", False, str(code_email.id)),
-            ("welcome", False, None),
+        assert sorted((r["label"], r["template_id"], r["code_email_id"]) for r in stats) == [
+            ("Password reset", str(self.template.id), None),
+            ("order-shipped", None, str(code_email.id)),
+            ("welcome", None, None),
         ]
 
     def test_no_access_to_workflows_also_hides_the_sends_of_deleted_ones(self, _flag):

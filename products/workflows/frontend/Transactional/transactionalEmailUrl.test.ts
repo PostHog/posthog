@@ -1,4 +1,8 @@
-import { transactionalEmailSendsUrl, transactionalEmailUrl } from './transactionalEmailUrl'
+import {
+    transactionalEmailSendsUrl,
+    transactionalEmailStatsRowUrl,
+    transactionalEmailUrl,
+} from './transactionalEmailUrl'
 
 describe('transactionalEmailUrl', () => {
     test.each([
@@ -30,5 +34,34 @@ describe('transactionalEmailUrl', () => {
         ],
     ])('%s', (_name, searchParams, expected) => {
         expect(transactionalEmailSendsUrl({ code_email_id: 'code-1', template_id: null }, searchParams)).toBe(expected)
+    })
+})
+
+describe('transactionalEmailStatsRowUrl', () => {
+    const counts = { sent: 3, delivered: 2, bounced: 1, complained: 0, opened: 1, clicked: 0, failed: 0 }
+
+    test.each([
+        [
+            'a code email row opens its code email',
+            { key: 'order-shipped', label: 'order-shipped', code_email_id: 'code-1', template_id: null },
+            '/transactional/code-emails/code-1',
+        ],
+        [
+            'a row whose email is gone opens nothing',
+            { key: 'welcome', label: 'welcome', code_email_id: null, template_id: null },
+            null,
+        ],
+        [
+            'a template row from a Django pod of the release before still opens its template',
+            { key: 'tpl-1', label: 'Order receipt' },
+            '/transactional/library/templates/tpl-1',
+        ],
+        [
+            'a row without a template from a Django pod of the release before opens nothing',
+            { key: 'flow-1', label: '' },
+            null,
+        ],
+    ])('%s', (_name, row, expected) => {
+        expect(transactionalEmailStatsRowUrl({ ...counts, ...row })).toBe(expected)
     })
 })
