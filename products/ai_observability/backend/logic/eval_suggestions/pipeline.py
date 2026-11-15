@@ -310,11 +310,12 @@ def measure_stage(
         held_out=len(sample.held_out),
         multi_turn_share=round(content.multi_turn_share, 3),
         text_share=round(content.text_share, 3),
+        output_share=round(content.output_share, 3),
         spanning_days_share=round(content.spanning_days_share, 3),
     )
     # Without the model's inputs and outputs, every suggestion would be a generic error count. The instrumentation
     # checklist already asks the team to capture them, so the run stops before any check or paid call.
-    if content.text_share < MIN_CONTENT_SHARE:
+    if content.output_share < MIN_CONTENT_SHARE:
         stages.set("applicability", "skipped", detail="too few traces carry the model's output")
         return _publish_fixes_only(run, stages, window, profile, fixes, model)
 

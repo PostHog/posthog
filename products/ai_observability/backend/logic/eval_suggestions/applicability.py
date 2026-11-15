@@ -11,7 +11,7 @@ from posthog.dataclasses import frozen
 
 from . import adapters
 from .adapters import AdaptedCheck
-from .measure import SampledTrace, TraceSample
+from .measure import SampledTrace, TraceSample, captures_output
 from .profile import DISPATCHER_SHARE, TeamProfile
 
 MIN_TOOL_CALL_SHARE = 0.1
@@ -32,6 +32,8 @@ INJECTION_JUDGE = "prompt_injection"
 class ContentProfile:
     traces: int
     text_share: float
+    # Traces whose model sent any output, a text answer or a tool call, so agents that end on a tool count.
+    output_share: float
     multi_turn_share: float
     spanning_days_share: float
     dispatcher_tools: tuple[str, ...]
@@ -83,6 +85,7 @@ def content_profile(sample: TraceSample) -> ContentProfile:
     return ContentProfile(
         traces=count,
         text_share=share([bool(t.final_text.strip()) for t in traces]),
+        output_share=share([captures_output(t) for t in traces]),
         multi_turn_share=share([t.user_messages >= 2 for t in traces]),
         spanning_days_share=share([t.spans_days for t in traces]),
         dispatcher_tools=trace_dispatcher_tools(traces),

@@ -70,7 +70,7 @@ def _content(captured: bool, messages: list[dict[str, Any]], choices: list[dict[
     return {"$ai_input": messages, "$ai_output_choices": choices} if captured else {}
 
 
-def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True) -> None:
+def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True, final_answer: bool = True) -> None:
     """60 chat turns over three days. Every action goes through one dispatcher tool, answers link to docs,
     some turns pause for approval, and 3 turns end on a timeout nobody retried."""
     for index in range(60):
@@ -126,6 +126,8 @@ def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True) ->
                     "$ai_error": "GraphInterrupt(value={'needs_approval': 'archive'})",
                 },
             )
+        if not final_answer:
+            continue
         answer = {
             "role": "assistant",
             "content": "Done. See https://example.com/docs/archive for version 2.1 of the archive.",
@@ -225,6 +227,17 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert [s.dedupe_key for s in suggestions] == [f"fix:{dead_judge.id}:no_runs"]
         run.refresh_from_db()
         assert run.stages["applicability"]["status"] == "skipped"
+
+    def test_an_agent_whose_turns_end_on_a_tool_call_is_not_gated(self) -> None:
+        now = timezone.now()
+        _chat_traffic(self.team, now - timedelta(minutes=30), final_answer=False)
+        run = create_run(self.team, "manual")
+
+        _run_stages(self.team, run, now=now)
+
+        run.refresh_from_db()
+        assert run.stages["profile"]["text_share"] == 0
+        assert run.stages["applicability"]["status"] == "ok"
 
 
 class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
