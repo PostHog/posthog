@@ -122,11 +122,24 @@ jobs:
                   gh workflow run desktop-tag.yml -f quiet_retries="$NEXT"
                   echo "proceed=false" >> "$GITHUB_OUTPUT"
 
+            - name: Check for unreleased desktop commits
+              id: changes
+              if: github.event_name == 'schedule' && steps.quiet.outputs.proceed != 'false'
+              run: |
+                  LATEST_RELEASE=$(git tag --list 'desktop-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^desktop-v[0-9]+\.[0-9]+(\.[0-9]+)?$' | head -1 || true)
+                  if [ -n "$LATEST_RELEASE" ] && git merge-base --is-ancestor "$LATEST_RELEASE" HEAD; then
+                    COMMITS=$(git rev-list "$LATEST_RELEASE"..HEAD --count -- products/desktop/ packages/agent/)
+                    if [ "$COMMITS" -eq 0 ]; then
+                      echo "No desktop commits since $LATEST_RELEASE. Skipping the scheduled release."
+                      echo "needed=false" >> "$GITHUB_OUTPUT"
+                    fi
+                  fi
+
             # A release is cut from master, and nothing tests a master commit on push, so
             # the tag job runs Desktop Tests on the tree it is about to tag and waits.
             - name: Run Desktop Tests on master
               id: master-ci-run
-              if: steps.quiet.outputs.proceed != 'false' && github.event.inputs.ignore_master_ci != 'true'
+              if: steps.quiet.outputs.proceed != 'false' && steps.changes.outputs.needed != 'false' && github.event.inputs.ignore_master_ci != 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
@@ -186,7 +199,7 @@ jobs:
                   echo "::warning::Desktop Tests concluded '${CONCLUSION}' on ${SHA}, so the release tag is held. ${RUN_URL}"
 
             - name: Compute version and create tag
-              if: steps.quiet.outputs.proceed != 'false' && steps.master-ci-run.outputs.proceed != 'false' && steps.master-ci-verdict.outputs.proceed != 'false'
+              if: steps.quiet.outputs.proceed != 'false' && steps.changes.outputs.needed != 'false' && steps.master-ci-run.outputs.proceed != 'false' && steps.master-ci-verdict.outputs.proceed != 'false'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   REPOSITORY: ${{ github.repository }}
