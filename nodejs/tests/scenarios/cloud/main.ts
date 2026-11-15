@@ -1,10 +1,11 @@
 import { EXIT_CODE } from '../runner/status'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
+import { isCardId, runCardOf } from './card'
 import { awaitCard, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
-import { CloudProfile, REGION, RunInputs, loadCloudProfile, loadRunInputs } from './profile'
+import { CloudProfile, ProfileInputs, REGION, loadCloudProfile, loadRunInputs } from './profile'
 import { report } from './report'
 import { addReader, createRunStack } from './stack'
 import { teardown } from './teardown'
@@ -35,13 +36,16 @@ function defaultController(): Controller {
     }
 }
 
-async function run(controller: Controller, loaded: RunInputs): Promise<number> {
-    const { profile } = loaded
+async function run(controller: Controller, inputs: ProfileInputs, cardId: string): Promise<number> {
+    const { profile } = inputs
     const admission = await admit(controller, profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
         return EXIT_CODE.invalid
     }
+    const [, runner] = inputs.inputs
+    const card = runCardOf(controller.origin, admission.admitted.commit, cardId, runner.bytes)
+    const loaded = { ...inputs, card }
     const manifest = await lease(controller, loaded, admission.admitted)
     controller.print(`Leased run ${manifest.runId} until ${manifest.expiresAt}.`)
     const interruption = new AbortController()
@@ -90,10 +94,15 @@ export async function main(argv: string[], controller: Controller = defaultContr
         return EXIT_CODE.invalid
     }
     try {
-        const loaded = command === 'run' ? loadRunInputs(file, target) : undefined
+        if (command === 'run' && !isCardId(target)) {
+            throw new Error(
+                `${target} is not a card id. The run host runs the cards of the run's commit, so name one under tests/scenarios/cards.`
+            )
+        }
+        const loaded = command === 'run' ? loadRunInputs(file) : undefined
         const profile = loaded?.profile ?? loadCloudProfile(file)
         await refuseOutsideDev(controller, profile.account)
-        return loaded ? await run(controller, loaded) : await cleanup(controller, profile, target)
+        return loaded ? await run(controller, loaded, target) : await cleanup(controller, profile, target)
     } catch (error) {
         controller.warn((error as Error).message)
         return EXIT_CODE.invalid

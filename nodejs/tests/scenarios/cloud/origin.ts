@@ -10,6 +10,12 @@ const REQUEST_TIMEOUT_MS = 10_000
 export function githubOrigin(api: string = 'https://api.github.com'): Origin {
     return {
         head: () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: __dirname, encoding: 'utf8' }).trim(),
+        cardAt: (commit, id) =>
+            execFileSync('git', ['show', `${commit}:nodejs/tests/scenarios/cards/${id}.yaml`], {
+                cwd: __dirname,
+                encoding: 'utf8',
+                stdio: ['ignore', 'pipe', 'pipe'],
+            }),
         onMaster: async (commit) => {
             const response = await internalFetch(`${api}/repos/${REPOSITORY}/compare/master...${commit}`, {
                 headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'posthog-scenario-runner' },

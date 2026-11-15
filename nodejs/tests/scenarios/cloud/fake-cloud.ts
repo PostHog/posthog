@@ -590,7 +590,8 @@ export class FakeCloud implements Aws {
         const script = commands.join('\n')
         const timeoutMs = Number(executionTimeout[0]) * 1000
         const runId = /SCENARIO_RUN_ID='?([\w-]+)/.exec(script)?.[1]
-        const cardId = /SCENARIO_CARD='?([\w-]+)/.exec(script)?.[1] ?? ''
+        const manifest = runId ? this.objects.get(`runs/${runId}/input/manifest.json`) : undefined
+        const cardId = manifest ? String((parseJSON(manifest) as { card?: unknown }).card ?? '') : ''
         const command: Command = {
             id: randomUUID(),
             instanceId,

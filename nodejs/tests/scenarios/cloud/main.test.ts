@@ -27,6 +27,7 @@ type Setup = {
     onMaster?: boolean
     arrange?: (cloud: FakeCloud) => void
     env?: NodeJS.ProcessEnv
+    uncommitted?: string
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
@@ -52,6 +53,7 @@ describe('cloud controller', () => {
         onMaster = true,
         arrange = () => undefined,
         env = {},
+        uncommitted,
     }: Setup = {}): {
         controller: Controller
     } {
@@ -61,7 +63,18 @@ describe('cloud controller', () => {
         arrange(cloud)
         const controller: Controller = {
             aws: cloud,
-            origin: { head: () => COMMIT, onMaster: (commit) => Promise.resolve(onMaster && commit === COMMIT) },
+            origin: {
+                head: () => COMMIT,
+                onMaster: (commit) => Promise.resolve(onMaster && commit === COMMIT),
+                cardAt: (commit, id) => {
+                    if (commit !== COMMIT || id === uncommitted) {
+                        throw new Error(
+                            `fatal: path 'nodejs/tests/scenarios/cards/${id}.yaml' does not exist in '${commit}'`
+                        )
+                    }
+                    return readFileSync(path.join(__dirname, '..', 'cards', `${id}.yaml`), 'utf8')
+                },
+            },
             now: () => now,
             sleep: async (ms) => {
                 now = new Date(now.getTime() + ms)
@@ -82,10 +95,14 @@ describe('cloud controller', () => {
 
     async function leaseAt(at: Date, controller: Controller): Promise<string> {
         now = at
-        const manifest = await lease(controller, loadRunInputs(profilePath(), FAILOVER_CARD), {
-            owner: OWNER,
-            commit: COMMIT,
-        })
+        const manifest = await lease(
+            controller,
+            { ...loadRunInputs(profilePath()), card: { id: FAILOVER_CARD, failsOver: true } },
+            {
+                owner: OWNER,
+                commit: COMMIT,
+            }
+        )
         return manifest.runId
     }
 
@@ -168,12 +185,24 @@ describe('cloud controller', () => {
         })
     })
 
-    it.each([
-        ['a card that does not exist', 'no-such-card', 'no-such-card'],
-        ['a card path, which the run host cannot read', '../cards/cyclotron-scale.yaml', 'card id'],
-        ['no card', undefined, 'Usage:'],
-    ])('refuses %s before it leases anything', async (_story, card, problem) => {
-        const { controller } = prepare()
+    it.each<[string, string | undefined, string, Setup]>([
+        ['a card that does not exist', 'no-such-card', 'no-such-card is not a card at commit', {}],
+        [
+            'a card that exists only in the working tree, not at the run commit',
+            'cyclotron-scale',
+            'cyclotron-scale is not a card at commit',
+            { uncommitted: 'cyclotron-scale' },
+        ],
+        [
+            'a card the runner profile cannot run',
+            FAILOVER_CARD,
+            'is not a valid card',
+            { arrange: () => writeFileSync(path.join(dir, 'runner.yaml'), 'name: empty\n') },
+        ],
+        ['a card path, which the run host cannot read', '../cards/cyclotron-scale.yaml', 'card id', {}],
+        ['no card', undefined, 'Usage:', {}],
+    ])('refuses %s before it leases anything', async (_story, card, problem, setup) => {
+        const { controller } = prepare(setup)
 
         await expect(main(['run', profilePath(), ...(card ? [card] : [])], controller)).resolves.toBe(2)
 

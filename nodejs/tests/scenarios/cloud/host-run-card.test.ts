@@ -39,7 +39,6 @@ state="$XDG_CACHE_HOME/posthog-scenarios"
 run="$state/${RUNNER_RUN_ID}"
 mkdir -p "$run" "$state/edge-ca"
 echo '{"phase":"drive"}' >"$run/result.json"
-printf '%s\\n' "$@" >"$run/args"
 echo 'private key' >"$state/edge-ca/ca.key"
 [ -z "\${FAKE_CARD_BLOCKS_COPY:-}" ] || touch "$SCENARIO_HOST_ROOT/evidence/run"
 if [ -n "\${FAKE_CARD_HANGS:-}" ]; then
@@ -62,19 +61,27 @@ describe('host-run-card.sh', () => {
 
     const s3 = (key: string): string => path.join(dir, 's3', BUCKET, 'runs', RUN_ID, key)
 
-    function start(env: NodeJS.ProcessEnv): ChildProcess {
+    function start(
+        env: NodeJS.ProcessEnv,
+        manifest: object = { card: 'cyclotron-scale' },
+        runner = FAKE_RUNNER
+    ): ChildProcess {
         const bin = path.join(dir, 'bin')
         mkdirSync(bin)
+        mkdirSync(path.join(dir, 'host', 'input'), { recursive: true })
+        writeFileSync(path.join(dir, 'host', 'input', 'manifest.json'), JSON.stringify({ runId: RUN_ID, ...manifest }))
         writeFileSync(path.join(bin, 'aws'), FAKE_AWS, { mode: 0o755 })
-        writeFileSync(path.join(bin, 'node'), FAKE_RUNNER, { mode: 0o755 })
+        if (runner) {
+            writeFileSync(path.join(bin, 'node'), runner, { mode: 0o755 })
+        }
         writeFileSync(path.join(bin, 'pnpm'), FAKE_PNPM, { mode: 0o755 })
         return spawn('bash', [WRAPPER], {
             env: {
+                ...process.env,
                 PATH: `${bin}:${process.env.PATH}`,
                 HOME: dir,
                 SCENARIO_RUN_ID: RUN_ID,
                 SCENARIO_EVIDENCE_BUCKET: BUCKET,
-                SCENARIO_CARD: 'cyclotron-scale',
                 SCENARIO_HOST_ROOT: path.join(dir, 'host'),
                 FAKE_S3: path.join(dir, 's3'),
                 ...env,
@@ -112,19 +119,20 @@ describe('host-run-card.sh', () => {
         expect(existsSync(s3('evidence/run/edge-ca'))).toBe(false)
     })
 
-    it('runs the card the controller named', async () => {
-        await exited(start({}))
+    it('runs the card the run manifest names', async () => {
+        await exited(start({}, { card: 'cyclotron-scale' }, ''))
 
-        expect(readFileSync(s3(`evidence/run/${RUNNER_RUN_ID}/args`), 'utf8')).toMatch(
-            /^--import\ntsx\ntests\/scenarios\/main\.ts\nrun\ncyclotron-scale\n--profile\n/
+        expect(parseJSON(readFileSync(s3('host/done'), 'utf8'))).toMatchObject({ exitCode: 2, uploaded: true })
+        expect(readFileSync(s3('evidence/card.log'), 'utf8')).toContain(
+            'cards/cyclotron-scale.yaml is not a valid card'
         )
     })
 
-    it.each([
-        ['it cannot mark it started', { FAKE_MARK_FAILS: 'started' }],
-        ['the controller named no card', { SCENARIO_CARD: '' }],
-    ])('never starts the card when %s', async (_story, env) => {
-        await exited(start(env))
+    it.each<[string, NodeJS.ProcessEnv, object]>([
+        ['it cannot mark it started', { FAKE_MARK_FAILS: 'started' }, { card: 'cyclotron-scale' }],
+        ['the run manifest names no card', {}, {}],
+    ])('never starts the card when %s', async (_story, env, manifest) => {
+        await exited(start(env, manifest))
 
         expect(parseJSON(readFileSync(s3('host/done'), 'utf8'))).toMatchObject({ exitCode: 2 })
         expect(existsSync(path.join(dir, 'host', 'cache', 'posthog-scenarios'))).toBe(false)

@@ -31,7 +31,6 @@ function hostEnv(profile: CloudProfile, manifest: Manifest): Record<string, stri
     return {
         SCENARIO_RUN_ID: manifest.runId,
         SCENARIO_EVIDENCE_BUCKET: profile.baseline.evidenceBucket,
-        SCENARIO_CARD: manifest.card,
         AWS_REGION: REGION,
     }
 }

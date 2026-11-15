@@ -8,6 +8,7 @@ import { SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { Controller, HOURS_PER_MONTH, dollars } from './admission'
 import { Aws } from './aws'
+import { FAILOVER_VALVE } from './card'
 import { Manifest, evidenceOf, keyOf } from './lease'
 import { CloudProfile, RunInputs } from './profile'
 import { receiptsOf } from './teardown'
@@ -18,7 +19,6 @@ type Minute = { at: number; max?: number; avg?: number }
 
 type Capacity = { minutes: Minute[]; gaps: number[] }
 
-const FAILOVER_VALVE = 'pg.failover'
 const ENVIRONMENT_KIND = 'run-host'
 const TARGET = 'cloud'
 const MIN_ACU = 1

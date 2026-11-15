@@ -4,15 +4,12 @@ import path from 'path'
 import { parse } from 'yaml'
 import { z } from 'zod'
 
-import { load } from '../cards'
 import { Duration } from '../duration'
+import { RunCard } from './card'
 
 export const CAP_USD = 200
 export const TTL_HOURS = 6
 export const REGION = 'us-east-1'
-const CARDS_DIR = path.join(__dirname, '..', 'cards')
-const CARD_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/
-const FAILOVER_VALVE = 'pg.failover'
 
 const Usd = z.number().nonnegative()
 const Name = z.string().min(1)
@@ -124,9 +121,9 @@ export type CloudProfile = z.infer<typeof CloudProfile>
 
 export type InputFile = { file: string; bytes: Buffer; sha256: string }
 
-export type RunCard = { id: string; failsOver: boolean }
+export type ProfileInputs = { profile: CloudProfile; inputs: InputFile[] }
 
-export type RunInputs = { profile: CloudProfile; inputs: InputFile[]; card: RunCard }
+export type RunInputs = ProfileInputs & { card: RunCard }
 
 export class CloudProfileError extends Error {
     constructor(file: string, problems: string[]) {
@@ -166,17 +163,9 @@ export function loadCloudProfile(filePath: string): CloudProfile {
     return parseCloudProfile(filePath, readInput('cloud-profile.yaml', filePath))
 }
 
-export function loadRunInputs(filePath: string, cardId: string): RunInputs {
-    if (!CARD_ID.test(cardId)) {
-        throw new Error(
-            `${cardId} is not a card id. The run host runs the cards of the run's commit, so name one under tests/scenarios/cards.`
-        )
-    }
+export function loadRunInputs(filePath: string): ProfileInputs {
     const cloud = readInput('cloud-profile.yaml', filePath)
     const profile = parseCloudProfile(filePath, cloud)
-    const runnerPath = path.resolve(path.dirname(filePath), profile.runnerProfile)
-    const runner = readInput('runner-profile.yaml', runnerPath)
-    const { card } = load(path.join(CARDS_DIR, `${cardId}.yaml`), { profilePath: runnerPath })
-    const failsOver = card.valves.some(({ valve }) => valve === FAILOVER_VALVE)
-    return { profile, inputs: [cloud, runner], card: { id: cardId, failsOver } }
+    const runner = readInput('runner-profile.yaml', path.resolve(path.dirname(filePath), profile.runnerProfile))
+    return { profile, inputs: [cloud, runner] }
 }

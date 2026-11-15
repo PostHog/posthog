@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process'
 import http from 'http'
 import { AddressInfo } from 'net'
 
@@ -43,5 +44,12 @@ describe('githubOrigin', () => {
         ['0'.repeat(40), 'GitHub does not know', false],
     ])('answers whether commit %s, which %s, is on master', async (commit, _, onMaster) => {
         await expect(githubOrigin(api).onMaster(commit)).resolves.toBe(onMaster)
+    })
+
+    it('reads a card as the commit holds it and refuses a card the commit does not hold', () => {
+        const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: __dirname, encoding: 'utf8' }).trim()
+
+        expect(githubOrigin(api).cardAt(head, 'cyclotron-scale')).toMatch(/^id: cyclotron-scale$/m)
+        expect(() => githubOrigin(api).cardAt(head, 'no-such-card')).toThrow(/no-such-card\.yaml/)
     })
 })

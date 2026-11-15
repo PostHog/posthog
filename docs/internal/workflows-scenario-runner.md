@@ -58,7 +58,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 
 - **Who runs it:** a person with write access to the dev AWS account, on a machine with the `aws` CLI and the `nodejs` package installed. Not a worktree box.
 - **Before the first run:** the dev baseline infrastructure is applied, and the cloud profile names a measured runner profile kept outside this repository.
-- **Which card:** a card id under `tests/scenarios/cards`, because the host runs the cards of the run's commit. The controller loads the card with the runner profile before it leases anything, so a card that does not load costs nothing.
+- **Which card:** a card id under `tests/scenarios/cards`, committed at the run's commit, because the host runs the cards of that commit. The controller reads the card at that commit and loads it with the runner profile before it leases anything, so a card that is missing there or does not load costs nothing. The run manifest names the card, and the host reads it from there.
 - **What a run does:** the controller admits the run against its cost cap and leases it for a fixed time. It creates the run stack, prepares the database, starts the card on the run host and waits for it. Then it tears the stack down and publishes the scorecard.
 - **If the controller dies:** schedules registered before the first billable resource delete the stack. `cleanup` tears down a run by hand.
 - **Order of the first runs:** EU `current` first, as calibration: a run whose load is not admitted reports the baseline rates to tune the profile. Then US `current`, then both `historical-stress` profiles.
