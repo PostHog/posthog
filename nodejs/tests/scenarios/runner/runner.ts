@@ -388,6 +388,7 @@ export function createRunner(
                     probe,
                     teams: seeded.teamIds,
                     commits: probes.commits,
+                    manifest,
                 })
                 const sesFeedback = await watchSesFeedback({
                     edgeUrl,

@@ -195,6 +195,14 @@ describe('statusOf', () => {
             `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 08006) after the drive and every valve ended, at ${at(52)}`,
         ],
         [
+            'a card without a valve whose writer probe lost its connection across the drive end',
+            {
+                writer: [{ at: Date.parse(at(49)), monoMs: 49_000, ok: false, latencyMs: 2000, sqlstate: '57P01' }],
+            },
+            'invalid',
+            `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 57P01) with no valve applied, at ${at(49)}`,
+        ],
+        [
             'the writer probe timed out once before the failover and lost its connection during it',
             {
                 timeline: [failedOver],

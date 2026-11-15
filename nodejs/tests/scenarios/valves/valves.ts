@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Definition } from '../cards/definitions'
 import { CdpRole, ValveEntry } from '../cards/schema'
+import type { RunManifest } from '../cloud/lease'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { Observation } from '../environment/failover'
@@ -16,6 +17,7 @@ export type ValveContext = {
     probe: Pick<CyclotronProbe, 'runningJobs'>
     teams: number[]
     commits: () => readonly WriterSample[]
+    manifest?: RunManifest
 }
 
 export type ValveDefinition = Definition & {
@@ -125,8 +127,10 @@ export const pgFailover: ValveDefinition = {
     target: z.literal('cyclotron'),
     strandsRunningJobs: false,
     journalsIntent: true,
-    apply: ({ environment, commits }, _target, _dose, holdMs) =>
-        environment.actuate({ kind: 'rds.failover', holdMs, commits }),
+    apply: ({ environment, commits, manifest }, _target, _dose, holdMs) =>
+        manifest === undefined
+            ? Promise.reject(new Error('pg.failover runs only on a run host'))
+            : environment.actuate({ kind: 'rds.failover', manifest, holdMs, commits }),
 }
 
 export const VALVES: ValveDefinition[] = [

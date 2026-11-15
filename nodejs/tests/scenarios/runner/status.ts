@@ -125,16 +125,21 @@ function interruptionWithoutValve(
         drive.endedAt,
         ...timeline.flatMap(({ releasedAt }) => (releasedAt === undefined ? [] : [Date.parse(releasedAt)]))
     )
+    const anyValve = timeline.some(({ intentAt, appliedAt }) => (intentAt ?? appliedAt) !== undefined)
     let failedInARow = 0
     for (const sample of [...writer].sort((a, b) => a.at - b.at)) {
-        const unguarded = sample.at + sample.latencyMs < firstIntent || sample.at >= lastRelease
+        const unguarded = !anyValve || sample.at + sample.latencyMs < firstIntent || sample.at >= lastRelease
         failedInARow = unguarded && !sample.ok ? failedInARow + 1 : 0
         if (failedInARow >= SUSTAINED_FAILURES || (unguarded && CONNECTION_LOST.test(sample.sqlstate ?? ''))) {
             const what =
                 failedInARow >= SUSTAINED_FAILURES
                     ? `${SUSTAINED_FAILURES} writer probes failed in a row`
                     : `a writer probe lost its connection (SQLSTATE ${sample.sqlstate})`
-            const when = sample.at < firstIntent ? 'before any valve applied' : 'after the drive and every valve ended'
+            const when = !anyValve
+                ? 'with no valve applied'
+                : sample.at < firstIntent
+                  ? 'before any valve applied'
+                  : 'after the drive and every valve ended'
             return `Cyclotron interrupted without a valve: ${what} ${when}, at ${new Date(sample.at).toISOString()}`
         }
     }

@@ -1,34 +1,20 @@
 import { randomUUID } from 'crypto'
+import { setTimeout as sleep } from 'timers/promises'
 
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
-import type { Manifest } from '../cloud/lease'
+import type { RunManifest } from '../cloud/lease'
 import type { WriterSample } from '../probe/writer-probe'
-import { createEnvironment } from './environment'
 import { FailoverOptions, failOver } from './failover'
 
 const HOLD_MS = 30 * 60_000
 const OBSERVE_WITHIN_MS = 400
 const IDLE = { liveReaderAcu: { maxima: [1, 1, 1, 1, 1] } }
 
-type Run = { cloud: FakeCloud; manifest: Manifest; cluster: string; writer: string; reader: string }
+type Run = { cloud: FakeCloud; manifest: RunManifest; cluster: string; writer: string; reader: string }
 
 function runOf(options: Partial<FakeCloudOptions> = {}): Run {
     const cloud = new FakeCloud({ now: () => new Date(), failover: { takesMs: 20 }, ...IDLE, ...options })
-    const runId = randomUUID()
-    const { cluster, writer, reader } = cloud.runCluster(runId)
-    const manifest: Manifest = {
-        runId,
-        owner: 'arn:aws:sts::000000000000:assumed-role/scenario-run-controller/person',
-        account: cloud.account,
-        region: 'us-east-1',
-        commit: '0'.repeat(40),
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 6 * 60 * 60_000).toISOString(),
-        stackName: cluster,
-        schedules: [],
-        inputs: {},
-    }
-    return { cloud, manifest, cluster, writer, reader }
+    return { cloud, ...cloud.runCluster(randomUUID()) }
 }
 
 const probeThroughPooler = ({ cloud, cluster }: Run): (() => WriterSample[]) => {
@@ -69,7 +55,7 @@ describe('pg.failover', () => {
             'a lease shorter than the hold and the fail-back',
             {},
             (run) => (run.manifest.expiresAt = new Date(Date.now() + HOLD_MS).toISOString()),
-            /the lease has \d+s left, under the 1800\.4s/,
+            /the lease has \d+s left, under the 1800\.8s/,
         ],
         [
             'a cluster tagged for another run',
@@ -108,7 +94,13 @@ describe('pg.failover', () => {
             'a reader with fewer than five capacity minutes',
             { liveReaderAcu: { maxima: [1, 1, 1, 1] } },
             () => undefined,
-            /has 4 complete capacity minutes, under the 5 it needs/,
+            /has 4 consecutive complete capacity minutes, under the 5 it needs/,
+        ],
+        [
+            'a reader whose last five capacity points skip a minute',
+            { liveReaderAcu: { maxima: [1, 1, 1, null, 1, 1] } },
+            () => undefined,
+            /has 2 consecutive complete capacity minutes, under the 5 it needs/,
         ],
         [
             'a reader whose newest capacity minute is over three minutes old',
@@ -159,45 +151,97 @@ describe('pg.failover', () => {
         })
     })
 
-    it.each<[string, number, boolean, string | undefined]>([
-        ['observes a promotion whose response was lost', 20, true, undefined],
+    it.each<[string, number, (cloud: FakeCloud) => void, number, string | undefined]>([
+        [
+            'observes a promotion whose response was lost',
+            20,
+            (cloud) => cloud.loseResponseOf('failover-db-cluster'),
+            1,
+            undefined,
+        ],
         [
             'leaves a lost response that never promotes unobserved',
             Infinity,
-            false,
+            (cloud) => cloud.loseResponseOf('failover-db-cluster'),
+            1,
             'failover request ambiguous, not observed: aws rds failover-db-cluster exited 255',
         ],
-    ])('%s, sending the request once', async (_story, takesMs, observed, unobserved) => {
+        [
+            'observes a request the service answered with a server fault, rather than calling it refused',
+            20,
+            (cloud) => cloud.failWhen('failover-db-cluster', () => true),
+            0,
+            'failover request ambiguous, not observed: aws failover-db-cluster exited 254: An error occurred (InternalFailure)',
+        ],
+    ])('%s, sending the request once', async (_story, takesMs, arrange, promotions, unobserved) => {
         const run = runOf({ failover: { takesMs } })
-        run.cloud.loseResponseOf('failover-db-cluster')
+        arrange(run.cloud)
 
         const actuation = await failOverOn(run)
 
-        await expect(actuation.observed()).resolves.toBe(observed)
-        expect(run.cloud.promotions).toHaveLength(1)
+        await expect(actuation.observed()).resolves.toBe(unobserved === undefined)
+        expect(run.cloud.promotions).toHaveLength(promotions)
         expect(actuation.journal().unobserved).toEqual(unobserved && expect.stringContaining(unobserved))
+    })
+
+    it('counts no recovery stage seen after its deadline', async () => {
+        const run = runOf()
+        const slowIdentity = async (): Promise<{ instance: string; inRecovery: boolean }> => {
+            await sleep(OBSERVE_WITHIN_MS + 100)
+            await run.cloud.call(['rds', 'describe-db-clusters', '--db-cluster-identifier', run.cluster])
+            return { instance: run.cloud.writerOf(run.cluster)!, inRecovery: false }
+        }
+
+        const actuation = await failOverOn(run, { identity: slowIdentity })
+
+        await expect(actuation.observed()).resolves.toBe(false)
+        expect(actuation.journal()).toMatchObject({
+            observations: [],
+            unobserved: expect.stringMatching(/did not show cluster_writer, sql_writer, first_probe_commit/),
+        })
+    })
+
+    it.each<[string, number, string, Record<string, unknown>]>([
+        [
+            'fails back a promotion that lands after its observation ended',
+            100,
+            'writer',
+            { releaseIntentAt: expect.any(String), releaseObservations: OBSERVED },
+        ],
+        [
+            'records a promotion that never settles instead of leaving the cluster on the reader unremarked',
+            Infinity,
+            'reader',
+            { releaseError: expect.stringMatching(/stayed failing-over for 0\.4s after the hold/) },
+        ],
+    ])('%s', async (_story, takesMs, endsOn, journalled) => {
+        const run = runOf({ failover: { takesMs } })
+        const actuation = await failOverOn(run)
+        await expect(actuation.observed(AbortSignal.timeout(10))).resolves.toBe(false)
+
+        await actuation.release()
+
+        if (endsOn === 'writer') {
+            expect(run.cloud.writerOf(run.cluster)).toBe(run.writer)
+        }
+        expect(run.cloud.promotions.map(({ to }) => to)).toEqual(
+            endsOn === 'writer' ? [run.reader, run.writer] : [run.reader]
+        )
+        expect(actuation.journal()).toMatchObject(journalled)
     })
 
     it('records a refused fail-back instead of throwing it', async () => {
         const run = runOf()
         const actuation = await failOverOn(run)
         await actuation.observed()
-        run.cloud.failWhen('failover-db-cluster', (args) => args.includes(run.writer))
+        run.cloud.failWhen('failover-db-cluster', (args) => args.includes(run.writer), 'InvalidDBClusterStateFault')
 
         await actuation.release()
 
         expect(run.cloud.writerOf(run.cluster)).toBe(run.reader)
         expect(actuation.journal()).toMatchObject({
             releaseIntentAt: expect.any(String),
-            releaseError: expect.stringMatching(/^the fail-back request was refused: .*InternalFailure/),
+            releaseError: expect.stringMatching(/^the fail-back request was refused: .*InvalidDBClusterStateFault/),
         })
-    })
-
-    it('runs only on a run host', async () => {
-        const environment = createEnvironment({ aws: runOf().cloud })
-
-        await expect(environment.actuate({ kind: 'rds.failover', holdMs: HOLD_MS, commits: () => [] })).rejects.toThrow(
-            'pg.failover runs only on a run host'
-        )
     })
 })

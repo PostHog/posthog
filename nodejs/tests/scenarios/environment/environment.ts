@@ -8,7 +8,7 @@ import { isPortFree } from '~/tests/helpers/service-process'
 
 import { Profile, ROLE_RESTART_BACKOFF_MS } from '../cards'
 import { Aws, awsCli } from '../cloud/aws'
-import { runManifestOf } from '../cloud/lease'
+import type { RunManifest } from '../cloud/lease'
 import type { WriterSample } from '../probe/writer-probe'
 import { FaultHold, FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
 import { FailoverJournal, failOver, sqlIdentityOf } from './failover'
@@ -67,7 +67,7 @@ export type Action =
     | { kind: 'freeze'; role: Role }
     | { kind: 'pg.terminate'; share: number }
     | { kind: 'edge.fault'; rule: FaultRule }
-    | { kind: 'rds.failover'; holdMs: number; commits: () => readonly WriterSample[] }
+    | { kind: 'rds.failover'; manifest: RunManifest; holdMs: number; commits: () => readonly WriterSample[] }
 
 export type Actuation = FaultHold & { journal?(): FailoverJournal }
 
@@ -195,19 +195,14 @@ export function createEnvironment({
                 }
                 case 'edge.fault':
                     return startedEdge('actuate').hold(action.rule)
-                case 'rds.failover': {
-                    const manifest = runManifestOf(env)
-                    if (manifest === undefined) {
-                        throw new Error('pg.failover runs only on a run host')
-                    }
+                case 'rds.failover':
                     return failOver({
                         aws: aws ?? awsCli(env),
-                        manifest,
+                        manifest: action.manifest,
                         holdMs: action.holdMs,
                         commits: action.commits,
                         identity: () => sqlIdentityOf(cyclotronUrl),
                     })
-                }
             }
         },
 

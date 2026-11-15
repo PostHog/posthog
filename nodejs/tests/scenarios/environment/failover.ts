@@ -1,11 +1,11 @@
-import { Client } from 'pg'
 import { setTimeout as sleep } from 'timers/promises'
 
 import { Aws, AwsError } from '../cloud/aws'
-import type { Manifest } from '../cloud/lease'
+import type { RunManifest } from '../cloud/lease'
 import { RUN_TAG } from '../cloud/stack'
 import type { WriterSample } from '../probe/writer-probe'
 import { SCENARIO_SESSION_PREFIX } from './roles'
+import { withPostgres } from './stack'
 
 export type ObservationName = 'cluster_writer' | 'sql_writer' | 'first_probe_commit'
 
@@ -30,11 +30,10 @@ export type FailoverActuation = {
 
 export type FailoverOptions = {
     aws: Aws
-    manifest: Manifest
+    manifest: RunManifest
     holdMs: number
     identity(): Promise<SqlIdentity>
     commits(): readonly WriterSample[]
-    now?: () => number
     pollMs?: number
     observeWithinMs?: number
 }
@@ -47,6 +46,8 @@ const CAPACITY_FRESH_WITHIN_MS = 3 * MINUTE_MS
 const IDLE_ACU = 1
 const IDENTITY_TIMEOUT_MS = 2000
 const OBSERVATIONS: ObservationName[] = ['cluster_writer', 'sql_writer', 'first_probe_commit']
+// A 5xx code means the service may have started the promotion before it failed, so its outcome is unknown.
+const SERVER_FAULT = /^(InternalFailure|InternalError|ServiceUnavailable|RequestTimeout)/
 
 type Cluster = {
     Status: string
@@ -54,28 +55,22 @@ type Cluster = {
     DBClusterMembers?: { DBInstanceIdentifier: string; IsClusterWriter: boolean }[]
 }
 
-type CapacityData = { MetricDataResults: { Timestamps: string[]; Values: number[] }[] }
+type CapacityData = { MetricDataResults: { Timestamps: string[]; Values: number[]; StatusCode?: string }[] }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 export async function sqlIdentityOf(url: string): Promise<SqlIdentity> {
-    const client = new Client({
-        connectionString: url,
-        application_name: `${SCENARIO_SESSION_PREFIX}failover`,
-        connectionTimeoutMillis: IDENTITY_TIMEOUT_MS,
-        statement_timeout: IDENTITY_TIMEOUT_MS,
-        query_timeout: IDENTITY_TIMEOUT_MS,
-    })
-    client.on('error', () => undefined)
-    try {
-        await client.connect()
-        const { rows } = await client.query<{ instance: string; in_recovery: boolean }>(
-            'SELECT aurora_db_instance_identifier() AS instance, pg_is_in_recovery() AS in_recovery'
-        )
-        return { instance: rows[0].instance, inRecovery: rows[0].in_recovery }
-    } finally {
-        await client.end().catch(() => undefined)
-    }
+    const named = new URL(url)
+    named.searchParams.set('application_name', `${SCENARIO_SESSION_PREFIX}failover`)
+    const { rows } = await withPostgres(
+        (client) =>
+            client.query<{ instance: string; in_recovery: boolean }>(
+                'SELECT aurora_db_instance_identifier() AS instance, pg_is_in_recovery() AS in_recovery'
+            ),
+        named.toString(),
+        IDENTITY_TIMEOUT_MS
+    )
+    return { instance: rows[0].instance, inRecovery: rows[0].in_recovery }
 }
 
 export async function failOver({
@@ -84,7 +79,6 @@ export async function failOver({
     holdMs,
     identity,
     commits,
-    now = Date.now,
     pollMs = POLL_MS,
     observeWithinMs = OBSERVE_WITHIN_MS,
 }: FailoverOptions): Promise<FailoverActuation> {
@@ -109,10 +103,11 @@ export async function failOver({
     if (Account !== manifest.account) {
         refuse(`the caller is in account ${Account}, not the run's account ${manifest.account}`)
     }
-    const leaseLeftMs = Date.parse(manifest.expiresAt) - now()
-    if (leaseLeftMs < holdMs + observeWithinMs) {
+    const leaseLeftMs = Date.parse(manifest.expiresAt) - Date.now()
+    const neededMs = holdMs + 2 * observeWithinMs
+    if (leaseLeftMs < neededMs) {
         refuse(
-            `the lease has ${Math.floor(leaseLeftMs / 1000)}s left, under the ${(holdMs + observeWithinMs) / 1000}s the hold and fail-back need`
+            `the lease has ${Math.floor(leaseLeftMs / 1000)}s left, under the ${neededMs / 1000}s the hold, settle and fail-back need`
         )
     }
     const described = await describe()
@@ -132,7 +127,7 @@ export async function failOver({
     await requireIdleReader()
 
     const promote = async (to: string): Promise<{ intentAt: string; ambiguous?: string; refused?: string }> => {
-        const intentAt = new Date(now()).toISOString()
+        const intentAt = new Date().toISOString()
         try {
             await aws.call([
                 'rds',
@@ -144,7 +139,7 @@ export async function failOver({
             ])
             return { intentAt }
         } catch (error) {
-            return error instanceof AwsError && error.code !== undefined
+            return error instanceof AwsError && error.code !== undefined && !SERVER_FAULT.test(error.code)
                 ? { intentAt, refused: messageOf(error) }
                 : { intentAt, ambiguous: messageOf(error) }
         }
@@ -154,28 +149,29 @@ export async function failOver({
         to: string,
         intentAt: string,
         into: Observation[],
-        signal: AbortSignal
+        signal?: AbortSignal
     ): Promise<boolean> => {
         const since = Date.parse(intentAt)
+        const deadline = since + observeWithinMs
         const seen = (name: ObservationName): boolean => into.some((observation) => observation.name === name)
         const record = (name: ObservationName, at: number): void => {
-            if (!seen(name)) {
+            if (!seen(name) && at <= deadline) {
                 into.push({ name, at: new Date(at).toISOString() })
             }
         }
+        const timeout = AbortSignal.timeout(Math.max(deadline - Date.now(), 0))
+        const stop = signal ? AbortSignal.any([signal, timeout]) : timeout
         for (;;) {
             if (!seen('cluster_writer')) {
-                const at = now()
                 const current = await describe().catch(() => undefined)
                 if (current && writerOf(current) === to) {
-                    record('cluster_writer', at)
+                    record('cluster_writer', Date.now())
                 }
             }
             if (!seen('sql_writer')) {
-                const at = now()
                 const sql = await identity().catch(() => undefined)
                 if (sql?.instance === to && !sql.inRecovery) {
-                    record('sql_writer', at)
+                    record('sql_writer', Date.now())
                 }
             }
             if (!seen('first_probe_commit')) {
@@ -189,10 +185,21 @@ export async function failOver({
             if (OBSERVATIONS.every(seen)) {
                 return true
             }
-            if (signal.aborted) {
+            if (stop.aborted || Date.now() > deadline) {
                 return false
             }
-            await sleep(pollMs, undefined, { signal }).catch(() => undefined)
+            await sleep(pollMs, undefined, { signal: stop }).catch(() => undefined)
+        }
+    }
+
+    const settled = async (): Promise<Cluster> => {
+        const deadline = Date.now() + observeWithinMs
+        for (;;) {
+            const current = await describe()
+            if (current.Status === 'available' || Date.now() > deadline) {
+                return current
+            }
+            await sleep(pollMs)
         }
     }
 
@@ -224,15 +231,7 @@ export async function failOver({
                     journal.unobserved = unobservedOf('failover', reader, journal.observations!, promoted)
                     return false
                 }
-                const deadline = AbortSignal.timeout(
-                    Math.max(Date.parse(promoted.intentAt) + observeWithinMs - now(), 0)
-                )
-                const ok = await observe(
-                    reader,
-                    promoted.intentAt,
-                    journal.observations!,
-                    signal ? AbortSignal.any([signal, deadline]) : deadline
-                )
+                const ok = await observe(reader, promoted.intentAt, journal.observations!, signal)
                 if (!ok) {
                     journal.unobserved = unobservedOf('failover', reader, journal.observations!, promoted)
                 }
@@ -242,7 +241,12 @@ export async function failOver({
         release: () =>
             (released ??= (async () => {
                 try {
-                    if (writerOf(await describe()) === writer) {
+                    const current = await settled()
+                    if (current.Status !== 'available') {
+                        journal.releaseError = `${cluster} stayed ${current.Status} for ${observeWithinMs / 1000}s after the hold, so the fail-back did not start`
+                        return
+                    }
+                    if (writerOf(current) === writer) {
                         return
                     }
                     const failback = await promote(writer)
@@ -250,12 +254,7 @@ export async function failOver({
                     journal.releaseObservations = []
                     const ok =
                         failback.refused === undefined &&
-                        (await observe(
-                            writer,
-                            failback.intentAt,
-                            journal.releaseObservations,
-                            AbortSignal.timeout(observeWithinMs)
-                        ))
+                        (await observe(writer, failback.intentAt, journal.releaseObservations))
                     if (!ok) {
                         journal.releaseError = unobservedOf('fail-back', writer, journal.releaseObservations, failback)
                     }
@@ -272,7 +271,8 @@ export async function failOver({
     }
 
     async function requireIdleReader(): Promise<void> {
-        const until = now() - (now() % MINUTE_MS)
+        const startedAt = Date.now()
+        const until = startedAt - (startedAt % MINUTE_MS)
         const query = {
             Id: 'acu',
             MetricStat: {
@@ -295,16 +295,27 @@ export async function failOver({
             '--end-time',
             new Date(until).toISOString(),
         ])) as CapacityData
-        const [{ Timestamps, Values }] = MetricDataResults
-        const minutes = Timestamps.map((at, i) => ({ at: Date.parse(at), max: Values[i] }))
-            .sort((a, b) => a.at - b.at)
-            .slice(-CAPACITY_MINUTES)
-        if (minutes.length < CAPACITY_MINUTES) {
-            refuse(`${reader} has ${minutes.length} complete capacity minutes, under the ${CAPACITY_MINUTES} it needs`)
+        const [{ Timestamps, Values, StatusCode }] = MetricDataResults
+        if (StatusCode !== undefined && StatusCode !== 'Complete') {
+            refuse(`${reader}'s capacity read came back ${StatusCode}, not Complete`)
         }
+        const sorted = Timestamps.map((at, i) => ({ at: Date.parse(at), max: Values[i] })).sort((a, b) => a.at - b.at)
+        let consecutive = sorted.length > 0 ? 1 : 0
+        while (
+            consecutive < Math.min(sorted.length, CAPACITY_MINUTES) &&
+            sorted.at(-consecutive)!.at - sorted.at(-consecutive - 1)!.at === MINUTE_MS
+        ) {
+            consecutive++
+        }
+        if (consecutive < CAPACITY_MINUTES) {
+            refuse(
+                `${reader} has ${consecutive} consecutive complete capacity minutes, under the ${CAPACITY_MINUTES} it needs`
+            )
+        }
+        const minutes = sorted.slice(-CAPACITY_MINUTES)
         const newestEnd = minutes.at(-1)!.at + MINUTE_MS
-        if (now() - newestEnd > CAPACITY_FRESH_WITHIN_MS) {
-            refuse(`${reader}'s newest capacity minute ended ${Math.floor((now() - newestEnd) / 1000)}s ago`)
+        if (Date.now() - newestEnd > CAPACITY_FRESH_WITHIN_MS) {
+            refuse(`${reader}'s newest capacity minute ended ${Math.floor((Date.now() - newestEnd) / 1000)}s ago`)
         }
         const busy = minutes.filter(({ max }) => max > IDLE_ACU)
         if (busy.length > 0) {

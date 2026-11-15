@@ -1,4 +1,5 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { randomUUID } from 'crypto'
 import { once } from 'events'
 import { mkdtempSync, rmSync } from 'fs'
 import os from 'os'
@@ -10,9 +11,12 @@ import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
-import { Actuation } from '../environment/environment'
+import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
+import { Action, Actuation } from '../environment/environment'
+import { failOver } from '../environment/failover'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
+import type { WriterSample } from '../probe/writer-probe'
 import { ProviderEdge, TruthPage, startProviderEdge } from '../provider-edge'
 import { ValveContext, createValves } from './valves'
 
@@ -201,52 +205,86 @@ const throttle = (rate: number, holdFor: string): ValveEntry => ({
 const RUNNING_ON_EMAIL = { name: 'running_on_queue' as const, params: { queue: 'email' as const, atLeast: 2 } }
 
 describe('valves', () => {
-    const FAILOVER: ValveEntry = { valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '0ms', for: '10ms' }
-    const PROMOTED_AT = '2026-01-05T10:15:00.000Z'
+    const FAILOVER: ValveEntry = { valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '0ms', for: '200ms' }
+    const STAGES = [
+        { name: 'cluster_writer', at: expect.any(String) },
+        { name: 'sql_writer', at: expect.any(String) },
+        { name: 'first_probe_commit', at: expect.any(String) },
+    ]
 
-    it.each<[string, () => Promise<Actuation>, Record<string, unknown>]>([
+    const runClusterOf = (options: Partial<FakeCloudOptions> = {}) => {
+        const cloud = new FakeCloud({
+            now: () => new Date(),
+            failover: { takesMs: 20 },
+            liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
+            ...options,
+        })
+        const run = cloud.runCluster(randomUUID())
+        const writerNow = (): string => cloud.writerOf(run.cluster)!
+        const samples: WriterSample[] = []
+        const commits = (): WriterSample[] => {
+            samples.push({ at: Date.now(), monoMs: 0, ok: true, latencyMs: 0, instance: writerNow() })
+            return samples
+        }
+        const actuate = (action: Action): Promise<Actuation> =>
+            action.kind === 'rds.failover'
+                ? failOver({
+                      aws: cloud,
+                      manifest: action.manifest,
+                      holdMs: action.holdMs,
+                      commits: action.commits,
+                      identity: () => Promise.resolve({ instance: writerNow(), inRecovery: false }),
+                      pollMs: 5,
+                      observeWithinMs: 400,
+                  })
+                : Promise.reject(new Error(`this cloud does not model ${action.kind}`))
+        return { cloud, ...run, writerNow, commits, actuate }
+    }
+
+    it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>]>([
         [
-            'records no intent for a failover its preconditions refused',
-            () => Promise.reject(new Error('pg.failover refused: the reader was above 1 ACU')),
-            { intentAt: undefined, error: 'pg.failover refused: the reader was above 1 ACU' },
-        ],
-        [
-            'takes the intent and each recovery stage from the failover it sent',
-            () =>
-                Promise.resolve({
-                    observed: () => Promise.resolve(false),
-                    release: () => Promise.resolve(),
-                    journal: () => ({
-                        intentAt: PROMOTED_AT,
-                        observations: [{ name: 'cluster_writer' as const, at: PROMOTED_AT }],
-                        unobserved: 'the reader did not show sql_writer',
-                        releaseError: 'the fail-back request was refused',
-                    }),
-                }),
+            'fails the run cluster over and back, and journals each recovery stage',
+            {},
+            true,
             {
-                intentAt: PROMOTED_AT,
-                observations: [{ name: 'cluster_writer', at: PROMOTED_AT }],
-                releaseError: 'the fail-back request was refused',
-                error: 'the reader did not show sql_writer',
+                intentAt: expect.any(String),
                 appliedAt: expect.any(String),
+                observedAt: expect.any(String),
                 releasedAt: expect.any(String),
+                observations: STAGES,
+                releaseIntentAt: expect.any(String),
+                releaseObservations: STAGES,
             },
         ],
-    ])('%s', async (_story, actuate, recorded) => {
+        [
+            'records no intent for a failover its preconditions refused',
+            { liveReaderAcu: { maxima: [1, 1, 2, 1, 1] } },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .* was above 1 ACU/) },
+        ],
+        ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
+    ])('%s', async (_story, options, onRunHost, recorded) => {
         const valves = createValves({ pollMs: 5 })
         const { context } = stackOf()
+        const run = runClusterOf(options)
 
-        await valves.start([FAILOVER], { ...context, environment: { actuate } })
-
+        await valves.start([FAILOVER], {
+            ...context,
+            commits: run.commits,
+            manifest: onRunHost ? run.manifest : undefined,
+            environment: { actuate: run.actuate },
+        })
         await waitForExpect(
-            () =>
-                expect(valves.timeline()).toEqual([
-                    { valve: 'pg.failover', target: 'cyclotron', requestedAt: expect.any(String), ...recorded },
-                ]),
+            () => expect(valves.timeline()[0].releasedAt ?? valves.timeline()[0].error).toBeDefined(),
             2000,
             5
         )
         await valves.releaseAll()
+
+        expect(valves.timeline()).toEqual([
+            { valve: 'pg.failover', target: 'cyclotron', requestedAt: expect.any(String), ...recorded },
+        ])
+        expect(run.writerNow()).toBe(run.writer)
     })
 
     it('kills the role an entry names once its offset passes, and records every step', async () => {

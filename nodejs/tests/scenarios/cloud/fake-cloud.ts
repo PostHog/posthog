@@ -6,6 +6,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import type { ValveTimelineEntry } from '../valves/valves'
 import { Aws, AwsError } from './aws'
+import type { RunManifest } from './lease'
 
 type Schedule = { expression: string; target: { Arn: string; RoleArn: string; Input: string } }
 
@@ -73,6 +74,7 @@ type Stack = {
 }
 
 const DELETED_STATES = new Set(['gone', 'terminated', 'deleted'])
+const RUN_LEASE_MS = 6 * 60 * 60_000
 const MINUTE_MS = 60_000
 const SECRET_LISTING_LAG_MS = 5 * MINUTE_MS
 const BACKUP = 'AWS::RDS::DBClusterAutomatedBackup'
@@ -117,7 +119,7 @@ export type FakeCloudOptions = {
     agent?: 'offline'
     readerAcu?: ReaderMinute[]
     averageStatuses?: string[]
-    liveReaderAcu?: { maxima: number[]; lagMinutes?: number }
+    liveReaderAcu?: { maxima: (number | null)[]; lagMinutes?: number }
     failover?: { takesMs?: number }
 }
 
@@ -172,7 +174,7 @@ export class FakeCloud implements Aws {
     readonly failovers = new Map<string, number>()
     private deleteFailures: number
     private readonly failures = new Map<string, { from: number; to: number }>()
-    private readonly conditions = new Map<string, (args: string[]) => boolean>()
+    private readonly conditions = new Map<string, { applies: (args: string[]) => boolean; code: string }>()
     private readonly lostResponses = new Map<string, number>()
     private readonly calls = new Map<string, number>()
     private readonly hooks = new Map<string, () => void>()
@@ -192,8 +194,8 @@ export class FakeCloud implements Aws {
         this.failures.set(operation, { from, to: from + times })
     }
 
-    failWhen(operation: string, applies: (args: string[]) => boolean): void {
-        this.conditions.set(operation, applies)
+    failWhen(operation: string, applies: (args: string[]) => boolean, code: string = 'InternalFailure'): void {
+        this.conditions.set(operation, { applies, code })
     }
 
     heal(): void {
@@ -224,7 +226,7 @@ export class FakeCloud implements Aws {
         })
     }
 
-    runCluster(runId: string): { cluster: string; writer: string; reader: string } {
+    runCluster(runId: string): { cluster: string; writer: string; reader: string; manifest: RunManifest } {
         const cluster = `scn-${runId}`
         const [writer, reader] = [`${cluster}-writer`, `${cluster}-reader`]
         const arn = (kind: string, id: string): string => `arn:aws:rds:us-east-1:${this.account}:${kind}:${id}`
@@ -247,7 +249,8 @@ export class FakeCloud implements Aws {
                 runTag: runId,
             }))
         )
-        return { cluster, writer, reader }
+        const expiresAt = new Date(this.options.now().getTime() + RUN_LEASE_MS).toISOString()
+        return { cluster, writer, reader, manifest: { runId, account: this.account, expiresAt, stackName: cluster } }
     }
 
     writerOf(clusterId: string): string | undefined {
@@ -289,7 +292,11 @@ export class FakeCloud implements Aws {
         this.calls.set(operation, count)
         this.hooks.get(operation)?.()
         const failing = this.failures.get(operation)
-        if ((failing && count >= failing.from && count < failing.to) || this.conditions.get(operation)?.(rest)) {
+        const condition = this.conditions.get(operation)
+        if (condition?.applies(rest)) {
+            throw serviceError(operation, condition.code, 'injected by the fake cloud')
+        }
+        if (failing && count >= failing.from && count < failing.to) {
             throw serviceError(operation, 'InternalFailure', 'injected by the fake cloud')
         }
         const answer = this.answer(service, operation, flags, positionals)
@@ -547,7 +554,7 @@ export class FakeCloud implements Aws {
         const newest = now - (now % MINUTE_MS) - (1 + lagMinutes) * MINUTE_MS
         return maxima.map((max, i) => ({
             at: newest - (maxima.length - 1 - i) * MINUTE_MS,
-            value: { Maximum: max, Average: max, SampleCount: 60 }[Stat],
+            value: max === null ? undefined : { Maximum: max, Average: max, SampleCount: 60 }[Stat],
         }))
     }
 
