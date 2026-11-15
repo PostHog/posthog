@@ -36,7 +36,6 @@ export interface TransactionalEmailLogLogicProps {
 export interface TransactionalEmailLogFilters {
     search: string
     status: EmailDeliveryStatusEnumApi | null
-    /** Why a send ended in its status, such as `soft` for a soft bounce. A click on an email metric sets it. */
     reason: string | null
     // The workflow behind the transactional email, which the log filters on.
     workflowId: string | null

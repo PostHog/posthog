@@ -4,8 +4,7 @@ import type { EmailDeliveryStatusEnumApi } from 'products/messaging/frontend/gen
 
 import type { EmailMetricName } from '../../Workflows/workflowMetricsSummaryLogic'
 
-// The reasons are the values the plugin server writes with each status, from EmailStatusReason in
-// nodejs/src/cdp/services/messaging/email-status.service.ts. A metric without a reason counts every send in its status.
+// Kept in sync with EmailStatusReason in nodejs/src/cdp/services/messaging/email-status.service.ts.
 const EMAIL_METRIC_SENDS: Partial<Record<EmailMetricName, { status: EmailDeliveryStatusEnumApi; reason?: string }>> = {
     email_bounced: { status: 'bounced' },
     email_bounced_hard: { status: 'bounced', reason: 'hard' },

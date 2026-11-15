@@ -89,9 +89,8 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
 
 export interface WorkflowMetricsProps extends WorkflowLogicProps {
     /**
-     * Set on a page outside the workflow editor. A click on an email metric then goes to this callback, with the
-     * metrics' date range, instead of the workflow's Invocations tab. The step picker is hidden because it opens
-     * the workflow.
+     * Set on a page outside the workflow editor, which takes email metric clicks instead of the Invocations tab.
+     * The step picker is hidden because it opens the workflow.
      */
     onEmailMetricClick?: (metric: EmailMetricName, range: { dateFrom?: string; dateTo?: string }) => void
 }
