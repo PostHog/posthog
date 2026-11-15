@@ -17,6 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { DetectorConfig, DetectorType } from '~/queries/schema/schema-general'
 
+import { formatForecastLevel } from '../logic/forecastRules'
 import { AlertSimulationResult, BreakdownSimulationResult } from '../types'
 
 const handleChartError = makeChartErrorHandler('alerts-simulation-chart')
@@ -70,9 +71,10 @@ function SimulationChart({
 }): JSX.Element {
     const theme = useChartTheme()
     const triggeredSet = new Set(result.triggered_indices)
-    // The AI detector has no score, so its preview plots the values and marks a fired latest point.
-    const isLLM = detectorConfig?.type === DetectorType.LLM
-    const threshold = isLLM ? null : getThreshold(detectorConfig)
+    // The AI and forecast detectors have no score, so their previews plot the values and mark the fired points.
+    const hasScore = detectorConfig?.type !== DetectorType.LLM && detectorConfig?.type !== DetectorType.FORECAST
+    const threshold = hasScore ? getThreshold(detectorConfig) : null
+    const forecast = result.forecast
 
     const subScores = result.sub_detector_scores
     const hasSubScores = !!subScores && subScores.length > 0
@@ -89,7 +91,7 @@ function SimulationChart({
               yAxisId: 'yScore',
               meta: { isScore: true },
           }))
-        : isLLM
+        : !hasScore
           ? []
           : [
                 {
@@ -103,7 +105,30 @@ function SimulationChart({
                 },
             ]
 
+    const forecastSeries: Series<SimSeriesMeta>[] = forecast
+        ? [
+              {
+                  key: 'forecast-range',
+                  label: 'Forecast range',
+                  data: forecast.upper.map((v) => v ?? NaN),
+                  color: 'rgba(99, 102, 241, 0.9)',
+                  fill: { opacity: 0.15, lowerData: forecast.lower.map((v) => v ?? NaN) },
+                  visibility: { tooltip: false },
+                  meta: { isScore: false },
+              },
+              {
+                  key: 'forecast-expected',
+                  label: 'Expected',
+                  data: forecast.expected.map((v) => v ?? NaN),
+                  color: 'rgba(107, 114, 128, 0.9)',
+                  stroke: { width: 1.5, pattern: [4, 4] },
+                  meta: { isScore: false },
+              },
+          ]
+        : []
+
     const series: Series<SimSeriesMeta>[] = [
+        ...forecastSeries,
         { key: 'value', label: 'Value', data: result.data, color: 'rgba(99, 102, 241, 0.9)', meta: { isScore: false } },
         ...scoreSeries,
     ]
@@ -124,7 +149,7 @@ function SimulationChart({
                     xAxis: { hide: true },
                     yAxis: [
                         { id: DEFAULT_Y_AXIS_ID, position: 'left', tickFormatter: (v) => humanFriendlyNumber(v) },
-                        ...(isLLM
+                        ...(!hasScore
                             ? []
                             : [
                                   {
@@ -226,6 +251,22 @@ function SimulationStats({
     )
 }
 
+/** How much of the series the forecast preview could score, and what its shaded range means. */
+function ForecastNote({ result }: { result: AlertSimulationResult }): JSX.Element | null {
+    const forecast = result.forecast
+    if (!forecast) {
+        return null
+    }
+    const scored = forecast.expected.filter((v) => v != null).length
+    return (
+        <div className="text-xs text-muted">
+            {scored === 0
+                ? 'No point had the 30 earlier values a forecast needs. Pick a longer range to preview this alert.'
+                : `${scored} of ${result.data.length} points had the 30 earlier values a forecast needs. The shaded range runs from the ${formatForecastLevel(forecast.lower_quantile)} to the ${formatForecastLevel(forecast.upper_quantile)} of each forecast.`}
+        </div>
+    )
+}
+
 /** The AI preview is one live check of the latest point, so it shows that verdict instead of an anomaly rate. */
 function LLMVerdict({ result }: { result: AlertSimulationResult }): JSX.Element {
     const fires = result.triggered_indices.length > 0
@@ -266,6 +307,7 @@ function BreakdownSimulation({
                 anomalyCount={breakdownResult.anomaly_count}
                 triggeredDates={breakdownResult.triggered_dates}
             />
+            <ForecastNote result={chartResult} />
         </div>
     )
 }
@@ -321,6 +363,7 @@ export function SimulationSummary({
                 anomalyCount={result.anomaly_count}
                 triggeredDates={result.triggered_dates}
             />
+            <ForecastNote result={result} />
         </div>
     )
 }

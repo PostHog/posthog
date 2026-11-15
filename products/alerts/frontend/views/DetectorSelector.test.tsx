@@ -1,8 +1,12 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+
+import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
 import { getDefaultZScoreDetectorConfig } from '../logic/detectorConfigDefaults'
+import { getDefaultForecastDetectorConfig } from '../logic/forecastRules'
 import { DetectorSelector } from './DetectorSelector'
 
 describe('DetectorSelector', () => {
@@ -22,5 +26,47 @@ describe('DetectorSelector', () => {
         fireEvent.change(thresholdInput, { target: { value: typed } })
 
         expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ threshold: expected }))
+    })
+
+    it.each([
+        ['the flag is off', false, AlertCalculationInterval.DAILY, false],
+        ['the flag is on', true, AlertCalculationInterval.DAILY, true],
+        ['the alert runs in real time', true, AlertCalculationInterval.REAL_TIME, false],
+    ])('offers the forecast detector only when %s', async (_, forecastDetectorEnabled, interval, offered) => {
+        render(
+            <DetectorSelector
+                value={getDefaultZScoreDetectorConfig(30)}
+                onChange={jest.fn()}
+                calculationInterval={interval}
+                forecastDetectorEnabled={forecastDetectorEnabled}
+            />
+        )
+
+        await userEvent.click(screen.getByText('Z-Score'))
+
+        expect(!!screen.queryByText('Forecast')).toBe(offered)
+    })
+
+    it.each([
+        [
+            'turning off spikes keeps only the drop rule',
+            async () => userEvent.click(screen.getByText('Fire on spikes')),
+            { type: 'forecast', below: { quantile: 0.05 } },
+        ],
+        [
+            'a minimum change in percent is stored as a fraction',
+            async () =>
+                fireEvent.change(screen.getByLabelText('Minimum change above expected, in percent'), {
+                    target: { value: '20' },
+                }),
+            { type: 'forecast', above: { quantile: 0.95, min_relative_change: 0.2 }, below: { quantile: 0.05 } },
+        ],
+    ])('forecast rule: %s', async (_, act, expected) => {
+        const onChange = jest.fn()
+        render(<DetectorSelector value={getDefaultForecastDetectorConfig()} onChange={onChange} />)
+
+        await act()
+
+        expect(onChange).toHaveBeenLastCalledWith(expected)
     })
 })
