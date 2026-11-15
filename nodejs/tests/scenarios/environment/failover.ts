@@ -163,9 +163,9 @@ export async function failOver({
 
     const promote = async (
         to: string,
-        stop: AbortSignal
+        stop: AbortSignal,
+        intentAt = new Date().toISOString()
     ): Promise<{ intentAt: string; ambiguous?: string; refused?: string }> => {
-        const intentAt = new Date().toISOString()
         const outcome = await outcomeBefore(
             aws.call([
                 'rds',
@@ -270,8 +270,13 @@ export async function failOver({
             : `${to} did not show ${missing.join(', ')} within ${observeWithinMs / 1000}s of the ${what} intent`
     }
 
-    const promoted = await promote(reader, applying)
-    journal.intentAt = promoted.intentAt
+    if (applying.aborted) {
+        refuse('the apply stopped before the failover request was sent')
+    }
+    const intentAt = new Date().toISOString()
+    // Observation runs from the intent, so a promotion AWS accepted counts even while the answer to the request stalls.
+    const promoting = promote(reader, applying, intentAt)
+    journal.intentAt = intentAt
     journal.observations = []
     let observing: Promise<boolean> | undefined
     let released: Promise<void> | undefined
@@ -279,20 +284,26 @@ export async function failOver({
     return {
         observed: (signal) =>
             (observing ??= (async () => {
-                if (promoted.refused !== undefined) {
+                const refusal = new AbortController()
+                void promoting.then(({ refused }) => {
+                    if (refused !== undefined) {
+                        refusal.abort()
+                    }
+                })
+                const stop = signal ? AbortSignal.any([signal, refusal.signal]) : refusal.signal
+                const ok = await observe(reader, intentAt, journal.observations!, stop)
+                const promoted = await promoting
+                if (promoted.refused !== undefined || !ok) {
                     journal.unobserved = unobservedOf('failover', reader, journal.observations!, promoted)
                     return false
                 }
-                const ok = await observe(reader, promoted.intentAt, journal.observations!, signal)
-                if (!ok) {
-                    journal.unobserved = unobservedOf('failover', reader, journal.observations!, promoted)
-                }
-                return ok
+                return true
             })()),
 
         release: () =>
             (released ??= (async () => {
                 try {
+                    const promoted = await promoting
                     // The control plane can show the old writer for a while after it accepted the promotion.
                     const mayStillLand =
                         promoted.refused === undefined &&
