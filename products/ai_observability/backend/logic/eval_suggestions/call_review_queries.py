@@ -92,7 +92,10 @@ SELECT
             left(input, {{max_input}})
         )
     ) AS input_text,
-    left(if(notEmpty(coalesce(output_choices, '')), output_choices, coalesce(output, '')), {{max_output}}) AS output_text
+    left(
+        if(coalesce(output_choices, '') NOT IN ('', 'null', '[]'), output_choices, coalesce(output, '')),
+        {{max_output}}
+    ) AS output_text
 {_GENERATIONS}
   AND uuid IN (
     SELECT uuid
@@ -105,6 +108,7 @@ SELECT
     LIMIT {{per_type}} BY source, call_type
   )
 ORDER BY cityHash64(event_uuid)
+LIMIT {{max_rows}}
 """
 
 
@@ -183,6 +187,8 @@ def load_review_calls(
             "last_messages": ast.Constant(value=LAST_MESSAGES),
             "max_output": ast.Constant(value=MAX_OUTPUT_CHARS),
             "per_type": ast.Constant(value=CANDIDATES_PER_CALL_TYPE),
+            # Without a limit, HogQL returns its default 100 rows, fewer than the candidates of two call types.
+            "max_rows": ast.Constant(value=CANDIDATES_PER_CALL_TYPE * len(call_types)),
         },
         "EvalSuggestionsReviewCalls",
     )
