@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto'
 import { setTimeout as sleep } from 'timers/promises'
 
+import { waitForExpect } from '~/tests/helpers/expectations'
+
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
 import type { RunManifest } from '../cloud/lease'
 import type { WriterSample } from '../probe/writer-probe'
@@ -384,7 +386,7 @@ describe('pg.failover', () => {
         await expectApplied(failOverOn(run, { aws, signal: stopped.signal, observeWithinMs }))
     })
 
-    it('observes a promotion AWS accepted from its intent, while the answer to the request never arrives', async () => {
+    it('observes a promotion AWS accepted while its answer is pending, and ends with the hold', async () => {
         const run = runOf()
         const aws = {
             call: (args: string[]): Promise<unknown> => {
@@ -393,13 +395,14 @@ describe('pg.failover', () => {
             },
             text: (args: string[]): Promise<string> => run.cloud.text(args),
         }
+        const hold = new AbortController()
+        const actuation = await failOverOn(run, { aws, observeWithinMs: 60_000 })
 
-        const actuation = await failOverOn(run, { aws })
+        const observed = actuation.observed(hold.signal)
+        await waitForExpect(() => expect(actuation.journal().observations).toEqual(OBSERVED), 2000, 5)
+        hold.abort()
 
-        await expect(actuation.observed()).resolves.toBe(true)
-        const { intentAt, observations } = actuation.journal()
-        const clusterWriter = observations!.find(({ name }) => name === 'cluster_writer')!
-        expect(Date.parse(clusterWriter.at) - Date.parse(intentAt!)).toBeLessThan(OBSERVE_WITHIN_MS / 2)
+        await expect(observed).resolves.toBe(true)
     })
 
     it('sends no failover request once the apply stopped after its last precondition read', async () => {
