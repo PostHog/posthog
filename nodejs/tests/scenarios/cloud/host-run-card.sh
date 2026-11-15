@@ -51,6 +51,8 @@ mkdir -p "$evidence"
 trap stop TERM INT
 trap finish EXIT
 mark started "{\"at\":\"$(now)\"}" || exit
+SCENARIO_POOLER_URLS=$(cat "$root/pooler/urls") || exit
+export SCENARIO_POOLER_URLS
 (cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$CARD" --profile "$input/runner-profile.yaml") >"$evidence/card.log" 2>&1 &
 card=$!
 while kill -0 "$card" 2>/dev/null; do
