@@ -1,4 +1,5 @@
 import asyncio
+import decimal
 import functools
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
@@ -38,7 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -101,9 +102,14 @@ def get_incremental_field_value(
         raise IncrementalFieldMissingFromDataError(incremental_field_name, table)
 
     column = table[normalized_field_name]
-    processed_column = pa.array(
-        [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
-    )
+    values = column.to_pylist()
+    # A decimal too wide for decimal128 (e.g. BigQuery BIGNUMERIC) reaches here as text. Parse it so
+    # the aggregate orders numbers, not strings, and the watermark serializes as a number.
+    if schema.incremental_field_type in (IncrementalFieldType.Integer, IncrementalFieldType.Numeric) and (
+        pa.types.is_string(column.type) or pa.types.is_large_string(column.type)
+    ):
+        values = [None if val is None else decimal.Decimal(val) for val in values]
+    processed_column = pa.array([process_incremental_value(val, schema.incremental_field_type) for val in values])
 
     if aggregate == "max":
         last_value = pc.max(processed_column)

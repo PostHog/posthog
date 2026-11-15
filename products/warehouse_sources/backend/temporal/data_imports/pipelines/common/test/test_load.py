@@ -1,6 +1,7 @@
 import uuid
+import decimal
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -459,6 +460,29 @@ class TestGetIncrementalFieldValue:
     def test_returns_max_of_configured_column(self):
         table = pa.table({"id": ["a", "b"], "created": [10, 20]})
         assert get_incremental_field_value(self._schema("created"), table) == 20
+
+    @parameterized.expand(
+        [
+            ("max_string", pa.string(), "max", decimal.Decimal("100")),
+            ("min_string", pa.string(), "min", decimal.Decimal("9.5")),
+            ("max_large_string", pa.large_string(), "max", decimal.Decimal("100")),
+            ("min_large_string", pa.large_string(), "min", decimal.Decimal("9.5")),
+        ]
+    )
+    def test_numeric_cursor_stored_as_text_aggregates_numerically(
+        self, _name: str, column_type: pa.DataType, aggregate: Literal["max", "min"], expected: decimal.Decimal
+    ):
+        # A decimal256 column (e.g. BigQuery BIGNUMERIC) is stringified before the cursor is read.
+        scale = "0" * 38
+        table = pa.table(
+            {"created": pa.array([f"9.5{scale[1:]}", f"100.{scale}", None, f"76.{scale}"], type=column_type)}
+        )
+
+        value = get_incremental_field_value(self._schema("created"), table, aggregate=aggregate)
+
+        assert value == expected
+        schema = ExternalDataSchema(sync_type_config={"incremental_field_type": "integer"})
+        assert schema.serialize_incremental_value(value) == int(expected)
 
     def test_missing_column_raises_actionable_error_matched_by_non_retryable_map(self):
         # A label like "created_at" persisted instead of the real field must fail with guidance
