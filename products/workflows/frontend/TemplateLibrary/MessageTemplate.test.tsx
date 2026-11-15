@@ -176,4 +176,36 @@ describe('MessageTemplate', () => {
         expect(router.values.location.pathname).toEqual(page)
         expect(sendRequests.at(-1)).toMatchObject({ workflow_id: 'flow-1', status: 'bounced', reason: 'hard' })
     })
+
+    it('opens the run logs from a template link saved before the Sends list, until the reader picks Sends', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': PASSWORD_RESET_WITH_DRAFT,
+                '/api/environments/:team_id/hog_flows/:id/': { id: 'flow-1', actions: [] },
+                '/api/projects/:team_id/transactional_email_log/': {
+                    results: [
+                        {
+                            message_id: 'msg-1',
+                            recipient: 'ada@example.com',
+                            status: 'failed',
+                            created_at: '2026-03-14T10:00:00Z',
+                        },
+                    ],
+                    has_more: false,
+                },
+            },
+            post: { '/api/environments/:team_id/query/': { results: [] } },
+        })
+        await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
+
+        router.actions.push(urls.transactionalTemplate(TEMPLATE_ID), { tab: 'sends', inv_search: 'Transient bounce' })
+
+        expect(await screen.findByText('Re-run…')).toBeInTheDocument()
+        expect(screen.queryByText('ada@example.com')).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Sends'))
+
+        expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
+        expect(router.values.searchParams).toEqual({ tab: 'sends' })
+    })
 })

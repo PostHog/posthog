@@ -2,6 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import type { TransactionalEmailStatsRowApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import { SEND_FILTER_PARAMS } from './log/transactionalEmailLogLogic'
 
 // A send and a metrics row both name the email behind them with these two fields.
@@ -10,12 +12,8 @@ interface EmailPage {
     template_id: string | null
 }
 
-interface StatsRow {
-    key: string
-    label: string
-    code_email_id?: string | null
-    template_id?: string | null
-}
+type StatsRow = Pick<TransactionalEmailStatsRowApi, 'key' | 'label'> &
+    Partial<Pick<TransactionalEmailStatsRowApi, 'code_email_id' | 'template_id'>>
 
 export function transactionalEmailUrl(email: EmailPage | null | undefined): string | null {
     if (email?.code_email_id) {
