@@ -27,11 +27,12 @@ type Picks = Record<string, number[]>
 const scrapedEvery5s = (
     untilS: number,
     picksAt: (atS: number) => Picks,
-    startedAtS: (atS: number) => number = () => -60
+    startedAtS: (atS: number) => number = () => -60,
+    replica = 0
 ): MetricSample[] =>
     Array.from({ length: untilS / 5 + 1 }, (_, i) => i * 5).map((atS) => ({
         role: 'cdp-cyclotron-worker',
-        replica: 0,
+        replica,
         at: T + atS * 1000,
         startedAt: T / 1000 + startedAtS(atS),
         cpuSeconds: 1,
@@ -78,10 +79,10 @@ const HELD: BarResult[] = [
     { name: 'pickup_p99_under', unit: 's', passed: true },
 ]
 
-const broke = (bar: 0 | 1, scale: number, atS: number, value: number, key?: string): BarResult => ({
+const broke = (bar: 0 | 1, scale: number, atS: number, value: number, key?: string, offered = scale): BarResult => ({
     ...HELD[bar],
     passed: false,
-    breakingPoint: { scale, at: iso(atS), offeredPerSecond: scale, ...(key && { key }), value },
+    breakingPoint: { scale, at: iso(atS), offeredPerSecond: offered, ...(key && { key }), value },
 })
 
 const unjudged = (bar: 0 | 1, why: string): BarResult => ({ ...HELD[bar], passed: false, unjudged: why })
@@ -93,6 +94,14 @@ describe('judgeBars', () => {
             'the writer CPU crossed its bar at the 10x step, counting refused units as offered',
             { writerCpu: cpu({ 0: 40, 1: 85 }) },
             [broke(0, 10, 60, 85), HELD[1]],
+        ],
+        [
+            'the writer CPU crossed its bar at the 10x step, leaving out the events Kafka refused',
+            {
+                journal: offeredAtRates(1, 10).map((entry) => ({ ...entry, kind: 'event' as const })),
+                writerCpu: cpu({ 0: 40, 1: 85 }),
+            },
+            [broke(0, 10, 60, 85, undefined, 5), HELD[1]],
         ],
         [
             'the writer CPU was over its bar from the 1x step on, so the first step names the breaking point',
@@ -173,6 +182,11 @@ describe('judgeBars', () => {
             'the worker metrics stopped answering early in the 10x step',
             { samples: scrapedEvery5s(65, prompt) },
             [HELD[0], unjudged(1, `no metrics from cdp-cyclotron-worker-0 after ${iso(65)} in the 10x step`)],
+        ],
+        [
+            'a worker that had not picked up yet stopped answering while another kept picking up',
+            { samples: [...scrapedEvery5s(120, prompt), ...scrapedEvery5s(65, () => ({}), undefined, 1)] },
+            [HELD[0], unjudged(1, `no metrics from cdp-cyclotron-worker-1 after ${iso(65)} in the 10x step`)],
         ],
         [
             'the drive was interrupted before its 10x step',

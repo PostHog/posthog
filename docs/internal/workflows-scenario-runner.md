@@ -413,8 +413,8 @@ A card names its profile, its seed, the number of teams to seed, its traffic kin
 A card without a ramp drives at 1x throughout.
 `bars` lists pass bars that every ramp step must stay under:
 
-- `writer_cpu_under` with `percent`: the highest CloudWatch `CPUUtilization` minute of the run cluster's writer. Only whole minutes inside a step count, and every one of them needs a reading. It reads only on a run host.
-- `pickup_p99_under` with `seconds` and `queues`: the p99 of `cdp_cyclotron_job_lateness_seconds` on each named queue, from the worker scrapes. A p99 beyond the histogram's largest bucket reads as that bucket, and a named queue with no pickup in a step reads as the step's length, and the last step also counts pickups after the drive ends. A worker whose scrapes stop for more than 15 seconds leaves the step unread.
+- `writer_cpu_under` with `percent`: the highest CloudWatch `CPUUtilization` minute of the run cluster's writer. Only whole minutes inside a step count, and every one of them needs a reading. After the run converges, the read waits up to 5 minutes for CloudWatch to publish the drive's last whole minute. It reads only on a run host.
+- `pickup_p99_under` with `seconds` and `queues`: the p99 of `cdp_cyclotron_job_lateness_seconds` on each named queue, from the worker scrapes. A p99 beyond the histogram's largest bucket reads as that bucket, and a named queue with no pickup in a step reads as the step's length, and the last step also counts pickups after the drive ends. A worker whose scrapes stop for more than 15 seconds leaves the step unread, even one that has not picked up a job yet.
 
 The first step where a bar fails is the bar's breaking point, and the run fails. A bar that cannot be read in a step makes the run `invalid`.
 A ramped card is admitted on its first step, at the profile's own rates.
@@ -801,21 +801,21 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 
 **Verdict**
 
-| Property            | Type            | Meaning                                                                                                                                                                                   |
-| ------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`            | string          | `passed`, `failed` or `invalid`                                                                                                                                                           |
-| `status_reason`     | string          | Why, in one line                                                                                                                                                                          |
-| `started_at`        | string          | ISO 8601 time the run started                                                                                                                                                             |
-| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                                                                                                   |
-| `duration_s`        | number          | Seconds from start to end                                                                                                                                                                 |
-| `units_target`      | number or null  | Units the profile asked for                                                                                                                                                               |
-| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended                                                                               |
-| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                                                                                       |
-| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                                                                                              |
-| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                                                                                      |
-| `bars`              | array           | One entry per bar: its name, unit and whether it passed, with the breaking point (the step's scale and start, units offered per second, the queue and the value) or why it was not judged |
-| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                       |
-| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                                                                                                |
+| Property            | Type            | Meaning                                                                                                                                                                                                                  |
+| ------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `status`            | string          | `passed`, `failed` or `invalid`                                                                                                                                                                                          |
+| `status_reason`     | string          | Why, in one line                                                                                                                                                                                                         |
+| `started_at`        | string          | ISO 8601 time the run started                                                                                                                                                                                            |
+| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                                                                                                                                  |
+| `duration_s`        | number          | Seconds from start to end                                                                                                                                                                                                |
+| `units_target`      | number or null  | Units the profile asked for                                                                                                                                                                                              |
+| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended                                                                                                              |
+| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                                                                                                                      |
+| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                                                                                                                             |
+| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                                                                                                                     |
+| `bars`              | array           | One entry per bar: its name, unit and whether it passed, with the breaking point (the step's scale and start, units offered per second as `units_offered` counts them, the queue and the value) or why it was not judged |
+| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                                                      |
+| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                                                                                                                               |
 
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:

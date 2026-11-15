@@ -4,10 +4,23 @@ import type { CpuPoint } from '../judge/bars'
 import type { DriveWindow } from '../judge/measurements'
 
 const MINUTE_MS = 60_000
+const POLL_MS = 30_000
+const PUBLISH_WAIT_MS = 5 * MINUTE_MS
 
 type CpuData = { MetricDataResults: { Timestamps: string[]; Values: number[]; StatusCode?: string }[] }
 
-export async function writerCpuOf(
+export async function writerCpuOf(aws: Aws, manifest: RunManifest, window: DriveWindow): Promise<CpuPoint[]> {
+    const lastMinute = Math.floor(window.endedAt / MINUTE_MS) * MINUTE_MS - MINUTE_MS
+    const deadline = Date.now() + PUBLISH_WAIT_MS
+    let points = await readWriterCpu(aws, manifest, window)
+    while (!points.some(({ at }) => at === lastMinute) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+        points = await readWriterCpu(aws, manifest, window)
+    }
+    return points
+}
+
+async function readWriterCpu(
     aws: Aws,
     manifest: RunManifest,
     { startedAt, endedAt }: DriveWindow

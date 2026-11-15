@@ -91,10 +91,11 @@ function pickupsBetween(
     { from, to }: Pick<Window, 'from' | 'to'>
 ): { picked: Record<string, Buckets> } | { unread: string } {
     const picked: Record<string, Buckets> = {}
-    for (const [worker, series] of Map.groupBy(samples, ({ role, replica }) => `${role}-${replica}`)) {
-        if (series.every(({ lateness }) => Object.keys(lateness).length === 0)) {
-            continue
-        }
+    const pickupRoles = new Set(
+        samples.filter(({ lateness }) => Object.keys(lateness).length > 0).map(({ role }) => role)
+    )
+    const workers = samples.filter(({ role }) => pickupRoles.has(role))
+    for (const [worker, series] of Map.groupBy(workers, ({ role, replica }) => `${role}-${replica}`)) {
         const sorted = [...series].sort((a, b) => a.at - b.at)
         const first = sorted.findLastIndex(({ at }) => at <= from)
         const covered = sorted.slice(Math.max(first, 0)).filter(({ at }) => at <= to)
@@ -146,7 +147,10 @@ const pickupP99Under: BarDefinition = {
 export const BARS: BarDefinition[] = [writerCpuUnder, pickupP99Under]
 
 const offeredPerSecond = (journal: readonly JournalEntry[], { from, to }: Window): number =>
-    journal.filter(({ offeredAt }) => offeredAt >= from && offeredAt < to).length / ((to - from) / 1000)
+    journal.filter(
+        ({ kind, answer, offeredAt }) => (kind !== 'event' || answer.accepted) && offeredAt >= from && offeredAt < to
+    ).length /
+    ((to - from) / 1000)
 
 export function judgeBars(bars: Named[], evidence: BarEvidence): BarResult[] {
     return bars.map(({ name, params }) => {
