@@ -414,7 +414,7 @@ A card without a ramp drives at 1x throughout.
 `bars` lists pass bars that every ramp step must stay under:
 
 - `writer_cpu_under` with `percent`: the highest CloudWatch `CPUUtilization` minute of the run cluster's writer. Only whole minutes inside a step count, and every one of them needs a reading. After the run converges, the read waits up to 5 minutes for CloudWatch to publish the drive's last whole minute. It reads only on a run host.
-- `pickup_p99_under` with `seconds` and `queues`: the p99 of `cdp_cyclotron_job_lateness_seconds` on each named queue, from the worker scrapes. A p99 beyond the histogram's largest bucket reads as that bucket, and a named queue with no pickup in a step reads as the step's length, and the last step also counts pickups after the drive ends. Each named queue's worker must answer its scrapes: one that is never scraped, or whose scrapes stop for more than 15 seconds, leaves the step unread.
+- `pickup_p99_under` with `seconds` and `queues`: the p99 of `cdp_cyclotron_job_lateness_seconds` on each named queue, from the worker scrapes. A p99 beyond the histogram's largest bucket breaks a bar at or under that bucket and leaves a higher bar unread, and a named queue with no pickup in a step reads as the step's length, and the last step also counts pickups after the drive ends. Each named queue's worker must answer its scrapes: one that is never scraped, or whose scrapes stop for more than 15 seconds, leaves the step unread.
 
 The first step where a bar fails is the bar's breaking point, and the run fails. A bar that cannot be read in a step makes the run `invalid`.
 A ramped card is admitted on its first step, at the profile's own rates.

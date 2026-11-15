@@ -214,4 +214,24 @@ describe('judgeBars', () => {
     ])('%s', (_story, changes, expected) => {
         expect(judgeBars(BARS, evidence(changes))).toEqual(expected)
     })
+
+    it.each<[string, number, BarResult]>([
+        ['breaks a bar at the largest bucket when pickups overflow it', 10, broke(1, 10, 60, 10, 'email')],
+        [
+            'leaves a bar above the largest bucket unjudged when pickups overflow it',
+            20,
+            unjudged(1, "the email p99 is past the histogram's largest bucket of 10 s in the 10x step"),
+        ],
+    ])('%s', (_story, seconds, expected) => {
+        const overflowing = evidence({
+            samples: scrapedEvery5s(120, (atS) => ({
+                ...prompt(atS),
+                email: [...times(Math.min(atS, 60), 0.5), ...times(atS - 60, 600)],
+            })),
+        })
+
+        const [, pickup] = judgeBars([BARS[0], { ...BARS[1], params: { ...BARS[1].params, seconds } }], overflowing)
+
+        expect(pickup).toEqual(expected)
+    })
 })

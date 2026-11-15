@@ -118,13 +118,14 @@ function pickupsBetween(
     return { picked }
 }
 
-function p99Of(buckets: Buckets): number {
+function p99Of(buckets: Buckets): { value: number; beyond: boolean } {
     const total = buckets['+Inf'] ?? 0
     const bounds = Object.keys(buckets)
         .filter((le) => le !== '+Inf')
         .map(Number)
         .sort((a, b) => a - b)
-    return bounds.find((le) => (buckets[String(le)] ?? 0) >= P99 * total) ?? bounds.at(-1) ?? 0
+    const within = bounds.find((le) => (buckets[String(le)] ?? 0) >= P99 * total)
+    return within === undefined ? { value: bounds.at(-1) ?? 0, beyond: true } : { value: within, beyond: false }
 }
 
 const pickupP99Under: BarDefinition = {
@@ -142,15 +143,25 @@ const pickupP99Under: BarDefinition = {
         if ('unread' in pickups) {
             return pickups
         }
-        const { picked } = pickups
-        const [worst] = queues
+        const readings = queues
             .map((queue) => {
-                const buckets = picked[queue] ?? {}
-                const value = (buckets['+Inf'] ?? 0) > 0 ? p99Of(buckets) : (until - from) / 1000
-                return { key: queue, value }
+                const buckets = pickups.picked[queue] ?? {}
+                const { value, beyond } =
+                    (buckets['+Inf'] ?? 0) > 0 ? p99Of(buckets) : { value: (until - from) / 1000, beyond: false }
+                return { key: queue, value, passed: beyond ? undefined : value <= seconds }
             })
             .sort((a, b) => b.value - a.value)
-        return { ...worst, passed: worst.value <= seconds }
+        const broken = readings.find(
+            ({ passed, value }) => passed === false || (passed === undefined && value >= seconds)
+        )
+        const unknown = readings.find(({ passed }) => passed === undefined)
+        if (broken) {
+            return { key: broken.key, value: broken.value, passed: false }
+        }
+        if (unknown) {
+            return { unread: `the ${unknown.key} p99 is past the histogram's largest bucket of ${unknown.value} s` }
+        }
+        return { ...readings[0], passed: true }
     },
 }
 
