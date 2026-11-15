@@ -27,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    build_endpoint_schemas,
     detect,
 )
 
@@ -100,24 +101,12 @@ class GoogleTagManagerSource(SimpleSource[GoogleTagManagerSourceConfig], OAuthMi
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The GTM API has no server-side modification-time filter, so every table is full
-        # refresh only. The tables are configuration objects and stay small.
-        schemas = [
-            SourceSchema(
-                name=endpoint.name,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-                description=endpoint.description,
-            )
-            for endpoint in ENDPOINTS.values()
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            {},
+            names,
+            descriptions={name: endpoint.description for name, endpoint in ENDPOINTS.items()},
+        )
 
     def _refresh_token(self, integration_id: int, team_id: int) -> str:
         integration = self.get_oauth_integration(integration_id, team_id)
