@@ -66,8 +66,9 @@ function sentParams(sdk: SendFromCodeSdk, code: string): Record<string, unknown>
             })
                 .toString()
                 .split('\0')
-            const idempotencyKey = args
-                .find((arg) => arg.startsWith('Idempotency-Key: '))
+            const headers = args.flatMap((arg, i) => (args[i - 1] === '-H' ? [arg] : []))
+            const idempotencyKey = headers
+                .find((header) => header.startsWith('Idempotency-Key: '))
                 ?.slice('Idempotency-Key: '.length)
             return { ...JSON.parse(args[args.indexOf('-d') + 1]), idempotencyKey }
         }
