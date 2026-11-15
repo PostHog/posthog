@@ -11,7 +11,7 @@ import { Aws, awsCli } from '../cloud/aws'
 import type { RunManifest } from '../cloud/lease'
 import type { WriterSample } from '../probe/writer-probe'
 import { FaultHold, FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
-import { FailoverJournal, failOver, sqlIdentityOf } from './failover'
+import { FailoverJournal, FailoverOptions, failOver, sqlIdentityOf } from './failover'
 import { nameOf } from './identity'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import {
@@ -111,6 +111,7 @@ export type EnvironmentOptions = {
     sesRateLimiterValkey: { host: string; port: number }
     roleHealthyWithinMs: number
     aws: Aws
+    failover: Partial<Pick<FailoverOptions, 'identity' | 'pollMs' | 'observeWithinMs'>>
 }
 
 export function createEnvironment({
@@ -120,6 +121,7 @@ export function createEnvironment({
     sesRateLimiterValkey = STACK.sesRateLimiterValkey,
     roleHealthyWithinMs = ROLE_HEALTHY_WITHIN_MS,
     aws,
+    failover = {},
 }: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
     let stateDir = defaultStateDir(env)
@@ -197,11 +199,12 @@ export function createEnvironment({
                     return startedEdge('actuate').hold(action.rule)
                 case 'rds.failover':
                     return failOver({
+                        identity: () => sqlIdentityOf(cyclotronUrl),
+                        ...failover,
                         aws: aws ?? awsCli(env),
                         manifest: action.manifest,
                         holdMs: action.holdMs,
                         commits: action.commits,
-                        identity: () => sqlIdentityOf(cyclotronUrl),
                     })
             }
         },

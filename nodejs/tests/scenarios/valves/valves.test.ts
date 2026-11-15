@@ -12,8 +12,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
-import { Action, Actuation } from '../environment/environment'
-import { failOver } from '../environment/failover'
+import { Actuation, createEnvironment } from '../environment/environment'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
@@ -226,19 +225,15 @@ describe('valves', () => {
             samples.push({ at: Date.now(), monoMs: 0, ok: true, latencyMs: 0, instance: writerNow() })
             return samples
         }
-        const actuate = (action: Action): Promise<Actuation> =>
-            action.kind === 'rds.failover'
-                ? failOver({
-                      aws: cloud,
-                      manifest: action.manifest,
-                      holdMs: action.holdMs,
-                      commits: action.commits,
-                      identity: () => Promise.resolve({ instance: writerNow(), inRecovery: false }),
-                      pollMs: 5,
-                      observeWithinMs: 400,
-                  })
-                : Promise.reject(new Error(`this cloud does not model ${action.kind}`))
-        return { cloud, ...run, writerNow, commits, actuate }
+        const environment = createEnvironment({
+            aws: cloud,
+            failover: {
+                identity: () => Promise.resolve({ instance: writerNow(), inRecovery: false }),
+                pollMs: 5,
+                observeWithinMs: 400,
+            },
+        })
+        return { cloud, ...run, writerNow, commits, environment }
     }
 
     it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>]>([
@@ -272,7 +267,7 @@ describe('valves', () => {
             ...context,
             commits: run.commits,
             manifest: onRunHost ? run.manifest : undefined,
-            environment: { actuate: run.actuate },
+            environment: run.environment,
         })
         await waitForExpect(
             () => expect(valves.timeline()[0].releasedAt ?? valves.timeline()[0].error).toBeDefined(),

@@ -180,6 +180,7 @@ export class FakeCloud implements Aws {
     private readonly hooks = new Map<string, () => void>()
     readonly promotions: { cluster: string; to: string; at: number }[] = []
     private readonly pendingPromotions: { cluster: Resource; to: string; at: number }[] = []
+    private promotionsHeld = false
 
     constructor(private readonly options: FakeCloudOptions) {
         this.account = options.account ?? '000000000000'
@@ -257,9 +258,22 @@ export class FakeCloud implements Aws {
         return this.resources.find(({ type, id }) => type === 'AWS::RDS::DBCluster' && id === clusterId)?.writer
     }
 
+    holdPromotions(): void {
+        this.promotionsHeld = true
+    }
+
+    landPromotions(): void {
+        this.promotionsHeld = false
+        for (const promotion of this.pendingPromotions) {
+            promotion.at = 0
+        }
+        this.tick()
+    }
+
     tick(): void {
         const now = this.options.now().getTime()
-        for (const promotion of this.pendingPromotions.filter(({ at }) => at <= now)) {
+        const due = this.promotionsHeld ? [] : this.pendingPromotions.filter(({ at }) => at <= now)
+        for (const promotion of due) {
             this.pendingPromotions.splice(this.pendingPromotions.indexOf(promotion), 1)
             promotion.cluster.writer = promotion.to
             promotion.cluster.state = 'available'

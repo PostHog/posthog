@@ -176,7 +176,7 @@ export async function failOver({
             }
             if (!seen('first_probe_commit')) {
                 const commit = commits().find(
-                    (sample) => sample.ok && sample.instance === to && sample.at + sample.latencyMs >= since
+                    (sample) => sample.ok && sample.instance === to && sample.at + sample.latencyMs > since
                 )
                 if (commit) {
                     record('first_probe_commit', commit.at + commit.latencyMs)

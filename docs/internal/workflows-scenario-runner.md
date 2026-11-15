@@ -471,7 +471,7 @@ export interface Runner {
   - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
     An unexplained exit, a failed invariant or a stack that did not converge outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
     An exit while a database valve (`postgres` or `cyclotron`) was applied still fails the run, and its reason names that valve.
-  - **Cyclotron interrupted without a valve.** The writer probe failing 5 times in a row, or once with a SQLSTATE of class `08` or `57P01`, in a write that ended before the first valve's intent or began after the drive and every release ended. On a card with no valve, every write counts. A failure inside a valve's phases belongs to the valve and is measured, not judged. An isolated timeout is not an interruption.
+  - **Cyclotron interrupted without a valve.** The writer probe failing 5 times in a row, or once with a SQLSTATE of class `08` or `57P01`, in a write that ended before the first valve's intent or began after the drive and every release ended. When no valve applied, every write counts. A failure inside a valve's phases belongs to the valve and is measured, not judged. An isolated timeout is not an interruption.
   - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back. A run interrupted after the capture keeps the status's code. Evidence files that could not be written make the run `invalid`, exit 2.
 

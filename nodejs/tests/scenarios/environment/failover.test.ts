@@ -186,9 +186,10 @@ describe('pg.failover', () => {
 
     it('counts no recovery stage seen after its deadline', async () => {
         const run = runOf()
+        run.cloud.holdPromotions()
         const slowIdentity = async (): Promise<{ instance: string; inRecovery: boolean }> => {
             await sleep(OBSERVE_WITHIN_MS + 100)
-            await run.cloud.call(['rds', 'describe-db-clusters', '--db-cluster-identifier', run.cluster])
+            run.cloud.landPromotions()
             return { instance: run.cloud.writerOf(run.cluster)!, inRecovery: false }
         }
 
@@ -201,23 +202,27 @@ describe('pg.failover', () => {
         })
     })
 
-    it.each<[string, number, string, Record<string, unknown>]>([
+    it.each<[string, boolean, string, Record<string, unknown>]>([
         [
             'fails back a promotion that lands after its observation ended',
-            100,
+            true,
             'writer',
             { releaseIntentAt: expect.any(String), releaseObservations: OBSERVED },
         ],
         [
             'records a promotion that never settles instead of leaving the cluster on the reader unremarked',
-            Infinity,
+            false,
             'reader',
             { releaseError: expect.stringMatching(/stayed failing-over for 0\.4s after the hold/) },
         ],
-    ])('%s', async (_story, takesMs, endsOn, journalled) => {
-        const run = runOf({ failover: { takesMs } })
+    ])('%s', async (_story, lands, endsOn, journalled) => {
+        const run = runOf()
+        run.cloud.holdPromotions()
         const actuation = await failOverOn(run)
-        await expect(actuation.observed(AbortSignal.timeout(10))).resolves.toBe(false)
+        await expect(actuation.observed(AbortSignal.abort())).resolves.toBe(false)
+        if (lands) {
+            run.cloud.landPromotions()
+        }
 
         await actuation.release()
 
