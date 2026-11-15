@@ -211,13 +211,20 @@ describe('valves', () => {
         { name: 'first_probe_commit', at: expect.any(String) },
     ]
 
-    const runClusterOf = (options: Partial<FakeCloudOptions> = {}) => {
+    const runClusterOf = (options: Partial<FakeCloudOptions> = {}, stalls?: string) => {
         const cloud = new FakeCloud({
             now: () => new Date(),
             failover: { takesMs: 20 },
             liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
             ...options,
         })
+        let stalled: () => void = () => undefined
+        const stalledOnce = new Promise<void>((resolve) => (stalled = resolve))
+        const aws = {
+            call: (args: string[]): Promise<unknown> =>
+                args[0] === stalls ? (stalled(), new Promise(() => undefined)) : cloud.call(args),
+            text: (args: string[]): Promise<string> => cloud.text(args),
+        }
         const run = cloud.runCluster(randomUUID())
         const writerNow = (): string => cloud.writerOf(run.cluster)!
         const samples: WriterSample[] = []
@@ -226,14 +233,14 @@ describe('valves', () => {
             return samples
         }
         const environment = createEnvironment({
-            aws: cloud,
+            aws,
             failover: {
                 identity: () => Promise.resolve({ instance: writerNow(), inRecovery: false }),
                 pollMs: 5,
                 observeWithinMs: 30_000,
             },
         })
-        return { cloud, ...run, writerNow, commits, environment }
+        return { cloud, ...run, writerNow, commits, environment, stalledOnce }
     }
 
     it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>]>([
@@ -280,6 +287,31 @@ describe('valves', () => {
             { valve: 'pg.failover', target: 'cyclotron', requestedAt: expect.any(String), ...recorded },
         ])
         expect(run.writerNow()).toBe(run.writer)
+    })
+
+    it('stops waiting for a failover precondition that never answers once the valves release', async () => {
+        const valves = createValves({ pollMs: 5 })
+        const { context } = stackOf()
+        const run = runClusterOf({}, 'sts')
+
+        await valves.start([FAILOVER], {
+            ...context,
+            commits: run.commits,
+            manifest: run.manifest,
+            environment: run.environment,
+        })
+        await run.stalledOnce
+        await valves.releaseAll()
+
+        expect(valves.timeline()).toEqual([
+            {
+                valve: 'pg.failover',
+                target: 'cyclotron',
+                requestedAt: expect.any(String),
+                error: expect.stringMatching(/^pg\.failover refused: AWS had not answered when the apply stopped/),
+            },
+        ])
+        expect(run.cloud.promotions).toEqual([])
     })
 
     it('kills the role an entry names once its offset passes, and records every step', async () => {
