@@ -55,7 +55,7 @@ export function LiveStats({
             about:
                 audience === 'web'
                     ? 'Distinct visitors in the last 30 minutes.'
-                    : 'Distinct user IDs across this project in the last 30 minutes. The same ID is counted once across web and mobile.',
+                    : 'Unique user IDs across web and mobile in the last 30 min.',
             value: uniqueVisitors,
         },
         { key: 'pageviews', label: 'Pageviews', about: 'Total pages viewed in the last 30 minutes.', value: pageviews },

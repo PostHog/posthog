@@ -43,7 +43,7 @@ export function LiveMobileMetrics({
                         key: 'sessions',
                         label: 'Sessions',
                         value: metrics?.sessions ?? null,
-                        about: 'Distinct mobile sessions with activity in the last 30 minutes. Requires session tracking.',
+                        about: 'Sessions active in the last 30 min. Needs session tracking.',
                     },
                 ]}
             />
@@ -58,13 +58,13 @@ export function LiveMobileMetrics({
                         key: 'installs-day',
                         label: 'Installs · 24h',
                         value: metrics?.installs ?? null,
-                        about: 'Application Installed events in the last 24 hours. The SDK records the first launch after installation, rather than an app store download.',
+                        about: 'First app launches after install in the last 24 hours.',
                     },
                     {
                         key: 'installs-week',
                         label: 'Installs · 7d',
                         value: metrics?.weeklyInstalls ?? null,
-                        about: 'Application Installed events in the last 7 days. The SDK records the first launch after installation, rather than an app store download.',
+                        about: 'First app launches after install in the last 7 days.',
                     },
                 ]}
             />
