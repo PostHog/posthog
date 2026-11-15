@@ -251,7 +251,6 @@ function SimulationStats({
     )
 }
 
-/** How much of the series the forecast preview could score, and what its shaded range means. */
 function ForecastNote({ result }: { result: AlertSimulationResult }): JSX.Element | null {
     const forecast = result.forecast
     if (!forecast) {

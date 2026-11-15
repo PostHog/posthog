@@ -53,7 +53,6 @@ export interface ForecastCheckDetail {
     upper: number
 }
 
-/** The forecast a check stored, or null for a check the forecast detector did not score. */
 export function getForecastCheckDetail(check: AlertCheck): ForecastCheckDetail | null {
     const metadata = check.triggered_metadata
     const { expected, lower, upper } = metadata ?? {}
