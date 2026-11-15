@@ -15467,6 +15467,33 @@ export namespace Schemas {
 
     export type AlertSimulateResponseSubDetectorScoresItem = { [key: string]: unknown };
 
+    /**
+     * * `above` - Above the forecast
+     * * `below` - Below the forecast
+     */
+    export type ForecastSideEnum = typeof ForecastSideEnum[keyof typeof ForecastSideEnum];
+
+
+    export const ForecastSideEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ForecastSimulation {
+      /** Forecast quantile that `lower` holds, for example 0.05. */
+      lower_quantile: number;
+      /** Forecast quantile that `upper` holds, for example 0.95. */
+      upper_quantile: number;
+      /** Expected value (the 0.5 forecast quantile) for each point. Null for a point that was not scored: it has fewer than 30 points before it, or it is older than the points the preview scores. */
+      expected: (number | null)[];
+      /** Lower end of the forecast range for each point, at `lower_quantile`. Null for an unscored point. */
+      lower: (number | null)[];
+      /** Upper end of the forecast range for each point, at `upper_quantile`. Null for an unscored point. */
+      upper: (number | null)[];
+      /** Side of the forecast that fired for each point: 'above' or 'below'. Null when the point did not fire or was not scored. */
+      fired_side: (ForecastSideEnum | null)[];
+    }
+
     export type BreakdownSimulationResultSubDetectorScoresItem = { [key: string]: unknown };
 
     export interface BreakdownSimulationResult {
@@ -15488,6 +15515,8 @@ export namespace Schemas {
       anomaly_count: number;
       /** Per-sub-detector scores for ensemble detectors. */
       sub_detector_scores?: BreakdownSimulationResultSubDetectorScoresItem[];
+      /** Forecast detector only: the one-step forecast of each point, for drawing the expected range. */
+      forecast?: ForecastSimulation;
     }
 
     export interface AlertSimulateResponse {
@@ -15503,7 +15532,7 @@ export namespace Schemas {
       data: number[];
       /** Date labels for each point. */
       dates: string[];
-      /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI detector has no score, so every point is null in an AI preview. */
+      /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI and forecast detectors have no score, so every point is null in their previews. */
       scores: (number | null)[];
       /** Indices of points flagged as anomalies. */
       triggered_indices: number[];
@@ -15520,6 +15549,8 @@ export namespace Schemas {
       anomaly_count: number;
       /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
       sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
+      /** Forecast detector only: the one-step forecast of each point, for drawing the expected range. */
+      forecast?: ForecastSimulation;
       /** AI detector only: the model's reason for its verdict on the latest point. */
       rationale?: string;
       /**
@@ -23551,7 +23582,7 @@ export namespace Schemas {
       total: number;
       /** Number of addresses added to the suppression list. */
       created: number;
-      /** Number of addresses that already had an entry. Their entry is left unchanged, even when someone removed it from the list. */
+      /** Number of addresses that already had an entry. A manual entry or a spam complaint keeps its reason. A `bounce` also makes an entry block transactional email, unless someone removed it from the list. */
       already_present: number;
     }
 
@@ -59823,6 +59854,8 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationsSource {
+      /** Google Ads ad table, used to read the ad copy of each ad group. */
+      adTable?: string | null;
       /** Google Ads daily campaign conversions split by conversion action. */
       campaignConversionActionTable?: string | null;
       /** Google Ads daily campaign impression share table. */

@@ -34,6 +34,7 @@ const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 
     processed: {},
     pgClientErrors: 0,
     consumerLoopErrors: 0,
+    lateness: {},
 })
 
 const offered = (unitId: string, offeredAtMs: number): JournalEntry => ({
@@ -82,6 +83,16 @@ const VALVE: ValveTimelineEntry = {
     appliedAt: isoAt(700),
     observedAt: isoAt(700),
     releasedAt: isoAt(1100),
+}
+
+const FAILOVER: ValveTimelineEntry = {
+    ...VALVE,
+    valve: 'pg.failover',
+    target: 'cyclotron',
+    observations: [
+        { name: 'cluster_writer', at: isoAt(720) },
+        { name: 'first_probe_commit', at: isoAt(740) },
+    ],
 }
 
 const everySecondOf = (fromS: number, toS: number, step = 1): number[] =>
@@ -219,6 +230,7 @@ describe('measurements', () => {
                 processed: {},
                 pgClientErrors: 0,
                 consumerLoopErrors: 0,
+                lateness: {},
             })
             expect(samples.at(-1)!.rssBytes).toBeGreaterThan(0)
             expect(host).toEqual<HostSample[]>([
@@ -306,21 +318,37 @@ describe('measurements', () => {
         }
     })
 
-    it.each<[string, string[], Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors'>]>([
+    it.each<[string, string[], Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors' | 'lateness'>]>(
         [
-            'a worker with Cyclotron claims on two queues and errors in two pools',
             [
-                'cdp_cyclotron_jobs_processed{queue="email",source="postgres-v2"} 7',
-                'cdp_cyclotron_jobs_processed{queue="hogflow",source="postgres-v2"} 3',
-                'cdp_cyclotron_jobs_processed{queue="hogflow",source="kafka"} 100',
-                'cdp_cyclotron_v2_pg_client_errors_total{pool="worker"} 2',
-                'cdp_cyclotron_v2_pg_client_errors_total{pool="janitor"} 1',
-                'cdp_cyclotron_v2_consumer_loop_errors_total{queue="email"} 4',
+                'a worker with Cyclotron claims on two queues, errors in two pools and pickups of both waits',
+                [
+                    'cdp_cyclotron_jobs_processed{queue="email",source="postgres-v2"} 7',
+                    'cdp_cyclotron_jobs_processed{queue="hogflow",source="postgres-v2"} 3',
+                    'cdp_cyclotron_jobs_processed{queue="hogflow",source="kafka"} 100',
+                    'cdp_cyclotron_v2_pg_client_errors_total{pool="worker"} 2',
+                    'cdp_cyclotron_v2_pg_client_errors_total{pool="janitor"} 1',
+                    'cdp_cyclotron_v2_consumer_loop_errors_total{queue="email"} 4',
+                    'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="scheduled"} 6',
+                    'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="scheduled"} 7',
+                    'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="deferred"} 1',
+                    'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="deferred"} 2',
+                    'cdp_cyclotron_job_lateness_seconds_count{queue="email",wait="scheduled"} 7',
+                ],
+                {
+                    processed: { email: 7, hogflow: 3 },
+                    pgClientErrors: 3,
+                    consumerLoopErrors: 4,
+                    lateness: { email: { '5': 7, '+Inf': 9 } },
+                },
             ],
-            { processed: { email: 7, hogflow: 3 }, pgClientErrors: 3, consumerLoopErrors: 4 },
-        ],
-        ['a role whose labelled counters never moved', [], { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0 }],
-    ])('samples the Cyclotron counters of %s', (_story, lines, counters) => {
+            [
+                'a role whose labelled counters never moved',
+                [],
+                { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0, lateness: {} },
+            ],
+        ]
+    )('samples the Cyclotron counters of %s', (_story, lines, counters) => {
         const text = [METRICS, '# HELP cdp_cyclotron_jobs_processed The number of jobs', ...lines].join('\n')
 
         expect(sampleOf({ role: ROLE, replica: 0, metricsUrl: '' }, FROM, text)).toEqual({
@@ -370,6 +398,27 @@ describe('measurements', () => {
             (second) => (second === 699 ? { failedAfterMs: 1500 } : second === 700 ? 'skipped' : false),
             [VALVE],
             [{ value: 1 }],
+        ],
+        [
+            'times each recovery stage the failover observed from its intent',
+            'seconds_to_cluster_writer',
+            () => false,
+            [FAILOVER],
+            [{ value: 20 }],
+        ],
+        [
+            'times the first probe commit on the promoted writer, not the first commit after a failure',
+            'seconds_to_first_probe_commit',
+            between(710, 714),
+            [FAILOVER],
+            [{ value: 40 }],
+        ],
+        [
+            'censors a recovery stage the failover never observed',
+            'seconds_to_sql_writer',
+            () => false,
+            [FAILOVER],
+            [{ value: null, censored: true }],
         ],
         [
             'reads no failure in the valve phase as no wait for a commit',
@@ -563,6 +612,15 @@ describe('measurements', () => {
                 { ...VALVE, intentAt: isoAt(900) },
             ],
             { baseline: { from: atS(0), to: atS(700) }, valve: { from: atS(700), to: atS(1500) } },
+        ],
+        [
+            'starts the fail-back phase at the release intent, not when the fail-back was observed',
+            [{ ...FAILOVER, releaseIntentAt: isoAt(1000), releasedAt: isoAt(1040) }],
+            {
+                baseline: { from: atS(0), to: atS(700) },
+                valve: { from: atS(700), to: atS(1000) },
+                failback: { from: atS(1000), to: atS(1500) },
+            },
         ],
         [
             'reads the whole drive as baseline when no valve applied',
