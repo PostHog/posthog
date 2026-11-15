@@ -16,7 +16,12 @@ from sklearn.metrics import roc_auc_score
 
 from posthog import settings
 
-from products.signals.backend.ranking.features import PROJECT_VECTOR_KINDS, REPORT_EMBEDDINGS_FEATURE_SET
+from products.signals.backend.ranking.features import (
+    EMBEDDING_COLUMN,
+    EMBEDDING_INSERTED_AT_COLUMN,
+    PROJECT_VECTOR_KINDS,
+    REPORT_EMBEDDINGS_FEATURE_SET,
+)
 from products.signals.backend.ranking.model_contract import model_mismatch
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.overrides import NO_OVERRIDES
@@ -363,7 +368,14 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
 
 def test_the_examples_asset_builds_from_the_embeddings_snapshot_without_the_labels_snapshot(monkeypatch):
     inbox = _SyntheticInbox()
-    embeddings = inbox.embeddings()
+    snapshot = inbox.embeddings()
+    frame = snapshot.to_pandas()
+    positions = np.arange(len(frame))
+    # The step reads only each vector's length and landing time, so a late vector and a tombstone
+    # must drop the same reports as the vectors themselves do.
+    frame.loc[positions % 5 == 0, EMBEDDING_INSERTED_AT_COLUMN] += pd.Timedelta(days=3)
+    frame.loc[positions % 7 == 0, EMBEDDING_COLUMN] = None
+    embeddings = pa.Table.from_pandas(frame, schema=snapshot.schema, preserve_index=False)
     day = (D0 + datetime.timedelta(days=DAYS - 1)).isoformat()
     client = _S3({partition_object_key(PREFIX, EMBEDDINGS_TABLE, day): _parquet(embeddings)})
     monkeypatch.setattr(nn_dag, "skip_unconfigured", lambda context: False)
@@ -378,6 +390,9 @@ def test_the_examples_asset_builds_from_the_embeddings_snapshot_without_the_labe
     written = pq.read_table(io.BytesIO(client.objects[partition_object_key(PREFIX, nn_dag.NN_EXAMPLES_TABLE, day)]))
     expected = build_examples(inbox.snapshots(), report_vectors(embeddings), holdout_days=HOLDOUT_DAYS)
     assert written.equals(examples_arrow(expected), check_metadata=True)
+    dropped = set(inbox.reports.index[(positions % 5 == 0) | (positions % 7 == 0)])
+    assert len(expected.table.rows) > 0
+    assert dropped.isdisjoint(expected.table.rows["report_id"])
 
 
 def test_a_priority_family_skips_an_examples_object_written_before_the_priority_column(no_side_effects):
