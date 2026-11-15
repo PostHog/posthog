@@ -103,8 +103,8 @@ export function WorkflowDetail({ attributes }: NotebookNodeProps<WorkflowNoteboo
     )
 }
 
-function WorkflowEditor({ attributes }: NotebookNodeProps<WorkflowNotebookWidgetAttributes>): JSX.Element {
-    const { originalWorkflow, originalWorkflowLoading } = useValues(workflowLogic({ id: attributes.id }))
+function LoadedWorkflow({ id, children }: { id: string; children: JSX.Element }): JSX.Element {
+    const { originalWorkflow, originalWorkflowLoading } = useValues(workflowLogic({ id }))
 
     if (!originalWorkflow && originalWorkflowLoading) {
         return <WorkflowLoading />
@@ -112,16 +112,21 @@ function WorkflowEditor({ attributes }: NotebookNodeProps<WorkflowNotebookWidget
     if (!originalWorkflow) {
         return <NotFound object="workflow" />
     }
+    return children
+}
 
+function WorkflowEditor({ attributes }: NotebookNodeProps<WorkflowNotebookWidgetAttributes>): JSX.Element {
     return (
-        <BindLogic logic={workflowLogic} props={{ id: attributes.id }}>
-            <WorkflowMetadata attributes={attributes} updateAttributes={() => {}} />
-            <div className="flex h-[40rem] p-3">
-                <Suspense fallback={<WorkflowLoading />}>
-                    <Workflow id={attributes.id} />
-                </Suspense>
-            </div>
-        </BindLogic>
+        <LoadedWorkflow id={attributes.id}>
+            <BindLogic logic={workflowLogic} props={{ id: attributes.id }}>
+                <WorkflowMetadata attributes={attributes} updateAttributes={() => {}} />
+                <div className="flex h-[40rem] p-3">
+                    <Suspense fallback={<WorkflowLoading />}>
+                        <Workflow id={attributes.id} />
+                    </Suspense>
+                </div>
+            </BindLogic>
+        </LoadedWorkflow>
     )
 }
 

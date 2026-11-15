@@ -200,7 +200,16 @@ const NOT_FOUND_SELF_HANDLED = new Set([
 
 // The same as NOT_FOUND_SELF_HANDLED, for an action name that other logics also use and do not handle.
 const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
-    loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic', // The workflow scene and the notebook node views that show the workflow render NotFound
+    // The workflow scene and the notebook node views that show the workflow render NotFound
+    loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
+}
+
+function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {
+    return (
+        isUnavailableEndpointError(error) &&
+        (NOT_FOUND_SELF_HANDLED.has(actionKey) ||
+            isOwnedByLogic(NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath))
+    )
 }
 
 /*
@@ -416,10 +425,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                const isSelfHandledNotFound =
-                    (NOT_FOUND_SELF_HANDLED.has(String(actionKey)) ||
-                        isOwnedByLogic(NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)) &&
-                    isUnavailableEndpointError(error)
+                const isSelfHandledNotFound = isNotFoundSelfHandled(error, String(actionKey), logic.pathString)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
                 if (
