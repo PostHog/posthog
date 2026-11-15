@@ -74,6 +74,22 @@ describe('writerCpuOf', () => {
         await expect(read).resolves.toEqual([])
     })
 
+    it('fails a CloudWatch read that comes back incomplete before the deadline', async () => {
+        const read = writerCpuOf(
+            {
+                call: () =>
+                    Promise.resolve({
+                        MetricDataResults: [{ Timestamps: [], Values: [], StatusCode: 'PartialData' }],
+                    }),
+                text: () => Promise.reject(new Error('the CPU read only calls')),
+            },
+            MANIFEST,
+            { startedAt: T, endedAt: T + 2 * MINUTE + 5_000 }
+        )
+
+        await expect(read).rejects.toThrow('the writer CPU read came back PartialData, not Complete')
+    })
+
     it('stops waiting for CloudWatch when the run is interrupted while a read is in flight', async () => {
         const interrupted = new AbortController()
         const aws = publishingAfter(60 * MINUTE)
