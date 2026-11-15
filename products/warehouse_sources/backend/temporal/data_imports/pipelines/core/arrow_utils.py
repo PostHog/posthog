@@ -205,7 +205,7 @@ def pyarrow_schema_from_arrow_exportable(schema: ArrowSchemaExportable) -> pa.Sc
             raise
         raw_schema = json.loads(schema.to_json())
         _strip_arrow_extension_metadata(raw_schema)
-        return pa.schema(deltalake.Schema.from_json(json.dumps(raw_schema)))
+        return pa.schema(cast(Any, deltalake.Schema.from_json(json.dumps(raw_schema))))
 
 
 def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | datetime.datetime:

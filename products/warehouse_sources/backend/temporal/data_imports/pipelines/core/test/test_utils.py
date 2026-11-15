@@ -2019,22 +2019,34 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
     assert excinfo.value.incoming_type is None
 
 
-def test_pyarrow_schema_from_arrow_exportable_recovers_from_stale_uuid_extension():
-    # delta-rs tags a uuid column with the Arrow canonical `arrow.uuid` extension but stores it
-    # with the Delta primitive type (binary), not the extension's required fixed_size_binary(16).
-    # PyArrow's extension registry then refuses the Arrow C Data Interface import outright
-    # (`ArrowInvalid: Invalid storage type for UuidType: binary`), so this must fall back to the
-    # plain storage type instead of propagating that crash.
-    delta_schema = deltalake.Schema.from_arrow(pa.schema([pa.field("id", pa.uuid()), pa.field("name", pa.string())]))
+@pytest.mark.parametrize(
+    "column_type,expected_type",
+    [
+        (pa.uuid(), pa.binary()),
+        (pa.struct([pa.field("id", pa.uuid())]), pa.struct([pa.field("id", pa.binary())])),
+        (pa.list_(pa.struct([pa.field("id", pa.uuid())])), pa.list_(pa.struct([pa.field("id", pa.binary())]))),
+        (
+            pa.map_(pa.string(), pa.struct([pa.field("id", pa.uuid())])),
+            pa.map_(pa.string(), pa.struct([pa.field("id", pa.binary())])),
+        ),
+    ],
+)
+def test_pyarrow_schema_from_arrow_exportable_recovers_from_stale_uuid_extension(
+    column_type: pa.DataType, expected_type: pa.DataType
+) -> None:
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", column_type, metadata={"source": "test"}), pa.field("name", pa.string())])
+    )
 
     schema = pyarrow_schema_from_arrow_exportable(delta_schema)
 
-    assert schema.field("id").type == pa.binary()
+    assert schema.field("id").type == expected_type
+    assert schema.field("id").metadata == {b"source": b"test"}
     assert schema.field("name").type == pa.string()
 
 
 def test_pyarrow_schema_from_arrow_exportable_reraises_unrelated_errors():
-    not_a_delta_schema = MagicMock(spec=pa.Schema)
+    not_a_delta_schema = MagicMock(spec=["__arrow_c_schema__"])
     not_a_delta_schema.__arrow_c_schema__.side_effect = pa.ArrowInvalid("some other arrow problem")
 
     with pytest.raises(pa.ArrowInvalid, match="some other arrow problem"):
