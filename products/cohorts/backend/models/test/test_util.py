@@ -46,8 +46,9 @@ from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX,
     ERROR_CODE_MESSAGES,
-    PRUNE_PAGE_SIZE,
+    PRUNE_DELETE_CHUNK,
     REPLACE_INSERT_QUORUM_SETTINGS,
+    REPLACE_READ_SETTINGS,
     STATIC_COHORT_READ_BACK_WAITS_SECONDS,
     CohortErrorCode,
     PopulationMarkerClockSkew,
@@ -56,6 +57,7 @@ from products.cohorts.backend.models.util import (
     _recalculate_cohortpeople_for_team,
     _recalculate_cohortpeople_for_team_hogql,
     _sanitize_query_for_cohort,
+    _uuids_present_at_marker,
     count_cohort_members,
     delete_cohort_members_by_person_ids,
     get_all_cohort_dependencies,
@@ -1173,9 +1175,11 @@ class TestCohortUtils(BaseTest):
             written = insert_cohort_query_actors_into_ch(cohort, team=self.team, replace_marker=marker)
             insert_cohort_people_into_pg(cohort, team_id=self.team.pk, replace_marker=marker, min_rows=written)
             before_prune = self._static_cohort_stamps(cohort)
-            # One member per page, so the cursor has to move past deleted members.
+            # One member per page, so the cursor has to move past deleted members. One id per person lookup,
+            # so a batch spans several lookups, each within the replica's cap.
             with (
                 patch("products.cohorts.backend.models.util.PRUNE_PAGE_SIZE", 1),
+                patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 1),
                 patch(
                     "products.cohorts.backend.models.util.delete_cohort_members_by_person_ids",
                     wraps=delete_cohort_members_by_person_ids,
@@ -1184,10 +1188,11 @@ class TestCohortUtils(BaseTest):
                 removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker)
             prune_static_cohort_rows_before_marker(cohort.pk, team_id=self.team.pk, marker=marker)
 
-        # One delete call per page that has stale members, never one per member. And the page size must
-        # stay within what that call accepts, or every replace would fail.
-        self.assertEqual(delete_calls.call_count, 2)
-        self.assertLessEqual(PRUNE_PAGE_SIZE, DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX)
+        # Both stale members are checked in one batch and removed in one delete call, never one per member,
+        # though they were listed on separate pages. And a delete chunk must stay within what that call accepts.
+        self.assertEqual(delete_calls.call_count, 1)
+        self.assertEqual(set(delete_calls.call_args.args[2]), {stale.id, pg_only.id})
+        self.assertLessEqual(PRUNE_DELETE_CHUNK, DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX)
 
         # The existing member who still matches gets a second row at the marker. The append insert
         # would skip them, and the prune would then delete a member the query still matches.
@@ -1233,6 +1238,46 @@ class TestCohortUtils(BaseTest):
         # The re-check has to come after the delete and the wait, or it can't see a row that arrived late.
         self.assertEqual(events, ["check", "delete", "wait", "check"])
         self.assertEqual((removed, list_cohort_member_ids(self.team.pk, cohort.pk)), (1, [late.id]))
+
+    def test_replace_prune_re_checks_within_the_loop_once_a_settle_batch_fills(self):
+        first, second = (create_person(team=self.team, distinct_ids=[name], uuid=uuid4()) for name in ("one", "two"))
+        cohort = Cohort.objects.create(team=self.team, name="replace", is_static=True)
+        insert_cohort_members(self.team.pk, cohort.pk, [first.id, second.id], None)
+        marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        Cohort.objects.filter(pk=cohort.pk).update(population_marker=marker)
+        events: list[str] = []
+
+        def delete(*args: Any) -> int:
+            events.append("delete")
+            return delete_cohort_members_by_person_ids(*args)
+
+        def check_presence(*args: Any) -> set[str]:
+            events.append("check")
+            return set()
+
+        # One member per delete chunk and a settle batch of one, so the re-check runs inside the loop after each
+        # chunk, not only once at the end.
+        with (
+            patch("products.cohorts.backend.models.util.PRUNE_DELETE_CHUNK", 1),
+            patch("products.cohorts.backend.models.util.REPLACE_PRUNE_SETTLE_BATCH", 1),
+            patch("products.cohorts.backend.models.util.REPLACE_PRUNE_SETTLE_SECONDS", 1),
+            patch("products.cohorts.backend.models.util.time.sleep", side_effect=lambda _: events.append("wait")),
+            patch("products.cohorts.backend.models.util._uuids_present_at_marker", side_effect=check_presence),
+            patch("products.cohorts.backend.models.util.delete_cohort_members_by_person_ids", side_effect=delete),
+        ):
+            removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker)
+
+        self.assertEqual(events, ["check", "delete", "wait", "check", "delete", "wait", "check"])
+        self.assertEqual((removed, list_cohort_member_ids(self.team.pk, cohort.pk)), (2, []))
+
+    def test_replace_presence_check_reads_with_sequential_consistency(self):
+        # One ClickHouse node behaves the same without the setting, but a lagging replica wouldn't: the prune would
+        # then delete members the query still matches.
+        marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        with patch("products.cohorts.backend.models.util.sync_execute", return_value=[]) as mock_sync_execute:
+            _uuids_present_at_marker(1, self.team.pk, [str(uuid4())], marker)
+
+        self.assertEqual(mock_sync_execute.call_args.kwargs["settings"], REPLACE_READ_SETTINGS)
 
     def test_mint_population_marker_loses_to_a_newer_attempt(self):
         cohort = Cohort.objects.create(

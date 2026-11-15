@@ -1746,6 +1746,12 @@ def clear_population_run_fields(
 # One prune page costs one member page, one person lookup per 250 ids, one ClickHouse check and at most
 # one delete call, so it must stay under the delete RPC's cap. The benchmark tunes the size.
 PRUNE_PAGE_SIZE = 5_000
+# The prune checks ClickHouse once per this many members, not once per page: each check reads the cohort's rows,
+# so checking every page made the prune's cost grow with the square of the cohort's size. 50,000 uuids is about
+# 2 MB of query text, inside the client's 8 MB limit.
+REPLACE_PRUNE_CHECK_BATCH = 50_000
+# Stale members are deleted in chunks of this many, under the delete RPC's cap of 10,000 ids.
+PRUNE_DELETE_CHUNK = 5_000
 # A workflow add is not a quorum write, so its ClickHouse row can reach a replica after the prune read
 # it. The prune waits this long before re-checking what it removed. The repo has observed sub-second
 # lag between replicas; tests and local dev run one node.
@@ -1849,13 +1855,26 @@ def _restore_members_whose_rows_arrived(
     return restored_total
 
 
+def _member_id_batches(team_id: int, cohort_id: int) -> Iterator[list[int]]:
+    """Group the cohort's member pages into batches of about ``REPLACE_PRUNE_CHECK_BATCH`` ids."""
+    batch: list[int] = []
+    for page in _iter_cohort_member_id_pages(team_id, cohort_id, PRUNE_PAGE_SIZE):
+        batch.extend(page)
+        if len(batch) >= REPLACE_PRUNE_CHECK_BATCH:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
 def prune_members_absent_from_replace(
     cohort: Cohort, *, team_id: int, marker: datetime, floor: datetime | None = None
 ) -> int:
-    """Remove every Postgres member the replace run didn't stamp, and return how many were removed.
+    """Remove every Postgres member the replace doesn't keep, and return how many were removed.
 
-    A member is removed only when it resolves to a person and that person has no ClickHouse row at or
-    after the marker. Rows a newer edit wrote also sit at or after it, so those members stay.
+    A member is removed only when it resolves to a person and that person has no ClickHouse row the replace
+    keeps (``REPLACE_KEEPS_ROW``): a row this attempt wrote, or a row added since the request. Members are
+    checked in batches of ``REPLACE_PRUNE_CHECK_BATCH`` and deleted in chunks of ``PRUNE_DELETE_CHUNK``.
 
     The removed members are checked again once the settle time has passed since the last delete, and
     any whose row has arrived since are restored: a workflow add isn't a quorum write, so its row can
@@ -1868,19 +1887,21 @@ def prune_members_absent_from_replace(
     removed_total = 0
     awaiting_recheck: dict[int, str] = {}
     last_delete_at = 0.0
-    for page in _iter_cohort_member_id_pages(team_id, cohort.pk, PRUNE_PAGE_SIZE):
+    for batch in _member_id_batches(team_id, cohort.pk):
         require_current_population_marker(cohort.pk, marker)
         # An id that doesn't resolve is left out, so the prune keeps it.
-        uuids_by_id = get_person_uuids_by_ids(team_id, page)
+        uuids_by_id = get_person_uuids_by_ids(team_id, batch)
         present = _uuids_present_at_marker(cohort.pk, team_id, list(uuids_by_id.values()), marker, floor)
-        stale = {person_id: person_uuid for person_id, person_uuid in uuids_by_id.items() if person_uuid not in present}
-        if not stale:
-            continue
-        delete_cohort_members_by_person_ids(team_id, cohort.pk, list(stale))
-        last_delete_at = time.monotonic()
-        removed_total += len(stale)
-        awaiting_recheck.update(stale)
-        if len(awaiting_recheck) >= REPLACE_PRUNE_SETTLE_BATCH:
+        stale_items = [(person_id, uuid_) for person_id, uuid_ in uuids_by_id.items() if uuid_ not in present]
+        for start in range(0, len(stale_items), PRUNE_DELETE_CHUNK):
+            chunk = dict(stale_items[start : start + PRUNE_DELETE_CHUNK])
+            require_current_population_marker(cohort.pk, marker)
+            delete_cohort_members_by_person_ids(team_id, cohort.pk, list(chunk))
+            last_delete_at = time.monotonic()
+            removed_total += len(chunk)
+            awaiting_recheck.update(chunk)
+            if len(awaiting_recheck) < REPLACE_PRUNE_SETTLE_BATCH:
+                continue
             removed_total -= _restore_members_whose_rows_arrived(
                 cohort,
                 team_id=team_id,

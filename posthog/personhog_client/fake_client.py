@@ -86,6 +86,9 @@ RESTORE_MAX_DISTINCT_IDS = 1000
 # The identity server's cap on person ids per lifecycle DeletePersons request.
 LIFECYCLE_DELETE_MAX_PERSON_IDS = 250
 
+# The replica's cap on person ids per GetPersons request (MAX_BATCH_LOOKUP_SIZE).
+GET_PERSONS_MAX_IDS = 250
+
 # The replica's cap on person ids per DeleteCohortMembersByPersonIds request.
 DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX = 10_000
 
@@ -316,6 +319,10 @@ class FakePersonHogClient:
 
     def get_persons(self, request: person_pb2.GetPersonsRequest) -> person_pb2.PersonsResponse:
         self.calls.append(_Call("get_persons", request))
+        if len(request.person_ids) > GET_PERSONS_MAX_IDS:
+            raise _FakeRpcError(
+                grpc.StatusCode.INVALID_ARGUMENT, f"Maximum {GET_PERSONS_MAX_IDS} person IDs per request"
+            )
         found = []
         missing = []
         for pid in request.person_ids:
