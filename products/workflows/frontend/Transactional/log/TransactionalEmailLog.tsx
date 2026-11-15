@@ -131,18 +131,7 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
                     dataAttr="transactional-email-log-templates-retry"
                 />
             )}
-            {filters.reason && (
-                <LemonBanner
-                    type="info"
-                    action={{
-                        children: 'Show every reason',
-                        onClick: () => setFilters({ reason: null }),
-                        'data-attr': 'transactional-email-log-clear-reason',
-                    }}
-                >
-                    Showing sends for one reason. {emailReasonText(filters.reason)}.
-                </LemonBanner>
-            )}
+            <SendReasonBanner />
             {pageFailed && (
                 <LemonBanner
                     type="error"
@@ -241,6 +230,26 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
                 emptyState={emptySendsMessage({ pageFailed, page: filters.page, isFiltered, oneEmail })}
             />
         </div>
+    )
+}
+
+function SendReasonBanner(): JSX.Element | null {
+    const { filters } = useValues(transactionalEmailLogLogic)
+    const { setFilters } = useActions(transactionalEmailLogLogic)
+    if (!filters.reason) {
+        return null
+    }
+    return (
+        <LemonBanner
+            type="info"
+            action={{
+                children: 'Show every reason',
+                onClick: () => setFilters({ reason: null }),
+                'data-attr': 'transactional-email-log-clear-reason',
+            }}
+        >
+            Showing sends for one reason. {emailReasonText(filters.reason)}.
+        </LemonBanner>
     )
 }
 
