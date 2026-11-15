@@ -313,7 +313,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         # The review read every sampled call, with the call type's system prompt shown once.
         review_prompt = client.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
         assert review_prompt.count(SUPPORT_PROMPT) == 1
-        assert review_prompt.count("## Call ") == 30
+        assert review_prompt.count("<call ") == 30
         run.refresh_from_db()
         assert run.stages["drafting"]["status"] == "ok"
         assert run.cost_usd > 0
