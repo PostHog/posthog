@@ -24,17 +24,17 @@ import { LiveCardNote } from './LiveCard'
 import { LiveCountryList } from './LiveCountryList'
 import type { LiveStatus } from './liveController'
 import { countriesStatusText, countryText } from './liveFormat'
-import { clearLiveWorldShare } from './liveWorldStore'
+import { clearLiveWorldShare, useLiveWorldShare } from './liveWorldStore'
 import { WORLD_ASPECT_RATIO } from './map/mapGeometry'
 import { WorldMap } from './map/WorldMap'
 
-const TITLE = 'Visitors by country'
 /** Limit the map's height so the country list is visible in landscape. */
 const MAP_MAX_HEIGHT_SHARE = 0.4
 
 export function LiveCountriesScreen(): ReactElement {
     const { access, identity } = useViewsContext()
-    const scrollTitle = useScrollTitle(TITLE)
+    const users = useLiveWorldShare((share) => share.users)
+    const scrollTitle = useScrollTitle(users ? 'Users by country' : 'Visitors by country')
     const back = useViewBack()
     return (
         <ViewScreenFrame
@@ -57,6 +57,7 @@ function CountriesBody({ scrollTitle }: { scrollTitle: ScrollTitleState }): Reac
     const { height: windowHeight } = useWindowDimensions()
     const feed = useLiveWorld()
     const { world } = feed
+    const users = useLiveWorldShare((share) => share.users) ?? false
     useEffect(() => clearLiveWorldShare, [])
 
     const contentTop = topOffset(insets, SCREEN_CONTENT_TOP)
@@ -96,9 +97,9 @@ function CountriesBody({ scrollTitle }: { scrollTitle: ScrollTitleState }): Reac
                     >
                         <WorldMap counts={world.counts} testID="live-countries-map" />
                     </View>
-                    <MapCaption world={world} />
+                    <MapCaption world={world} users={users} />
                 </View>
-                <LiveCountryList countries={world.countries} />
+                <LiveCountryList countries={world.countries} users={users} />
             </>
         )
     }
@@ -118,6 +119,7 @@ function CountriesBody({ scrollTitle }: { scrollTitle: ScrollTitleState }): Reac
                 status={feed.status}
                 screenActive={feed.screenActive}
                 onTitleLayout={scrollTitle.onTitleLayout}
+                users={users}
             />
             {content}
         </Animated.ScrollView>
@@ -125,39 +127,40 @@ function CountriesBody({ scrollTitle }: { scrollTitle: ScrollTitleState }): Reac
 }
 
 interface CountriesTitleProps {
+    users: boolean
     world: LiveWorld | null
     status: LiveStatus
     screenActive: boolean
     onTitleLayout: ScrollTitleState['onTitleLayout']
 }
 
-function CountriesTitle({ world, status, screenActive, onTitleLayout }: CountriesTitleProps): ReactElement {
+function CountriesTitle({ world, status, screenActive, onTitleLayout, users }: CountriesTitleProps): ReactElement {
     const styles = useStyles()
     return (
         <View style={styles.titleBlock}>
             <View onLayout={onTitleLayout}>
                 <Eyebrow>Live</Eyebrow>
                 <Text style={styles.title} accessibilityRole="header">
-                    {TITLE}
+                    {users ? 'Users by country' : 'Visitors by country'}
                 </Text>
             </View>
             <View style={styles.statusRow}>
                 <LiveDot on={status === 'live'} animate={screenActive} />
                 <Text style={styles.status} accessibilityLiveRegion="polite" testID="live-countries-status">
-                    {countriesStatusText(status, world)}
+                    {countriesStatusText(status, world, users)}
                 </Text>
             </View>
         </View>
     )
 }
 
-function MapCaption({ world }: { world: LiveWorld }): ReactElement {
+function MapCaption({ world, users }: { world: LiveWorld; users: boolean }): ReactElement {
     const styles = useStyles()
     const leader = world.countries[0]
     return (
         <View style={styles.caption}>
             <Text style={styles.captionText} numberOfLines={1}>
-                {leader ? `${countryText(leader)} leads with ${plural(leader.count, 'visitor')}` : ''}
+                {leader ? `${countryText(leader)} leads with ${plural(leader.count, users ? 'user' : 'visitor')}` : ''}
             </Text>
         </View>
     )

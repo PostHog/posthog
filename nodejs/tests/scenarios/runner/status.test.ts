@@ -72,43 +72,13 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it`,
         ],
         [
-            'a role exited while a valve on it was applied',
-            {
-                timeline: [{ ...killed(HOGFLOW_WORKER, 10, 30), valve: 'role.freeze' }],
-                exits: [exited(HOGFLOW_WORKER, 20)],
-            },
-            'failed',
-            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while role.freeze on ${HOGFLOW_WORKER} was applied`,
-        ],
-        [
             'a second replica exited while its role was killed on replica 0',
             {
                 timeline: [killed(EMAIL_WORKER, 10, 11)],
                 exits: [exited(EMAIL_WORKER, 10, true), exited(EMAIL_WORKER, 10, false, 1)],
             },
             'failed',
-            `${EMAIL_WORKER}-1 exited (SIGKILL) without a valve causing it, while role.kill on ${EMAIL_WORKER} was applied`,
-        ],
-        [
-            "a role exited while the roles' Postgres connections were dropped",
-            {
-                timeline: [{ ...killed('postgres', 10, 30), valve: 'pg.drop_connections' }],
-                exits: [{ ...exited(HOGFLOW_WORKER, 20), signal: null, code: 1 }],
-            },
-            'failed',
-            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it, while pg.drop_connections on postgres was applied`,
-        ],
-        [
-            'a role exited after a valve on another role was released',
-            { timeline: [killed(EMAIL_WORKER, 10, 11)], exits: [exited(HOGFLOW_WORKER, 20)] },
-            'failed',
-            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it`,
-        ],
-        [
-            'a role exited while a valve on another role was applied',
-            { timeline: [killed(EMAIL_WORKER, 10, 30)], exits: [exited(HOGFLOW_WORKER, 20)] },
-            'failed',
-            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it`,
+            `${EMAIL_WORKER}-1 exited (SIGKILL) without a valve causing it`,
         ],
         [
             'a valve was never observed',

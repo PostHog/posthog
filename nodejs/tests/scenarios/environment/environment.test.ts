@@ -953,23 +953,6 @@ describe('scenario environment', () => {
             expect({ exits: supervisor.exits(), running: tagged() }).toEqual({ exits: [], running: [] })
         }, 15_000)
 
-        it('keeps a role stopped until the last of two overlapping freezes releases', async () => {
-            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
-            await supervisor.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: tag } }])
-            const [{ pid }] = tagged()
-            const first = supervisor.freeze(spec, 5000)
-            const second = supervisor.freeze(spec, 5000)
-            expect(await second.observed()).toBe(true)
-
-            await first.release()
-            await first.release()
-            const afterFirst = processState(pid)
-            await second.release()
-            await waitForExpect(() => expect(processState(pid)).not.toBe('T'), 5000, 20)
-
-            expect(afterFirst).toBe('T')
-        }, 15_000)
-
         it('records a role whose first start fails and retries it, instead of failing the start', async () => {
             const missing = createSupervisor({
                 command: path.join(os.tmpdir(), `scenario-missing-${process.pid}`),

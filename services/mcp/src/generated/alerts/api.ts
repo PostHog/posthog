@@ -81,6 +81,7 @@ export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
 export const alertsCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsCreateBodyDetectorConfigOneOnefiveTypeDefault = `forecast`
 export const alertsCreateBodyEvaluationDelayIntervalsMin = 0
 export const alertsCreateBodyEvaluationDelayIntervalsMax = 100
 
@@ -1275,6 +1276,61 @@ export const AlertsCreateBody = () => zod.object({
                             ),
                         type: zod.enum(['llm']).default(alertsCreateBodyDetectorConfigOneOnefourTypeDefault),
                     }),
+                    zod.object({
+                        above: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Rule for a value higher than expected. Omit to ignore that side.'),
+                        below: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Rule for a value lower than expected. Omit to ignore that side.'),
+                        type: zod.enum(['forecast']).default(alertsCreateBodyDetectorConfigOneOnefiveTypeDefault),
+                    }),
                 ])
                 .describe('Detector configuration types'),
             zod.null(),
@@ -1433,6 +1489,7 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsPartialUpdateBodyDetectorConfigOneOnefiveTypeDefault = `forecast`
 export const alertsPartialUpdateBodyEvaluationDelayIntervalsMin = 0
 export const alertsPartialUpdateBodyEvaluationDelayIntervalsMax = 100
 
@@ -2652,6 +2709,63 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             ),
                         type: zod.enum(['llm']).default(alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault),
                     }),
+                    zod.object({
+                        above: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Rule for a value higher than expected. Omit to ignore that side.'),
+                        below: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Rule for a value lower than expected. Omit to ignore that side.'),
+                        type: zod
+                            .enum(['forecast'])
+                            .default(alertsPartialUpdateBodyDetectorConfigOneOnefiveTypeDefault),
+                    }),
                 ])
                 .describe('Detector configuration types'),
             zod.null(),
@@ -2844,6 +2958,7 @@ export const alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsSimulateCreateBodyDetectorConfigOneOnefiveTypeDefault = `forecast`
 export const alertsSimulateCreateBodySeriesIndexDefault = 0
 export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
@@ -3872,6 +3987,57 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     .optional()
                     .describe('What counts as unusual or interesting for this metric, in your own words. Optional.'),
                 type: zod.enum(['llm']).default(alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault),
+            }),
+            zod.object({
+                above: zod
+                    .union([
+                        zod.object({
+                            min_absolute_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "The value is at least this far from the expected value, in the series' units"
+                                ),
+                            min_relative_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value is at least this fraction away from the expected value. 1 = 100%'),
+                            quantile: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Rule for a value higher than expected. Omit to ignore that side.'),
+                below: zod
+                    .union([
+                        zod.object({
+                            min_absolute_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "The value is at least this far from the expected value, in the series' units"
+                                ),
+                            min_relative_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value is at least this fraction away from the expected value. 1 = 100%'),
+                            quantile: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Rule for a value lower than expected. Omit to ignore that side.'),
+                type: zod.enum(['forecast']).default(alertsSimulateCreateBodyDetectorConfigOneOnefiveTypeDefault),
             }),
         ])
         .describe('Detector configuration types')
