@@ -100,14 +100,16 @@ from products.alerts.backend.evaluation.validation import (
 from products.alerts.backend.facade.api import (
     DETECTOR_PAUSED_ERROR_CODES,
     DETECTOR_UNAVAILABLE_ERROR_CODES,
+    ForecastDetectorUnavailableError,
     LLMAlertWrite,
     LLMDetectorError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
     assign_alert_owner,
+    calls_ai_gateway,
+    forecast_detector_access_error,
     forecast_rule,
-    is_llm_detector_config,
     llm_detector_access_error,
 )
 from products.alerts.backend.facade.contracts import (
@@ -250,6 +252,11 @@ class LLMDetectorUnavailable(APIException):
     default_code = "llm_detector_unavailable"
 
 
+FORECAST_PREVIEW_UNAVAILABLE_MESSAGE = (
+    "The forecast detector could not reach the forecast service. Try the preview again in a moment."
+)
+
+
 def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
     # Scope the flag to the alert's organization (via team scope), not the user's current
     # organization — otherwise a user in multiple orgs could flip their current org to a
@@ -350,6 +357,22 @@ def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -
     user = context["request"].user
     try:
         error = llm_detector_access_error(distinct_id=str(user.distinct_id), organization=context["get_organization"]())
+    except LLMDetectorUnavailableError as unavailable_error:
+        raise LLMDetectorUnavailable(str(unavailable_error)) from unavailable_error
+    if error:
+        raise ValidationError(error)
+
+
+def _enforce_forecast_feature_access(context: dict[str, Any], detector_config: Any) -> None:
+    """Refuse a forecast preview the person asking cannot use. Saved alerts go through
+    ``admit_llm_alert_write`` instead, which checks the alert's creator."""
+    if DetectorType.FORECAST.value not in _detector_types(detector_config):
+        return
+    user = context["request"].user
+    try:
+        error = forecast_detector_access_error(
+            distinct_id=str(user.distinct_id), organization=context["get_organization"]()
+        )
     except LLMDetectorUnavailableError as unavailable_error:
         raise LLMDetectorUnavailable(str(unavailable_error)) from unavailable_error
     if error:
@@ -483,10 +506,10 @@ def _token_lacks_metrics_scope(request) -> bool:
 
 
 def _require_write_scope_for_charged_simulation(request, detector_config: Any) -> None:
-    """An AI simulation makes a real model call, so a read-only token must not start one.
+    """An AI or forecast simulation makes real model calls, so a read-only token must not start one.
 
     Every other mode of this endpoint only reads: a statistical simulation is a ClickHouse
-    query. This one spends the organization's model budget, which is a side effect a token
+    query. These spend the organization's model budget, which is a side effect a token
     scoped to read alerts and insights was never granted.
     """
     if isinstance(detector_config, str):
@@ -494,7 +517,7 @@ def _require_write_scope_for_charged_simulation(request, detector_config: Any) -
             detector_config = json.loads(detector_config)
         except ValueError:
             return
-    if not is_llm_detector_config(detector_config):
+    if not calls_ai_gateway(detector_config):
         return
     key_scopes = get_authenticator_scopes(request.successful_authenticator)
     # Session auth carries no scopes; it is gated by team membership and access control.
@@ -502,7 +525,7 @@ def _require_write_scope_for_charged_simulation(request, detector_config: Any) -
         return
     raise InsufficientScope(
         ["alert:write"],
-        detail="Simulating the AI detector makes a model call, so it needs the 'alert:write' scope. "
+        detail="Simulating the AI or forecast detector makes a model call, so it needs the 'alert:write' scope. "
         "A statistical detector simulates with 'alert:read'.",
     )
 
@@ -1658,7 +1681,37 @@ class AlertSimulateSerializer(serializers.Serializer):
         # Same gate as create/update: previewing a flag-gated detector must be rejected the
         # same way saving one is, or the preview becomes the way to use it.
         _enforce_llm_feature_access(self.context, value)
+        _enforce_forecast_feature_access(self.context, value)
         return _validate_detector_config(value)
+
+
+class ForecastSide(models.TextChoices):
+    # Labels differ from the logs alert's operator choices, or the two classes would share one schema hash.
+    ABOVE = "above", "Above the forecast"
+    BELOW = "below", "Below the forecast"
+
+
+class ForecastSimulationSerializer(serializers.Serializer):
+    lower_quantile = serializers.FloatField(help_text="Forecast quantile that `lower` holds, for example 0.05.")
+    upper_quantile = serializers.FloatField(help_text="Forecast quantile that `upper` holds, for example 0.95.")
+    expected = serializers.ListField(
+        child=serializers.FloatField(allow_null=True),
+        help_text="Expected value (the 0.5 forecast quantile) for each point. Null for a point that was not "
+        "scored: it has fewer than 30 points before it, or it is older than the points the preview scores.",
+    )
+    lower = serializers.ListField(
+        child=serializers.FloatField(allow_null=True),
+        help_text="Lower end of the forecast range for each point, at `lower_quantile`. Null for an unscored point.",
+    )
+    upper = serializers.ListField(
+        child=serializers.FloatField(allow_null=True),
+        help_text="Upper end of the forecast range for each point, at `upper_quantile`. Null for an unscored point.",
+    )
+    fired_side = serializers.ListField(
+        child=serializers.ChoiceField(choices=ForecastSide.choices, allow_null=True),
+        help_text="Side of the forecast that fired for each point: 'above' or 'below'. Null when the point did "
+        "not fire or was not scored.",
+    )
 
 
 class BreakdownSimulationResultSerializer(serializers.Serializer):
@@ -1682,6 +1735,10 @@ class BreakdownSimulationResultSerializer(serializers.Serializer):
         required=False,
         help_text="Per-sub-detector scores for ensemble detectors.",
     )
+    forecast = ForecastSimulationSerializer(
+        required=False,
+        help_text="Forecast detector only: the one-step forecast of each point, for drawing the expected range.",
+    )
 
 
 class AlertSimulateResponseSerializer(serializers.Serializer):
@@ -1697,7 +1754,7 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
         child=serializers.FloatField(allow_null=True),
         help_text=(
             "Score for each point. Null can mean insufficient data or a valid unscored point. "
-            "The AI detector has no score, so every point is null in an AI preview."
+            "The AI and forecast detectors have no score, so every point is null in their previews."
         ),
     )
     triggered_indices = serializers.ListField(
@@ -1715,6 +1772,10 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=False,
         help_text="Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields.",
+    )
+    forecast = ForecastSimulationSerializer(
+        required=False,
+        help_text="Forecast detector only: the one-step forecast of each point, for drawing the expected range.",
     )
     rationale = serializers.CharField(
         required=False,
@@ -2965,11 +3026,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=AlertSimulateSerializer,
         responses={
             200: AlertSimulateResponseSerializer,
-            503: OpenApiResponse(description="The AI detector could not reach the model."),
+            503: OpenApiResponse(description="The AI or forecast detector could not reach the model."),
         },
         description=(
             "Simulate a detector on an insight's historical data. No AlertCheck records are created. "
-            "The AI detector makes a real model call, so that mode needs the 'alert:write' scope."
+            "The AI and forecast detectors make real model calls, so those modes need the 'alert:write' scope. "
+            "The forecast detector scores every point with a one-step forecast from the points before it."
         ),
     )
     # Returns an insight's computed result series, so it requires insight read in addition to
@@ -3026,6 +3088,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError(str(e))
         except LLMDetectorError as e:
             capture_exception(e)
+            if isinstance(e, ForecastDetectorUnavailableError):
+                raise LLMDetectorUnavailable(FORECAST_PREVIEW_UNAVAILABLE_MESSAGE)
             raise LLMDetectorUnavailable()
         except RuntimeError:
             raise ValidationError("Simulation failed: unable to compute results for this insight.")
