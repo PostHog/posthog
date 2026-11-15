@@ -52,6 +52,7 @@ from posthog.temporal.alerts.schedule import (
 )
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.entitlement_reactions.schedule import create_entitlement_repair_schedule
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
@@ -1063,6 +1064,7 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
     schedules.append(create_reconcile_organization_active_state_schedule)
+    schedules.append(create_entitlement_repair_schedule)
     if should_register_checkpoint_compaction_schedule():
         schedules.append(create_checkpoint_compaction_schedule)
     # The sweep re-fetches each region's own orgs from Harmonic, and only US and EU carry the key.

@@ -6,6 +6,7 @@ from typing import Any, Optional, cast
 from django.db import close_old_connections
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.entitlements.dispatch import billing_receive_batch_size
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
@@ -28,6 +29,9 @@ class BillingConsumer(SQSConsumer):
     """
     SQS Consumer for processing billing-related messages.
     """
+
+    def receive_messages(self, max_messages: int = 10) -> list[dict[str, Any]]:
+        return super().receive_messages(max_messages=billing_receive_batch_size(max_messages))
 
     def process_message(self, message: dict[str, Any]) -> None:
         """
@@ -156,7 +160,7 @@ class BillingConsumer(SQSConsumer):
 
         license = get_cached_instance_license()
         billing_manager = BillingManager(license)
-        billing_manager.update_org_details(organization, data)
+        billing_manager.update_org_details(organization, data, wait_for_entitlements=True)
 
         logger.info(f"Successfully processed billing customer update for {organization_id}")
 
