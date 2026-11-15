@@ -5,6 +5,7 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import _non_retryable_error_message
 from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
 from products.warehouse_sources.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
@@ -286,6 +287,25 @@ class TestUsedUpQuota:
 
         assert isinstance(result.raised, requests.HTTPError)
         assert "403 Client Error" in str(result.raised)
+
+
+class TestNotFoundRejection:
+    @pytest.mark.parametrize(
+        "endpoint, expected_copy",
+        [
+            ("master_report", "doesn't include the Master API"),
+            ("daily_report", "app not found"),
+            ("installs", "app not found"),
+        ],
+    )
+    def test_404_maps_to_the_message_for_its_api(self, endpoint: str, expected_copy: str) -> None:
+        result = _driver().run(endpoint, always(ScriptedResponse(status=404, body=b"")))
+
+        assert result.raised is not None
+        error = f"{type(result.raised).__name__}: {result.raised}"
+        message = _non_retryable_error_message(AppsFlyerSource().get_non_retryable_errors(), error)
+        assert message is not None
+        assert expected_copy in message
 
 
 class TestRawAndMasterWindows:
