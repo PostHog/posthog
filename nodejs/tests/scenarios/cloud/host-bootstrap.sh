@@ -17,7 +17,7 @@ export HOME="${HOME:-/root}"
 export DEBIAN_FRONTEND=noninteractive
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 prefix="s3://${SCENARIO_EVIDENCE_BUCKET}/runs/${SCENARIO_RUN_ID}"
-input=/opt/scenario/input
+input=${SCENARIO_HOST_ROOT:-/opt/scenario}/input
 log=${SCENARIO_BOOTSTRAP_LOG:-/var/log/scenario-bootstrap.log}
 exec > >(tee -a "$log") 2>&1
 
@@ -33,6 +33,9 @@ report_failure() {
 install_packages_and_aws_cli() {
     apt-get update -q
     apt-get install -y -q build-essential ca-certificates curl docker-compose-v2 docker.io git jq libxml2-dev libxmlsec1-dev libxmlsec1-openssl pkg-config unzip xz-utils
+    if aws --version 2>/dev/null | grep -q "^aws-cli/${AWS_CLI_VERSION} "; then
+        return
+    fi
     curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWS_CLI_VERSION}.zip" -o /tmp/awscliv2.zip
     echo "${AWS_CLI_SHA256}  /tmp/awscliv2.zip" | sha256sum --check --strict
     unzip -q /tmp/awscliv2.zip -d /tmp
