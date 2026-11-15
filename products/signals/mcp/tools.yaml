@@ -187,11 +187,11 @@ tools:
             failing CI and merge conflicts on the report's open pull request and stop without merging it),
             `resolve_conflicts` (update the report's open pull request from its base branch, resolve the conflicts, and
             stop without merging it or fixing unrelated CI), and one `suggested_prompt` entry per prompt the report
-            suggests. Every action comes back, available or not. `available` says whether a run
-            can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request.
-            Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run. The list
-            does not include `ask`, which takes your own `message`: use it on inbox-report-actions-run to ask about the
-            report or request general work on it.
+            suggests. Every action comes back, available or not. `available` says whether a run can start now, and
+            `disabled_reason` says why not. `text` is the message the run gets as its first request. Pass `action`, and
+            `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run. The list does not include
+            `ask`, which takes your own `message`: use it on inbox-report-actions-run to ask about the report or request
+            general work on it.
         param_overrides:
             id:
                 aliases:
@@ -215,13 +215,13 @@ tools:
             suggestion in the report. Each successful call creates a new task, so do not retry after a 201. Starts one
             action from inbox-report-actions-list as a background agent run linked to the report. For every action
             except `ask`, pick one with `available: true` from the list. `get_it_merged` approves merging the report's
-            pull request; `make_it_green` and `resolve_conflicts` never merge it. Use `ask` for anything else instead of creating a task by
-            hand; it does requested work only while the report has work left and no pull request. The response has
-            `task_id`, `run_id`, and `task_url`; follow the run with tasks-runs-retrieve. If `run_error` is set, the
-            task exists but its run did not start. The run cannot ask questions, so it writes a note to the report's
-            work log when it needs a decision. 409 `report_action_run_active` means a run already works on the pull
-            request: follow its `task_id` and `run_id`. 403 `report_action_sandbox_refused` means start the action from
-            a person's session. 402 and 429 mean a trial, task, or usage limit: do not retry until it clears. For
+            pull request; `make_it_green` and `resolve_conflicts` never merge it. Use `ask` for anything else instead of
+            creating a task by hand; it does requested work only while the report has work left and no pull request. The
+            response has `task_id`, `run_id`, and `task_url`; follow the run with tasks-runs-retrieve. If `run_error` is
+            set, the task exists but its run did not start. The run cannot ask questions, so it writes a note to the
+            report's work log when it needs a decision. 409 `report_action_run_active` means a run already works on the
+            pull request: follow its `task_id` and `run_id`. 403 `report_action_sandbox_refused` means start the action
+            from a person's session. 402 and 429 mean a trial, task, or usage limit: do not retry until it clears. For
             `report_action_unavailable`, the detail says why.
         param_overrides:
             id:
