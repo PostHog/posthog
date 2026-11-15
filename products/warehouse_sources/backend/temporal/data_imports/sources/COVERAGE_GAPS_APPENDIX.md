@@ -13202,12 +13202,12 @@ Today (2): `Incidents`, `Metrics`
 Diffed against: <https://api-docs.waydev.co/>
 
 - [x] `Repositories (GET /v2/repositories)` — resolve repository IDs on synced incidents and group failures by codebase (high)
-- [ ] `Dashboard and developer statistics (GET /v2/stats/dashboard; POST /v2/stats)` — import measured engineering performance; the synced Metrics table contains metric definitions, not measured results (high)
+- [ ] `Dashboard and developer statistics (GET /v2/stats/dashboard; POST /v2/stats)` — import measured engineering performance; the synced Metrics table contains metric definitions, not measured results (high); skipped, both are reports computed for a caller-chosen period, team and repository selection, not lists of records: the dashboard call returns one aggregate per window with no stable row identity, and `POST /v2/stats` documents no response shape
 - [x] `Contributors (GET /v2/contributors)` — identify developers and compare contribution patterns across repositories (medium)
 - [x] `Teams (GET /v2/teams)` — group engineering performance by named teams (medium)
-- [ ] `Team members (GET /v2/teams/{team_id}/members)` — connect contributors to teams for team and developer comparisons (medium)
-- [ ] `Pull requests (GET /v2/repositories/{repository_id}/pulls)` — analyze review delays, delivery throughput, and pull request activity (medium)
-- [ ] `Commits (GET /v2/repositories/{repository_id}/commits)` — analyze code contribution frequency and development activity by repository (medium)
+- [x] `Team members (GET /v2/teams/{team_id}/members)` — connect contributors to teams for team and developer comparisons (medium). Added as `TeamMembers` (fan-out over `Teams`, keyed on `team_id` and `id`).
+- [x] `Pull requests (GET /v2/repositories/{repository_id}/pulls)` — analyze review delays, delivery throughput, and pull request activity (medium). Added as `PullRequests` (fan-out over selected repositories, full refresh: no date filter).
+- [x] `Commits (GET /v2/repositories/{repository_id}/commits)` — analyze code contribution frequency and development activity by repository (medium). Added as `Commits` (fan-out over selected repositories, full refresh: no date filter).
 - [ ] `Ticket projects (GET /v2/ticket-projects)` — identify project names and discover parents for ticket imports (medium)
 - [ ] `Tickets (GET /v2/ticket-projects/{ticket_project_id}/tickets)` — compare delivery outcomes and ticket workload with code activity (medium)
 - [ ] `Custom events (GET /v2/events)` — relate deployment and other recorded engineering events to delivery performance (medium)
