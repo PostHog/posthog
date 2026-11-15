@@ -1959,7 +1959,7 @@ class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
 
 
 def _is_llm_alert_simulation(request) -> bool:
-    """Whether an alert simulation request would make a billable model call.
+    """Whether an alert simulation request would make a billable model call: the AI and forecast detectors do.
 
     Reads the same field the simulate serializer parses. A form-encoded body carries
     ``detector_config`` as a JSON string that the serializer's JSONField decodes later, so
@@ -1974,11 +1974,11 @@ def _is_llm_alert_simulation(request) -> bool:
             detector_config = json.loads(detector_config)
         except ValueError:
             return False
-    return isinstance(detector_config, dict) and detector_config.get("type") == "llm"
+    return isinstance(detector_config, dict) and detector_config.get("type") in ("llm", "forecast")
 
 
 class _AlertLLMSimulationThrottle(PersonalApiKeyOrUserRateThrottle):
-    """Per-team cap on billable AI alert simulations.
+    """Per-team cap on billable AI and forecast alert simulations.
 
     Keyed per team so extra API keys or members do not multiply it, and applied to every
     authenticated caller: the generic burst and sustained throttles skip session users, so
