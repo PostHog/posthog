@@ -243,22 +243,27 @@ def _iter_parent_paths(
             )
 
 
-def get_accessible_account_ids(session: AuthorizedSession, required_ids: set[str] | None) -> tuple[set[str], bool]:
+def get_accessible_account_ids(
+    session: AuthorizedSession, required_ids: set[str] | None, throttle: RequestThrottle | None = None
+) -> tuple[set[str], bool]:
     """Walk accounts.list and return (account IDs seen, whether the listing was exhaustive).
 
     Stops after the first page when `required_ids` is None (credential validation only needs
     proof of access), and as soon as every required ID has been seen otherwise, so a large
-    account list isn't paged through unnecessarily. Deliberately avoids the sync path's
-    quota-retry loop: this runs inside a synchronous API request, so a quota blip should
-    fail fast to the user rather than back off for minutes.
+    account list isn't paged through unnecessarily. Without a throttle it fails fast on a quota
+    error, because credential validation runs inside a synchronous API request. A sync passes its
+    throttle, so each page goes through the quota-aware `_list_page`.
     """
     ids: set[str] = set()
     page_token: str | None = None
     while True:
         params = {"pageToken": page_token} if page_token else {}
-        response = session.get(f"{GTM_API_BASE}/accounts", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        payload = response.json()
+        if throttle is None:
+            response = session.get(f"{GTM_API_BASE}/accounts", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            payload = response.json()
+        else:
+            payload = _list_page(session, throttle, f"{GTM_API_BASE}/accounts", params)
         ids.update(str(account["accountId"]) for account in payload.get("account") or [] if account.get("accountId"))
         page_token = payload.get("nextPageToken")
         if not page_token:
@@ -281,7 +286,7 @@ def google_tag_manager_source(
         throttle = RequestThrottle()
 
         if account_ids is not None:
-            accessible_ids, _ = get_accessible_account_ids(session, account_ids)
+            accessible_ids, _ = get_accessible_account_ids(session, account_ids, throttle)
             missing = sorted(account_ids - accessible_ids)
             if missing:
                 raise ValueError(

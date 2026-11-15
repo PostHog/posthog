@@ -314,6 +314,19 @@ def test_account_probe_reports_exhaustive_listing():
     assert listed_all is True
 
 
+def test_account_probe_with_a_throttle_retries_a_quota_error():
+    quota_body = {"error": {"errors": [{"reason": "quotaExceeded"}]}}
+    session = mock.MagicMock()
+    session.get.side_effect = [_response(403, quota_body), _response(200, {"account": [{"accountId": "3"}]})]
+
+    with mock.patch("time.sleep"):
+        ids, listed_all = get_accessible_account_ids(session, required_ids={"3"}, throttle=_null_throttle())
+
+    assert ids == {"3"}
+    assert listed_all is True
+    assert session.get.call_count == 2
+
+
 def test_account_probe_stops_after_first_page_without_filter():
     pages: dict[tuple[str, str | None], dict[str, Any]] = {
         ("accounts", None): {"account": [{"accountId": "1"}], "nextPageToken": "t1"},
