@@ -176,6 +176,133 @@ class TestDailyEndpoints:
         assert [r["website_id"] for r in result.rows] == ["w2"]
 
 
+_CO = "/v2/geo/presence/business/export/actionable/content-optimize"
+
+_LISTING = [
+    [
+        {"optimization_page_id": "p1", "source_url": "https://example.com/a"},
+        {"optimization_page_id": "p2", "source_url": "https://example.com/b"},
+    ],
+    [{"optimization_page_id": "p3", "source_url": "https://example.com/c"}],
+]
+
+
+def _content_optimize_api(
+    children: dict[str, dict[str, Any]], missing: frozenset[str] = frozenset()
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """The pages listing (page count under `pages`), plus per-page child responses keyed by `page_url`."""
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == f"{_CO}/pages":
+            page = int(request.param("page") or 0)
+            items = _LISTING[page - 1] if 1 <= page <= len(_LISTING) else []
+            return ScriptedResponse(
+                json={"items": items, "page": page, "size": 100, "pages": len(_LISTING), "total": 3}
+            )
+        page_url = request.param("page_url") or ""
+        if page_url in missing:
+            return ScriptedResponse(status=404, json={"detail": "Not found"})
+        return ScriptedResponse(json=children.get(page_url, {}))
+
+    return respond
+
+
+class TestContentOptimizeEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "issues",
+                "content_optimize_issues",
+                f"{_CO}/issues",
+                {
+                    "https://example.com/a": {"issues": [{"issue_id": "i1"}, {"issue_id": "i2"}]},
+                    "https://example.com/c": {"issues": [{"issue_id": "i3"}]},
+                },
+                "issue_id",
+                [
+                    ("p1", "https://example.com/a", "i1"),
+                    ("p1", "https://example.com/a", "i2"),
+                    ("p3", "https://example.com/c", "i3"),
+                ],
+            ),
+            (
+                "recommendations_across_issue_types",
+                "content_optimize_recommendations",
+                f"{_CO}/recommendations/all",
+                {
+                    "https://example.com/b": {
+                        "recommendations": [
+                            {"issue_type": "TITLE", "fixes": [{"id": "f1"}]},
+                            {"issue_type": "FAQ", "status": "FAILED", "fixes": None},
+                            {"issue_type": "META_DESCRIPTION", "fixes": [{"id": "f2"}]},
+                        ]
+                    },
+                },
+                "id",
+                [("p2", "https://example.com/b", "f1"), ("p2", "https://example.com/b", "f2")],
+            ),
+        ]
+    )
+    def test_fans_out_over_every_listed_page(self, _name, endpoint, child_path, children, row_id, expected):
+        result = _driver().run(endpoint, _content_optimize_api(children))
+
+        assert [(r["optimization_page_id"], r["page_url"], r[row_id]) for r in result.rows] == expected
+        # The listing stops at its `pages` count, without a request for an empty page.
+        assert [r.param("page") for r in result.requests if r.path == f"{_CO}/pages"] == ["1", "2"]
+        assert [r.param("page_url") for r in result.requests if r.path == child_path] == [
+            "https://example.com/a",
+            "https://example.com/b",
+            "https://example.com/c",
+        ]
+
+    def test_skips_page_removed_since_listing(self) -> None:
+        result = _driver().run(
+            "content_optimize_issues",
+            _content_optimize_api(
+                {"https://example.com/c": {"issues": [{"issue_id": "i3"}]}},
+                missing=frozenset({"https://example.com/a", "https://example.com/b"}),
+            ),
+        )
+
+        assert result.raised is None
+        assert [r["issue_id"] for r in result.rows] == ["i3"]
+
+    def test_resumes_after_last_finished_page(self) -> None:
+        result = _driver().run(
+            "content_optimize_issues",
+            _content_optimize_api(
+                {
+                    "https://example.com/a": {"issues": [{"issue_id": "i1"}]},
+                    "https://example.com/b": {"issues": [{"issue_id": "i2"}]},
+                    "https://example.com/c": {"issues": [{"issue_id": "i3"}]},
+                }
+            ),
+            resume_state=WritesonicResumeConfig(page=1, item=1),
+        )
+
+        assert [r["issue_id"] for r in result.rows] == ["i2", "i3"]
+        assert [r.param("page_url") for r in result.requests if r.path == f"{_CO}/issues"] == [
+            "https://example.com/b",
+            "https://example.com/c",
+        ]
+
+    def test_issues_summary_rows_carry_scan_date(self) -> None:
+        summary = {
+            "issues": [
+                {"issue_type": "TITLE", "sub_issue_type": "TITLE_MISSING", "impacted_urls": 2, "urls": [{"url": "u"}]},
+                {"issue_type": "FAQ", "sub_issue_type": "FAQ_MISSING", "impacted_urls": 1, "urls": []},
+            ],
+            "last_scan_date": "2026-07-01T08:00:00Z",
+        }
+        result = _driver(project_id="proj-1").run(
+            "content_optimize_issues_summary", always(ScriptedResponse(json=summary))
+        )
+
+        assert result.rows == [{**row, "last_scan_date": "2026-07-01T08:00:00Z"} for row in summary["issues"]]
+        assert len(result.requests) == 1
+        assert result.requests[0].param("project_id") == "proj-1"
+
+
 class TestCheckResponse:
     def _response(self, status_code: int, headers: dict[str, str] | None = None) -> Any:
         response = mock.MagicMock()
