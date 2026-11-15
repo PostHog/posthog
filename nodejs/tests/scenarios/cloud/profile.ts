@@ -13,6 +13,34 @@ export const REGION = 'us-east-1'
 const Usd = z.number().nonnegative()
 const Name = z.string().min(1)
 
+const HOST_OWNED_POOLER_SETTINGS = [
+    'listen_addr',
+    'listen_port',
+    'auth_type',
+    'auth_file',
+    'unix_socket_dir',
+    'pidfile',
+    'logfile',
+    'server_tls_sslmode',
+]
+
+export const Pooler = z
+    .object({
+        image: z.string().regex(/^[^\s@]+@sha256:[0-9a-f]{64}$/, 'an image pinned by digest'),
+        replicas: z.number().int().positive(),
+        settings: z
+            .record(
+                z.string().regex(/^[a-z][a-z0-9_]*$/, 'a pgbouncer setting name'),
+                z.union([z.string().regex(/^[^\r\n]*$/, 'a single line'), z.number()])
+            )
+            .refine((settings) => !HOST_OWNED_POOLER_SETTINGS.some((key) => key in settings), {
+                message: `the host sets ${HOST_OWNED_POOLER_SETTINGS.join(', ')}`,
+            }),
+    })
+    .strict()
+
+export type Pooler = z.infer<typeof Pooler>
+
 export const CloudProfile = z
     .object({
         name: Name,
@@ -45,6 +73,7 @@ export const CloudProfile = z
                 bootstrapDeadline: Duration,
             })
             .strict(),
+        pooler: Pooler,
         runnerProfile: z.string().regex(/^(?!\.\.?$)[\w.-]+$/, 'a file name in the profile directory'),
         admission: z
             .object({

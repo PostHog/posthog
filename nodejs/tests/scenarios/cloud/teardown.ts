@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { durationMs } from '../duration'
 import { Controller } from './admission'
 import { Aws, AwsError } from './aws'
+import { stopCard } from './host'
 import { Manifest, evidenceOf, keyOf, release } from './lease'
 import { CloudProfile } from './profile'
 import { POLL_MS, RUN_TAG, settledStatus, stackStatus } from './stack'
@@ -313,6 +314,11 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
             ].map((resource) => [keyOfResource(resource), resource])
         )
         const lost: string[] = []
+        await stopCard(controller, profile, manifest).catch((error: Error) =>
+            controller.warn(
+                `The card of run ${manifest.runId} did not finish cleanly before its stack was deleted: ${error.message}`
+            )
+        )
         const { failures } = await discover(controller, profile, manifest, inventory)
         lost.push(...failures)
         await deleteStack(controller, profile, manifest, until).catch((error: Error) =>
