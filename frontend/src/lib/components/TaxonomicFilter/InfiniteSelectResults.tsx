@@ -158,8 +158,15 @@ export function InfiniteSelectResults({
     popupAnchorElement,
     definitionPopoverRenderer,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
-        useValues(taxonomicFilterLogic)
+    const {
+        activeTab,
+        taxonomicGroups,
+        taxonomicGroupTypes,
+        categoryGroupTypes,
+        activeTaxonomicGroup,
+        value,
+        searchQuery,
+    } = useValues(taxonomicFilterLogic)
     const wrapperRef = useRef<HTMLDivElement | null>(null)
 
     const openTab = activeTab || taxonomicGroups[0].type
@@ -209,7 +216,8 @@ export function InfiniteSelectResults({
     const showEmptyState =
         !showDataWarehouseLoadingState &&
         totalListCount === 0 &&
-        taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
+        taxonomicFilterGroupTypesWithEmptyStates.includes(openTab) &&
+        (!searchQuery.trim() || activeTaxonomicGroup?.shouldSearch?.(searchQuery) !== false)
 
     return (
         <div ref={wrapperRef} className="@container flex flex-row h-full">
@@ -230,7 +238,7 @@ export function InfiniteSelectResults({
                         />
                     </div>
                     <div className="taxonomic-pills flex flex-col gap-1">
-                        {taxonomicGroupTypes.map((groupType) => {
+                        {categoryGroupTypes.map((groupType) => {
                             return (
                                 <CategoryPill
                                     key={groupType}

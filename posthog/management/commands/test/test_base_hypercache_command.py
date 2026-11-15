@@ -16,7 +16,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management.base import OutputWrapper
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -236,7 +236,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test", TEST=True)
-class TestVerificationResultsErrorReporting(BaseTest):
+class TestVerificationResultsErrorReporting(SimpleTestCase):
     """Test error reporting in verification results."""
 
     def test_error_count_displayed_when_errors_occurred(self):

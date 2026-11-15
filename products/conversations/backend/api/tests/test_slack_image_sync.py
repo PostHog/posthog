@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -93,28 +94,35 @@ class TestSlackImageIngest(SimpleTestCase):
 
         assert payload == expected_bytes
 
+    @parameterized.expand(
+        [
+            ("full_file_in_event", False),
+            ("slack_connect_stub", True),
+        ]
+    )
     @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")
-    def test_extract_slack_files_copies_to_uploaded_media(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
+    def test_extract_slack_files_copies_to_uploaded_media(
+        self, _label: str, is_stub: bool, mock_download: MagicMock, mock_save: MagicMock
+    ) -> None:
         mock_download.return_value = VALID_PNG_BYTES
         mock_save.return_value = "https://app.posthog.com/uploaded_media/abc"
 
-        fake_team = fake_slack_team()
+        full_file = {
+            "id": "F123",
+            "mimetype": "image/png",
+            "name": "test.png",
+            "url_private_download": "https://files.slack.com/files-pri/T/F/test.png",
+        }
         fake_client = fake_slack_client()
+        fake_client.files_info.return_value = {"ok": True, "file": full_file}
+        event_file = {"id": "F123", "mode": "file_access", "file_access": "check_file_info"} if is_stub else full_file
 
-        files = [
-            {
-                "id": "F123",
-                "mimetype": "image/png",
-                "name": "test.png",
-                "url_private_download": "https://files.slack.com/files-pri/T/F/test.png",
-            }
-        ]
-        images = extract_slack_files(files, fake_team, fake_client)
+        images = extract_slack_files([event_file], fake_slack_team(), fake_client)
 
         assert len(images) == 1
         assert images[0]["url"] == "https://app.posthog.com/uploaded_media/abc"
-        mock_download.assert_called_once()
+        assert mock_download.call_args.args[0] == "https://files.slack.com/files-pri/T/F/test.png"
         mock_save.assert_called_once()
 
     @parameterized.expand(
@@ -161,6 +169,51 @@ class TestSlackImageIngest(SimpleTestCase):
             ]
         else:
             assert split.files == []
+
+    @parameterized.expand(
+        [
+            ("download_fails", False),
+            ("lookup_fails", True),
+        ]
+    )
+    @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
+    @patch("products.conversations.backend.slack._download_slack_image_bytes")
+    def test_extract_slack_files_stub_failure(
+        self, _label: str, lookup_fails: bool, mock_download: MagicMock, mock_save: MagicMock
+    ) -> None:
+        permalink = "https://acme.slack.com/files/U1/F123/test.jpg"
+        fake_client = fake_slack_client()
+        if lookup_fails:
+            fake_client.files_info.side_effect = Exception("slack down")
+        else:
+            mock_download.return_value = None
+            fake_client.files_info.return_value = {
+                "ok": True,
+                "file": {
+                    "id": "F123",
+                    "mimetype": "image/jpeg",
+                    "name": "test.jpg",
+                    "url_private_download": "https://files.slack.com/files-pri/T/F/test.jpg",
+                    "permalink": permalink,
+                },
+            }
+
+        attachments = extract_slack_files(
+            [{"id": "F123", "mode": "file_access", "file_access": "check_file_info"}],
+            fake_slack_team(),
+            fake_client,
+        )
+        split = split_slack_attachments(attachments)
+
+        mock_save.assert_not_called()
+        assert split.images == []
+        if lookup_fails:
+            mock_download.assert_not_called()
+            assert split.files == []
+        else:
+            assert split.files == [
+                {"url": permalink, "name": "test.jpg", "mimetype": "image/jpeg", "unavailable": True}
+            ]
 
     @parameterized.expand(
         [
@@ -500,6 +553,23 @@ class TestSlackDurableImageDelivery(BaseTest):
 
     def _api_method_calls(self, client: MagicMock, method: str) -> int:
         return sum(1 for call in client.api_call.call_args_list if call.kwargs.get("api_method") == method)
+
+    @patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=None)
+    @patch("products.conversations.backend.tasks.slack.get_slack_client")
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+    def test_body_is_not_posted_after_ticket_delete(self, mock_get_client: MagicMock, _avatar: MagicMock) -> None:
+        self._create_reply()
+        client = self._slack_client()
+        mock_get_client.return_value = client
+        body = self._part(DELIVERY_PART_KEY_BODY)
+        Ticket.all_objects.filter(id=self.ticket.id).update(deleted_at=timezone.now())
+
+        process_slack_delivery_part(str(body.id))
+
+        body.refresh_from_db()
+        assert body.status == ConversationDeliveryPart.Status.FAILED
+        assert body.last_error_code == "ticket_deleted"
+        client.chat_postMessage.assert_not_called()
 
     @patch("products.conversations.backend.tasks.slack.requests.post", return_value=_ok_upload_response())
     @patch("products.conversations.backend.tasks.slack._read_image_bytes_for_slack_upload", return_value=b"img")

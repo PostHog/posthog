@@ -1,5 +1,5 @@
 //! Phase-timing sink for the snapshot pipeline: contiguous phase boundaries plus accumulated
-//! in-scrub op totals (cv de/recompression, image blur), all as nanosecond offsets from one
+//! in-scrub op totals (cv de/recompression), all as nanosecond offsets from one
 //! monotonic origin captured when the sink is created.
 //!
 //! `Cell`-based so the caller can own it outside a `catch_unwind` boundary: whatever completed
@@ -21,8 +21,6 @@ pub struct PhaseTimings {
     scrub_end_ns: Cell<u64>,
     cv_total_ns: Cell<u64>,
     cv_count: Cell<u32>,
-    blur_total_ns: Cell<u64>,
-    blur_count: Cell<u32>,
     last_op: Cell<&'static str>,
 }
 
@@ -37,8 +35,6 @@ pub struct PhaseTimingsSnapshot {
     pub scrub_end_ns: Option<u64>,
     pub cv_total_ns: u64,
     pub cv_count: u32,
-    pub blur_total_ns: u64,
-    pub blur_count: u32,
     pub last_op: &'static str,
 }
 
@@ -54,8 +50,6 @@ impl PhaseTimings {
             scrub_end_ns: Cell::new(UNSET),
             cv_total_ns: Cell::new(0),
             cv_count: Cell::new(0),
-            blur_total_ns: Cell::new(0),
-            blur_count: Cell::new(0),
             last_op: Cell::new("queued"),
         }
     }
@@ -91,21 +85,10 @@ impl PhaseTimings {
         self.last_op.set(op);
     }
 
-    /// Fold in blur work measured elsewhere (the parallel image workers time their own jobs).
-    pub fn add_blur(&self, elapsed_ns: u64, count: u32) {
-        self.blur_total_ns
-            .set(self.blur_total_ns.get().saturating_add(elapsed_ns));
-        self.blur_count
-            .set(self.blur_count.get().saturating_add(count));
-    }
-
-    /// Times one in-scrub op into the `cv` or `blur` totals. Restores the `"scrub"` marker only on
+    /// Times one in-scrub op into the `cv` totals. Restores the `"scrub"` marker only on
     /// clean exit, so after a panic `last_op` names the op that died.
     pub(crate) fn time_op<T>(&self, op: &'static str, f: impl FnOnce() -> T) -> T {
-        let (total, count) = match op {
-            "cv" => (&self.cv_total_ns, &self.cv_count),
-            _ => (&self.blur_total_ns, &self.blur_count),
-        };
+        let (total, count) = (&self.cv_total_ns, &self.cv_count);
         self.last_op.set(op);
         let start = Instant::now();
         let out = f();
@@ -126,8 +109,6 @@ impl PhaseTimings {
             scrub_end_ns: opt(&self.scrub_end_ns),
             cv_total_ns: self.cv_total_ns.get(),
             cv_count: self.cv_count.get(),
-            blur_total_ns: self.blur_total_ns.get(),
-            blur_count: self.blur_count.get(),
             last_op: self.last_op.get(),
         }
     }
@@ -146,16 +127,14 @@ mod tests {
         t.decompress_finished();
         t.scrub_started();
         t.time_op("cv", || {});
-        t.time_op("blur", || {});
-        t.time_op("blur", || {});
+        t.time_op("cv", || {});
         t.scrub_finished();
 
         let snap = t.snapshot();
         assert!(snap.task_start_ns.unwrap() <= snap.decompress_start_ns.unwrap());
         assert!(snap.decompress_start_ns.unwrap() <= snap.decompress_end_ns.unwrap());
         assert!(snap.scrub_start_ns.unwrap() <= snap.scrub_end_ns.unwrap());
-        assert_eq!(snap.cv_count, 1);
-        assert_eq!(snap.blur_count, 2);
+        assert_eq!(snap.cv_count, 2);
         assert_eq!(snap.last_op, "scrub");
     }
 
@@ -169,7 +148,7 @@ mod tests {
         t.time_op("cv", || {});
         let result = contain_unwind(
             || -> Result<(), String> {
-                t.time_op("blur", || panic!("image decode exploded"));
+                t.time_op("cv", || panic!("cv decode exploded"));
                 Ok(())
             },
             |m| m,
@@ -181,6 +160,6 @@ mod tests {
         assert!(snap.scrub_start_ns.is_some());
         assert_eq!(snap.scrub_end_ns, None);
         assert_eq!(snap.cv_count, 1);
-        assert_eq!(snap.last_op, "blur");
+        assert_eq!(snap.last_op, "cv");
     }
 }

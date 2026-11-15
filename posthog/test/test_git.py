@@ -1,6 +1,11 @@
+import subprocess
+
+import pytest
+from unittest.mock import patch
+
 from parameterized import parameterized
 
-from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
+from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes, get_git_commit_full
 
 REPOS = ["posthog/posthog", "posthog/posthog-js", "posthog/posthog.com"]
 
@@ -121,3 +126,37 @@ class TestExtractRepoFromScopes:
     )
     def test_first_scope_to_name_a_repo_answers(self, _name: str, scopes: list[str], expected: str | None):
         assert extract_repo_from_scopes(scopes, REPOS) == expected
+
+
+FULL_SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+class TestGetGitCommitFull:
+    @pytest.fixture(autouse=True)
+    def clear_cache(self):
+        get_git_commit_full.cache_clear()
+        yield
+        get_git_commit_full.cache_clear()
+
+    def test_returns_the_full_baked_in_commit(self):
+        with (
+            patch("posthog.git._git_commit_baked_in", FULL_SHA),
+            patch("posthog.git.subprocess.check_output") as check_output,
+        ):
+            assert get_git_commit_full() == FULL_SHA
+        check_output.assert_not_called()
+
+    def test_falls_back_to_git_when_nothing_is_baked_in(self):
+        with (
+            patch("posthog.git._git_commit_baked_in", None),
+            patch("posthog.git.subprocess.check_output", return_value=f"{FULL_SHA}\n".encode()) as check_output,
+        ):
+            assert get_git_commit_full() == FULL_SHA
+        check_output.assert_called_once_with(["git", "rev-parse", "HEAD"])
+
+    def test_returns_none_when_the_commit_is_unknown(self):
+        with (
+            patch("posthog.git._git_commit_baked_in", None),
+            patch("posthog.git.subprocess.check_output", side_effect=subprocess.CalledProcessError(128, "git")),
+        ):
+            assert get_git_commit_full() is None

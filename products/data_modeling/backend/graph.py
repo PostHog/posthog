@@ -7,6 +7,9 @@ instead of running recursive DB queries per node.
 from collections import defaultdict
 from uuid import UUID
 
+from django.db.models import Q
+
+from products.data_modeling.backend.facade.contracts import NodeLineageCounts
 from products.data_modeling.backend.logic.graph_traversal import reachable
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import NodeType
@@ -22,23 +25,25 @@ class Graph:
     def __init__(
         self,
         team_id: int,
-        dag_id: UUID | str | None = None,
         exclude_table_sources: bool = True,
         exclude_table_targets: bool = True,
+        dag_id: UUID | str | None = None,
         hidden_types: frozenset[str] = frozenset(),
     ):
         """Load edges and build adjacency maps.
 
         Args:
             team_id: filter edges to this team
-            dag_id: if set, filter to a single DAG; otherwise load all DAGs
+            dag_id: when set, load only this DAG's edges instead of every edge for the team
             exclude_table_sources: skip edges whose source is a TABLE node (for upstream counts)
             exclude_table_targets: skip edges whose target is a TABLE node (for downstream counts)
             hidden_types: node types the reader may not see, dropped from both sides so a count
                 never reports a node the same reader's node list omits
         """
-        qs = Edge.objects.filter(team_id=team_id)
-        if dag_id:
+        qs = Edge.objects.filter(team_id=team_id).exclude(
+            Q(source__saved_query__deleted=True) | Q(target__saved_query__deleted=True)
+        )
+        if dag_id is not None:
             qs = qs.filter(dag_id=dag_id)
 
         # Fetch edges with source/target types in a single query
@@ -75,13 +80,15 @@ class Graph:
     def get_downstream_count(self, node_id: str | UUID) -> int:
         return len(self.get_downstream(node_id))
 
-    def batch_counts(self, node_ids: list[str]) -> dict[str, tuple[int, int]]:
-        """Compute (upstream_count, downstream_count) for a batch of nodes.
 
-        Returns a dict of node_id -> (upstream_count, downstream_count).
-        """
-        result: dict[str, tuple[int, int]] = {}
-        for nid in node_ids:
-            key = str(nid)
-            result[key] = (self.get_upstream_count(key), self.get_downstream_count(key))
-        return result
+def node_lineage_counts(
+    team_id: int, node_ids: list[str], hidden_types: frozenset[str] = frozenset()
+) -> dict[str, NodeLineageCounts]:
+    """The upstream and downstream count of each node, from one load of the team's edges."""
+    graph = Graph(team_id=team_id, hidden_types=hidden_types)
+    return {
+        node_id: NodeLineageCounts(
+            upstream=graph.get_upstream_count(node_id), downstream=graph.get_downstream_count(node_id)
+        )
+        for node_id in node_ids
+    }

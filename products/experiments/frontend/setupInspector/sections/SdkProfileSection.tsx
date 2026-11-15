@@ -10,13 +10,21 @@ import { SetupContextSection } from '../SetupContextSection'
 import { SetupFactsTable } from '../SetupFactsTable'
 import { formatCount, formatShare, formatTimestamp, formatYesNo } from '../setupInspectorUtils'
 
-export function SdkProfileSection({ section }: { section: ExperimentSetupSdkProfileSectionApi }): JSX.Element {
+export function SdkProfileSection({
+    section,
+    skippedMessage,
+}: {
+    section: ExperimentSetupSdkProfileSectionApi
+    /** Names why the section was skipped, when a caller skips it for another reason than a missing input. */
+    skippedMessage?: string
+}): JSX.Element {
     const data = section.data
     return (
         <SetupContextSection
             title="SDK profile"
             description="Which SDKs send multivariate flag calls across the whole project, and how they evaluate flags."
             status={section.status}
+            skippedMessage={skippedMessage}
         >
             {data && (
                 <>

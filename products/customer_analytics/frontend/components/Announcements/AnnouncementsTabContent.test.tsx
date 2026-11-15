@@ -5,8 +5,11 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { userLogic } from 'scenes/userLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { UserType } from '~/types'
 
 import { announcementsLogic } from './announcementsLogic'
 import { AnnouncementsTabContent } from './AnnouncementsTabContent'
@@ -45,6 +48,12 @@ describe('AnnouncementsTabContent', () => {
     })
 
     function renderComposer(): void {
+        userLogic.actions.loadUserSuccess({
+            id: 7,
+            first_name: 'Ada',
+            email: 'ada@example.com',
+            is_email_verified: true,
+        } as UserType)
         logic.actions.setMessage('Offsite this week')
         logic.actions.setSelectedChannelIds(['C1', 'C2'])
         render(
@@ -79,6 +88,49 @@ describe('AnnouncementsTabContent', () => {
         await waitFor(() => expect(document.querySelector('[data-attr="confirm-send-announcement"]')).not.toBeNull())
         fireEvent.click(document.querySelector('[data-attr="confirm-send-announcement"]')!)
 
-        await waitFor(() => expect(postedBodies).toEqual([{ message: 'Offsite this week', channels: ['C1', 'C2'] }]))
+        await waitFor(() =>
+            expect(postedBodies).toEqual([{ message: 'Offsite this week', channels: ['C1', 'C2'], send_as: 'bot' }])
+        )
+    })
+
+    // An unverified address cannot be shown to prove the Slack profile is theirs, so the option is
+    // closed off here rather than failing after they have written the message and picked channels.
+    it('disables sending as yourself until the email address is verified', async () => {
+        renderComposer()
+        userLogic.actions.loadUserSuccess({
+            id: 7,
+            first_name: 'Ada',
+            email: 'ada@example.com',
+            is_email_verified: null,
+        } as UserType)
+
+        // LemonButton marks a disabledReason button aria-disabled, keeping it focusable so the
+        // tooltip can explain why.
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="announcement-send-as-user"]')).toHaveAttribute(
+                'aria-disabled',
+                'true'
+            )
+        )
+        expect(document.querySelector('[data-attr="announcement-send-as-bot"]')).toHaveAttribute(
+            'aria-disabled',
+            'false'
+        )
+    })
+
+    // The sender is what the customer sees, so the confirmation has to name it — the mistake
+    // this option fixes is realising after the fact that the message went out as SupportHog.
+    it('sends as the current user once their name is picked, and names them in the confirmation', async () => {
+        renderComposer()
+
+        fireEvent.click(document.querySelector('[data-attr="announcement-send-as-user"]')!)
+        clickSend()
+
+        await waitFor(() => expect(screen.getByText('Ada', { selector: 'strong' })).toBeInTheDocument())
+        fireEvent.click(document.querySelector('[data-attr="confirm-send-announcement"]')!)
+
+        await waitFor(() =>
+            expect(postedBodies).toEqual([{ message: 'Offsite this week', channels: ['C1', 'C2'], send_as: 'user' }])
+        )
     })
 })

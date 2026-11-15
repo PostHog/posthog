@@ -26,6 +26,7 @@ from posthog.settings import (
 
 class Command(BaseCommand):
     help = "Set up databases for non-Python tests that depend on the Django server"
+    requires_system_checks: list[str] = []
 
     # has optional arg to only run postgres setup
     def add_arguments(self, parser):
@@ -113,6 +114,7 @@ def disable_migrations() -> None:
             with connection.cursor() as cursor:
                 cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
                 cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
+                cursor.execute("CREATE EXTENSION IF NOT EXISTS btree_gin")
 
             return super().handle(*args, **kwargs)
 

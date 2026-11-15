@@ -338,17 +338,15 @@ class GeminiVideoUnderstandingProvider:
             logger.exception(f"Video bytes for understanding video are too large (trace_id: {trace_id})")
             return None
         try:
-            video_part_config: dict[str, str | Blob | VideoMetadata] = {
-                "inline_data": Blob(data=video_bytes, mime_type=mime_type)
-            }
             video_metadata_config = {}
             if start_offset_s:
                 video_metadata_config["start_offset"] = f"{start_offset_s}s"
             if end_offset_s:
                 video_metadata_config["end_offset"] = f"{end_offset_s}s"
-            if video_metadata_config:
-                video_part_config["video_metadata"] = VideoMetadata(**video_metadata_config)
-            video_part = Part(**video_part_config)
+            video_part = Part(
+                inline_data=Blob(data=video_bytes, mime_type=mime_type),
+                video_metadata=VideoMetadata(**video_metadata_config) if video_metadata_config else None,
+            )
             prompt_part = Part(text=prompt)
             contents = Content(parts=[video_part, prompt_part])
             response = await self.client.aio.models.generate_content(

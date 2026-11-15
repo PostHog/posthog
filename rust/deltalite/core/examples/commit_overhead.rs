@@ -14,10 +14,14 @@
 //! Usage:
 //!   cargo run --release -p deltalite-core --example commit_overhead -- \
 //!     [--versions 1200] [--iters 40] [--rows 50] [--partitions 8] \
-//!     [--non-nullable-pk] [--reuse-handle] [--dir /path/to/fixture]
+//!     [--checkpoint-interval 100] [--non-nullable-pk] [--reuse-handle] \
+//!     [--dir /path/to/fixture]
 //!
 //! The fixture table is cached in `--dir` (or a temp dir keyed by the parameters) and
 //! reused across runs, so only the first run pays the table-building cost.
+//!
+//! `DELTALITE_CHECKPOINT_PREFETCH_MAX_BYTES=0` disables the checkpoint prefetch, which
+//! gives the before/after comparison for that optimisation on one binary.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -36,7 +40,8 @@ use deltalite_core::upsert::{upsert, UpsertOptions};
 /// not, and it is the quantity S3 latency multiplies in production. This store counts
 /// reads (GET/HEAD/LIST) and writes per phase; it is registered under a `counted://`
 /// scheme through delta-rs's factory registries so every open/replay in the run goes
-/// through it.
+/// through it. Checkpoint Parquet GETs are also counted on their own, since they are
+/// what the checkpoint prefetch collapses.
 mod counted {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -50,20 +55,55 @@ mod counted {
     use object_store::local::LocalFileSystem;
     use object_store::{
         CopyOptions, GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
-        PutMultipartOptions, PutOptions, PutPayload, PutResult, RenameOptions,
+        ObjectStoreExt, PutMultipartOptions, PutOptions, PutPayload, PutResult, RenameOptions,
     };
 
     pub static GETS: AtomicUsize = AtomicUsize::new(0);
+    pub static CHECKPOINT_GETS: AtomicUsize = AtomicUsize::new(0);
     pub static LISTS: AtomicUsize = AtomicUsize::new(0);
     pub static WRITES: AtomicUsize = AtomicUsize::new(0);
 
-    /// (gets, lists, writes) since process start.
-    pub fn snapshot() -> (usize, usize, usize) {
-        (
-            GETS.load(Ordering::Relaxed),
-            LISTS.load(Ordering::Relaxed),
-            WRITES.load(Ordering::Relaxed),
-        )
+    /// Object-store operations since process start.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Ops {
+        pub gets: usize,
+        pub checkpoint_gets: usize,
+        pub lists: usize,
+        pub writes: usize,
+    }
+
+    impl Ops {
+        pub fn since(self, before: Ops) -> Ops {
+            Ops {
+                gets: self.gets - before.gets,
+                checkpoint_gets: self.checkpoint_gets - before.checkpoint_gets,
+                lists: self.lists - before.lists,
+                writes: self.writes - before.writes,
+            }
+        }
+
+        pub fn add(&mut self, other: Ops) {
+            self.gets += other.gets;
+            self.checkpoint_gets += other.checkpoint_gets;
+            self.lists += other.lists;
+            self.writes += other.writes;
+        }
+    }
+
+    pub fn snapshot() -> Ops {
+        Ops {
+            gets: GETS.load(Ordering::Relaxed),
+            checkpoint_gets: CHECKPOINT_GETS.load(Ordering::Relaxed),
+            lists: LISTS.load(Ordering::Relaxed),
+            writes: WRITES.load(Ordering::Relaxed),
+        }
+    }
+
+    fn count_get(location: &Path, n: usize) {
+        GETS.fetch_add(n, Ordering::Relaxed);
+        if location.as_ref().contains(".checkpoint.") {
+            CHECKPOINT_GETS.fetch_add(n, Ordering::Relaxed);
+        }
     }
 
     fn sorted(
@@ -116,17 +156,30 @@ mod counted {
             location: &Path,
             options: GetOptions,
         ) -> object_store::Result<GetResult> {
-            GETS.fetch_add(1, Ordering::Relaxed);
+            count_get(location, 1);
             self.inner.get_opts(location, options).await
         }
 
+        // Counted as S3 would issue them: the AmazonS3 store merges ranges closer than
+        // `OBJECT_STORE_COALESCE_DEFAULT` into one GET, so `ranges.len()` overstates.
         async fn get_ranges(
             &self,
             location: &Path,
             ranges: &[std::ops::Range<u64>],
         ) -> object_store::Result<Vec<bytes::Bytes>> {
-            GETS.fetch_add(ranges.len(), Ordering::Relaxed);
-            self.inner.get_ranges(location, ranges).await
+            let inner = self.inner.clone();
+            let location = location.clone();
+            object_store::coalesce_ranges(
+                ranges,
+                move |range| {
+                    count_get(&location, 1);
+                    let inner = inner.clone();
+                    let location = location.clone();
+                    async move { inner.get_range(&location, range).await }
+                },
+                object_store::OBJECT_STORE_COALESCE_DEFAULT,
+            )
+            .await
         }
 
         fn delete_stream(
@@ -231,6 +284,7 @@ struct Args {
     iters: usize,
     rows: usize,
     partitions: usize,
+    checkpoint_interval: Option<u32>,
     non_nullable_pk: bool,
     reuse_handle: bool,
     dir: Option<PathBuf>,
@@ -242,6 +296,7 @@ fn parse_args() -> Args {
         iters: 40,
         rows: 50,
         partitions: 8,
+        checkpoint_interval: None,
         non_nullable_pk: false,
         reuse_handle: false,
         dir: None,
@@ -255,6 +310,13 @@ fn parse_args() -> Args {
             "--iters" => args.iters = take("--iters").parse().expect("--iters"),
             "--rows" => args.rows = take("--rows").parse().expect("--rows"),
             "--partitions" => args.partitions = take("--partitions").parse().expect("--partitions"),
+            "--checkpoint-interval" => {
+                args.checkpoint_interval = Some(
+                    take("--checkpoint-interval")
+                        .parse()
+                        .expect("--checkpoint-interval"),
+                )
+            }
             "--non-nullable-pk" => args.non_nullable_pk = true,
             "--reuse-handle" => args.reuse_handle = true,
             "--dir" => args.dir = Some(PathBuf::from(take("--dir"))),
@@ -314,7 +376,7 @@ fn opts() -> UpsertOptions {
     }
 }
 
-async fn create_table(uri: &str, non_nullable_pk: bool) {
+async fn create_table(uri: &str, non_nullable_pk: bool, checkpoint_interval: Option<u32>) {
     let cols = vec![
         StructField::new("pk", KernelType::STRING, !non_nullable_pk),
         StructField::new("p", KernelType::STRING, true),
@@ -322,19 +384,24 @@ async fn create_table(uri: &str, non_nullable_pk: bool) {
         StructField::new("ts", KernelType::TIMESTAMP_NTZ, true),
         StructField::new("payload", KernelType::STRING, true),
     ];
-    CreateBuilder::new()
+    let mut builder = CreateBuilder::new()
         .with_location(uri)
         .with_columns(cols)
-        .with_partition_columns(vec!["p".to_string()])
-        .await
-        .expect("create table");
+        .with_partition_columns(vec!["p".to_string()]);
+    if let Some(interval) = checkpoint_interval {
+        builder = builder.with_configuration_property(
+            deltalake::TableProperty::CheckpointInterval,
+            Some(interval.to_string()),
+        );
+    }
+    builder.await.expect("create table");
 }
 
 /// Build `versions` commits: commit i updates partition `i % partitions` wholesale, so
 /// the log grows deep (with tombstones and periodic checkpoints) while live files stay
 /// at ~1 per partition -- matching production's files_probed p50 of 1.
 async fn build_fixture(uri: &str, args: &Args, schema: &SchemaRef) {
-    create_table(uri, args.non_nullable_pk).await;
+    create_table(uri, args.non_nullable_pk, args.checkpoint_interval).await;
     let so: HashMap<String, String> = HashMap::new();
     for i in 0..args.versions {
         let table = open_table_multipart(uri, so.clone(), MultipartConfig::default())
@@ -387,8 +454,12 @@ async fn main() {
     let dir = args.dir.clone().unwrap_or_else(|| {
         // nosemgrep: rust.lang.security.temp-dir.temp-dir
         std::env::temp_dir().join(format!(
-            "deltalite-commit-overhead-v{}-r{}-p{}-nn{}",
-            args.versions, args.rows, args.partitions, args.non_nullable_pk as u8
+            "deltalite-commit-overhead-v{}-r{}-p{}-nn{}-ci{}",
+            args.versions,
+            args.rows,
+            args.partitions,
+            args.non_nullable_pk as u8,
+            args.checkpoint_interval.unwrap_or(0)
         ))
     });
     let marker = dir.join(".fixture-complete");
@@ -440,14 +511,13 @@ async fn main() {
         mut t_total,
     ) = (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
     let mut t_relax: Vec<f64> = vec![];
+    let mut t_initial_open: Vec<f64> = vec![];
     let mut probed = 0usize;
-    // Per-phase I/O op deltas: (gets, lists, writes) for open/upsert per iteration.
-    let mut io = [(0usize, 0usize, 0usize); 2];
-    let track = |slot: &mut (usize, usize, usize), before: (usize, usize, usize)| {
+    // Per-phase I/O op deltas for open/upsert per iteration.
+    let mut io = [counted::Ops::default(); 2];
+    let track = |slot: &mut counted::Ops, before: counted::Ops| {
         let now = counted::snapshot();
-        slot.0 += now.0 - before.0;
-        slot.1 += now.1 - before.1;
-        slot.2 += now.2 - before.2;
+        slot.add(now.since(before));
         now
     };
 
@@ -494,6 +564,7 @@ async fn main() {
         t_commit.push(stats.commit_ms as f64);
         t_maint.push(stats.maintenance_ms as f64);
         t_relax.push(stats.relax_ms as f64);
+        t_initial_open.push(stats.initial_open_ms as f64);
         probed += stats.files_probed;
         track(&mut io[1], c);
 
@@ -504,14 +575,24 @@ async fn main() {
     }
 
     println!(
-        "\ncommit_overhead: versions={} iters={} rows={} partitions={} non_nullable_pk={} reuse_handle={} (filesystem; understates S3)",
-        args.versions, args.iters, args.rows, args.partitions, args.non_nullable_pk, args.reuse_handle
+        "\ncommit_overhead: versions={} iters={} rows={} partitions={} checkpoint_interval={} non_nullable_pk={} reuse_handle={} prefetch_max_bytes={} (filesystem; understates S3)",
+        args.versions,
+        args.iters,
+        args.rows,
+        args.partitions,
+        args.checkpoint_interval.map_or("default".to_string(), |n| n.to_string()),
+        args.non_nullable_pk,
+        args.reuse_handle,
+        deltalite_core::CheckpointCache::from_env().max_bytes()
     );
     println!(
         "files_probed avg {:.1}\n",
         probed as f64 / args.iters as f64
     );
     stat("open_handle_ms", &t_open);
+    // Reported through the stats (once per handle); the wall-clock row above is what
+    // the residual excludes, so this row is informational.
+    stat("initial_open_ms", &t_initial_open);
     stat("open_ms", &t_refresh);
     stat("relax_ms", &t_relax);
     stat("plan_ms", &t_plan);
@@ -533,22 +614,20 @@ async fn main() {
 
     println!("\nI/O ops per iteration (deterministic; what S3 latency multiplies):");
     let n = args.iters as f64;
-    for (label, (g, l, w)) in ["open_handle", "handle_upsert"].iter().zip(io.iter()) {
-        println!(
-            "{label:<16} gets {:7.1}   lists {:6.1}   writes {:6.1}",
-            *g as f64 / n,
-            *l as f64 / n,
-            *w as f64 / n
-        );
+    let mut total = counted::Ops::default();
+    for (label, ops) in ["open_handle", "handle_upsert"].iter().zip(io.iter()) {
+        print_ops(label, *ops, n);
+        total.add(*ops);
     }
-    let (tg, tl, tw) = io
-        .iter()
-        .fold((0, 0, 0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
+    print_ops("TOTAL", total, n);
+}
+
+fn print_ops(label: &str, ops: counted::Ops, n: f64) {
     println!(
-        "{:<16} gets {:7.1}   lists {:6.1}   writes {:6.1}",
-        "TOTAL",
-        tg as f64 / n,
-        tl as f64 / n,
-        tw as f64 / n
+        "{label:<16} gets {:7.1}   (checkpoint {:5.1})   lists {:6.1}   writes {:6.1}",
+        ops.gets as f64 / n,
+        ops.checkpoint_gets as f64 / n,
+        ops.lists as f64 / n,
+        ops.writes as f64 / n
     );
 }

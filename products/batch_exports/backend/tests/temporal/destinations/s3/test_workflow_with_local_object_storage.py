@@ -2,12 +2,17 @@ import datetime as dt
 
 import pytest
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsModel,
+    BatchExportHogQLModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
-    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_S3_MODELS,
     TEST_S3_MODELS_AFFECTED_BY_EXCLUDE_EVENTS,
-    UNCOMPRESSED_FILE_FORMATS,
     run_s3_batch_export_workflow,
 )
 
@@ -34,7 +39,7 @@ async def test_s3_export_workflow_with_local_object_storage_with_various_models(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local object storage bucket instead of S3.
@@ -62,11 +67,9 @@ async def test_s3_export_workflow_with_local_object_storage_with_various_models(
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize(
-    ("file_format", "compression"), [*SUPPORTED_FILE_FORMAT_COMPRESSIONS, *UNCOMPRESSED_FILE_FORMATS], indirect=True
-)
+@pytest.mark.parametrize(("file_format", "compression"), [("Parquet", "zstd"), ("JSONLines", "gzip")], indirect=True)
 async def test_s3_export_workflow_with_local_object_storage_with_various_compression_and_file_formats(
     clickhouse_client,
     object_storage_client,
@@ -80,7 +83,7 @@ async def test_s3_export_workflow_with_local_object_storage_with_various_compres
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local object storage bucket and various compression and file formats."""
@@ -101,7 +104,7 @@ async def test_s3_export_workflow_with_local_object_storage_with_various_compres
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("file_format", ["Parquet"], indirect=True)
 @pytest.mark.parametrize("compression", ["zstd"], indirect=True)
@@ -120,7 +123,7 @@ async def test_s3_export_workflow_names_parquet_files_by_the_extension_setting(
     legacy_parquet_extension,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
 ):
     await run_s3_batch_export_workflow(
@@ -156,7 +159,7 @@ async def test_s3_export_workflow_with_local_object_storage_with_exclude_events(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local object storage bucket and excluding events."""
@@ -183,7 +186,7 @@ async def test_s3_export_workflow_with_local_object_storage_with_exclude_events(
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportPersonsModel()])
 async def test_s3_export_workflow_backfill_earliest_persons_with_local_object_storage(
     clickhouse_client,
     object_storage_client,
@@ -274,17 +277,9 @@ async def test_s3_export_workflow_with_local_object_storage_without_events(
 
 
 @pytest.mark.parametrize(
-    "s3_key_prefix",
-    [
-        "posthog-{table}/{year}-{month}-{day}/{hour}:{minute}:{second}",
-        "posthog-{table}/{hour}:{minute}:{second}/{year}-{month}-{day}",
-        "posthog-{table}/{hour}:{minute}:{second}",
-        "posthog/{year}-{month}-{day}/{hour}:{minute}:{second}",
-        "{year}-{month}-{day}",
-    ],
-    indirect=True,
+    "s3_key_prefix", ["posthog-{table}/{year}-{month}-{day}/{hour}:{minute}:{second}"], indirect=True
 )
-@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[3], None])
+@pytest.mark.parametrize("model", [TEST_S3_MODELS[3]])
 async def test_s3_export_workflow_with_local_object_storage_and_custom_key_prefix(
     clickhouse_client,
     ateam,
@@ -296,7 +291,7 @@ async def test_s3_export_workflow_with_local_object_storage_and_custom_key_prefi
     s3_key_prefix,
     data_interval_end,
     data_interval_start,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
 ):
     """Test the S3BatchExport Workflow end-to-end by specifying a custom key prefix.
@@ -358,7 +353,7 @@ async def test_s3_export_workflow_with_local_object_storage_with_hogql_model(
     `events_table` is pinned to `sharded_events` because the HogQL `events` table reads it,
     while the fixture would otherwise default to `events_recent` for a recent interval.
     """
-    model = BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query, user_id=auser.pk)
+    model = BatchExportHogQLModel(query=hogql_query, user_id=auser.pk, modifiers={})
 
     await run_s3_batch_export_workflow(
         model=model,

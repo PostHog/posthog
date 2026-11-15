@@ -95,7 +95,7 @@ class TestIncompleteRunsCounterSeries(SimpleTestCase):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, TestCase):
+class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, SimpleTestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verifies_flags_cache(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = VerificationResult()
@@ -205,7 +205,7 @@ class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, TestCase):
 
 
 @override_settings(FLAGS_REDIS_URL=None)
-class TestVerifyAndFixFlagsCacheTaskDisabled(TestCase):
+class TestVerifyAndFixFlagsCacheTaskDisabled(SimpleTestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_skips_verification_when_no_redis_url(self, mock_run_verification: MagicMock) -> None:
         verify_and_fix_flags_cache_task()
@@ -214,7 +214,7 @@ class TestVerifyAndFixFlagsCacheTaskDisabled(TestCase):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-class TestVerifyAndFixTeamMetadataCacheTask(PushGatewayTaskTestMixin, TestCase):
+class TestVerifyAndFixTeamMetadataCacheTask(PushGatewayTaskTestMixin, SimpleTestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verifies_team_metadata_cache(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = VerificationResult()
@@ -268,7 +268,7 @@ class TestVerifyAndFixTeamMetadataCacheTask(PushGatewayTaskTestMixin, TestCase):
 
 
 @override_settings(FLAGS_REDIS_URL=None)
-class TestVerifyAndFixTeamMetadataCacheTaskDisabled(TestCase):
+class TestVerifyAndFixTeamMetadataCacheTaskDisabled(SimpleTestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_skips_verification_when_no_redis_url(self, mock_run_verification: MagicMock) -> None:
         verify_and_fix_team_metadata_cache_task()

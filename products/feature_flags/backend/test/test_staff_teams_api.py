@@ -40,6 +40,7 @@ class TestFeatureFlagsStaffTeamSearchAPI(APIBaseTest):
             ("partial_name", lambda self: "Searchable"),
             ("exact_api_token", lambda self: self.searchable_team.api_token),
             ("partial_org_name", lambda self: "Findable"),
+            ("exact_org_id", lambda self: str(self.searchable_team.organization_id)),
         ]
     )
     def test_search_matches_by_field(self, _name, search_value_fn):

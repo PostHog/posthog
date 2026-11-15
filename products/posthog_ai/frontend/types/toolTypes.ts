@@ -16,6 +16,8 @@ export interface ToolCallMessage {
     rawInput: Record<string, unknown>
     /** JSON-parsed inner args when `innerToolName` is set. */
     innerInput?: Record<string, unknown>
+    /** The MCP tool a Pi proxy call names while the server has not yet reported which MCP server answered it. */
+    proxiedToolName?: string
     rawOutput?: unknown
     /** Accumulated ACP `content[]`. */
     content: unknown[]

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-from products.alerts.backend.facade.contracts import DestinationType, EventKindSpec
 from products.alerts.backend.facade.destinations import destination_template_id, list_owned_alert_destinations
+from products.alerts_platform.backend.facade.contracts import DestinationType, EventKindSpec
 
 EventKind = Literal["firing", "resolved", "errored", "broken"]
 

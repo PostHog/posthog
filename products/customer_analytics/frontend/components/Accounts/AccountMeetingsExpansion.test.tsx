@@ -30,6 +30,7 @@ class ResizeObserverMock {
 const meeting: MeetingApi = {
     id: 'meeting-1',
     title: 'Quarterly review',
+    is_recurring: false,
     gong_url: 'https://app.gong.io/call?id=123',
     start_time: '2026-08-03T15:00:00Z',
     end_time: '2026-08-03T15:30:00Z',
@@ -54,6 +55,31 @@ describe('AccountMeetingsExpansion', () => {
 
     afterEach(() => {
         cleanup()
+        jest.useRealTimers()
+    })
+
+    test.each([
+        { kind: 'future recurring', startTime: '2026-08-04T15:00:00Z', isRecurring: true, badgeCount: 1 },
+        { kind: 'past recurring', startTime: '2026-08-02T15:00:00Z', isRecurring: true, badgeCount: 0 },
+        { kind: 'future one-off', startTime: '2026-08-04T15:00:00Z', isRecurring: false, badgeCount: 0 },
+    ])('renders the recurring badge correctly for a $kind meeting', async ({ startTime, isRecurring, badgeCount }) => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date('2026-08-03T12:00:00Z'))
+        mockList.mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [{ ...meeting, start_time: startTime, is_recurring: isRecurring }],
+        })
+
+        render(
+            <Provider>
+                <AccountMeetingsExpansion accountId="account-1" />
+            </Provider>
+        )
+
+        expect(await screen.findByText(meeting.title)).toBeInTheDocument()
+        expect(screen.queryAllByText('Recurring')).toHaveLength(badgeCount)
     })
 
     it('opens a matched meeting in Gong', async () => {

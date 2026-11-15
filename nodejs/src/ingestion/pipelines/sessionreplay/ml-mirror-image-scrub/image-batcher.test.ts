@@ -9,11 +9,11 @@ import {
     tableKeyString,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 import { MlKafkaTransport } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import { hashImageBytes, imageRef, urlRef } from './content-ref'
 import { ImageBatcher, OffsetStore, WRITE_CONCURRENCY } from './image-batcher'
 import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage, UrlImageWriteOutcome } from './image-shard-store'
-import { CAPTURE_TIMESTAMP_HEADER } from './image-transport'
 import { ImageScrubConsumerMetrics } from './metrics'
 import { ScrubClient, ScrubPoisoned } from './scrub-client'
 

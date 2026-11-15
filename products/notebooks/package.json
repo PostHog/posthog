@@ -4,19 +4,21 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ evals/test/ -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "@testing-library/react": "^14.3.1",
+        "@testing-library/react": "^16.3.3",
         "kea-test-utils": "catalog:",
         "storybook": "catalog:"
     },
     "peerDependencies": {
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",

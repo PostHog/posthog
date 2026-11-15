@@ -1,0 +1,155 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Calendar-screenshot scheduling call fails with a 500",
+  "scenario": "A Vercel AI SDK interview-scheduling agent asks gpt-5-mini to read a screenshot of a candidate's calendar and pick open 45-minute slots next week, but the call fails end to end with an upstream 500 error from OpenAI before any slots are returned.",
+  "summary": {
+    "events": {
+      "$ai_span": 1,
+      "$ai_trace": 1,
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 3,
+    "libs": [
+      "opentelemetry/vercel-ai"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "gpt-5-mini"
+    ],
+    "content_types": [
+      "blob",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_error": "Error: 500 Internal Server Error from the OpenAI API while processing the image input for this request. The vision model backend was temporarily unavailable when this call was made.",
+        "$ai_http_status": 500,
+        "$ai_ingestion_source": "otel",
+        "$ai_is_error": true,
+        "$ai_parent_id": "8163e39c519a53ee",
+        "$ai_span_id": "ba0a32be11ca9431",
+        "$ai_trace_id": "52665a423d65c293b6b5e660addc9358",
+        "$geoip_disable": true,
+        "service.name": "sched0",
+        "$ai_span_name": "step 1",
+        "$ai_latency": 0.668316017,
+        "posthog_distinct_id": "c7113e95-c403-77c8-c187-7c0785d50da1",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel"
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_error": "Error: 500 Internal Server Error from the OpenAI API while processing the image input for this request. The vision model backend was temporarily unavailable when this call was made.",
+        "$ai_http_status": 500,
+        "$ai_ingestion_source": "otel",
+        "$ai_is_error": true,
+        "$ai_span_id": "8163e39c519a53ee",
+        "$ai_trace_id": "52665a423d65c293b6b5e660addc9358",
+        "$geoip_disable": true,
+        "gen_ai.agent.name": "interview-scheduling-agent",
+        "service.name": "sched0",
+        "$ai_provider": "openai",
+        "$ai_span_name": "schedule_interview_slot",
+        "$ai_model": "gpt-5-mini",
+        "$ai_latency": 0.66866811,
+        "posthog_distinct_id": "c7113e95-c403-77c8-c187-7c0785d50da1",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "You read a screenshot of the candidate's calendar and identify open\nslots that could work for a 45-minute interview next week.\n\nOnly report slots that are clearly free and at least 45 minutes long.\nState each slot with its day and time, in the calendar's own time zone. Please retry once the upstream provider recovers. Please retry once the upstream provider recovers. Please retry once the upstream provider recovers."
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "blob",
+                "modality": "image",
+                "mime_type": "image/png",
+                "content": "base64-calendar-screenshot"
+              },
+              {
+                "type": "text",
+                "content": "Which of these open slots on my calendar work for the interview?"
+              }
+            ]
+          }
+        ],
+        "$ai_input_state": {
+          "role": "user",
+          "parts": [
+            {
+              "type": "blob",
+              "modality": "image",
+              "mime_type": "image/png",
+              "content": "base64-calendar-screenshot"
+            },
+            {
+              "type": "text",
+              "content": "Which of these open slots on my calendar work for the interview?"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 19,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_error": "Error: 500 Internal Server Error from the OpenAI API while processing the image input for this request. The vision model backend was temporarily unavailable when this call was made.",
+        "$ai_http_status": 500,
+        "$ai_ingestion_source": "otel",
+        "$ai_is_error": true,
+        "$ai_parent_id": "ba0a32be11ca9431",
+        "$ai_span_id": "9ddcdd68b14fbd8a",
+        "$ai_trace_id": "52665a423d65c293b6b5e660addc9358",
+        "$geoip_disable": true,
+        "service.name": "sched0",
+        "$ai_provider": "openai",
+        "$ai_span_name": "read-screenshot",
+        "$ai_model": "gpt-5-mini",
+        "$ai_latency": 0.646841522,
+        "posthog_distinct_id": "c7113e95-c403-77c8-c187-7c0785d50da1",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_input": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "blob",
+                "modality": "image",
+                "mime_type": "image/png",
+                "content": "base64-calendar-screenshot"
+              },
+              {
+                "type": "text",
+                "content": "Which of these open slots on my calendar work for the interview?"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

@@ -116,6 +116,20 @@ describe('getSurveyWithTranslatedContent', () => {
         expect(translatedSurvey.appearance?.backButtonText).toBe('Retour')
     })
 
+    it.each(['introScreenHeader', 'introScreenDescription', 'introScreenButtonText'] as const)(
+        'applies the %s translation to the appearance',
+        (field) => {
+            const survey = createSurvey()
+            survey.appearance = { ...survey.appearance, displayIntroScreen: true, [field]: 'Welcome' }
+            survey.translations = { fr: { ...survey.translations?.fr, [field]: 'Bienvenue' } }
+
+            const translatedSurvey = getSurveyWithTranslatedContent(survey, 'fr')
+
+            expect(translatedSurvey.appearance?.[field]).toBe('Bienvenue')
+            expect(translatedSurvey.appearance?.displayIntroScreen).toBe(true)
+        }
+    )
+
     it('returns the original survey when the language has no root translation', () => {
         const survey = createSurvey()
 

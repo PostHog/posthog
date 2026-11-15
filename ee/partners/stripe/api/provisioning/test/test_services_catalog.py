@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from ee.partners.stripe.api.provisioning.constants import (
     ANALYTICS_SERVICE_ID,
@@ -19,7 +19,7 @@ def _billing_response(products: list[dict]) -> MagicMock:
     return res
 
 
-class TestServicesCatalog(TestCase):
+class TestServicesCatalog(SimpleTestCase):
     def setUp(self):
         super().setUp()
         cache.clear()

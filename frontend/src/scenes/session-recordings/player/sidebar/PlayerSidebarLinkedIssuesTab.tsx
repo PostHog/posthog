@@ -87,6 +87,7 @@ export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
 
     const renderIssueLink = (reference: SessionRecordingExternalReference): JSX.Element => (
         <Link
+            data-attr="linked-issues-open-external"
             key={reference.id}
             to={reference.external_url}
             target="_blank"
@@ -169,6 +170,7 @@ function CreateIssueButton({
     if (integrations.length === 0) {
         return (
             <Link
+                data-attr="linked-issues-configure-integrations"
                 to={urls.replaySettings('replay-integrations')}
                 buttonProps={{ variant: 'panel', fullWidth: true, menuItem: true }}
                 tooltip="Configure integrations"

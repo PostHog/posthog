@@ -1,5 +1,6 @@
 from copy import deepcopy
 from typing import Any
+from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -15,11 +16,13 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.facade.api import (
     _redact_unchanged_encrypted_payloads,
     _roll_out_variant,
     archive_flag,
+    clear_feature_enrollment,
     create_flag,
     flag_disable_requires_approval,
     set_flag_active,
@@ -28,8 +31,10 @@ from products.feature_flags.backend.facade.api import (
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import (
+    _leads_with_unconditional_rollout,
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
+    reachable_conditions,
     replace_release_conditions,
     replace_variant_distribution,
     restrict_groups_to_cohort,
@@ -38,9 +43,19 @@ from products.feature_flags.backend.facade.filters import (
     set_holdout,
     set_release_condition_rollout,
     strip_group_cohort_restriction,
+    without_payloads,
 )
-from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, HoldoutRef, experiment_rule_from_filters
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.facade.rules import (
+    ExperimentRuleConfig,
+    ExperimentRuleError,
+    HoldoutRef,
+    experiment_rule_from_filters,
+    experiment_rule_from_snapshot,
+    experiment_rule_ids,
+    experiment_rule_snapshot,
+    same_rule_id,
+)
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, build_scheduled_change_serializer_data
 
 
 class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
@@ -76,18 +91,33 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         assert flag.archived is True
         assert flag.active is False
 
-    def test_flag_disable_requires_approval_reflects_policy(self):
-        assert flag_disable_requires_approval(self.team) is False
+    @parameterized.expand(
+        [
+            ("no_policy", False, False, None, False),
+            ("flag_policy_on_a_standalone_flag", False, False, "feature_flag.disable", True),
+            ("flag_policy_on_an_experiment_flag_before_scoping", True, False, "feature_flag.disable", True),
+            ("pause_policy_on_an_experiment_flag_after_scoping", True, True, "experiment.pause", True),
+            ("flag_policy_on_an_experiment_flag_after_scoping", True, True, "feature_flag.disable", False),
+        ]
+    )
+    def test_flag_disable_requires_approval_reads_the_governing_policy(
+        self, _name: str, owned_by_experiment: bool, scoped_by_owner: bool, action_key: str | None, expected: bool
+    ) -> None:
+        flag = self._create_flag(active=True)
+        if owned_by_experiment:
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="Owner")
+        if action_key is not None:
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=self.team,
+                action_key=action_key,
+                conditions={},
+                approver_config={"quorum": 1, "users": [self.user.id]},
+                created_by=self.user,
+            )
 
-        ApprovalPolicy.objects.create(
-            organization=self.organization,
-            team=self.team,
-            action_key="feature_flag.disable",
-            conditions={},
-            approver_config={"quorum": 1, "users": [self.user.id]},
-            created_by=self.user,
-        )
-        assert flag_disable_requires_approval(self.team) is True
+        with patch("products.approvals.backend.coverage.scope_by_owner_enabled", return_value=scoped_by_owner):
+            assert flag_disable_requires_approval(flag.id, team=self.team) is expected
 
     def test_archive_active_flag_without_disable_is_rejected(self):
         flag = self._create_flag(active=True)
@@ -619,12 +649,16 @@ class TestEarlyAccessFeatureSystemWrites(APIBaseTest):
     # writes, so they must succeed untouched by any enabled flag approval policy.
     @parameterized.expand(
         [
-            ("destroy", "delete", status.HTTP_204_NO_CONTENT),
-            ("demote_to_concept", "patch", status.HTTP_200_OK),
+            ("destroy", "delete", status.HTTP_204_NO_CONTENT, False),
+            ("demote_to_concept", "patch", status.HTTP_200_OK, False),
+            ("destroy_with_invalid_stored_filters", "delete", status.HTTP_204_NO_CONTENT, True),
+            ("demote_with_invalid_stored_filters", "patch", status.HTTP_200_OK, True),
         ]
     )
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-    def test_destroy_and_demote_never_require_approval(self, _name, method, expected_status, _mock_enabled):
+    def test_destroy_and_demote_never_require_approval(
+        self, _name, method, expected_status, invalid_stored_filters, _mock_enabled
+    ):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={"name": "Gated feature", "stage": "beta"},
@@ -633,6 +667,16 @@ class TestEarlyAccessFeatureSystemWrites(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         feature_id = response.json()["id"]
         flag = FeatureFlag.objects.get(team=self.team, key="gated-feature")
+        if invalid_stored_filters:
+            # The person property carries no "key" on purpose: that is what fails validation and
+            # drives cleanup onto the raw fallback. Adding one turns these into gated-write cases.
+            FeatureFlag.objects.filter(pk=flag.pk).update(
+                filters={
+                    "groups": [{"properties": [{"value": "ok", "type": "person"}], "rollout_percentage": 100}],
+                    "feature_enrollment": True,
+                }
+            )
+            flag.refresh_from_db()
         assert flag.has_feature_enrollment
 
         self.organization.available_product_features = [
@@ -660,6 +704,24 @@ class TestEarlyAccessFeatureSystemWrites(APIBaseTest):
         flag = FeatureFlag.objects.get(pk=flag.pk)
         assert not flag.has_feature_enrollment
         assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+    def test_enrollment_clears_on_a_soft_deleted_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Trashed feature", "stage": "beta"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        feature_id = response.json()["id"]
+        flag = FeatureFlag.objects.get(team=self.team, key="trashed-feature")
+        assert flag.has_feature_enrollment
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk)
+        assert not flag.has_feature_enrollment
 
 
 class TestSetFeatureEnrollment:
@@ -900,6 +962,46 @@ class TestReleaseConditionTransforms:
         assert filters["groups"][0]["properties"][0]["key"] == "old"  # input not mutated
 
 
+EVERYONE: dict[str, Any] = {"properties": [], "rollout_percentage": 100}
+STAFF: dict[str, Any] = {
+    "properties": [{"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}],
+    "rollout_percentage": 100,
+}
+
+
+class TestReachableConditions:
+    @parameterized.expand(
+        [
+            ("person_catch_all_ends_the_evaluation", [EVERYONE, STAFF], False, (0,)),
+            ("absent_rollout_reads_as_full", [{"properties": []}, STAFF], False, (0,)),
+            ("condition_at_zero_serves_nobody", [{**STAFF, "rollout_percentage": 0}, EVERYONE], False, (1,)),
+            ("partial_catch_all_continues", [{**EVERYONE, "rollout_percentage": 50}, STAFF], False, (0, 1)),
+            ("partial_catch_all_ends_with_early_exit", [{**EVERYONE, "rollout_percentage": 50}, STAFF], True, (0,)),
+            ("zero_catch_all_ends_with_early_exit", [{**EVERYONE, "rollout_percentage": 0}, EVERYONE], True, ()),
+            (
+                "group_catch_all_ends_only_its_group_type",
+                [{**EVERYONE, "aggregation_group_type_index": 0}, STAFF],
+                False,
+                (0, 1),
+            ),
+            (
+                "condition_of_an_ended_group_type_is_skipped",
+                [
+                    {**EVERYONE, "aggregation_group_type_index": 0},
+                    {**EVERYONE, "aggregation_group_type_index": 0},
+                    STAFF,
+                ],
+                False,
+                (0, 2),
+            ),
+        ]
+    )
+    def test_reachable_conditions(
+        self, _name: str, conditions: list[dict[str, Any]], early_exit: bool, expected: tuple[int, ...]
+    ) -> None:
+        assert reachable_conditions(conditions, flag_aggregation=None, early_exit=early_exit) == expected
+
+
 class TestExperimentRuleFromFilters:
     @parameterized.expand(
         [
@@ -1007,3 +1109,302 @@ class TestExperimentRuleFromFilters:
         with pytest.raises(ConfigFormatError) as exc_info:
             experiment_rule_from_filters(filters)
         assert exc_info.value.config_format.kind == expected_kind
+
+
+EXPERIMENT_RULE_ID = "d3e4f5a6-b7c8-4d9e-a0f1-2b3c4d5e6f70"
+RELEASE_RULE_ID = "3f3b7a9e-8f2e-4f4b-9c7d-2a1e5b6c8d90"
+
+
+def _v2_document(**experiment_rule_overrides: Any) -> dict[str, Any]:
+    return {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "off",
+        "aggregation_group_type_index": 1,
+        "rules": [
+            {"id": RELEASE_RULE_ID, "rule_type": "targeted_release", "targeting": {"properties": []}, "value": "on"},
+            {
+                "id": EXPERIMENT_RULE_ID,
+                "rule_type": "experiment",
+                "targeting": {"properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}]},
+                "paused": False,
+                "rollout_percentage": 80,
+                "on_rollout_miss": "continue",
+                "assignment_algorithm": "sha1_60_v1",
+                "seed": "7c9e6f82-1a2b-4c3d-9e8f-5a6b7c8d9e0f",
+                "variants": [
+                    {"key": "control", "weight": 33.34, "value": "off"},
+                    {"key": "test", "weight": 66.66, "value": "off"},
+                ],
+                "holdout": {"seed": "holdout-seed", "exclusion_percentage": 5},
+                **experiment_rule_overrides,
+            },
+        ],
+    }
+
+
+def _snapshot(document: dict[str, Any] | None = None, rule_id: str = EXPERIMENT_RULE_ID) -> dict[str, Any]:
+    return experiment_rule_snapshot(document or _v2_document(), rule_id, flag_id=7, flag_key="checkout", flag_version=3)
+
+
+class TestExperimentRuleSnapshot:
+    def test_snapshot_holds_the_rule_as_stored_and_the_flag_context(self) -> None:
+        document = _v2_document()
+
+        snapshot = _snapshot(document)
+
+        assert snapshot == {
+            "flag": {
+                "id": 7,
+                "key": "checkout",
+                "version": 3,
+                "return_type": "string",
+                "default_value": "off",
+                "aggregation_group_type_index": 1,
+            },
+            "rule": document["rules"][1],
+        }
+        assert snapshot["rule"] is not document["rules"][1]
+
+    def test_rule_config_reads_weights_as_the_split_and_the_rule_local_holdout(self) -> None:
+        assert experiment_rule_from_snapshot(_snapshot()) == ExperimentRuleConfig(
+            variants=[
+                {"key": "control", "rollout_percentage": 33.34},
+                {"key": "test", "rollout_percentage": 66.66},
+            ],
+            rollout_percentage=80,
+            assign_variant_by=1,
+            holdout=HoldoutRef(id=None, exclusion_percentage=5),
+            rule_id=EXPERIMENT_RULE_ID,
+            flag_key="checkout",
+        )
+
+    def test_rule_ids_lists_the_experiment_rules_only(self) -> None:
+        assert experiment_rule_ids(_v2_document()) == [EXPERIMENT_RULE_ID]
+
+    @parameterized.expand(
+        [
+            ("unknown_rule", "00000000-0000-4000-8000-000000000000", "has no rule with the ID"),
+            ("rule_of_another_type", RELEASE_RULE_ID, "is not an experiment rule"),
+            ("not_a_uuid", "checkout", "has no rule with the ID"),
+        ]
+    )
+    def test_snapshot_refuses_a_rule_that_is_not_an_experiment_rule_of_the_document(
+        self, _name: str, rule_id: str, message: str
+    ) -> None:
+        with pytest.raises(ExperimentRuleError, match=message):
+            _snapshot(rule_id=rule_id)
+
+    @parameterized.expand(
+        [
+            ("one_variant", {"variants": [{"key": "control", "weight": 100, "value": "off"}]}),
+            (
+                "variant_without_weight",
+                {"variants": [{"key": "control", "value": "off"}, {"key": "test", "value": "on"}]},
+            ),
+            ("variant_with_boolean_weight", {"variants": [{"key": "a", "weight": True}, {"key": "b", "weight": 50}]}),
+            ("variant_without_key", {"variants": [{"weight": 50}, {"key": "b", "weight": 50}]}),
+            ("no_rollout_percentage", {"rollout_percentage": None}),
+            ("holdout_without_percentage", {"holdout": {"seed": "holdout-seed"}}),
+        ]
+    )
+    def test_snapshot_refuses_a_rule_it_cannot_read_in_full(self, _name: str, overrides: dict[str, Any]) -> None:
+        with pytest.raises(ExperimentRuleError):
+            _snapshot(_v2_document(**overrides))
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("not_an_object", "snapshot"),
+            ("no_rule", {"flag": {}}),
+            ("no_flag", {"rule": {"id": EXPERIMENT_RULE_ID, "rule_type": "experiment"}}),
+            (
+                "rule_of_another_type",
+                {"flag": {}, "rule": {"id": RELEASE_RULE_ID, "rule_type": "targeted_release", "value": "on"}},
+            ),
+            (
+                "aggregation_that_is_no_index",
+                {**_snapshot(), "flag": {**_snapshot()["flag"], "aggregation_group_type_index": "1"}},
+            ),
+            ("no_flag_key", {**_snapshot(), "flag": {**_snapshot()["flag"], "key": None}}),
+        ]
+    )
+    def test_reader_refuses_a_snapshot_that_is_not_one(self, _name: str, snapshot: object) -> None:
+        with pytest.raises(ExperimentRuleError):
+            experiment_rule_from_snapshot(snapshot)
+
+    @parameterized.expand(
+        [
+            ("v1_document", {"groups": [{"properties": [], "rollout_percentage": 40}]}, "v1"),
+            ("unsupported_document", {"version": 3, "rules": []}, "unsupported"),
+        ]
+    )
+    def test_only_a_config_version_2_document_has_rules(self, _name: str, filters: dict, expected_kind: str) -> None:
+        for read in (experiment_rule_ids, lambda document: _snapshot(document)):
+            with pytest.raises(ConfigFormatError) as exc_info:
+                read(filters)
+            assert exc_info.value.config_format.kind == expected_kind
+
+    @parameterized.expand(
+        [
+            ("same_spelling", EXPERIMENT_RULE_ID, EXPERIMENT_RULE_ID, True),
+            ("upper_case", EXPERIMENT_RULE_ID, EXPERIMENT_RULE_ID.upper(), True),
+            ("uuid_object", EXPERIMENT_RULE_ID, UUID(EXPERIMENT_RULE_ID), True),
+            ("other_rule", EXPERIMENT_RULE_ID, RELEASE_RULE_ID, False),
+            ("not_a_uuid", "checkout", "checkout", False),
+            ("none", None, EXPERIMENT_RULE_ID, False),
+        ]
+    )
+    def test_same_rule_id(self, _name: str, stored: object, wanted: object, expected: bool) -> None:
+        assert same_rule_id(stored, wanted) is expected
+
+
+V1_GROUPS = [{"properties": [], "rollout_percentage": 40}]
+UNSUPPORTED_DOCUMENTS = [
+    ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}),
+    ("v2_discriminator_over_v1_keys", {"version": 2, "groups": V1_GROUPS}),
+    ("string_discriminator", {"version": "1", "groups": V1_GROUPS}),
+    ("boolean_discriminator", {"version": True, "groups": V1_GROUPS}),
+    ("null_discriminator", {"version": None, "groups": V1_GROUPS}),
+    ("unknown_future_version", {"version": 3, "groups": V1_GROUPS}),
+]
+ACCESSORS = (
+    "conditions",
+    "has_feature_enrollment",
+    "holdout",
+    "aggregation_group_type_index",
+    "variants",
+    "uses_cohorts",
+)
+
+
+class TestModelAccessorsRequireV1:
+    @parameterized.expand(UNSUPPORTED_DOCUMENTS)
+    def test_accessors_raise_instead_of_reading_an_empty_v1_flag(self, _name, filters):
+        flag = FeatureFlag(filters=filters)
+        for accessor in ACCESSORS:
+            with pytest.raises(ConfigFormatError):
+                getattr(flag, accessor)
+        with pytest.raises(ConfigFormatError):
+            flag.get_payload("true")
+        assert flag.is_eligible_for_experiment is False
+        assert flag.get_analytics_metadata() == {
+            "created_at": flag.created_at,
+            "config_format": "v2" if filters.get("version") == 2 else "unsupported",
+        }
+
+    @parameterized.expand(
+        [
+            ("empty", {}, [], [], None, None, False),
+            ("explicit_version_1", {"version": 1, "groups": V1_GROUPS}, V1_GROUPS, [], None, None, False),
+            ("null_groups", {"groups": None}, [], [], None, None, False),
+            ("null_multivariate", {"multivariate": None}, [], [], None, None, False),
+            ("null_variants", {"multivariate": {"variants": None}}, [], [], None, None, False),
+            ("null_payloads_and_enrollment", {"payloads": None, "feature_enrollment": None}, [], [], None, None, False),
+            (
+                "full_shape",
+                {
+                    "groups": V1_GROUPS,
+                    "multivariate": {"variants": [{"key": "a", "rollout_percentage": 100}]},
+                    "payloads": {"a": "1"},
+                    "holdout": {"id": 7},
+                    "aggregation_group_type_index": 2,
+                    "feature_enrollment": True,
+                },
+                V1_GROUPS,
+                [{"key": "a", "rollout_percentage": 100}],
+                {"id": 7},
+                2,
+                True,
+            ),
+        ]
+    )
+    def test_v1_shapes_keep_their_values(self, _name, filters, conditions, variants, holdout, index, enrolled):
+        flag = FeatureFlag(filters=filters)
+        assert flag.conditions == conditions
+        assert flag.variants == variants
+        assert flag.holdout == holdout
+        assert flag.aggregation_group_type_index == index
+        assert flag.has_feature_enrollment is enrolled
+        assert flag.get_payload("a") == (filters.get("payloads") or {}).get("a")
+        assert flag.get_analytics_metadata()["groups_count"] == len(conditions)
+
+
+class TestGetCohortIdsReadsEitherFormat:
+    @parameterized.expand([(name, filters) for name, filters in UNSUPPORTED_DOCUMENTS if name != "v2_document"])
+    def test_rejects_documents_in_no_readable_format(self, _name, filters):
+        with pytest.raises(ConfigFormatError):
+            FeatureFlag(filters=filters).get_cohort_ids()
+
+    def test_reads_a_v2_document(self):
+        filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        assert FeatureFlag(filters=filters).get_cohort_ids() == []
+
+    def test_a_non_integer_cohort_id_raises_in_v1_and_is_skipped_in_v2(self):
+        prop = {"key": "id", "type": "cohort", "value": "abc"}
+        with pytest.raises(ValueError):
+            FeatureFlag(filters={"groups": [{"properties": [prop]}]}).get_cohort_ids()
+        rule = {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {"properties": [prop]},
+            "value": True,
+        }
+        filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": [rule]}
+        assert FeatureFlag(filters=filters).get_cohort_ids() == []
+
+
+class TestScheduledChangeBuilderRequiresV1:
+    @parameterized.expand(UNSUPPORTED_DOCUMENTS)
+    def test_v1_merges_fail_closed_and_status_changes_do_not_read_the_document(self, _name, filters):
+        flag = FeatureFlag(filters=filters)
+        for payload in (
+            {"operation": "add_release_condition", "value": {"groups": V1_GROUPS}},
+            {"operation": "update_variants", "value": {"variants": []}},
+        ):
+            with pytest.raises(ConfigFormatError):
+                build_scheduled_change_serializer_data(flag, payload)
+        assert build_scheduled_change_serializer_data(flag, {"operation": "update_status", "value": True}) == {
+            "active": True
+        }
+
+
+TRANSFORMS = [
+    ("restrict_groups_to_cohort", lambda filters: restrict_groups_to_cohort(filters, 42, **MARKER_KWARGS)),
+    ("strip_group_cohort_restriction", lambda filters: strip_group_cohort_restriction(filters, **MARKER_KWARGS)),
+    ("groups_carry_restriction_marker", lambda filters: groups_carry_restriction_marker(filters, marker_key="m")),
+    ("replace_variant_distribution", lambda filters: replace_variant_distribution(filters, [])),
+    ("replace_release_conditions", lambda filters: replace_release_conditions(filters, [])),
+    ("set_holdout", lambda filters: set_holdout(filters, holdout_id=None, exclusion_percentage=None)),
+    ("set_feature_enrollment", lambda filters: set_feature_enrollment(filters, True)),
+    ("group_cohort_restriction_blocker", group_cohort_restriction_blocker),
+    ("set_release_condition_rollout", lambda filters: set_release_condition_rollout(filters, 0, 10)),
+    ("_leads_with_unconditional_rollout", _leads_with_unconditional_rollout),
+    ("roll_out_to_everyone", roll_out_to_everyone),
+    ("without_payloads", without_payloads),
+]
+
+
+class TestFilterTransformsRequireV1:
+    @parameterized.expand(
+        [
+            (f"{transform_name}_{document_name}", transform, filters)
+            for transform_name, transform in TRANSFORMS
+            for document_name, filters in UNSUPPORTED_DOCUMENTS
+        ]
+    )
+    def test_transforms_raise_before_copying(self, _name, transform, filters):
+        pristine = deepcopy(filters)
+        with pytest.raises(ConfigFormatError):
+            transform(filters)
+        assert filters == pristine
+
+
+class TestClearFeatureEnrollmentRequiresV1(APIBaseTest):
+    @parameterized.expand(UNSUPPORTED_DOCUMENTS)
+    def test_refuses_before_either_write(self, _name, filters):
+        flag = FeatureFlag.objects.create(team=self.team, key="other-format", filters=filters, version=2)
+        with pytest.raises(ConfigFormatError):
+            clear_feature_enrollment(flag.id, team=self.team)
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (filters, 2)

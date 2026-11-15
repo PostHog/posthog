@@ -363,14 +363,16 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.checksStatus).toEqual(expectedStatus)
     })
 
-    it('does not claim every check passed when the checks fill the page', async () => {
+    it('does not claim every check passed when the checks fill the page, and says the list is cut short', async () => {
         ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
+            count: 742,
             results: Array.from({ length: 500 }, (_, index) => buildCheck(`check-${index}`, 'orders', 'passed')),
         })
         ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
         await mountLogic()
 
         expect(logic.values.checksStatus).toEqual('unknown')
+        expect(logic.values.checksTruncated).toBe(true)
     })
 
     it('sends no ids when running everything', async () => {
@@ -413,16 +415,21 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.runningSubjectKey).toEqual('view:uuid-orders')
     })
 
-    it('offers a retry instead of a toast when a run cannot start', async () => {
+    it('offers a retry instead of a toast when a run cannot start, and retries the same checks', async () => {
         ;(dataQualityRunsCreate as jest.Mock).mockRejectedValue(new Error('down'))
         await mountLogic()
 
-        logic.actions.runChecks({ kind: 'all' })
+        logic.actions.runChecks({ kind: 'all' }, ['check-1', 'check-2'])
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.runError).toEqual("Couldn't run checks.")
         expect(logic.values.startingRun).toBe(false)
         expect(logic.values.runningSubjectKey).toBeNull()
+
+        logic.actions.retryRun()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityRunsCreate).toHaveBeenLastCalledWith('1', { check_ids: ['check-1', 'check-2'] })
     })
 
     it('removes a deleted check and refreshes the snapshot', async () => {
@@ -516,15 +523,27 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.isRunning).toBe(false)
     })
 
-    it.each<[string, Record<string, string>[], string | null]>([
+    it.each<[string, Record<string, string | boolean>[], string | null, boolean]>([
         // Retention clears the compiled query of older runs first, so "latest" is not always [0].
         [
             'the newest run that still has one',
             [{ compiled_query: 'SELECT 2' }, { compiled_query: 'SELECT 1' }],
             'SELECT 2',
+            false,
         ],
-        ['past runs whose query was cleared', [{ compiled_query: '' }, { compiled_query: 'SELECT 1' }], 'SELECT 1'],
-    ])('opens the failing rows of %s', async (_case, runs, expected) => {
+        [
+            'past runs whose query was cleared',
+            [{ compiled_query: '' }, { compiled_query: 'SELECT 1' }],
+            'SELECT 1',
+            false,
+        ],
+        [
+            'a run that checked an unpublished refresh',
+            [{ compiled_query: 'WITH orders AS (SELECT 1) SELECT * FROM orders', audited_staged_refresh: true }],
+            'WITH orders AS (SELECT 1) SELECT * FROM orders',
+            true,
+        ],
+    ])('opens the failing rows of %s', async (_case, runs, expected, explained) => {
         ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue(runs)
         await mountLogic()
 
@@ -533,11 +552,16 @@ describe('dataQualityOverviewLogic', () => {
 
         expect(router.values.location.pathname).toMatch(/\/sql$/)
         expect(router.values.searchParams.open_query).toEqual(expected)
+        expect(lemonToast.info).toHaveBeenCalledTimes(explained ? 1 : 0)
     })
 
-    it.each<[string, Record<string, string>[]]>([
+    it.each<[string, Record<string, string | boolean>[]]>([
         ['the check has never run', []],
         ['every run has lost its query to retention', [{ compiled_query: '' }]],
+        [
+            'the newest run checked an unpublished refresh but has no query',
+            [{ compiled_query: '', audited_staged_refresh: true }, { compiled_query: 'SELECT 1' }],
+        ],
     ])('says why there is nothing to open when %s', async (_case, runs) => {
         ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue(runs)
         await mountLogic()
@@ -550,7 +574,7 @@ describe('dataQualityOverviewLogic', () => {
     })
 
     it.each<[string, Partial<DataQualityOverviewCheckApi>, string | null]>([
-        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/tests'],
+        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/data-quality'],
         ['a view on no DAG', { subject_type: 'view', subject_node_id: null }, null],
         [
             'a PostHog table on a DAG node',
@@ -561,7 +585,7 @@ describe('dataQualityOverviewLogic', () => {
         [
             'a metric',
             { subject_type: 'metric', subject_metric_name: 'weekly_signups' },
-            '/data-catalog/metrics/weekly_signups?tab=tests',
+            '/data-catalog/metrics/weekly_signups?tab=data-quality',
         ],
         ['a deleted metric', { subject_type: 'metric', subject_metric_name: null }, null],
         [
@@ -577,7 +601,7 @@ describe('dataQualityOverviewLogic', () => {
         [
             'a metric on its catalog page',
             { subject_type: 'metric', subject_uuid: 'uuid-metric', subject_metric_name: 'signups' },
-            '/data-catalog/metrics/signups?tab=tests',
+            '/data-catalog/metrics/signups?tab=data-quality',
         ],
         [
             'a metric whose name did not come through',

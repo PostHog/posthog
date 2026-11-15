@@ -5,7 +5,12 @@ import { ApiConfig } from 'lib/api'
 
 import { engineeringAnalyticsAuthorFriction } from '../generated/api'
 import type { AuthorFrictionApi, AuthorFrictionListApi } from '../generated/api.schemas'
-import { LoaderStatus, engineeringAnalyticsLogic, loaderStatusFromError } from './engineeringAnalyticsLogic'
+import {
+    LoaderStatus,
+    awaitsRepoForward,
+    engineeringAnalyticsLogic,
+    loaderStatusFromError,
+} from './engineeringAnalyticsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -150,6 +155,8 @@ export const authorFrictionLogic = kea<authorFrictionLogicType>([
         refresh: () => actions.loadFriction(),
     })),
     afterMount(({ actions }) => {
-        actions.loadFriction()
+        if (!awaitsRepoForward()) {
+            actions.loadFriction()
+        }
     }),
 ])

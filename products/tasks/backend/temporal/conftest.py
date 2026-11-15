@@ -1,19 +1,29 @@
 import os
+import re
 import time
 import random
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import pytest
+from unittest.mock import patch
 
+import responses
 from temporalio.testing import ActivityEnvironment
 
+from posthog.constants import AvailableFeature
 from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
+from posthog.temporal.tests.utils.logger import restored_structlog_config
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
 from products.tasks.backend.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+
+if TYPE_CHECKING:
+    from pytest_django.fixtures import Settings
 
 
 def _runs_on_internal_pr() -> bool:
@@ -27,6 +37,30 @@ def _runs_on_internal_pr() -> bool:
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
     return ActivityEnvironment()
+
+
+@pytest.fixture
+def sandbox_ai_gateway(settings: "Settings", organization: Organization) -> Iterator[None]:
+    settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_code"
+    settings.SANDBOX_AI_GATEWAY_MINT_KEY = "phs_test_mint"
+    organization.available_product_features = [
+        {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Code usage"}
+    ]
+    organization.save(update_fields=["available_product_features"])
+
+    with (
+        responses.RequestsMock(assert_all_requests_are_fired=False) as gateway,
+        patch("posthoganalytics.get_feature_flag_payload", return_value=None),
+    ):
+        # The Modal integration tests still use real sandboxes; only the gateway is fake.
+        gateway.add_passthru(re.compile(r"^(?!https://ai-gateway\.example\.com(?:/|$))"))
+        gateway.post(
+            "https://ai-gateway.example.com/v1/tokens",
+            json={"token": "phe_test_sandbox"},
+            status=201,
+        )
+        yield
 
 
 @pytest.fixture
@@ -130,7 +164,11 @@ def github_integration(team):
         sensitive_config={"access_token": "fake_token"},
     )
 
-    yield integration
+    # The fake installation must not call GitHub when minting scoped tokens either.
+    with patch(
+        "posthog.models.integration.GitHubIntegration.mint_scoped_installation_token", return_value="fake_token"
+    ):
+        yield integration
 
     integration.delete()
 
@@ -195,9 +233,11 @@ def snapshot_context(github_integration, team) -> SnapshotContext:
 
 
 @pytest.fixture(autouse=True)
-def configure_logger_auto() -> None:
+def configure_logger_auto() -> Iterator[None]:
     """Configure logger when running in a Temporal activity environment."""
-    configure_logger(cache_logger_on_first_use=False)
+    with restored_structlog_config():
+        configure_logger(cache_logger_on_first_use=False)
+        yield
 
 
 def get_or_create_test_snapshots(github_integration):

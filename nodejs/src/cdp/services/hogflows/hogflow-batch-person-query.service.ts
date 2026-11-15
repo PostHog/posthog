@@ -1,4 +1,4 @@
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -6,6 +6,7 @@ import { logger, serializeError } from '~/common/utils/logger'
 import { Team } from '~/types'
 
 import { HogFunctionFilters } from '../../types'
+import { isTimeoutError } from '../../utils/cdp-fetch'
 
 export interface BlastRadiusResponse {
     users_affected: number
@@ -16,6 +17,12 @@ export interface BlastRadiusPersonsResponse {
     users_affected: Array<string>
     cursor: string | null
     has_more: boolean
+}
+
+export interface AudienceSnapshotResponse {
+    status: 'resolving' | 'ready' | 'failed'
+    audience_size: number | null
+    error: string | null
 }
 
 export interface AccountAudienceResponse {
@@ -31,7 +38,20 @@ const counterAudienceFetchTimeout = new Counter({
     labelNames: ['endpoint'],
 })
 
-export type AudienceFetchEndpoint = 'user_blast_radius' | 'user_blast_radius_persons' | 'account_audience'
+// Bucket edges sit around the fetch budget; instrumented_function_duration_seconds jumps from 25.6s to 102.4s.
+const histogramAudienceFetchDuration = new Histogram({
+    name: 'cdp_batch_hog_flow_audience_fetch_duration_seconds',
+    help: 'Wall time of one audience fetch for a batch hog flow, from request to response body read',
+    labelNames: ['endpoint', 'outcome'], // success | timeout | error
+    buckets: [1, 2, 5, 10, 20, 30, 40, 50, 60, 90, 120],
+})
+
+export type AudienceFetchEndpoint =
+    | 'user_blast_radius'
+    | 'user_blast_radius_persons'
+    | 'account_audience'
+    | 'audience_snapshot'
+    | 'audience_snapshot_page'
 
 /**
  * An audience fetch used its full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget.
@@ -54,16 +74,6 @@ export class AudienceFetchTimeoutError extends Error {
     }
 }
 
-// AbortSignal.timeout rejects with a TimeoutError. undici reports some aborts as an
-// AbortError, and can wrap either one in `cause`.
-const TIMEOUT_ERROR_NAMES = ['TimeoutError', 'AbortError']
-
-const isTimeoutError = (error: unknown): boolean => {
-    const name = (error as { name?: string } | null)?.name
-    const causeName = (error as { cause?: { name?: string } } | null)?.cause?.name
-    return TIMEOUT_ERROR_NAMES.includes(name ?? '') || TIMEOUT_ERROR_NAMES.includes(causeName ?? '')
-}
-
 /**
  * Service for querying persons via Django internal API for batch HogFlow processing.
  * Calls internal endpoints authenticated with INTERNAL_API_SECRET.
@@ -80,24 +90,81 @@ export class HogFlowBatchPersonQueryService {
      * type and its own counter, because the audience query is too slow for the budget. Any
      * other transport error keeps its original type.
      */
-    private failFetch(endpoint: AudienceFetchEndpoint, urlPath: string, fetchError: Error | null): never {
+    private failFetch(
+        endpoint: AudienceFetchEndpoint,
+        urlPath: string,
+        fetchError: Error | null,
+        durationMs: number
+    ): never {
         if (isTimeoutError(fetchError)) {
             counterAudienceFetchTimeout.labels({ endpoint }).inc()
+            histogramAudienceFetchDuration.labels({ endpoint, outcome: 'timeout' }).observe(durationMs / 1000)
             logger.error('Audience fetch timed out', {
                 endpoint,
                 urlPath,
+                durationMs,
                 timeoutMs: this.audienceFetchTimeoutMs,
                 error: serializeError(fetchError),
             })
             throw new AudienceFetchTimeoutError(endpoint, this.audienceFetchTimeoutMs)
         }
 
+        histogramAudienceFetchDuration.labels({ endpoint, outcome: 'error' }).observe(durationMs / 1000)
         logger.error('Error fetching audience from Django', {
             endpoint,
             urlPath,
+            durationMs,
             error: serializeError(fetchError),
         })
         throw fetchError ?? new Error(`Audience fetch to ${endpoint} returned no response`)
+    }
+
+    private async fetchAudience<T>(
+        endpoint: AudienceFetchEndpoint,
+        urlPath: `/${string}`,
+        body: Record<string, unknown>,
+        failureLabel: string
+    ): Promise<T> {
+        const startedAt = performance.now()
+        const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
+            urlPath,
+            fetchParams: {
+                method: 'POST',
+                timeoutMs: this.audienceFetchTimeoutMs,
+                body: JSON.stringify(body),
+            },
+        })
+        const elapsedMs = (): number => Math.round(performance.now() - startedAt)
+
+        if (!fetchResponse || fetchError) {
+            this.failFetch(endpoint, urlPath, fetchError, elapsedMs())
+        }
+
+        const text = await fetchResponse.text()
+        const durationMs = elapsedMs()
+
+        if (fetchResponse.status !== 200) {
+            histogramAudienceFetchDuration.labels({ endpoint, outcome: 'error' }).observe(durationMs / 1000)
+            logger.error(`Failed to fetch ${failureLabel} from Django`, {
+                status: fetchResponse.status,
+                error: text,
+                urlPath,
+                durationMs,
+            })
+            throw new Error(`Failed to fetch ${failureLabel}: ${fetchResponse.status} ${text}`)
+        }
+
+        histogramAudienceFetchDuration.labels({ endpoint, outcome: 'success' }).observe(durationMs / 1000)
+        if (durationMs * 2 > this.audienceFetchTimeoutMs) {
+            // The histogram has no team label; the urlPath here does.
+            logger.warn('Slow audience fetch', {
+                endpoint,
+                urlPath,
+                durationMs,
+                timeoutMs: this.audienceFetchTimeoutMs,
+            })
+        }
+        return parseJSON(text) as T
     }
 
     /**
@@ -112,35 +179,12 @@ export class HogFlowBatchPersonQueryService {
         const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius` as const
 
         try {
-            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
+            return await this.fetchAudience<BlastRadiusResponse>(
+                'user_blast_radius',
                 urlPath,
-                fetchParams: {
-                    method: 'POST',
-                    timeoutMs: this.audienceFetchTimeoutMs,
-                    body: JSON.stringify({
-                        filters,
-                        group_type_index: groupTypeIndex,
-                    }),
-                },
-            })
-
-            if (!fetchResponse || fetchError) {
-                this.failFetch('user_blast_radius', urlPath, fetchError)
-            }
-
-            if (fetchResponse.status !== 200) {
-                const errorText = await fetchResponse.text()
-                logger.error('Failed to fetch blast radius from Django', {
-                    status: fetchResponse.status,
-                    error: errorText,
-                    urlPath,
-                })
-                throw new Error(`Failed to fetch blast radius: ${fetchResponse.status} ${errorText}`)
-            }
-
-            const data = parseJSON(await fetchResponse.text()) as BlastRadiusResponse
-
-            return data
+                { filters, group_type_index: groupTypeIndex },
+                'blast radius'
+            )
         } catch (error) {
             logger.error('Error calling blast radius endpoint', { error: serializeError(error), urlPath })
             throw error
@@ -163,39 +207,61 @@ export class HogFlowBatchPersonQueryService {
         const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons` as const
 
         try {
-            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
+            return await this.fetchAudience<BlastRadiusPersonsResponse>(
+                'user_blast_radius_persons',
                 urlPath,
-                fetchParams: {
-                    method: 'POST',
-                    timeoutMs: this.audienceFetchTimeoutMs,
-                    body: JSON.stringify({
-                        filters,
-                        group_type_index: groupTypeIndex,
-                        cursor: cursor || null,
-                        dedupe_key: dedupeKey ?? null,
-                    }),
+                {
+                    filters,
+                    group_type_index: groupTypeIndex,
+                    cursor: cursor || null,
+                    dedupe_key: dedupeKey ?? null,
                 },
-            })
-
-            if (!fetchResponse || fetchError) {
-                this.failFetch('user_blast_radius_persons', urlPath, fetchError)
-            }
-
-            if (fetchResponse.status !== 200) {
-                const errorText = await fetchResponse.text()
-                logger.error('Failed to fetch blast radius persons from Django', {
-                    status: fetchResponse.status,
-                    error: errorText,
-                    urlPath,
-                })
-                throw new Error(`Failed to fetch blast radius persons: ${fetchResponse.status} ${errorText}`)
-            }
-
-            const data = parseJSON(await fetchResponse.text()) as BlastRadiusPersonsResponse
-
-            return data
+                'blast radius persons'
+            )
         } catch (error) {
             logger.error('Error calling blast radius persons endpoint', { error: serializeError(error), urlPath })
+            throw error
+        }
+    }
+
+    /** The first call starts resolving the run's whole audience; later calls only report its status. */
+    async requestAudienceSnapshot(
+        team: Team,
+        batchJobId: string,
+        options: { dedupeKey?: 'email'; maxAudienceSize: number }
+    ): Promise<AudienceSnapshotResponse> {
+        const urlPath =
+            `/api/projects/${team.id}/internal/hog_flows/batch_jobs/${batchJobId}/audience_snapshot` as const
+
+        try {
+            return await this.fetchAudience<AudienceSnapshotResponse>(
+                'audience_snapshot',
+                urlPath,
+                { dedupe_key: options.dedupeKey ?? null, max_audience_size: options.maxAudienceSize },
+                'audience snapshot'
+            )
+        } catch (error) {
+            logger.error('Error calling audience snapshot endpoint', { error: serializeError(error), urlPath })
+            throw error
+        }
+    }
+
+    async getAudienceSnapshotPage(
+        team: Team,
+        batchJobId: string,
+        cursor?: string | null
+    ): Promise<BlastRadiusPersonsResponse> {
+        const urlPath = `/api/projects/${team.id}/internal/hog_flows/batch_jobs/${batchJobId}/audience_page` as const
+
+        try {
+            return await this.fetchAudience<BlastRadiusPersonsResponse>(
+                'audience_snapshot_page',
+                urlPath,
+                { cursor: cursor || null },
+                'audience snapshot page'
+            )
+        } catch (error) {
+            logger.error('Error calling audience snapshot page endpoint', { error: serializeError(error), urlPath })
             throw error
         }
     }
@@ -211,35 +277,12 @@ export class HogFlowBatchPersonQueryService {
         const urlPath = `/api/projects/${team.id}/internal/hog_flows/account_audience` as const
 
         try {
-            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
+            return await this.fetchAudience<AccountAudienceResponse>(
+                'account_audience',
                 urlPath,
-                fetchParams: {
-                    method: 'POST',
-                    timeoutMs: this.audienceFetchTimeoutMs,
-                    body: JSON.stringify({
-                        filters,
-                        cursor: cursor || null,
-                    }),
-                },
-            })
-
-            if (!fetchResponse || fetchError) {
-                this.failFetch('account_audience', urlPath, fetchError)
-            }
-
-            if (fetchResponse.status !== 200) {
-                const errorText = await fetchResponse.text()
-                logger.error('Failed to fetch account audience from Django', {
-                    status: fetchResponse.status,
-                    error: errorText,
-                    urlPath,
-                })
-                throw new Error(`Failed to fetch account audience: ${fetchResponse.status} ${errorText}`)
-            }
-
-            const data = parseJSON(await fetchResponse.text()) as AccountAudienceResponse
-
-            return data
+                { filters, cursor: cursor || null },
+                'account audience'
+            )
         } catch (error) {
             logger.error('Error calling account audience endpoint', { error: serializeError(error), urlPath })
             throw error

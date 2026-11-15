@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from django.conf import settings
@@ -11,6 +11,7 @@ from posthog.clickhouse.query_tagging import AccessMethod
 from posthog.query_cache.failures import Budget, FailureKind, QueryFailureCache, QueryFailureRecord
 from posthog.query_cache.freshness_index import remove_last_refresh, update_target_age
 from posthog.query_cache.metrics import count_cache_write_data
+from posthog.query_cache.read_history import record_read
 from posthog.query_cache.results import EntryFreshness, fetch_entry, fetch_entry_freshness
 from posthog.query_cache.serialization import CachedEntry, encode_split_cached_response
 from posthog.query_cache.single_flight import QuerySingleFlight
@@ -66,7 +67,9 @@ class QueryCache:
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         ttl: Optional[int] = None,
+        failure_cache: Optional[QueryFailureCache] = None,
     ) -> None:
+        self._failure_cache = failure_cache if failure_cache is not None else QueryFailureCache(cache_key)
         self.team_id = team_id
         self.cache_key = cache_key
         self.insight_id = insight_id
@@ -76,8 +79,16 @@ class QueryCache:
     def lookup(self, *, include_failure: bool = False) -> CacheLookup:
         # The failure read is opt-in so callers that never consult the breaker (and the
         # feature-flag-off path) don't pay an extra cache roundtrip per query.
-        failure = QueryFailureCache(self.cache_key).get_open() if include_failure else None
+        failure = self._failure_cache.get_open() if include_failure else None
         return CacheLookup(entry=fetch_entry(self.cache_key, self.team_id), failure=failure)
+
+    def record_read(self) -> None:
+        try:
+            record_read(
+                team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id, at=datetime.now(UTC)
+            )
+        except Exception:
+            logger.exception("query_cache_record_read_failed", team_id=self.team_id, cache_key=self.cache_key)
 
     def freshness(self) -> Optional[EntryFreshness]:
         """Existence and last_refresh of the entry from Redis alone, without resolving S3 blobs."""
@@ -85,7 +96,7 @@ class QueryCache:
 
     def open_failure(self) -> Optional[QueryFailureRecord]:
         """The open breaker record alone, for paths that skip the result cache entirely."""
-        return QueryFailureCache(self.cache_key).get_open()
+        return self._failure_cache.get_open()
 
     def record_failure(
         self,
@@ -96,12 +107,12 @@ class QueryCache:
         cache_key: Optional[str] = None,
         query_scan: Optional[dict[str, Any]] = None,
     ) -> Optional[QueryFailureRecord]:
-        return QueryFailureCache(self.cache_key).record_failure(
+        return self._failure_cache.record_failure(
             kind, detail, budget=budget, cache_key=cache_key, query_scan=query_scan
         )
 
     def clear_failure(self) -> None:
-        QueryFailureCache(self.cache_key).clear()
+        self._failure_cache.clear()
 
     def flight(self, budget: Budget, variant: str = "") -> QuerySingleFlight:
         return QuerySingleFlight(self.cache_key, budget, variant)

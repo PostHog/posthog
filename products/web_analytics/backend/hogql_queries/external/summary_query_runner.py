@@ -1,6 +1,7 @@
 import csv
 from dataclasses import dataclass
 from datetime import datetime
+from functools import cached_property
 from io import StringIO
 from typing import Any
 
@@ -21,7 +22,6 @@ from posthog.hogql.database.schema.web_analytics_s3 import create_s3_web_bounces
 
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 
 @dataclass

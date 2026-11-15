@@ -41,7 +41,7 @@ from posthog.models import Team
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
@@ -356,6 +356,39 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="Firefox")
 
         self.assertEqual(len(result), 0)
+
+    def test_trends_element_breakdown_persons(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_event(
+            event="$autocapture",
+            distinct_id="person1",
+            timestamp="2023-05-01 12:00",
+            team=self.team,
+            elements_chain='button.btn-primary:nth-child="1"nth-of-type="1"text="Sign up";div.container:nth-child="0"nth-of-type="0"',
+        )
+        _create_event(
+            event="$autocapture",
+            distinct_id="person2",
+            timestamp="2023-05-01 12:00",
+            team=self.team,
+            elements_chain='a.nav-link:href="/pricing"nth-child="2"nth-of-type="1"text="Pricing";div.container:nth-child="0"nth-of-type="0"',
+        )
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$autocapture")],
+            dateRange=DateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(breakdown="text", breakdown_type=BreakdownType.ELEMENT),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="Sign up")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="Pricing")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
 
     def test_trends_person_breakdown_persons(self):
         self._create_events()
@@ -1665,7 +1698,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     def test_trends_math_first_time_for_user_actions(self):
         self._create_events()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome or safari",
             steps_json=[
@@ -1696,7 +1729,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_distinct_id(result[0]), "person3")
         self.assertEqual(get_event_count(result[0]), 1)
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome and left",
             steps_json=[

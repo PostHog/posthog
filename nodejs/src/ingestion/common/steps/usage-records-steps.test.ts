@@ -43,9 +43,15 @@ describe('usage-records-steps', () => {
 
     async function queueEventUsage(
         ingested: Promise<IngestedEventInfo | null>[],
-        event: Partial<{ event: string; eventUuid: string; distinctId: string; properties: Properties }> = {},
+        event: Partial<{
+            event: string
+            eventUuid: string
+            distinctId: string
+            timestamp: string
+            properties: Properties
+        }> = {},
         personProcessing: { processPerson?: boolean; person?: Person } = {},
-        headers: { now?: Date } = {}
+        headers: { now?: Date; historical_migration?: boolean } = {}
     ): Promise<void> {
         const prepare = createRecordEventUsageStep(resolveAnalyticsUsageKey)
         const prepared = await prepare({
@@ -58,7 +64,7 @@ describe('usage-records-steps', () => {
                 properties: {},
                 ...event,
             },
-            headers,
+            headers: { historical_migration: false, ...headers },
             eventUsageBatch,
             ...personProcessing,
         })
@@ -169,20 +175,60 @@ describe('usage-records-steps', () => {
         ])
     })
 
-    it('uses trusted capture time when an event flushes six hours later', async () => {
-        const capturedAtMs = FLUSH_TIMESTAMP_MS
+    it.each([
+        ['same day', '2026-07-01T00:01:00.000Z'],
+        ['closed month', '2026-05-15T12:00:00.000Z'],
+        ['future source date', '2026-08-01T00:00:00.000Z'],
+    ])('bills receipt time and preserves the source date for %s', async (_name, timestamp) => {
+        const capturedAtMs = Date.parse('2026-07-01T23:59:00.000Z')
         jest.setSystemTime(capturedAtMs)
         await queueEventUsage(
             [Promise.resolve({ topic: 'events', partition: 0 })],
-            {},
-            {},
+            { timestamp },
+            { processPerson: true },
             { now: new Date(capturedAtMs) }
         )
 
         jest.advanceTimersByTime(6 * 60 * 60 * 1000)
         await eventUsageBatch.flush()
 
-        expect(ingestedUsage[0]).toEqual(expect.objectContaining({ timestampMs: capturedAtMs }))
+        expect(ingestedUsage.map((record) => record.usageKey)).toEqual(['events', 'enhanced_person_events'])
+        for (const record of ingestedUsage) {
+            expect(record.timestampMs).toBe(capturedAtMs)
+            expect(record.recordId).toMatch(new RegExp(`^${timestamp.slice(0, 10)}:[0-9a-f]{32}$`))
+        }
+    })
+
+    it.each([
+        ['$ai_generation', 'ai_events'],
+        ['survey sent', 'survey_responses'],
+    ])('keeps %s billable when the analytics migration header is set', async (event, usageKey) => {
+        await queueEventUsage(
+            [Promise.resolve({ topic: 'events', partition: 0 })],
+            { event },
+            { processPerson: true },
+            { historical_migration: true, now: new Date('2026-06-17T23:55:00.000Z') }
+        )
+
+        await eventUsageBatch.flush()
+
+        expect(ingestedUsage).toEqual([expect.objectContaining({ usageKey, quantity: 1 })])
+    })
+
+    it.each([
+        ['less than 48 hours old', new Date('2026-06-17T23:54:59.999Z')],
+        ['without capture time', undefined],
+    ])('keeps tagged migrations %s billable', async (_description, now) => {
+        await queueEventUsage(
+            [Promise.resolve({ topic: 'events', partition: 0 })],
+            {},
+            { processPerson: true },
+            { historical_migration: true, now }
+        )
+
+        await eventUsageBatch.flush()
+
+        expect(ingestedUsage.map((record) => record.usageKey)).toEqual(['events', 'enhanced_person_events'])
     })
 
     // The meters have to match `person_mode` in the nightly report's two billable-event queries,
@@ -190,20 +236,40 @@ describe('usage-records-steps', () => {
     // only happens when the client asked for propertyless, so it is the case that breaks if the
     // step goes back to reading `processPerson` alone.
     it.each([
-        ['full', { processPerson: true }, ['events', 'enhanced_person_events']],
-        ['propertyless', { processPerson: false }, ['events']],
+        ['full', { processPerson: true }, false, ['events', 'enhanced_person_events']],
+        ['propertyless', { processPerson: false }, false, ['events']],
         [
             'force_upgrade',
             { processPerson: false, person: forceUpgradedPerson() },
+            false,
             ['events', 'enhanced_person_events'],
         ],
-    ])('bills %s person processing under %j', async (_mode, personProcessing, expectedUsageKeys) => {
-        await queueEventUsage([Promise.resolve({ topic: 'events', partition: 0 })], {}, personProcessing)
+        [
+            'full',
+            { processPerson: true },
+            true,
+            ['historical_migration_events', 'historical_migration_enhanced_person_events'],
+        ],
+        ['propertyless', { processPerson: false }, true, ['historical_migration_events']],
+        [
+            'force_upgrade',
+            { processPerson: false, person: forceUpgradedPerson() },
+            true,
+            ['historical_migration_events', 'historical_migration_enhanced_person_events'],
+        ],
+    ])(
+        'records %s person processing (%j), historical migration %s',
+        async (_mode, personProcessing, historical, expectedUsageKeys) => {
+            await queueEventUsage([Promise.resolve({ topic: 'events', partition: 0 })], {}, personProcessing, {
+                historical_migration: historical,
+                now: new Date('2026-06-17T23:55:00.000Z'),
+            })
 
-        await eventUsageBatch.flush()
+            await eventUsageBatch.flush()
 
-        expect(ingestedUsage.map((record) => record.usageKey)).toEqual(expectedUsageKeys)
-        // One event, so both meters share the identity and are told apart only by the usage key.
-        expect(new Set(ingestedUsage.map((record) => record.recordId)).size).toBe(1)
-    })
+            expect(ingestedUsage.map((record) => record.usageKey)).toEqual(expectedUsageKeys)
+            // One event, so both meters share the identity and are told apart only by the usage key.
+            expect(new Set(ingestedUsage.map((record) => record.recordId)).size).toBe(1)
+        }
+    )
 })

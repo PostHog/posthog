@@ -2,6 +2,10 @@ import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { FeatureFlagConfig } from '~/types'
+
+import { canArchiveFeatureFlag } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+
 export type FeatureFlagDisableDialogSource = 'feature-flags-list' | 'feature-flag-detail'
 
 export type FeatureFlagDisableDialogOption = 'disable' | 'disable_and_archive' | 'cancel'
@@ -13,6 +17,8 @@ export function reportFeatureFlagDisableDialogOptionSelected(
     posthog.capture('feature flag disable confirmation option selected', { source, option })
 }
 
+const ROLLBACK_DESCRIPTION = 'This flag will be immediately rolled back from the users matching the release conditions.'
+
 /**
  * Opens the disable confirmation dialog for a feature flag. "Disable only" is the primary action;
  * "Disable and archive" sits alongside it as a destructive secondary, so the more destructive
@@ -20,14 +26,17 @@ export function reportFeatureFlagDisableDialogOptionSelected(
  */
 export function openFeatureFlagDisableDialog({
     source,
+    filters,
     onDisable,
     onDisableAndArchive,
 }: {
     source: FeatureFlagDisableDialogSource
+    filters: FeatureFlagConfig | undefined
     onDisable: () => void
     onDisableAndArchive: () => void
 }): void {
     posthog.capture('feature flag disable confirmation shown', { source })
+    const offerArchive = canArchiveFeatureFlag(filters)
 
     const selectDisable = (): void => {
         reportFeatureFlagDisableDialogOptionSelected(source, 'disable')
@@ -41,21 +50,24 @@ export function openFeatureFlagDisableDialog({
 
     LemonDialog.open({
         title: 'Disable this flag?',
-        description:
-            'This flag will be immediately rolled back from the users matching the release conditions. Done with it for good? Archive it too: archived flags are hidden from the flag list, but linked experiments and surveys keep their data.',
+        description: offerArchive
+            ? `${ROLLBACK_DESCRIPTION} Done with it for good? Archive it too: archived flags are hidden from the flag list, but linked experiments and surveys keep their data.`
+            : ROLLBACK_DESCRIPTION,
         primaryButton: {
             children: 'Disable only',
             type: 'primary',
             size: 'small',
             onClick: selectDisable,
         },
-        secondaryButton: {
-            children: 'Disable and archive',
-            type: 'secondary',
-            status: 'danger',
-            size: 'small',
-            onClick: selectDisableAndArchive,
-        },
+        secondaryButton: offerArchive
+            ? {
+                  children: 'Disable and archive',
+                  type: 'secondary',
+                  status: 'danger',
+                  size: 'small',
+                  onClick: selectDisableAndArchive,
+              }
+            : null,
         tertiaryButton: {
             children: 'Cancel',
             type: 'tertiary',

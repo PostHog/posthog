@@ -5,6 +5,7 @@ import {GetResponseDataTypeFromEndpointMethod} from '@octokit/types'
 import {PullRequest, PushEvent} from '@octokit/webhooks-types'
 
 import {Filter, FilterResults, firedKeys} from './filter'
+import {loadPolicy, projectLegacyFilters} from './shared-image-policy'
 import {File, ChangeStatus} from './file'
 import * as git from './git'
 import * as shadow from './shadow'
@@ -24,7 +25,12 @@ async function run(): Promise<void> {
     const ref = core.getInput('ref', {required: false})
     const base = core.getInput('base', {required: false})
     const filtersInput = core.getInput('filters', {required: true})
-    const filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput
+    let filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput
+    const policyPath = core.getInput('shared-image-policy', {required: false})
+    if (policyPath) {
+      const policy = loadPolicy(getConfigFileContent(policyPath))
+      filtersYaml = projectLegacyFilters(policy, filtersYaml)
+    }
     const listFiles = core.getInput('list-files', {required: false}).toLowerCase() || 'none'
     const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', {required: false})) || 10
 
@@ -214,7 +220,7 @@ async function getChangedFilesFromApi(
 
       for (const row of response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>) {
         apiRows++
-        core.info(`[${row.status}] ${row.filename}`)
+        core.info(`[${row.status}] ${JSON.stringify(row.filename)}`)
         // There's no obvious use-case for detection of renames
         // Therefore we treat it as if rename detection in git diff was turned off.
         // Rename is replaced by delete of original filename and add of new filename
@@ -254,7 +260,7 @@ function exportResults(results: FilterResults, format: ExportFormat): void {
     if (value) {
       core.info('Matching files:')
       for (const file of files) {
-        core.info(`${file.filename} [${file.status}]`)
+        core.info(`${JSON.stringify(file.filename)} [${file.status}]`)
       }
     } else {
       core.info('Matching files: none')

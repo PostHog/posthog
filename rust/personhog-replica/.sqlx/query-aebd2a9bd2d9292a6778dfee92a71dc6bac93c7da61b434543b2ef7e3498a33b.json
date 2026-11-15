@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE posthog_person p\n                SET version = f.min_version\n                FROM UNNEST($2::bigint[], $3::bigint[]) AS f(id, min_version)\n                WHERE p.team_id = $1 AND p.id = f.id\n                  AND COALESCE(p.version, 0) < f.min_version\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aebd2a9bd2d9292a6778dfee92a71dc6bac93c7da61b434543b2ef7e3498a33b"
+}

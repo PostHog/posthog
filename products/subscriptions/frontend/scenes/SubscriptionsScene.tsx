@@ -3,7 +3,9 @@ import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -110,6 +112,7 @@ export function SubscriptionsScene(): JSX.Element {
         aiSubscriptionsAvailable,
     } = useValues(subscriptionsSceneLogic)
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const subscriptionTabs: LemonTab<SubscriptionsTab>[] = [
         { key: SubscriptionsTab.All, label: 'All subscriptions' },
@@ -125,13 +128,23 @@ export function SubscriptionsScene(): JSX.Element {
                 description={sceneConfigurations[Scene.Subscriptions].description}
                 resourceType={{ type: 'inbox' }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        data-attr="new-subscription-button"
-                        onClick={() => router.actions.push(urls.subscriptionNew())}
-                    >
-                        New subscription
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="primary"
+                            data-attr="new-subscription-button"
+                            onClick={() => router.actions.push(urls.subscriptionNew())}
+                        >
+                            New subscription
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            data-attr="new-subscription-button"
+                            onClick={() => router.actions.push(urls.subscriptionNew())}
+                        >
+                            New subscription
+                        </LemonButton>
+                    )
                 }
             />
             <LemonTabs

@@ -11,6 +11,7 @@ import { getDomain } from 'tldts'
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 
 import { cookielessRedisErrorCounter } from '~/common/metrics'
+import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { RedisOperationError } from '~/common/utils/db/error'
@@ -72,7 +73,6 @@ import { RedisHelpers } from './redis-helpers'
  */
 
 const TIMEZONE_FALLBACK = 'UTC'
-export const COOKIELESS_SENTINEL_VALUE = '$posthog_cookieless'
 export const COOKIELESS_MODE_FLAG_PROPERTY = '$cookieless_mode'
 export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cookieless_extra'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12

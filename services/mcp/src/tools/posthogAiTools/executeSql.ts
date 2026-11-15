@@ -19,13 +19,10 @@ export const executeSqlHandler: ToolBase<typeof schema, ExecuteSqlResult>['handl
     const result = await invokeMcpTool(context, 'execute_sql', {
         query: params.query,
         truncate: params.truncate ?? true,
+        ...(params.filters !== undefined && { filters: params.filters }),
         ...(params.connectionId !== undefined && { connectionId: params.connectionId }),
         ...(params.sendRawQuery !== undefined && { sendRawQuery: params.sendRawQuery }),
     })
-
-    if (!result.success) {
-        throw new Error(result.content)
-    }
 
     return result.structured_content
         ? {

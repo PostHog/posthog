@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import Any, ClassVar
 
 from braintrust import EvalAsync, EvalCase, EvalHooks
 from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
 
+from ..scorers.recording import ScorerRecorder
+
 # Imported for its side effect: braintrust's offline summary crashes on a skipped score.
 from . import braintrust_patches  # noqa: F401
-from .types import AggregateScore, CaseResult, EnvVarSpec, EvalSummary, ExperimentResult, ExperimentSpec, SpanKind
+from .types import AggregateScore, CaseResult, EnvVarSpec, EvalSummary, ExperimentResult, ExperimentSpec
 
 
 def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
@@ -36,9 +36,7 @@ class _BraintrustCaseHooks:
     """Adapts braintrust's ``EvalHooks`` to the neutral ``CaseHooks``.
 
     ``metadata`` is a write-through onto the braintrust hooks (so mutations land
-    on the eventual ``CaseResult.metadata``); ``start_span`` maps the neutral
-    ``(name, kind)`` onto braintrust's ``start_span(name=, span_attributes=)`` and
-    yields the braintrust ``Span``, whose ``.log`` already matches ``SpanHandle``.
+    on the eventual ``CaseResult.metadata``).
     """
 
     def __init__(self, hooks: EvalHooks) -> None:
@@ -48,14 +46,9 @@ class _BraintrustCaseHooks:
     def metadata(self) -> dict[str, Any]:
         return self._hooks.metadata
 
-    @contextmanager
-    def start_span(self, name: str, kind: SpanKind) -> Iterator[Any]:
-        with self._hooks.span.start_span(name=name, span_attributes={"type": kind}) as span:
-            yield span
-
 
 class BraintrustEngine:
-    """Runs experiments on Braintrust and reports through it.
+    """Runs evaluations locally with Braintrust; results are never uploaded to it.
 
     These knobs are load-bearing invariants (they used to live in
     ``harness/AGENTS.md``); breaking one produces a hang or a silently wrong
@@ -72,21 +65,22 @@ class BraintrustEngine:
       each experiment from dumping its own score table into the interleaved
       stream. Its callbacks are called synchronously by ``EvalAsync`` and must
       not be coroutines.
-    - **``update=True``.** Experiment names stay runtime/model-agnostic so history
-      lines up across runs; updating keeps that history rather than forking it.
     - **``braintrust_patches``.** Importing that module replaces braintrust's
       offline summary, which crashes on a skipped score. See its docstring.
     """
 
     name: ClassVar[str] = "braintrust"
-    supports_public_experiments: ClassVar[bool] = True
 
     @classmethod
     def required_env(cls) -> tuple[EnvVarSpec, ...]:
-        return (EnvVarSpec("BRAINTRUST_API_KEY", "records experiments and scores to Braintrust"),)
+        return ()
 
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
+        recorder = ScorerRecorder() if spec.record_scorer_results else None
+
         async def bridged_task(input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any] | None:
+            if recorder is not None:
+                recorder.register(hooks.metadata, hooks.trial_index)
             # Wrap braintrust's hooks so the suite task only ever sees neutral CaseHooks.
             return await spec.task(input, _BraintrustCaseHooks(hooks))
 
@@ -95,7 +89,9 @@ class BraintrustEngine:
             spec.project_name,
             data=cases,
             task=bridged_task,
-            scores=list(spec.scorers),
+            scores=[recorder.wrap(scorer, index) for index, scorer in enumerate(spec.scorers)]
+            if recorder is not None
+            else list(spec.scorers),
             trial_count=spec.trial_count,
             # Our global concurrency semaphores are the only limiters that should
             # bind. Braintrust's own per-suite limiter must never gate, so let it
@@ -109,20 +105,21 @@ class BraintrustEngine:
             # Suites share one stdout; the quiet reporter stops each experiment
             # from dumping its own score table into the interleaved stream.
             reporter=QUIET_REPORTER,
-            update=True,
-            is_public=spec.is_public,
-            no_send_logs=spec.no_send_logs,
+            no_send_logs=True,
             # Experiment names stay runtime/model-agnostic so history lines up
-            # across runs; the metadata is what lets Braintrust filter or compare.
+            # across runs; metadata is retained with the local results.
             metadata=spec.metadata,
         )
-        return self._translate(result)
+        translated = self._translate(result, recorder)
+        if spec.on_results is not None:
+            await spec.on_results(translated)
+        return translated
 
-    def _translate(self, result: EvalResultWithSummary) -> ExperimentResult:
+    def _translate(self, result: EvalResultWithSummary, recorder: ScorerRecorder | None = None) -> ExperimentResult:
         """Map braintrust's ``EvalResultWithSummary`` onto the neutral model.
 
-        ``score=None`` is preserved per-case (the aggregate drops it, online
-        through braintrust and offline through ``braintrust_patches``); a task
+        ``score=None`` is preserved per-case (the local aggregate drops it
+        through ``braintrust_patches``); a task
         exception becomes ``CaseResult.error`` as a string so
         callers never re-handle a live ``Exception``; ``summary.raw`` is the
         braintrust summary's ``as_dict()`` so the jsonl export round-trips
@@ -144,7 +141,16 @@ class BraintrustEngine:
                     scores=dict(case.scores or {}),
                     expected=case.expected,
                     metadata=dict(case.metadata or {}),
-                    error=None if case.error is None else str(case.error),
+                    scorer_results=recorder.outcomes(case.metadata, case.scores) if recorder is not None else {},
+                    trial_index=recorder.trial_index(case.metadata) if recorder is not None else None,
+                    error_kind="task" if case.error is not None else "scorer",
+                    error=(
+                        str(case.error)
+                        if case.error is not None
+                        else f"Scorer errors: {', '.join(case.metadata['scorer_errors'])}"
+                        if case.metadata and case.metadata.get("scorer_errors")
+                        else None
+                    ),
                 )
                 for case in result.results
             ],

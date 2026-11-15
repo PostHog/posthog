@@ -1,7 +1,6 @@
 // SSE stream handler for task-run event streams.
 //
-// Ports products/tasks/backend/stream/sse.py (stream_task_run_events) to an
-// async generator yielding SSE byte chunks. Wire protocol is byte-identical to
+// Async generator yielding SSE byte chunks. Wire protocol is byte-identical to
 // the Python implementation: during cutover Django and this Node service read
 // the SAME Redis stream and serve the SAME clients. Any drift corrupts live runs.
 //

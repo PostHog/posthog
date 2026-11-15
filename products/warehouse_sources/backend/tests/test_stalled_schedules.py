@@ -82,15 +82,6 @@ class TestStalledSchedules(BaseTest):
             ("deleted source", {}, {"deleted": True}),
             # A direct-query source has no schedule to stall.
             ("direct query source", {}, {"access_method": ExternalDataSource.AccessMethod.DIRECT}),
-            # A paused per-schema schedule is a streaming CDC schema's steady state:
-            # CDCExtractionWorkflow owns it and pauses it again on its own next tick
-            # (CDCHandledExternally). A source marked cdc_broken can drift the schema's status
-            # away from FAILED, so this is excluded here rather than relying on that status.
-            (
-                "streaming cdc schema",
-                {"sync_type": ExternalDataSchema.SyncType.CDC, "sync_type_config": {"cdc_mode": "streaming"}},
-                {},
-            ),
             # cdc_halted is a configuration marker independent of should_sync and status: a
             # broken source's schema can still read should_sync=True and a self-reporting status.
             ("cdc broken source", {"sync_type_config": {"cdc_broken": True}}, {}),
@@ -155,16 +146,20 @@ class TestStalledSchedules(BaseTest):
         assert stalled[str(schema.id)].kind == "stuck_job"
         assert stalled[str(schema.id)].repairable_here is False
 
-    def test_a_buffered_cdc_schema_is_reported_but_not_repairable_here(self) -> None:
-        source = self._source(job_inputs={"cdc_ingest_mode": "buffered"})
-        schema = self._schema(source, synced_ago=timedelta(days=5))
+    def test_a_streaming_cdc_schema_whose_consumer_stopped_is_reported_and_repairable(self) -> None:
+        # Its schedule consumes the change buffer, so a stall lets the buffer age toward its expiry.
+        source = self._source()
+        schema = self._schema(
+            source,
+            synced_ago=timedelta(days=5),
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_mode": "streaming"},
+        )
 
         stalled = {s.schema_id: s for s in find_stalled_schemas()}
 
-        # Its schedule paces buffer consumption, so restarting it out of sequence merges files
-        # against a table the buffered lane already writes.
         assert stalled[str(schema.id)].kind == "no_runs"
-        assert stalled[str(schema.id)].repairable_here is False
+        assert stalled[str(schema.id)].repairable_here is True
 
     def test_a_schema_with_no_sync_interval_is_reported_but_not_repairable_here(self) -> None:
         # get_sync_schedule passes sync_frequency_interval straight into ScheduleIntervalSpec,
@@ -208,12 +203,14 @@ class TestStalledSchedules(BaseTest):
         assert mock_sync.call_args.kwargs["trigger_immediately"] is False
         assert mock_sync.call_args.kwargs["should_sync"] is True
 
-    def test_repair_stamps_last_error_notified_at_to_avoid_a_stale_renotify(self) -> None:
-        # get_team_ids_with_recent_sync_failures renotifies once last_error_notified_at is more
-        # than seven days old, with no newer failed job required. Without a fresh stamp here, a
-        # schema that failed and was notified long ago, then recovered, would have this repaint
-        # read as "still failing" and send the failure digest instead of the informational message.
-        old_notification = timezone.now() - timedelta(days=30)
+    @parameterized.expand([("never_notified", None), ("notified_long_ago", timedelta(days=30))])
+    def test_repair_stamps_last_error_notified_at_to_keep_the_repaint_out_of_the_digest(
+        self, _name: str, notified_ago: timedelta | None
+    ) -> None:
+        # The failure digest lists a FAILED schema with no notification stamp. Without a fresh
+        # stamp here, this repaint would read as a sync failure in the next digest instead of
+        # the informational message.
+        old_notification = timezone.now() - notified_ago if notified_ago is not None else None
         schema = self._schema(
             synced_ago=timedelta(days=5),
             status=ExternalDataSchema.Status.RUNNING,
@@ -226,7 +223,8 @@ class TestStalledSchedules(BaseTest):
 
         schema.refresh_from_db()
         assert schema.last_error_notified_at is not None
-        assert schema.last_error_notified_at > old_notification
+        if old_notification is not None:
+            assert schema.last_error_notified_at > old_notification
 
     def test_repair_skips_a_schema_disabled_since_it_was_discovered(self) -> None:
         # The confirmation prompt in the management command alone can put minutes between
@@ -278,21 +276,6 @@ class TestStalledSchedules(BaseTest):
 
         schema.sync_frequency_interval = None
         schema.save(update_fields=["sync_frequency_interval"])
-
-        with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:
-            repair_stalled_schema(stalled)
-
-        mock_sync.assert_not_called()
-
-    def test_repair_skips_a_schema_that_flipped_to_cdc_streaming_since_it_was_discovered(self) -> None:
-        # initial_sync_complete (and so the snapshot-to-streaming flip) can land in the window
-        # between discovery and this call. A paused schedule is streaming's steady state, so
-        # unpausing it here would just race CDCExtractionWorkflow for nothing.
-        schema = self._schema(synced_ago=timedelta(days=5), sync_type=ExternalDataSchema.SyncType.CDC)
-        stalled = next(s for s in find_stalled_schemas() if s.schema_id == str(schema.id))
-
-        schema.sync_type_config = {"cdc_mode": "streaming"}
-        schema.save(update_fields=["sync_type_config"])
 
         with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:
             repair_stalled_schema(stalled)

@@ -16,7 +16,7 @@ class WarehouseColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     marked `is_user_edited` is never overwritten by automatic enrichment.
     """
 
-    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    # Kept on the model so the nested names stay unchanged.
     DescriptionSource = WarehouseColumnAnnotationDescriptionSource
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -26,7 +26,7 @@ class WarehouseColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     # Empty string = table-level annotation; otherwise the column this describes.
     column_name = models.CharField(max_length=400, blank=True, default="")
     description = models.TextField()
-    description_source = models.CharField(max_length=32, choices=DescriptionSource)
+    description_source = models.CharField(max_length=32, choices=DescriptionSource.choices)
     ai_model = models.CharField(max_length=128, null=True, blank=True)
     is_user_edited = models.BooleanField(default=False)
 

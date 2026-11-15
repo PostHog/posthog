@@ -8,7 +8,21 @@ Read the domain object back from `series.meta`, not from array position.
 On a `pinnable` multi-series chart, a click pins the tooltip first and the user then clicks a row (`DefaultTooltip.onRowClick`).
 `config.tooltip.resolveClickToNearestSeries` skips the pin and fires `onPointClick` for the nearest series directly; see [tooltips.md](./tooltips.md) for when that is safe.
 
+`isPointClickable(dataIndex)` (on `BarChart`, `TimeSeriesBarChart`, and the base `Chart`) limits `onPointClick` and the pointer cursor to some points.
+Other points keep hover and tooltip, and show the drag crosshair if the chart has one.
+
 Chart-specific variants: `FunnelChart.onStepClick` reports `{ stepIndex, converted }`, where `converted: false` means the hatched drop-off track was clicked; `PieChart.onSliceClick`; `BoxPlot.onBoxClick`; `Heatmap.onCellClick` reports `{ xIndex, yIndex, value }`; `ScatterChart.onPointClick` receives the resolved `ScatterPointDatum`.
+
+## Right click: `onPointContextMenu`
+
+On `LineChart`, `TimeSeriesLineChart`, `BarChart`, `TimeSeriesBarChart`, and the base `Chart`.
+It fires on a right click with the same `PointClickData` as `onPointClick`, for the series nearest the cursor.
+
+- A right click never pins or unpins the tooltip, and it works while a tooltip is pinned.
+- `isPointClickable` limits it the same way it limits `onPointClick`. A right click outside the plot area, or on a point that is not clickable, fires nothing.
+- The chart does not suppress the browser menu. Call `preventDefault()` on the `contextmenu` event in the host, for example to show your own menu.
+- When the prop is set, the chart root carries `data-hog-charts-context-menu`, so a host can tell that the chart handles right clicks itself.
+- Other charts have no right-click callback yet.
 
 ## Drag-to-zoom: `onDateRangeZoom`
 
@@ -18,7 +32,7 @@ The chart does not manage zoom state; the parent decides what to do with the ran
 
 - Despite the name it is label-generic: it resolves the drag against label positions, so it works on categorical labels (weekdays, duration buckets) as on dates.
 - A drag whose edges both snap to the same label (common on sparse charts, a three-bar monthly chart) selects that single bucket, provided the drag spans enough distance to read as intentional.
-- The cursor switches to a crosshair when set, except over an actionable point (`onPointClick` set), where it stays a pointer. A plain click without movement still pins the tooltip or fires `onPointClick`.
+- The cursor switches to a crosshair when set, except over a clickable point, where it stays a pointer. A plain click without movement still pins the tooltip or fires `onPointClick`.
 - X-axis only. No effect on charts with a vertical interaction axis (`axisOrientation: 'horizontal'` bars), where the core disables the gesture.
 - Both emitted values are bucket starts. Widening the end to the last bucket's end is the host's job.
 
@@ -47,8 +61,22 @@ See [legend.md](./legend.md).
 
 ## Testing interactions
 
-`hoverAtIndex`, `clickAtIndex`, `hoverUntilTooltip`, and `dragSelection` from `@posthog/quill-charts/testing` drive these gestures in jsdom.
-`hoverUntilTooltip` and `clickAtIndex` re-dispatch until the tooltip portal mounts, because the chart drops events fired before it commits its scales.
+The chart accessor from `@posthog/quill-charts/testing` drives these gestures in jsdom: `chart.hoverAtIndex`, `chart.hoverTooltip`, `chart.clickAtIndex` and `chart.dragSelection`.
+`hoverTooltip` and `clickAtIndex` re-dispatch until the tooltip portal mounts, because the chart drops events fired before it commits its scales.
 Both default to a 3000ms budget.
 Pass an explicit `timeout` whenever the call sits behind another wait in the same test; two full-length waits chained together exceed Jest's 5000ms per-test budget, so give the pair one shared deadline.
 See [TESTING.md](./TESTING.md).
+
+## Shared crosshair
+
+Wrap charts in `<ChartHoverSync>` to share the hovered x between them, as a dashboard's shared crosshair does.
+Hovering one chart draws a crosshair at the same x on every other chart in the provider.
+A chart finds that x by an identical label, or for ISO date labels by the bucket that contains that time, so an hourly and a daily chart still line up.
+Date labels without a timezone offset read as UTC on both sides.
+The time-series charts join by default; set `config.syncHover: false` to leave one out.
+Other charts join only with `config.syncHover: true`, because many of them pass labels that are not x values, such as funnel steps or point indices.
+Only the hovered chart shows its tooltip and point highlights.
+The other charts draw the crosshair even with `showCrosshair` off.
+A pinned tooltip keeps its chart's x, so the crosshair returns to it when a later hover elsewhere ends.
+`chart.syncedIndex()` in the test helpers reads where the crosshair is drawn.
+Charts in different providers do not sync, so wrap each group that should move together, and leave a chart outside to keep it independent.

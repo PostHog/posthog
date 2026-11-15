@@ -399,6 +399,14 @@ impl Client for ReadWriteClient {
         self.writer.zadd(k, member, score).await
     }
 
+    async fn zadd_nx(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        self.writer.zadd_nx(k, member, score).await
+    }
+
+    async fn zrem(&self, k: String, member: String) -> Result<(), CustomRedisError> {
+        self.writer.zrem(k, member).await
+    }
+
     async fn set_with_format(
         &self,
         k: String,
@@ -486,6 +494,24 @@ impl Client for ReadWriteClient {
                     err
                 );
                 self.writer.mget(keys).await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn get_multiple(
+        &self,
+        keys: Vec<String>,
+    ) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
+        match self.reader.get_multiple(keys.clone()).await {
+            Ok(value) => Ok(value),
+            Err(err) if !err.is_unrecoverable_error() => {
+                warn!(
+                    "Replica get_multiple failed for {} keys, falling back to primary: {}",
+                    keys.len(),
+                    err
+                );
+                self.writer.get_multiple(keys).await
             }
             Err(err) => Err(err),
         }

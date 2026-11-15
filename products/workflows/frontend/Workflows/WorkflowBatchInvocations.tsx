@@ -38,6 +38,7 @@ const HedgehogGreek = pngHoggie(greekPng)
 
 const STATUS_TAG_TYPE: Record<HogFlowBatchJob['status'], 'success' | 'danger' | 'warning' | 'default'> = {
     completed: 'success',
+    partially_failed: 'warning',
     failed: 'danger',
     cancelled: 'default',
     waiting: 'warning',
@@ -61,7 +62,7 @@ function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: s
                 <strong className="truncate">{job.id}</strong>
                 <LemonTag type={STATUS_TAG_TYPE[job.status] ?? 'default'}>
                     {/* The stored enum value is 'cancelled'; display American spelling. */}
-                    {job.status === 'cancelled' ? 'canceled' : job.status}
+                    {job.status === 'cancelled' ? 'canceled' : job.status.replace('_', ' ')}
                 </LemonTag>
             </div>
             <div className="flex items-center gap-2">
@@ -161,7 +162,9 @@ function UpcomingOccurrences(): JSX.Element | null {
         return computePreviewOccurrences(scheduleState, currentSchedule.starts_at, currentSchedule.timezone)
     }, [scheduleState, currentSchedule])
 
-    const summary = scheduleState ? buildSummary(scheduleState, currentSchedule?.starts_at ?? null) : null
+    const summary = scheduleState
+        ? buildSummary(scheduleState, currentSchedule?.starts_at ?? null, currentSchedule?.timezone)
+        : null
     const timezone = currentSchedule?.timezone
     const hasFutureOccurrences = occurrences.some((d) => fakeUtcToReal(d, timezone).isAfter(dayjs()))
 

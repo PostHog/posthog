@@ -12,8 +12,8 @@ use personhog_coordination::protocol::{
     drain_satisfied, freeze_quorum_met, missing_freeze_ackers, past_phase_deadline, warm_satisfied,
 };
 use personhog_coordination::types::{
-    HandoffPhase, HandoffState, LeaderInfo, PartitionAssignment, PodDrainedAck, PodStatus,
-    PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
+    ChangelogConfig, HandoffPhase, HandoffState, LeaderInfo, PartitionAssignment, PodDrainedAck,
+    PodStatus, PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
 };
 use serde::Serialize;
 
@@ -63,7 +63,7 @@ pub struct RawSnapshot {
     pub drained_acks: Vec<PodDrainedAck>,
     pub warmed_acks: Vec<PodWarmedAck>,
     pub leader: Option<(LeaderInfo, i64)>,
-    pub total_partitions: Option<u32>,
+    pub changelog: Option<ChangelogConfig>,
     pub parse_errors: Vec<String>,
     pub unknown_keys: Vec<String>,
     pub revision: i64,
@@ -127,14 +127,15 @@ pub fn parse_snapshot(kvs: &[RawKv], prefix: &str, revision: i64) -> RawSnapshot
             if let Some(leader) = parse::<LeaderInfo>(kv, errors) {
                 snapshot.leader = Some((leader, kv.lease));
             }
-        } else if suffix == "config/total_partitions" {
-            match std::str::from_utf8(&kv.value)
-                .ok()
-                .and_then(|s| s.parse::<u32>().ok())
-            {
-                Some(count) => snapshot.total_partitions = Some(count),
-                None => errors.push(format!("invalid total_partitions at {}", kv.key)),
+        } else if suffix == "config/changelog" {
+            if let Some(changelog) = parse::<ChangelogConfig>(kv, errors) {
+                snapshot.changelog = Some(changelog);
             }
+        } else if suffix.starts_with("migrations/")
+            || suffix.starts_with("seal_acks/")
+            || suffix.starts_with("changelog/drained/")
+        {
+            // The changelog panel reads these.
         } else {
             snapshot.unknown_keys.push(kv.key.clone());
         }
@@ -215,6 +216,7 @@ pub struct TopologyView {
     pub revision: i64,
     pub prefix: String,
     pub total_partitions: Option<u32>,
+    pub changelog: Option<ChangelogConfig>,
     pub leader: Option<LeaderView>,
     pub pods: Vec<PodView>,
     pub routers: Vec<RouterView>,
@@ -308,12 +310,13 @@ pub fn derive_view(
         });
     }
 
-    if raw.total_partitions.is_none() {
+    let total_partitions = raw.changelog.as_ref().map(|c| c.partitions);
+    if raw.changelog.is_none() {
         issues.push(Issue {
             severity: Severity::Error,
             partition: None,
-            summary: "config/total_partitions is missing: the coordinator cannot plan, and \
-                      leaders and routers fail at startup"
+            summary: "config/changelog is not seeded: the coordinator cannot plan, \
+                      and every service waits at startup"
                 .to_string(),
         });
     }
@@ -346,7 +349,7 @@ pub fn derive_view(
 
     // Partitions worth a row: everything under the configured count, plus
     // anything that has state anyway (misconfiguration shows itself).
-    let mut partition_ids: Vec<u32> = (0..raw.total_partitions.unwrap_or(0)).collect();
+    let mut partition_ids: Vec<u32> = (0..total_partitions.unwrap_or(0)).collect();
     for partition in assignments_by_partition
         .keys()
         .chain(handoffs_by_partition.keys())
@@ -362,13 +365,13 @@ pub fn derive_view(
         let assignment = assignments_by_partition.get(&partition);
         let handoff = handoffs_by_partition.get(&partition);
 
-        if let Some(total) = raw.total_partitions {
+        if let Some(total) = total_partitions {
             if partition >= total && (assignment.is_some() || handoff.is_some()) {
                 issues.push(Issue {
                     severity: Severity::Warning,
                     partition: Some(partition),
                     summary: format!(
-                        "partition {partition} has state but total_partitions is {total}"
+                        "partition {partition} has state but the changelog has {total} partitions"
                     ),
                 });
             }
@@ -535,7 +538,8 @@ pub fn derive_view(
         fetched_at: Utc::now(),
         revision: raw.revision,
         prefix: prefix.to_string(),
-        total_partitions: raw.total_partitions,
+        total_partitions,
+        changelog: raw.changelog.clone(),
         leader: raw.leader.as_ref().map(|(leader, _)| LeaderView {
             holder: leader.holder.clone(),
             lease_id: leader.lease_id,
@@ -714,10 +718,10 @@ mod tests {
         )
     }
 
-    fn total_partitions_kv(count: u32) -> RawKv {
+    fn changelog_kv(count: u32) -> RawKv {
         RawKv {
-            key: format!("{PREFIX}config/total_partitions"),
-            value: count.to_string().into_bytes(),
+            key: format!("{PREFIX}config/changelog"),
+            value: serde_json::to_vec(&ChangelogConfig::new("personhog_updates", count)).unwrap(),
             lease: 0,
         }
     }
@@ -736,9 +740,21 @@ mod tests {
     }
 
     #[test]
+    fn migration_keys_are_part_of_the_layout() {
+        let kvs = vec![
+            changelog_kv(1),
+            kv("migrations/current", serde_json::json!({}), 0),
+            kv("migrations/history/m-1", serde_json::json!({}), 0),
+            kv("seal_acks/pod-a", serde_json::json!({}), 0),
+            kv("changelog/drained/old/writer", serde_json::json!({}), 0),
+        ];
+        assert!(parse_snapshot(&kvs, PREFIX, 42).unknown_keys.is_empty());
+    }
+
+    #[test]
     fn a_stuck_freezing_handoff_names_the_missing_router() {
         let kvs = vec![
-            total_partitions_kv(1),
+            changelog_kv(1),
             pod_kv("pod-a"),
             pod_kv("pod-b"),
             router_kv("router-0"),
@@ -782,7 +798,7 @@ mod tests {
     #[test]
     fn a_satisfied_phase_points_at_the_coordinator() {
         let kvs = vec![
-            total_partitions_kv(1),
+            changelog_kv(1),
             pod_kv("pod-b"),
             assignment_kv(0, "pod-b"),
             // Draining with a dead old owner: drain is vacuously satisfied,
@@ -801,7 +817,7 @@ mod tests {
     #[test]
     fn a_dead_owner_without_a_handoff_is_an_error_and_with_one_is_not() {
         let kvs = vec![
-            total_partitions_kv(2),
+            changelog_kv(2),
             pod_kv("pod-b"),
             assignment_kv(0, "pod-gone"),
             assignment_kv(1, "pod-gone"),
@@ -819,7 +835,7 @@ mod tests {
     #[test]
     fn a_lingering_complete_handoff_flags_the_coordinator() {
         let kvs = vec![
-            total_partitions_kv(1),
+            changelog_kv(1),
             pod_kv("pod-b"),
             assignment_kv(0, "pod-b"),
             handoff_kv(0, "Complete", None, "pod-b", &[], 1_000),
@@ -842,7 +858,7 @@ mod tests {
     #[test]
     fn unassigned_and_out_of_range_partitions_are_flagged() {
         let kvs = vec![
-            total_partitions_kv(2),
+            changelog_kv(2),
             pod_kv("pod-a"),
             assignment_kv(0, "pod-a"),
             assignment_kv(5, "pod-a"),
@@ -855,7 +871,7 @@ mod tests {
             .any(|s| s.contains("partition 1 has no assignment and no handoff")));
         assert!(warnings
             .iter()
-            .any(|s| s.contains("partition 5 has state but total_partitions is 2")));
+            .any(|s| s.contains("partition 5 has state but the changelog has 2 partitions")));
         // The out-of-range partition still renders a row.
         assert!(topology.partitions.iter().any(|p| p.partition == 5));
     }
@@ -863,7 +879,7 @@ mod tests {
     #[test]
     fn stale_acks_are_inert_info_and_matching_acks_are_not() {
         let kvs = vec![
-            total_partitions_kv(1),
+            changelog_kv(1),
             pod_kv("pod-a"),
             pod_kv("pod-b"),
             router_kv("router-0"),
@@ -891,13 +907,13 @@ mod tests {
     }
 
     #[test]
-    fn missing_total_partitions_is_an_error_without_unassigned_noise() {
+    fn an_unseeded_changelog_is_an_error_without_unassigned_noise() {
         let kvs = vec![pod_kv("pod-a"), assignment_kv(0, "pod-a")];
         let topology = view(&kvs, 10_000);
 
         assert!(issue_summaries(&topology, Severity::Error)
             .iter()
-            .any(|s| s.contains("config/total_partitions is missing")));
+            .any(|s| s.contains("config/changelog is not seeded")));
         assert!(!issue_summaries(&topology, Severity::Warning)
             .iter()
             .any(|s| s.contains("no assignment")));
@@ -906,7 +922,7 @@ mod tests {
     #[test]
     fn a_dead_new_owner_warns_and_unparseable_records_surface() {
         let mut kvs = vec![
-            total_partitions_kv(1),
+            changelog_kv(1),
             pod_kv("pod-a"),
             assignment_kv(0, "pod-a"),
             handoff_kv(0, "Warming", Some("pod-a"), "pod-gone", &[], 9_000),
@@ -929,7 +945,7 @@ mod tests {
     #[test]
     fn pods_carry_their_assigned_partitions_and_lease_ttls() {
         let kvs = vec![
-            total_partitions_kv(2),
+            changelog_kv(2),
             pod_kv("pod-a"),
             assignment_kv(1, "pod-a"),
             assignment_kv(0, "pod-a"),

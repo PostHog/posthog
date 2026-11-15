@@ -32,16 +32,16 @@ Confirm the survey's `lib` / the customer's platform before anything else, then 
 this table. Verified against the SDK source — re-verify if it's been months, the gaps
 get filled over time.
 
-| Feature                          | Web (posthog-js)                | iOS                                       | Android                            | Flutter                            | React Native                            |
-| -------------------------------- | ------------------------------- | ----------------------------------------- | ---------------------------------- | ---------------------------------- | --------------------------------------- |
-| Rendering                        | DOM + shadow root               | Native SwiftUI (`SurveysWindow`)          | **No built-in UI** — delegate only | Dart widgets (`SurveyBottomSheet`) | RN components (`SurveyModal`)           |
-| Event-based triggers             | yes (since 1.137.0, 2024-06-05) | yes                                       | yes                                | yes (native side)                  | yes                                     |
-| URL / screen targeting           | yes                             | decoded but **NOT evaluated** (`// TODO`) | decoded but **NOT evaluated**      | **NOT evaluated** (native gap)     | **explicitly excluded** in filter       |
-| Feature-flag / cohort targeting  | yes                             | yes                                       | yes                                | yes (native side)                  | yes                                     |
-| `seenSurveyWaitPeriodInDays`     | yes                             | yes                                       | yes                                | yes (native side)                  | stored but **comparison commented out** |
-| `surveyPopupDelaySeconds`        | yes                             | **not implemented**                       | **not implemented**                | **not implemented**                | **not implemented** (TODO)              |
-| `enable_partial_responses`       | yes (≥ 1.240.0)                 | **no**                                    | **no**                             | **no**                             | **no**                                  |
-| `skipSubmitButton` (auto-submit) | yes (≥ 1.244.0)                 | **no**                                    | **no**                             | **no**                             | **no**                                  |
+| Feature                          | Web (posthog-js)                | iOS                                       | Android                            | Flutter                            | React Native                      |
+| -------------------------------- | ------------------------------- | ----------------------------------------- | ---------------------------------- | ---------------------------------- | --------------------------------- |
+| Rendering                        | DOM + shadow root               | Native SwiftUI (`SurveysWindow`)          | **No built-in UI** — delegate only | Dart widgets (`SurveyBottomSheet`) | RN components (`SurveyModal`)     |
+| Event-based triggers             | yes (since 1.137.0, 2024-06-05) | yes                                       | yes                                | yes (native side)                  | yes                               |
+| URL / screen targeting           | yes                             | decoded but **NOT evaluated** (`// TODO`) | decoded but **NOT evaluated**      | **NOT evaluated** (native gap)     | **explicitly excluded** in filter |
+| Feature-flag / cohort targeting  | yes                             | yes                                       | yes                                | yes (native side)                  | yes                               |
+| `seenSurveyWaitPeriodInDays`     | yes                             | yes                                       | yes                                | yes (native side)                  | yes (≥ 4.81.5)                    |
+| `surveyPopupDelaySeconds`        | yes                             | **not implemented**                       | **not implemented**                | **not implemented**                | **not implemented** (TODO)        |
+| `enable_partial_responses`       | yes (≥ 1.240.0)                 | **no**                                    | **no**                             | **no**                             | **no**                            |
+| `skipSubmitButton` (auto-submit) | yes (≥ 1.244.0)                 | **no**                                    | **no**                             | **no**                             | **no**                            |
 
 The last two rows are per the editor's own help text ("Doesn't work with the mobile SDKs for
 now" / "Not available for the mobile SDKs at the moment") rather than a per-SDK source audit.
@@ -53,7 +53,7 @@ Consequences worth memorizing:
 - **URL targeting is effectively web-only.** Mobile SDKs decode the field but never enforce it; React Native filters those surveys out entirely. A mobile survey with a URL condition behaves as "no URL condition" (mobile/flutter) or "never shows" (RN).
 - **Android ships no survey UI.** The app (or the Flutter plugin) must provide a `PostHogSurveysDelegate`. "Survey never renders on Android" is often a missing delegate, not a PostHog bug.
 - **Flutter is hybrid:** triggering/eligibility runs in the native iOS/Android layer; rendering is Dart (`SurveyService.showSurvey` → `showModalBottomSheet`). It does _not_ "just call native" for UI. So a Flutter rendering bug lives in Dart; a Flutter eligibility bug lives in native.
-- **React Native wait period is silently disabled** (the check is commented out). Don't blame the wait period on RN.
+- **React Native enforces the wait period from 4.81.5.** Older versions skip the check, so on those versions don't blame the wait period.
 
 For a deeper version-by-version capability audit, see the `survey-sdk-audit` skill if available.
 
@@ -76,7 +76,7 @@ Then in `getActiveMatchingSurveys`: URL/device/selector match, event/action trig
 Two non-obvious facts that drive real tickets:
 
 - **The server returns ALL non-archived surveys** (`SurveyViewSet`, `products/surveys/backend/api/survey.py`). It does **not** pre-filter by the internal targeting flag. All eligibility is client-side. So you cannot conclude "the backend excluded them" — the SDK did.
-- **The wait period has TWO independent implementations.** `canActivateRepeatedly` (true when `schedule: 'always'`) short-circuits `_internalFlagCheckSatisfied` (step 5) — so `always` bypasses the internal flag, including its `$last_seen_survey_date` rule. But `hasWaitPeriodPassed` (step 6) reads `localStorage.lastSeenSurveyDate` directly and is **NOT** bypassed by `canActivateRepeatedly`. So a `schedule: 'always'` survey with `seenSurveyWaitPeriodInDays: 30` still enforces the 30-day wait via the localStorage path. `lastSeenSurveyDate` is updated whenever _any_ survey is shown, regardless of completion. The same short-circuit also drops the internal flag's `$survey_responded/<id> is_not_set` rule, so **`schedule: 'always'` lets one person respond repeatedly** — check `uniq(distinct_id)` against `count()` on `survey sent` before reading a response count as a respondent count.
+- **The wait period has TWO independent implementations.** `canActivateRepeatedly` (true when `schedule: 'always'`) short-circuits `_internalFlagCheckSatisfied` (step 5) — so `always` bypasses the internal flag, including its `$survey_last_seen_date` rule. But `hasWaitPeriodPassed` (step 6) reads `localStorage.lastSeenSurveyDate` directly and is **NOT** bypassed by `canActivateRepeatedly`. So a `schedule: 'always'` survey with `seenSurveyWaitPeriodInDays: 30` still enforces the 30-day wait via the localStorage path. `lastSeenSurveyDate` is updated whenever _any_ survey is shown, regardless of completion. The same short-circuit also drops the internal flag's `$survey_responded/<id> is_not_set` rule, so **`schedule: 'always'` lets one person respond repeatedly** — check `uniq(distinct_id)` against `count()` on `survey sent` before reading a response count as a respondent count.
 
 ## How a response actually gets stored
 

@@ -5,6 +5,22 @@
             "description": "A UUID string identifying this logs alert configuration.",
             "type": "string"
         },
+        "pagerduty_region": {
+            "default": "us",
+            "description": "PagerDuty service region, us or eu. Defaults to us.",
+            "enum": ["us", "eu"],
+            "type": "string"
+        },
+        "pagerduty_routing_key": {
+            "description": "The 32-character integration key of an Events API v2 integration on the PagerDuty service. Required when type is pagerduty.",
+            "type": "string"
+        },
+        "pagerduty_severity": {
+            "default": "critical",
+            "description": "Incident severity for PagerDuty. One of critical, error, warning, info. Defaults to critical.",
+            "enum": ["critical", "error", "warning", "info"],
+            "type": "string"
+        },
         "slack_channel_id": {
             "description": "Slack channel ID. Required when type is slack.",
             "type": "string"
@@ -18,8 +34,8 @@
             "type": "number"
         },
         "type": {
-            "description": "Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.",
-            "enum": ["slack", "webhook", "teams"],
+            "description": "Destination type. Use slack, webhook, teams, or pagerduty. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url. PagerDuty requires pagerduty_routing_key.",
+            "enum": ["slack", "webhook", "teams", "pagerduty"],
             "type": "string"
         },
         "webhook_url": {

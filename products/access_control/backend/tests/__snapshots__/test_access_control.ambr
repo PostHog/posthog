@@ -15,7 +15,6 @@
     'heatmap',
     'hog_flow',
     'insight',
-    'llm_prompt',
     'llm_provider_key',
     'llm_skill',
     'notebook',
@@ -33,6 +32,7 @@
 # name: test_resources_with_object_access_controls_snapshot
   list([
     'account',
+    'account_note',
     'action',
     'ai_observability_clusters',
     'customer_analytics',
@@ -51,7 +51,6 @@
     'hog_flow',
     'insight',
     'llm_analytics',
-    'llm_prompt',
     'llm_provider_key',
     'llm_skill',
     'notebook',

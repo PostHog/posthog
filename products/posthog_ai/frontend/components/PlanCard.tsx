@@ -4,8 +4,10 @@ import { IconCopy, IconExpand45, IconListCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 
 import { MarkdownMessage } from '../messages/MarkdownMessage'
+import { useQuillThread } from './quill/quillThreadContext'
 
 export interface PlanPayload {
     plan?: string
@@ -44,6 +46,7 @@ export interface PlanCardProps {
 export function PlanCard({ plan, id }: PlanCardProps): JSX.Element {
     const scrollRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
+    const quill = useQuillThread()
 
     // Restore + track the scroll offset of whichever container is active (inline card or fullscreen body).
     useEffect(() => {
@@ -112,10 +115,26 @@ export function PlanCard({ plan, id }: PlanCardProps): JSX.Element {
     }
 
     // Mobile-first height cap: small screens get most of the viewport, `sm+` keeps /code's half-viewport cap.
+    // The lemon accent tokens resolve to nothing inside a quill thread, so the quill skin draws a plain card instead.
     return (
-        <div className="flex max-h-[75vh] max-w-[750px] flex-col overflow-hidden rounded-lg border-2 border-accent bg-accent-highlight-secondary sm:max-h-[50vh]">
-            <div className="flex items-center justify-between gap-2 border-b border-accent px-3 py-1.5">
-                <div className="flex min-w-0 items-center gap-2 text-accent">
+        <div
+            className={cn(
+                'flex max-h-[75vh] max-w-[750px] flex-col overflow-hidden rounded-lg sm:max-h-[50vh]',
+                quill ? 'border border-(--border) bg-(--card)' : 'border-2 border-accent bg-accent-highlight-secondary'
+            )}
+        >
+            <div
+                className={cn(
+                    'flex items-center justify-between gap-2 border-b px-3 py-1.5',
+                    quill ? 'border-(--border)' : 'border-accent'
+                )}
+            >
+                <div
+                    className={cn(
+                        'flex min-w-0 items-center gap-2',
+                        quill ? 'text-(--muted-foreground)' : 'text-accent'
+                    )}
+                >
                     <IconListCheck className="size-4 shrink-0" />
                     <span className="text-sm font-medium">Final plan</span>
                 </div>

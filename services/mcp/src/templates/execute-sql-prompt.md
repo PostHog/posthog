@@ -10,22 +10,33 @@ Use SQL for record inspection, custom calculations, joins, existing SQL, or requ
 
 For governed measures, check for a matching approved metric before deriving a new calculation.
 
-Use typed queries when standard PostHog calculation rules or native insight controls matter. Do not approximate standard funnels or retention with SQL.
+Default to typed runners for new product analytics and dashboard insights whenever their schemas support the requested calculation, including simple event counts, unique users, property sums, breakdowns, and time series (`query-trends`). Use the matching typed runner for funnels, retention, stickiness, paths, and lifecycle; do not approximate their standard calculation rules with SQL.
 
-For a new event-analytics query, prefer a typed query when both methods preserve the requested calculation and output, including simple aggregates. Use SQL directly when the task calls for it, without requiring a failed typed-query attempt. Keep valid existing SQL when it fits the task, and reassess when the task changes.
+When both methods fit, use the typed runner. SQL familiarity, SQL examples, or an earlier SQL discovery call do not justify SQL for the final analysis. Use SQL directly for the SQL-specific tasks above, without requiring a failed typed-query attempt. Keep valid existing SQL when it fits the task, and reassess when the task changes.
 
-Both typed queries and SQL can support saved visualizations. A chart or table alone does not determine the method.
+Both typed queries and SQL support visualizations. Save supported dashboard analyses as native query nodes. A chart or table request, or a harness needing a separate rendering call, does not justify SQL.
 
 {guidelines}
 
 {schema_discovery}
 
+### Preserve SQL editor filters
+
+When SQL editor context includes `current_query_node.source.filters`, pass that object as `filters` to `execute-sql`.
+Preserve the date range, property and cohort filters, and `filterTestAccounts` unless the user asks to change them.
+Use `{filters}` in the `WHERE` clause of each relevant source scan, including scans inside CTEs.
+A placeholder on the final aggregate does not filter the underlying scans.
+Do not replace these controls with hardcoded dates or guessed test-account exclusions.
+Date-only placeholders do not apply property or test-account filters.
+To change a filter, update the structured `filters` argument and keep the placeholders; pass `{}` to clear filters.
+Raw SQL (`sendRawQuery`) cannot apply structured filters. Explain this limitation before presenting results from a raw query.
+
 ### Common pitfalls
 
-- **For `system.*` entities, filter `information_schema` by the fully-qualified `table_name`:** use `'system.insights'`, not `'insights'`; the bare name (or a `table_schema = 'system'` split) silently returns zero rows.
+- **For `system.*` entities, `information_schema` stores the fully-qualified `table_name`:** `table_name = 'system.insights'` works alone. The bare name works only with a schema filter: `table_schema = 'system' AND table_name = 'insights'`. A bare `table_name = 'insights'` alone returns zero rows.
 - **HogQL rejects the ClickHouse `SETTINGS` clause outright** — appending `SETTINGS ...` (e.g. to tune `max_execution_time` or `join_algorithm`) always fails with `Unsupported: SelectStmt.settingsClause()`. Don't include it.
 - **`toDate()` takes exactly one argument** — it does not accept ClickHouse's `toDate(value, timezone)` form. Convert timezone first with `toTimeZone()`, then wrap in `toDate()`: `toDate(toTimeZone(timestamp, 'US/Pacific'))`, not `toDate(timestamp, 'US/Pacific')`.
-- **Width-suffixed conversion functions aren't supported** — `toInt64`, `toInt32`, `toFloat64`, `toUInt8`, etc. (and their `OrNull`/`OrZero` variants) always fail. Use the unsuffixed form instead: `toInt()`, `toFloat()`, `toUInt()`, `toIntOrNull()`, `toFloatOrZero()`, and so on.
+- **Only the 64-bit width-suffixed conversion functions work** — `toInt64`, `toFloat64` and their `OrNull`/`OrZero`/`OrDefault` variants are aliases of `toInt()`, `toFloat()`, `toIntOrZero()`, and so on, and return NULL instead of failing on input they can't convert. Other widths (`toInt32`, `toUInt8`, `toFloat32`, ...) fail, so use `toInt()` or `toFloat()` instead.
 
 ### Format SQL for readability
 
@@ -75,19 +86,19 @@ The `query-llm-trace` / `query-llm-traces-list` tools read `posthog.ai_events` f
 
 PostHog ingests OpenTelemetry signals into three ClickHouse-backed tables that are queryable via HogQL. **Note the namespacing asymmetry** — `logs` is registered at the root, while `trace_spans` and `metrics` live under the `posthog.` namespace and must be referenced as such (e.g. `FROM posthog.trace_spans`):
 
-- `logs` — log entries. Common fields: `body` (also exposed as `message`), `severity_text`, `severity_number`, `service_name`, `attributes`, `resource_attributes`, `trace_id`, `span_id`, `timestamp`. Prefer `posthog:query-logs` for filtered list queries; reach for SQL for aggregations across services or joins with `posthog.trace_spans` / `posthog.metrics` by `trace_id`.
-- `posthog.trace_spans` — OpenTelemetry spans. Common fields: `trace_id`, `span_id`, `parent_span_id`, `is_root_span`, `name`, `service_name`, `kind` (0-5), `status_code` (0 Unset, 1 OK, 2 Error), `duration_nano`, `timestamp`, `end_time`, `attributes`, `resource_attributes`. Prefer `posthog:query-apm-spans` / `posthog:apm-trace-get` for span listing and full-trace fetches; reach for SQL for joins with `logs` / `posthog.metrics` by `trace_id`, exemplar lookups, or aggregations the typed tools don't expose.
-- `posthog.metrics` — OpenTelemetry metric points. Common fields: `metric_name`, `metric_type` (counter/gauge/histogram), `value`, `count`, `histogram_bounds`, `histogram_counts`, `unit`, `aggregation_temporality` (`delta` or `cumulative`), `is_monotonic`, `service_name`, `trace_id`, `span_id`, `attributes`, `resource_attributes`, `timestamp`. No typed `query-metrics` tool — use SQL. A projection pre-aggregates by `(team_id, time_bucket, toStartOfMinute(timestamp), service_name, metric_name, metric_type, resource_fingerprint)` with `count/sum/min/max(value)`, so per-minute aggregations grouped by those keys are very cheap. **Important for counters:** check `aggregation_temporality` before aggregating — `SUM(value)` over a window is only correct for `delta`. For `cumulative` counters, the value is a running total, so use `argMax(value, timestamp)` (or `max(value) - min(value)` for a rate) to avoid double-counting. Always filter or split by `aggregation_temporality` when both regimes can appear for a given `metric_name`.
+- `logs` — log entries. Common fields: `body` (also exposed as `message`), `severity_text`, `severity_number`, `service_name`, `attributes`, `resource_attributes`, `trace_id`, `span_id`, `timestamp`. Prefer `posthog:query-logs` for filtered list queries; reach for SQL for aggregations across services or joins with `posthog.trace_spans` by `trace_id`.
+- `posthog.trace_spans` — OpenTelemetry spans. Common fields: `trace_id`, `span_id`, `parent_span_id`, `is_root_span`, `name`, `service_name`, `kind` (0-5), `status_code` (0 Unset, 1 OK, 2 Error), `duration_nano`, `timestamp`, `end_time`, `attributes`, `resource_attributes`. Prefer `posthog:query-apm-spans` / `posthog:apm-trace-get` for span listing and full-trace fetches; reach for SQL for joins with `logs` by `trace_id`, or aggregations the typed tools don't expose.
+- `posthog.metrics` — OpenTelemetry metric points. Common fields: `metric_name`, `metric_type` (counter/gauge/histogram), `value`, `count`, `histogram_bounds`, `histogram_counts`, `unit`, `aggregation_temporality` (`delta` or `cumulative`), `is_monotonic`, `service_name`, `trace_id`, `span_id`, `attributes`, `resource_attributes`, `timestamp`. Prefer `posthog:query-metrics` for time series (rates, increases, quantiles, formulas); reach for SQL for exemplar lookups or aggregations the typed tool doesn't expose. It lives on a separate cluster, so one query cannot read it together with `logs` or `posthog.trace_spans`: look up the exemplar `trace_id` first, then pass it as a literal to a query over spans and logs. A projection pre-aggregates by `(team_id, time_bucket, toStartOfMinute(timestamp), service_name, metric_name, metric_type, resource_fingerprint)` with `count/sum/min/max(value)`, so per-minute aggregations grouped by those keys are very cheap. **Important for counters:** check `aggregation_temporality` before aggregating — `SUM(value)` over a window is only correct for `delta`. For `cumulative` counters, the value is a running total, so use `argMax(value, timestamp)` (or `max(value) - min(value)` for a rate) to avoid double-counting. Always filter or split by `aggregation_temporality` when both regimes can appear for a given `metric_name`.
 
-All three share `team_id`, `time_bucket`, `service_name`, `resource_fingerprint`, and where applicable `trace_id`. `trace_id` on `posthog.metrics` is the OpenTelemetry exemplar pattern — a metric anomaly can be drilled into via a sample `trace_id` to pull the full trace and correlated logs. **Note:** exemplar extraction is not yet wired up in the ingestion pipeline (the `_exemplars` argument is unused in `rust/capture-logs/src/metric_record.rs`), so `posthog.metrics.trace_id` is always empty today. The pattern below describes the intended capability; the "works today" alternative anchors on `posthog.trace_spans` instead.
+All three share `team_id`, `time_bucket`, `service_name`, `resource_fingerprint`, and where applicable `trace_id`. `trace_id` on `posthog.metrics` is the OpenTelemetry exemplar pattern — a metric anomaly can be drilled into via a sample `trace_id` to pull the full trace and correlated logs. Ingestion keeps the first exemplar of each data point, so only points whose SDK attached an exemplar carry a `trace_id`; most rows have `''`. Filter `trace_id != ''`, and when no point in the window has one, anchor on `posthog.trace_spans` instead, as in the example below.
 
-**`trace_id` format:** Both `logs` and `posthog.trace_spans` store `trace_id` as a 24-character base64-encoded 16-byte value (e.g. hex `21EDB3A025A9ECD32ADF3E5D7548A4F4` encodes to `Ie2zoCWp7NMq3z5ddUik9A==`). The MCP API layer converts to hex via `hex(tryBase64Decode(trace_id))` for display. Raw HogQL queries see the base64 form. Unset = `'AAAAAAAAAAAAAAAAAAAAAA=='`. `posthog.metrics.trace_id` is a plain string, empty when unset (once exemplars land it will match the base64 format of the other two tables). Joins are direct equality on `trace_id`.
+**`trace_id` format:** Both `logs` and `posthog.trace_spans` store `trace_id` as a 24-character base64-encoded 16-byte value (e.g. hex `21EDB3A025A9ECD32ADF3E5D7548A4F4` encodes to `Ie2zoCWp7NMq3z5ddUik9A==`). The MCP API layer converts to hex via `hex(tryBase64Decode(trace_id))` for display. Raw HogQL queries see the base64 form. Unset = `'AAAAAAAAAAAAAAAAAAAAAA=='`. `posthog.metrics.trace_id` uses the same base64 form when an exemplar is present and is `''` when unset. Joins between `logs` and `posthog.trace_spans` are direct equality on `trace_id`.
 
 User HogQL queries against `logs`, `posthog.trace_spans`, and `posthog.metrics` are capped at 50 GB read per query to prevent unbounded scans.
 
 Always pass a tight `timestamp` window. Default to the last hour and widen only when justified.
 
-### Example: three-signal correlation (works today, span-anchored)
+### Example: three-signal correlation (span-anchored)
 
 <example>
 User: An error spike on `checkout` over the last hour — show me a sample slow error trace and the logs in that request.
@@ -117,7 +128,7 @@ ORDER BY timestamp
 ```
 
 <reasoning>
-- Anchoring on `posthog.trace_spans` works today because spans always carry a populated `trace_id`. Once `posthog.metrics` exemplars land, the CTE can be swapped for `argMax(trace_id, value) FROM posthog.metrics WHERE … AND trace_id != ''` to drill from a metric spike instead.
+- Anchoring on `posthog.trace_spans` always works because spans always carry a populated `trace_id`. To drill from a metric spike instead, first run `SELECT argMax(trace_id, value) FROM posthog.metrics WHERE … AND trace_id != ''` on its own, then put the returned `trace_id` in place of the CTE. It returns a trace only when the service's SDK sends exemplars.
 - `trace_id` is stored as base64 in both `logs` and `posthog.trace_spans`, so direct equality works — no decoding needed.
 - `UNION ALL` with a `source` discriminator avoids three separate calls and keeps the timeline interleaved.
 - Note `logs` is root-level while `posthog.trace_spans` and `posthog.metrics` require the namespace prefix.

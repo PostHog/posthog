@@ -1,4 +1,5 @@
 from datetime import datetime
+from functools import cached_property
 from typing import cast
 
 from posthog.schema import (
@@ -14,7 +15,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.endpoints.endpoints_usage_query_runner import EndpointsUsageQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 
 class EndpointsUsageTrendsQueryRunner(EndpointsUsageQueryRunner[EndpointsUsageTrendsQueryResponse]):

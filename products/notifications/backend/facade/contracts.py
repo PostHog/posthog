@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
 from products.notifications.backend.facade.enums import (
@@ -13,7 +13,19 @@ from products.notifications.backend.facade.enums import (
 )
 
 if TYPE_CHECKING:
-    from products.notifications.backend.resolvers import RecipientsResolver
+    from posthog.models import Team
+
+
+class RecipientsResolverProtocol(Protocol):
+    """What notification delivery calls on a custom resolver.
+
+    backend.resolvers.RecipientsResolver implements it, and products subclass that class to
+    change who receives a notification.
+    """
+
+    def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]: ...
+
+    def filter_by_access_control(self, user_ids: list[int], resource_type: str, team: Team) -> list[int]: ...
 
 
 @dataclass(frozen=True)
@@ -32,5 +44,5 @@ class NotificationData:
     source_id: str | None = None
     priority: Priority = Priority.NORMAL
     metadata: dict[str, Any] | None = None
-    resolver: RecipientsResolver | None = field(default=None, compare=False)
+    resolver: RecipientsResolverProtocol | None = field(default=None, compare=False)
     idempotency_key: str | None = None

@@ -4,11 +4,21 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
+import { Separator } from '@posthog/quill'
+
 import { BehavioralPropertyFilterRow } from 'lib/components/PropertyFilters/components/BehavioralPropertyFilterRow'
-import { FILTER_ROW_FRAME_CLASSES } from 'lib/components/PropertyFilters/components/filterRowFrame'
+import {
+    FILTER_ROW_FRAME_CLASSES,
+    QUILL_FILTER_ROW_FRAME_CLASSES,
+} from 'lib/components/PropertyFilters/components/filterRowFrame'
 import { PropertyFilterRowOperator } from 'lib/components/PropertyFilters/components/PropertyFilterRowOperator'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { isBehavioralPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import {
+    isBehavioralPropertyFilter,
+    isPropertyFilterAwaitingValue,
+    isPropertyGroupFilterLike,
+} from 'lib/components/PropertyFilters/utils'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     AllowedProperties,
     ExcludedOperators,
@@ -19,11 +29,10 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { isOperatorFlag } from 'lib/utils/operators'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinition } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinition, PropertyFilterRow } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { OperatorValueSelectProps } from './components/OperatorValueSelect'
@@ -32,7 +41,7 @@ import { PropertyFilterInternalProps } from './types'
 
 export interface PropertyFiltersProps {
     endpoint?: string | null
-    propertyFilters?: AnyPropertyFilter[] | null
+    propertyFilters?: PropertyFilterRow[] | null
     onChange: (filters: AnyPropertyFilter[]) => void
     pageKey: string
     showConditionBadge?: boolean
@@ -45,6 +54,7 @@ export interface PropertyFiltersProps {
     schemaColumns?: DatabaseSchemaField[]
     dataWarehouseTableName?: string
     logicalRowDivider?: boolean
+    logicalRowDividerTooltip?: string
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     addText?: string | null
@@ -69,12 +79,6 @@ export interface PropertyFiltersProps {
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
-    /**
-     * `'input'` renders the replay-style input-box add-filter trigger; `'button'`
-     * (the default) renders a button. Only has an effect on the rebuild menu
-     * (`TAXONOMIC_FILTER_MENU_REBUILD`).
-     */
-    triggerVariant?: 'button' | 'input'
     staticValueOptions?: PropertyFilterInternalProps['staticValueOptions']
     renderOperatorValueSelect?: PropertyFilterInternalProps['renderOperatorValueSelect']
     /** Override inferred property definitions for contexts where one event key is polymorphic. */
@@ -88,6 +92,8 @@ export interface PropertyFiltersProps {
     addFilterSuffix?: ((addFilter: (property: AnyPropertyFilter) => void) => JSX.Element) | null
     addFilterDivider?: boolean
     framedRows?: boolean
+    filterHeader?: React.ReactNode
+    onFilterOpen?: () => void
     renderControls?: (controls: {
         addFilter: React.ReactNode
         activeFilters: JSX.Element[]
@@ -110,6 +116,7 @@ export function PropertyFilters({
     dataWarehouseTableName,
     orFiltering = false,
     logicalRowDivider = false,
+    logicalRowDividerTooltip,
     propertyGroupType = null,
     addText = null,
     buttonText = 'Filter',
@@ -132,7 +139,6 @@ export function PropertyFilters({
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
-    triggerVariant = 'button',
     staticValueOptions,
     renderOperatorValueSelect,
     propertyDefinitionsOverride,
@@ -143,11 +149,14 @@ export function PropertyFilters({
     addFilterDivider = false,
     framedRows = false,
     renderControls,
+    onFilterOpen,
+    filterHeader,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilter, setFilters, update } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
+    const quillSurface = useQuillSurface()
 
     const showNewFilterRow = allowNew && editable
     const displayedFilters = showNewFilterRow ? filtersWithNew : filters
@@ -156,31 +165,34 @@ export function PropertyFilters({
     // do not open on initial render, only open if newly inserted
     useOnMountEffect(() => setAllowOpenOnInsert(true))
 
-    const rows = displayedFilters.map((item: AnyPropertyFilter, index: number) => {
+    const rows = displayedFilters.map((item: PropertyFilterRow, index: number) => {
         // Moving a new property into a separate chip row remounts its value editor.
-        const openValueEditor =
-            !!renderControls &&
-            !!item.key &&
-            'operator' in item &&
-            (!item.operator || !isOperatorFlag(item.operator)) &&
-            (item.value === undefined || item.value === null || item.value === '')
+        const openValueEditor = !!renderControls && isPropertyFilterAwaitingValue(item)
+        // A group row has no key/value to summarize on a closed popover button, so show it directly.
+        const rowDisablePopover = disablePopover || orFiltering || isPropertyGroupFilterLike(item)
         return (
             <React.Fragment key={displayedFilterIds[index]}>
                 {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
-                    <LogicalRowDivider logicalOperator={propertyGroupType ?? FilterLogicalOperator.And} />
+                    <LogicalRowDivider
+                        logicalOperator={propertyGroupType ?? FilterLogicalOperator.And}
+                        tooltip={logicalRowDividerTooltip}
+                    />
                 )}
                 {addFilterDivider &&
                     showNewFilterRow &&
                     index === displayedFilters.length - 1 &&
-                    filters.length > 0 && <LemonDivider className="my-1 w-full" />}
+                    filters.length > 0 &&
+                    (quillSurface ? <Separator className="my-1" /> : <LemonDivider className="my-1 w-full" />)}
                 <FilterRow
+                    onOpen={onFilterOpen}
+                    header={filterHeader}
                     item={item}
                     index={index}
                     totalCount={displayedFilters.length - 1} // empty state
                     filters={displayedFilters}
                     pageKey={pageKey}
                     showConditionBadge={showConditionBadge}
-                    disablePopover={disablePopover || orFiltering}
+                    disablePopover={rowDisablePopover}
                     label={buttonText}
                     labelClassName={buttonClassName}
                     size={buttonSize}
@@ -202,7 +214,8 @@ export function PropertyFilters({
                                 <div
                                     className={clsx(
                                         'TaxonomicPropertyFilter__row-items',
-                                        framedRows && FILTER_ROW_FRAME_CLASSES
+                                        framedRows &&
+                                            (quillSurface ? QUILL_FILTER_ROW_FRAME_CLASSES : FILTER_ROW_FRAME_CLASSES)
                                     )}
                                 >
                                     <BehavioralPropertyFilterRow
@@ -228,7 +241,7 @@ export function PropertyFilters({
                                 schemaColumns={schemaColumns}
                                 dataWarehouseTableName={dataWarehouseTableName}
                                 propertyGroupType={propertyGroupType}
-                                disablePopover={disablePopover || orFiltering}
+                                disablePopover={rowDisablePopover}
                                 addText={addText}
                                 hasRowOperator={hasRowOperator}
                                 propertyAllowList={propertyAllowList}
@@ -244,7 +257,6 @@ export function PropertyFilters({
                                 editable={editable}
                                 operatorAllowlist={operatorAllowlist}
                                 hogQLGlobals={hogQLGlobals}
-                                triggerVariant={triggerVariant}
                                 staticValueOptions={staticValueOptions}
                                 renderOperatorValueSelect={renderOperatorValueSelect}
                                 propertyDefinitionsOverride={propertyDefinitionsOverride}

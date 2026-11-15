@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "What a preview samples from: the unsaved evaluation's conditions and target.",
     "properties": {
         "allows_na": {
             "default": false,
@@ -9,20 +10,55 @@
         "conditions": {
             "description": "Optional trigger conditions to filter which events are sampled.",
             "items": {
-                "additionalProperties": {},
-                "propertyNames": {
-                    "type": "string"
+                "description": "A trigger condition set, as on an evaluation. The id is optional here.",
+                "properties": {
+                    "id": {
+                        "description": "Identifier of this condition set, if any.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "properties": {
+                        "description": "Property filters (event or person) that scope which generations match this condition set.",
+                        "items": {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "rollout_percentage": {
+                        "default": 100,
+                        "description": "Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.",
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": "number"
+                    }
                 },
                 "type": "object"
             },
             "type": "array"
         },
         "output_config": {
-            "description": "Output settings used to validate the preview, including numeric bounds and allows_na.",
+            "description": "Output settings used to validate the preview, including bounds, categories, and allows_na.",
             "properties": {
                 "allows_na": {
                     "description": "Whether the evaluation can return N/A for non-applicable generations.",
                     "type": "boolean"
+                },
+                "decision_threshold": {
+                    "anyOf": [
+                        {
+                            "maximum": 1,
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged."
                 },
                 "max": {
                     "anyOf": [
@@ -33,7 +69,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Inclusive maximum numeric score. Omit for no upper bound."
+                    "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min."
                 },
                 "min": {
                     "anyOf": [
@@ -44,7 +80,32 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Inclusive minimum numeric score. Omit for no lower bound."
+                    "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models."
+                },
+                "options": {
+                    "description": "Categorical output options. Keys identify stored results; labels are displayed to users.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Stable category key.",
+                                "maxLength": 128,
+                                "minLength": 1,
+                                "pattern": "^[a-z0-9]+(?:[_-][a-z0-9]+)*$",
+                                "type": "string"
+                            },
+                            "label": {
+                                "description": "Category display label.",
+                                "maxLength": 256,
+                                "minLength": 1,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["key", "label"],
+                        "type": "object"
+                    },
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "type": "array"
                 },
                 "passing_rule": {
                     "anyOf": [
@@ -64,10 +125,28 @@
                             "type": "object"
                         },
                         {
+                            "properties": {
+                                "categories": {
+                                    "description": "Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["categories"],
+                            "type": "object"
+                        },
+                        {
                             "type": "null"
                         }
                     ],
-                    "description": "Optional numeric passing rule. Null removes the rule; historical scores use the current rule."
+                    "description": "Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule."
+                },
+                "selection_mode": {
+                    "description": "Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.",
+                    "enum": ["single", "multiple"],
+                    "type": "string"
                 },
                 "step": {
                     "anyOf": [
@@ -82,7 +161,7 @@
                     "description": "Optional positive input increment. Does not round evaluation results."
                 },
                 "true_is_failure": {
-                    "description": "Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
+                    "description": "Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
                     "type": "boolean"
                 }
             },
@@ -90,8 +169,8 @@
         },
         "output_type": {
             "default": "boolean",
-            "description": "Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric",
-            "enum": ["boolean", "numeric"],
+            "description": "Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric\n* `categorical` - Categorical",
+            "enum": ["boolean", "numeric", "categorical"],
             "type": "string"
         },
         "sample_count": {
@@ -101,8 +180,17 @@
             "minimum": 1,
             "type": "number"
         },
+        "sample_ids": {
+            "description": "Test exactly these units instead of sampling: generation event UUIDs, trace IDs, or session IDs, matching `target`. Up to 10, and only units from the last 7 days. Conditions and sampling are ignored for pinned units, and unknown IDs are skipped. A session target tests at most 3 sessions.",
+            "items": {
+                "maxLength": 400,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
         "source": {
-            "description": "Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.",
+            "description": "Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.",
             "minLength": 1,
             "type": "string"
         },
@@ -116,16 +204,19 @@
             "description": "Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.",
             "properties": {
                 "quiet_period_seconds": {
-                    "default": 3600,
-                    "description": "For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.",
+                    "description": "For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run. Defaults to 3600.",
                     "maximum": 86400,
                     "minimum": 10,
                     "type": "number"
                 },
+                "strategy": {
+                    "description": "The evaluation's settle strategy. A session evaluation with a fixed window is previewed on sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`.\n\n* `fixed_window` - Fixed window\n* `inactivity` - Inactivity",
+                    "enum": ["fixed_window", "inactivity"],
+                    "type": "string"
+                },
                 "window_seconds": {
-                    "default": 1800,
-                    "description": "Aggregation window for trace samples, in seconds.",
-                    "maximum": 7200,
+                    "description": "Aggregation window in seconds. A trace preview defaults to 1800 and uses at most 7200.",
+                    "maximum": 604800,
                     "minimum": 10,
                     "type": "number"
                 }

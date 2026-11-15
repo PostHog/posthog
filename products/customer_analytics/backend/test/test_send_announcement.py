@@ -1,7 +1,11 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from products.conversations.backend.facade.api import SupportMessageSendError, SupportSlackNotConfigured
+from products.conversations.backend.facade.api import (
+    SupportMessageSendError,
+    SupportSlackNotConfigured,
+    SupportSlackSender,
+)
 from products.customer_analytics.backend.constants import DELIVERY_IN_FLIGHT_ERROR, DELIVERY_INTERRUPTED_ERROR
 from products.customer_analytics.backend.logic.announcements import AnnouncementRateLimited
 from products.customer_analytics.backend.models import Announcement, AnnouncementDelivery
@@ -11,9 +15,13 @@ POST = "products.customer_analytics.backend.logic.announcements.post_support_mes
 
 
 class TestSendAnnouncement(BaseTest):
-    def _make(self, channel_ids: list[str], message: str = "hi") -> Announcement:
+    def _make(self, channel_ids: list[str], message: str = "hi", **fields) -> Announcement:
         announcement = Announcement.all_teams.create(
-            team=self.team, message=message, total_channels=len(channel_ids), status=Announcement.Status.PENDING
+            team=self.team,
+            message=message,
+            total_channels=len(channel_ids),
+            status=Announcement.Status.PENDING,
+            **fields,
         )
         for channel_id in channel_ids:
             AnnouncementDelivery.all_teams.create(
@@ -39,8 +47,42 @@ class TestSendAnnouncement(BaseTest):
         assert self._delivery(announcement, "C1").slack_message_ts == "111.222"
 
     @patch(POST)
+    def test_posts_as_the_creator_when_send_as_is_user(self, mock_post: MagicMock):
+        mock_post.return_value = "1.0"
+
+        announcement = self._make(
+            ["C1"],
+            send_as=Announcement.SendAs.USER,
+            sender_display_name="Ada",
+            sender_icon_url="https://example.com/ada.png",
+        )
+        send_announcement(str(announcement.id), self.team.pk)
+
+        assert mock_post.call_args.kwargs["sender"] == SupportSlackSender(
+            name="Ada", icon_url="https://example.com/ada.png"
+        )
+
+    @patch(POST)
+    def test_posts_as_the_bot_by_default(self, mock_post: MagicMock):
+        mock_post.return_value = "1.0"
+
+        send_announcement(str(self._make(["C1"]).id), self.team.pk)
+
+        assert mock_post.call_args.kwargs["sender"] is None
+
+    @patch(POST)
+    def test_falls_back_to_the_bot_when_no_sender_was_snapshotted(self, mock_post: MagicMock):
+        mock_post.return_value = "1.0"
+
+        # Nothing resolved the Slack profile, so there is no identity to post under.
+        announcement = self._make(["C1"], send_as=Announcement.SendAs.USER)
+        send_announcement(str(announcement.id), self.team.pk)
+
+        assert mock_post.call_args.kwargs["sender"] is None
+
+    @patch(POST)
     def test_one_channel_failure_is_isolated(self, mock_post: MagicMock):
-        def fake_post(team_id: int, channel_id: str, text: str) -> str:
+        def fake_post(team_id: int, channel_id: str, text: str, **kwargs) -> str:
             if channel_id == "Cfail":
                 raise SupportMessageSendError("not_in_channel")
             return "1.0"

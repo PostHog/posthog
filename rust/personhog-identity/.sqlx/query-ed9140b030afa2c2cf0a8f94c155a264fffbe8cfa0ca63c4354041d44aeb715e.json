@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='publish_load_op' */ \n        SELECT op.op_type, op.completed_at,\n               (SELECT count(*) FROM lifecycle_op_person_tmp lop\n                WHERE lop.op_id = op.op_id AND lop.role = 'target') AS \"target_rows!\",\n               (SELECT lop.person_uuid FROM lifecycle_op_person_tmp lop\n                WHERE lop.op_id = op.op_id AND lop.role = 'target'\n                ORDER BY lop.person_id LIMIT 1) AS target_uuid,\n               (SELECT count(*) FROM lifecycle_op_person_tmp lop\n                WHERE lop.op_id = op.op_id\n                  AND lop.role IN ('source', 'victim')\n                  AND lop.moved IS NOT NULL\n                  AND jsonb_typeof(lop.moved) <> 'array') AS \"malformed_moved_rows!\"\n        FROM lifecycle_op_tmp op\n        WHERE op.op_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "op_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "completed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "target_rows!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "target_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "malformed_moved_rows!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "ed9140b030afa2c2cf0a8f94c155a264fffbe8cfa0ca63c4354041d44aeb715e"
+}

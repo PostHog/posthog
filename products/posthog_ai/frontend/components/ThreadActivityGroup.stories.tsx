@@ -49,7 +49,7 @@ const meta: Meta<typeof ThreadActivityGroup> = {
                 item={item}
                 isLast={false}
                 isThinking={false}
-                toolInvocations={tools}
+                invocation={item.toolCallId ? tools.get(item.toolCallId) : undefined}
                 turnComplete
                 turnCancelled={false}
             />

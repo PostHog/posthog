@@ -54,6 +54,18 @@ class ModelCost(TypedDict, total=False):
     """Cost in USD per input token written to the cache."""
     supports_prompt_caching: bool
     """Whether the model supports prompt caching."""
+    supports_adaptive_thinking: bool
+    supports_reasoning: bool
+    supports_xhigh_reasoning_effort: bool
+    supports_max_reasoning_effort: bool
+    supports_output_config: bool
+    supports_sampling_params: bool
+    supports_assistant_prefill: bool
+    supports_function_calling: bool
+    supports_tool_choice: bool
+    supports_response_schema: bool
+    supports_pdf_input: bool
+    supports_computer_use: bool
 
 
 class ModelCostService:

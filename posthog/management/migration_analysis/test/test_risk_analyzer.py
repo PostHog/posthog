@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.db import migrations, models
@@ -15,6 +15,7 @@ from posthog.management.migration_analysis.policies import (
     GeneratedNameDropPolicy,
     HotTableAlterPolicy,
     LockPhaseTransactionPolicy,
+    NonDbAlterFieldPolicy,
     OrphanedForeignKeyPolicy,
 )
 from posthog.management.migration_analysis.utils import _model_name_for_table
@@ -22,7 +23,9 @@ from posthog.migration_helpers import (
     AddConstraintNotValid,
     AddForeignKeyNotValid,
     DropColumnConstraints,
+    DropFieldIndexesConcurrently,
     DropForeignKey,
+    DropIndexConcurrently,
     SafeAddIndexConcurrently,
     SafeDropTable,
     SafeRemoveIndexConcurrently,
@@ -2199,6 +2202,7 @@ class TestAtomicFalsePolicy:
     @parameterized.expand(
         [
             "CreateIndexConcurrently",
+            "DropFieldIndexesConcurrently",
             "DropIndexConcurrently",
             "SafeAddIndexConcurrently",
             "SafeRemoveIndexConcurrently",
@@ -2440,6 +2444,7 @@ class TestConcurrentIndexIdempotencyPolicy:
         [
             (SafeAddIndexConcurrently(model_name="dashboard", index=models.Index(fields=["name"], name="idx")),),
             (SafeRemoveIndexConcurrently(model_name="dashboard", name="idx"),),
+            (DropFieldIndexesConcurrently(model_name="dashboard", name="team"),),
         ]
     )
     def test_safe_state_aware_helpers_score_safe(self, op):
@@ -2800,6 +2805,8 @@ class TestGuardedCatchupMigrations:
         'REFERENCES "other_table" ("id") NOT VALID;\nEND IF; END $$;'
     )
     GUARDED_INDEX_SQL = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "my_idx" ON "my_table" ("col"); -- trailing-marker'
+    VALIDATE_SQL = 'ALTER TABLE "my_table" VALIDATE CONSTRAINT "my_fk";'
+    STORAGE_PARAMETERS_SQL = "SET lock_timeout = '5s';\nALTER TABLE my_table SET (autovacuum_vacuum_scale_factor = 0.02);\nRESET lock_timeout;"
 
     def setup_method(self):
         self.analyzer = RiskAnalyzer()
@@ -2814,8 +2821,10 @@ class TestGuardedCatchupMigrations:
         return [
             AddFieldIfMissing(model_name="mymodel", name="col", field=models.IntegerField(null=False)),
             AddIndexIfMissing(model_name="mymodel", index=models.Index(fields=["col"], name="my_idx")),
-            migrations.RunSQL(sql=self.GUARDED_FK_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.GUARDED_FK_SQL + "\n" + self.VALIDATE_SQL, reverse_sql=migrations.RunSQL.noop),
             migrations.RunSQL(sql=self.GUARDED_INDEX_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.VALIDATE_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.STORAGE_PARAMETERS_SQL, reverse_sql=migrations.RunSQL.noop),
             ValidateConstraint(model_name="mymodel", name="my_fk"),
         ]
 
@@ -3025,6 +3034,58 @@ class TestLockPhaseTransactionPolicy:
             assert violation.startswith("❌ BLOCKED")
             assert fragment in violation
 
+    @pytest.mark.parametrize(
+        "atomic,drops,blocked",
+        [
+            (True, [["created_by_id", "team_id"]], True),
+            (False, [["created_by_id", "team_id"]], True),
+            (True, [["team_id", "widget_id"]], False),
+            (False, ["created_by_id", "team_id"], False),
+        ],
+    )
+    def test_one_drop_must_not_lock_two_hot_parents(self, monkeypatch, atomic, drops, blocked):
+        state = ProjectState()
+        state.add_model(
+            ModelState(
+                app_label="posthog",
+                name="Child",
+                fields=[
+                    ("id", models.AutoField(primary_key=True)),
+                    ("team", models.ForeignKey("posthog.Team", on_delete=models.CASCADE)),
+                    ("created_by", models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)),
+                    ("widget", models.ForeignKey("posthog.Widget", on_delete=models.CASCADE)),
+                ],
+                options={"db_table": "posthog_child"},
+            )
+        )
+        for name, table in [("Team", "posthog_team"), ("User", "posthog_user"), ("Widget", "posthog_widget")]:
+            state.add_model(
+                ModelState(
+                    app_label="posthog",
+                    name=name,
+                    fields=[("id", models.AutoField(primary_key=True))],
+                    options={"db_table": table},
+                )
+            )
+        monkeypatch.setattr(LockPhaseTransactionPolicy, "_state_before", lambda _s, _m: state)
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.atomic = atomic
+        migration.operations = [
+            migrations.SeparateDatabaseAndState(
+                state_operations=[migrations.DeleteModel(name="Child")],
+                database_operations=[DropForeignKey("posthog_child", column=column) for column in drops],
+            )
+        ]
+
+        violations = LockPhaseTransactionPolicy().check_migration(migration)
+
+        assert len(violations) == (1 if blocked else 0)
+        if blocked:
+            assert violations[0].startswith("❌ BLOCKED")
+            assert "posthog_team, posthog_user" in violations[0]
+
 
 class TestGeneratedNameDropPolicy:
     @parameterized.expand(
@@ -3088,3 +3149,96 @@ class TestGeneratedNameDropPolicy:
         assert len(violations) == (1 if expected else 0)
         for name in expected:
             assert name in violations[0]
+
+    def test_a_generated_name_is_not_typed_into_a_concurrent_index_drop(self):
+        drop = DropIndexConcurrently(
+            index_name="posthog_x_owner_id_5a6b7c8d", table_name="posthog_x", columns="(owner_id)"
+        )
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.operations = [migrations.SeparateDatabaseAndState(database_operations=[drop])]
+
+        violations = GeneratedNameDropPolicy().check_migration(migration)
+
+        assert len(violations) == 1
+        assert "DropIndexConcurrently drops posthog_x_owner_id_5a6b7c8d" in violations[0]
+
+
+class TestNonDbAlterFieldPolicy:
+    def _state(self):
+        state = ProjectState()
+        state.add_model(
+            ModelState(
+                app_label="posthog",
+                name="Task",
+                fields=[
+                    ("id", models.AutoField(primary_key=True)),
+                    ("status", models.CharField(max_length=20, choices=[("open", "Open")])),
+                    ("owner", models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)),
+                ],
+            )
+        )
+        return state
+
+    @parameterized.expand(
+        [
+            (
+                "new_choice",
+                migrations.AlterField(
+                    "task", "status", models.CharField(max_length=20, choices=[("open", "Open"), ("done", "Done")])
+                ),
+                1,
+            ),
+            (
+                "help_text_wrapped_to_dodge_the_hot_table_check",
+                migrations.SeparateDatabaseAndState(
+                    state_operations=[
+                        migrations.AlterField(
+                            "task",
+                            "status",
+                            models.CharField(max_length=20, choices=[("open", "Open")], help_text="Lifecycle"),
+                        )
+                    ]
+                ),
+                1,
+            ),
+            (
+                "column_change",
+                migrations.AlterField("task", "status", models.CharField(max_length=40, choices=[("open", "Open")])),
+                0,
+            ),
+            (
+                "default_change",
+                migrations.AlterField(
+                    "task", "status", models.CharField(max_length=20, choices=[("open", "Open")], default="open")
+                ),
+                0,
+            ),
+            (
+                "foreign_key_repoint_after_a_model_move",
+                migrations.SeparateDatabaseAndState(
+                    state_operations=[
+                        migrations.AlterField(
+                            "task",
+                            "owner",
+                            models.ForeignKey("posthog.Project", on_delete=models.CASCADE, db_constraint=False),
+                        )
+                    ]
+                ),
+                0,
+            ),
+        ]
+    )
+    def test_flags_only_alter_fields_the_database_never_sees(self, _name, operation, expected):
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.operations = [operation]
+        state = self._state()
+
+        with patch.object(NonDbAlterFieldPolicy, "_state_before", lambda _self, _migration: state):
+            migration_risk = RiskAnalyzer().analyze_migration(migration, "posthog/migrations/0001_test.py")
+
+        assert len([message for message in migration_risk.info_messages if "AlterField" in message]) == expected
+        assert not any("AlterField" in violation for violation in migration_risk.policy_violations)

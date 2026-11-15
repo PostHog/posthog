@@ -2,11 +2,10 @@
 
 The proper delete path (`delete_saved_query`) does four things: remove the DAG node
 (`delete_node_from_dag`), soft-delete the query's joins, `revert_materialization()` (soft-delete the
-backing table + null table_id + drop model paths + clear schedule/tier), and `soft_delete()` (rename
+backing table + null table_id + clear schedule/tier), and `soft_delete()` (rename
 to POSTHOG_DELETED). A query soft-deleted another way — a manual `deleted=True` in a shell, bypassing
 the model method — sets only that flag, leaving the table live (leaks into the "self-managed sources"
-sidebar), the DAG node in place (a ghost node with no resolvable saved query), and the model paths /
-joins dangling.
+sidebar), the DAG node in place (a ghost node with no resolvable saved query), and the joins dangling.
 
 This finds those half-deleted matviews and runs the rest of the cascade, so each ends in the same
 state a proper delete would have produced. Dry-run by default; --apply to mutate; --team-id to scope.
@@ -22,7 +21,8 @@ from django.db.models import Q, QuerySet
 
 import structlog
 
-from products.data_modeling.backend.logic.saved_query_dag_sync import HasDependentsError, delete_node_from_dag
+from products.data_modeling.backend.facade.contracts import HasDependentsError
+from products.data_modeling.backend.logic.saved_query_dag_sync import delete_node_from_dag
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
 from products.data_tools.backend.facade.models import DataWarehouseJoin
@@ -56,8 +56,7 @@ def has_live_dependents(saved_query: DataWarehouseSavedQuery) -> bool:
 
     `delete_node_from_dag` refuses the delete on the same condition. This is the cheap pre-filter
     for it: a query with a live dependent is skipped before the delete takes an advisory lock on
-    every DAG the query has a node in. Nodes in several DAGs is the population `consolidate_dags`
-    exists for.
+    every DAG the query has a node in.
     """
     nodes = Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query)
     return (
@@ -139,7 +138,7 @@ def cascade_delete(saved_query: DataWarehouseSavedQuery) -> str:
     ).exclude(deleted=True):
         join.soft_delete()
 
-    saved_query.revert_materialization()  # soft-deletes the table, nulls table_id, drops model paths
+    saved_query.revert_materialization()
     if saved_query.deleted_name is None:  # complete the rename a bypassed delete skipped
         saved_query.soft_delete()
     return CLEANED

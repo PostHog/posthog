@@ -1,8 +1,12 @@
 import threading
 import http.server
 
+import pytest
+from unittest.mock import patch
+
 import prometheus_client.exposition as expo
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from pytest_django import Settings
 
 from posthog.metrics import _make_handler_no_proxy, pushed_metrics_registry
 
@@ -84,3 +88,20 @@ class TestPushgatewayProxyPatch:
         body = received["body"].decode()
         assert "test_ctx_metric" in body
         assert "99.0" in body
+
+
+class TestPushedMetricsRegistry:
+    def test_body_that_raises_propagates_and_pushes_nothing(self, settings: Settings) -> None:
+        settings.PROM_PUSHGATEWAY_ADDRESS = "http://pushgateway.example.com:9091"
+
+        with (
+            patch("posthog.metrics.push_to_gateway") as put,
+            patch("posthog.metrics.pushadd_to_gateway") as post,
+        ):
+            with pytest.raises(ValueError, match="boom"):
+                with pushed_metrics_registry("partial_job") as registry:
+                    Gauge("partial_metric", "Set before the body raises", registry=registry).set(1)
+                    raise ValueError("boom")
+
+        put.assert_not_called()
+        post.assert_not_called()

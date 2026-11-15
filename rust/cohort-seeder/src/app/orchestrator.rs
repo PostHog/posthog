@@ -6,28 +6,34 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use cohort_core::filters::TeamId;
 use common_types::cohort::TeamAllowlist;
 use lifecycle::Handle;
-use metrics::counter;
+use metrics::{counter, gauge};
 use sqlx::PgPool;
-use tokio::task::JoinSet;
+use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::clickhouse::person_scanner::PersonScanner;
 use crate::clickhouse::scanner::ChunkScanner;
-use crate::domain::{ClaimKind, RunId};
+use crate::domain::{ClaimCandidate, ClaimCandidates, ClaimKind, RunId, SlotLoad};
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
 use crate::observability::metrics::{
-    CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECLAIMED, RUNS_FAILED_EXHAUSTED_CHUNKS,
+    CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECLAIMED, RUNS_FAILED_BREAKER,
+    RUNS_FAILED_EXHAUSTED_CHUNKS, RUN_BREAKERS_OPEN, RUN_BREAKER_TRIPS,
 };
 use crate::store::chunks::{Claim, PgChunkStore};
 use crate::store::runs::{complete_trailing_runs, fail_run, RunError, RunKind};
 use crate::store::{Claimant, MaxAttempts, RenderedError};
 
+use super::breaker::{BreakerEvent, RunBreakers};
 use super::completion::CompletionDriver;
-use super::execute::{execute_chunk, record_task_result, ChunkOutcome, ChunkTaskContext};
+use super::execute::{
+    execute_chunk, record_task_result, BreakerSignal, ChunkOutcome, ChunkTaskContext,
+};
+use super::newest_day::NewestDayIndexes;
 use super::person_execute::{execute_person_chunk, PersonChunkTaskContext};
 use super::person_plan::{plan_person_run, PersonPlanAttempt, PersonPlanRequest};
 use super::prepare::{refresh_runs, run_ids_of_kind, PreparedRun, RefreshOutcome};
@@ -50,19 +56,52 @@ pub struct PersonComponents {
     pub pacer: TilePacer,
 }
 
-/// The planning slot's bookkeeping: which runs a spawned task covers (keyed by task id, so a
-/// panicked task un-tracks only itself) and when each run's last attempt failed.
+/// The run a spawned task works for. A chunk task's claim slot counts against `team_id` and `kind`.
+struct InflightRun {
+    run_id: RunId,
+    team_id: TeamId,
+    kind: RunKind,
+}
+
+/// Which run each spawned task works for. Keyed by task id, so a panicked task, whose result carries
+/// no run, still leaves the map, and un-tracks only itself.
+#[derive(Default)]
+struct InflightTasks(HashMap<tokio::task::Id, InflightRun>);
+
+impl InflightTasks {
+    fn insert(&mut self, task_id: tokio::task::Id, run: InflightRun) {
+        self.0.insert(task_id, run);
+    }
+
+    fn remove(&mut self, task_id: tokio::task::Id) {
+        self.0.remove(&task_id);
+    }
+
+    fn has_run(&self, run_id: RunId) -> bool {
+        self.0.values().any(|inflight| inflight.run_id == run_id)
+    }
+
+    /// Counts only the tasks of `kind`, because each kind has its own slot budget.
+    fn load_of(&self, kind: RunKind, team_id: TeamId, run_id: RunId) -> SlotLoad {
+        self.0
+            .values()
+            .filter(|inflight| inflight.kind == kind && inflight.team_id == team_id)
+            .fold(SlotLoad::default(), |load, inflight| SlotLoad {
+                team: load.team + 1,
+                run: load.run + u32::from(inflight.run_id == run_id),
+            })
+    }
+}
+
+/// The planning slot's bookkeeping: which runs a spawned task covers and when each run's last
+/// attempt failed.
 #[derive(Default)]
 struct PlanningState {
-    inflight: HashMap<tokio::task::Id, RunId>,
+    inflight: InflightTasks,
     failed_at: HashMap<RunId, Instant>,
 }
 
 impl PlanningState {
-    fn is_inflight(&self, run_id: RunId) -> bool {
-        self.inflight.values().any(|inflight| *inflight == run_id)
-    }
-
     fn in_backoff(&self, run_id: RunId) -> bool {
         self.failed_at
             .get(&run_id)
@@ -77,6 +116,12 @@ impl PlanningState {
         self.failed_at
             .retain(|_, failed_at| failed_at.elapsed() < PERSON_PLANNING_RETRY_BACKOFF);
     }
+}
+
+struct ClaimState {
+    inflight: InflightTasks,
+    breakers: RunBreakers,
+    newest_day: NewestDayIndexes,
 }
 
 pub struct SeederOrchestrator {
@@ -133,6 +178,11 @@ impl SeederOrchestrator {
         let mut person_tasks = JoinSet::new();
         let mut planning: JoinSet<(RunId, PersonPlanAttempt)> = JoinSet::new();
         let mut planning_state = PlanningState::default();
+        let mut claims = ClaimState {
+            inflight: InflightTasks::default(),
+            breakers: RunBreakers::new(self.settings.breaker),
+            newest_day: NewestDayIndexes::new(self.settings.newest_day_index_max_entries),
+        };
         let mut eligible_runs = HashMap::new();
         let mut reported_runs = HashSet::new();
         self.handle.report_healthy();
@@ -142,28 +192,40 @@ impl SeederOrchestrator {
             tokio::select! {
                 biased;
                 _ = shutdown.cancelled() => break,
-                Some(result) = tasks.join_next(), if !tasks.is_empty() => {
-                    record_task_result(result, RunKind::Behavioral);
-                    self.fill_claim_slots(&eligible_runs, &mut tasks, &mut person_tasks, &shutdown)
-                        .await;
+                Some(result) = tasks.join_next_with_id(), if !tasks.is_empty() => {
+                    self.settle_chunk(result, RunKind::Behavioral, &mut claims).await;
+                    self.fill_claim_slots(
+                        &eligible_runs,
+                        &mut tasks,
+                        &mut person_tasks,
+                        &mut claims,
+                        &shutdown,
+                    )
+                    .await;
                     self.handle.report_healthy();
                 }
-                Some(result) = person_tasks.join_next(), if !person_tasks.is_empty() => {
-                    record_task_result(result, RunKind::PersonProperty);
-                    self.fill_claim_slots(&eligible_runs, &mut tasks, &mut person_tasks, &shutdown)
-                        .await;
+                Some(result) = person_tasks.join_next_with_id(), if !person_tasks.is_empty() => {
+                    self.settle_chunk(result, RunKind::PersonProperty, &mut claims).await;
+                    self.fill_claim_slots(
+                        &eligible_runs,
+                        &mut tasks,
+                        &mut person_tasks,
+                        &mut claims,
+                        &shutdown,
+                    )
+                    .await;
                     self.handle.report_healthy();
                 }
                 Some(result) = planning.join_next_with_id(), if !planning.is_empty() => {
                     match result {
                         Ok((task_id, (run_id, attempt))) => {
-                            planning_state.inflight.remove(&task_id);
+                            planning_state.inflight.remove(task_id);
                             if attempt == PersonPlanAttempt::Failed {
                                 planning_state.failed_at.insert(run_id, Instant::now());
                             }
                         }
                         Err(error) => {
-                            planning_state.inflight.remove(&error.id());
+                            planning_state.inflight.remove(error.id());
                             warn!(error = %error, "person planning task failed unexpectedly");
                         }
                     }
@@ -192,8 +254,17 @@ impl SeederOrchestrator {
                     // CAS'd to `reconciling` in the same pass.
                     self.fail_exhausted_runs(&eligible_runs).await;
                     self.complete_trailing_runs(&eligible_runs).await;
-                    self.fill_claim_slots(&eligible_runs, &mut tasks, &mut person_tasks, &shutdown)
-                        .await;
+                    claims.breakers.expire_idle(Instant::now());
+                    publish_open_breakers(&eligible_runs, &claims.breakers);
+                    claims.newest_day.release_idle(&eligible_runs);
+                    self.fill_claim_slots(
+                        &eligible_runs,
+                        &mut tasks,
+                        &mut person_tasks,
+                        &mut claims,
+                        &shutdown,
+                    )
+                    .await;
                     if let Some(driver) = &self.completion_driver {
                         // Dispatch work is spawned off this tick, but observation runs inline: a few
                         // DB reads per reconciling run, plus at most one OffsetFetch and one
@@ -215,10 +286,10 @@ impl SeederOrchestrator {
             "stopping claims and draining active chunks"
         );
         while let Some(result) = tasks.join_next().await {
-            record_task_result(result, RunKind::Behavioral);
+            record_task_result(&result, RunKind::Behavioral);
         }
         while let Some(result) = person_tasks.join_next().await {
-            record_task_result(result, RunKind::PersonProperty);
+            record_task_result(&result, RunKind::PersonProperty);
         }
 
         let producer = self.producer.clone();
@@ -228,6 +299,79 @@ impl SeederOrchestrator {
             Err(error) => warn!(error = %error, "producer flush task failed during shutdown"),
         }
         info!("cohort seeder orchestrator stopped");
+    }
+
+    async fn settle_chunk(
+        &self,
+        result: Result<(tokio::task::Id, ChunkOutcome), JoinError>,
+        kind: RunKind,
+        claims: &mut ClaimState,
+    ) {
+        let task_id = match &result {
+            Ok((task_id, _)) => *task_id,
+            Err(error) => error.id(),
+        };
+        claims.inflight.remove(task_id);
+        let result = result.map(|(_, outcome)| outcome);
+        record_task_result(&result, kind);
+        let Ok(outcome) = result else {
+            return;
+        };
+        let run_id = outcome.run_id();
+        let resource = match outcome.breaker_signal() {
+            BreakerSignal::Success => {
+                claims.breakers.record_success(run_id);
+                return;
+            }
+            BreakerSignal::ResourceFailure(resource) => resource,
+            BreakerSignal::Ignore => return,
+        };
+        match claims
+            .breakers
+            .record_resource_failure(run_id, Instant::now())
+        {
+            BreakerEvent::Unchanged => {}
+            BreakerEvent::Tripped { trips, cooldown } => {
+                counter!(RUN_BREAKER_TRIPS, "kind" => kind.as_str()).increment(1);
+                warn!(
+                    ?run_id,
+                    kind = kind.as_str(),
+                    trips,
+                    cooldown_secs = cooldown.as_secs(),
+                    clickhouse_code = resource.as_str(),
+                    "run breaker opened: ClickHouse keeps refusing this run's scans for lack of resources"
+                );
+            }
+            BreakerEvent::Exhausted { trips } => {
+                let error = RenderedError::from_message(format!(
+                    "the ClickHouse resource breaker opened {trips} times with no confirmed chunk in \
+                     between; last error: {}. The run's scans do not fit the ClickHouse limits: make \
+                     them smaller or raise the limits, then create a new run",
+                    resource.as_str(),
+                ));
+                match fail_run(&self.pool, run_id, &error).await {
+                    Ok(()) => {
+                        counter!(RUNS_FAILED_BREAKER, "kind" => kind.as_str()).increment(1);
+                        warn!(
+                            ?run_id,
+                            kind = kind.as_str(),
+                            trips,
+                            clickhouse_code = resource.as_str(),
+                            "failing run: its ClickHouse resource breaker reached the trip limit"
+                        );
+                    }
+                    Err(RunError::NotActive(_)) => {}
+                    Err(error) => {
+                        claims.breakers.retry_exhausted(run_id);
+                        warn!(
+                            ?run_id,
+                            error = %error,
+                            "failing the run at its breaker trip limit did not apply; its next probe retries it"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     fn spawn_person_planning(
@@ -245,8 +389,12 @@ impl SeederOrchestrator {
             if planning.len() >= MAX_CONCURRENT_PLANNING_SCANS || shutdown.is_cancelled() {
                 return;
             }
-            let run_id = request.run.run_id;
-            if state.is_inflight(run_id) || state.in_backoff(run_id) {
+            let run = InflightRun {
+                run_id: request.run.run_id,
+                team_id: request.run.team_id,
+                kind: RunKind::PersonProperty,
+            };
+            if state.inflight.has_run(run.run_id) || state.in_backoff(run.run_id) {
                 continue;
             }
             let handle = planning.spawn(plan_person_run(
@@ -257,7 +405,7 @@ impl SeederOrchestrator {
                 request,
                 shutdown.clone(),
             ));
-            state.inflight.insert(handle.id(), run_id);
+            state.inflight.insert(handle.id(), run);
         }
     }
 
@@ -327,14 +475,16 @@ impl SeederOrchestrator {
         }
     }
 
-    /// Claim work for whichever kind still has slot capacity. The claimable run-id set is
-    /// recomputed per claim from the remaining capacity, so a person chunk can never occupy a
-    /// behavioral slot (or vice versa) — the two budgets are independent by construction.
+    /// Claim work for whichever kind still has slot capacity. The candidate set is recomputed per
+    /// claim from the remaining capacity, so a person chunk can never occupy a behavioral slot (or
+    /// vice versa) — the two budgets are independent by construction. Each candidate's slot load is
+    /// recomputed per claim too, because every spawn adds a slot to its run and its team.
     async fn fill_claim_slots(
         &self,
         eligible_runs: &HashMap<RunId, PreparedRun>,
         tasks: &mut JoinSet<ChunkOutcome>,
         person_tasks: &mut JoinSet<ChunkOutcome>,
+        claims: &mut ClaimState,
         shutdown: &CancellationToken,
     ) {
         loop {
@@ -345,23 +495,32 @@ impl SeederOrchestrator {
             let person_room = self.settings.person.is_some_and(|person_settings| {
                 person_tasks.len() < person_settings.max_concurrent_chunks.get()
             });
-            let mut run_ids = Vec::with_capacity(eligible_runs.len());
+            let now = Instant::now();
+            let mut candidates = Vec::with_capacity(eligible_runs.len());
             for (run_id, prepared) in eligible_runs {
-                let admitted = match prepared {
-                    PreparedRun::Behavioral(_) => behavioral_room,
-                    PreparedRun::Person(_) => person_room,
+                let kind = prepared.kind();
+                let has_room = match kind {
+                    RunKind::Behavioral => behavioral_room,
+                    RunKind::PersonProperty => person_room,
                 };
+                let admitted = has_room
+                    && claims
+                        .breakers
+                        .admits(*run_id, now, claims.inflight.has_run(*run_id));
                 if admitted {
-                    run_ids.push(*run_id);
+                    candidates.push(ClaimCandidate {
+                        run_id: *run_id,
+                        load: claims.inflight.load_of(kind, prepared.team_id(), *run_id),
+                    });
                 }
             }
-            if run_ids.is_empty() {
+            let Some(candidates) = ClaimCandidates::new(candidates) else {
                 return;
-            }
+            };
             let claim = match self
                 .store
                 .claim_next(
-                    &run_ids,
+                    &candidates,
                     &self.claimant,
                     self.settings.chunk_lease,
                     self.settings.max_chunk_attempts,
@@ -384,6 +543,11 @@ impl SeederOrchestrator {
                 }
                 continue;
             };
+            let inflight = InflightRun {
+                run_id: chunk_lease.run_id(),
+                team_id: prepared.team_id(),
+                kind: prepared.kind(),
+            };
             match prepared {
                 PreparedRun::Behavioral(prepared) => {
                     record_claim(kind, RunKind::Behavioral);
@@ -391,6 +555,7 @@ impl SeederOrchestrator {
                         chunk,
                         lease,
                         prepared: prepared.clone(),
+                        newest_day: claims.newest_day.for_run(&prepared.run),
                         store: self.store.clone(),
                         scanner: self.scanner.clone(),
                         producer: self.producer.clone(),
@@ -399,7 +564,8 @@ impl SeederOrchestrator {
                         retry_backoff: self.settings.retry_backoff,
                     };
                     let shutdown = shutdown.clone();
-                    tasks.spawn(async move { execute_chunk(ctx, shutdown).await });
+                    let task = tasks.spawn(async move { execute_chunk(ctx, shutdown).await });
+                    claims.inflight.insert(task.id(), inflight);
                 }
                 PreparedRun::Person(run) => {
                     // Unreachable while the gate is off: discovery never yields person runs then.
@@ -425,7 +591,9 @@ impl SeederOrchestrator {
                         retry_backoff: self.settings.retry_backoff,
                     };
                     let shutdown = shutdown.clone();
-                    person_tasks.spawn(async move { execute_person_chunk(ctx, shutdown).await });
+                    let task = person_tasks
+                        .spawn(async move { execute_person_chunk(ctx, shutdown).await });
+                    claims.inflight.insert(task.id(), inflight);
                 }
             }
         }
@@ -486,6 +654,17 @@ pub async fn fail_exhausted_runs_of_kind(
     failed
 }
 
+/// Counted over the eligible set, so a run that finished with an open breaker stops counting.
+fn publish_open_breakers(eligible_runs: &HashMap<RunId, PreparedRun>, breakers: &RunBreakers) {
+    for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
+        let open = run_ids_of_kind(eligible_runs, kind)
+            .into_iter()
+            .filter(|run_id| breakers.is_open(*run_id))
+            .count();
+        gauge!(RUN_BREAKERS_OPEN, "kind" => kind.as_str()).set(open as f64);
+    }
+}
+
 fn record_claim(claim_kind: ClaimKind, run_kind: RunKind) {
     counter!(CHUNKS_CLAIMED, "kind" => run_kind.as_str()).increment(1);
     if claim_kind == ClaimKind::Reclaim {
@@ -511,5 +690,49 @@ mod tests {
         state.expire_backoffs();
 
         assert!(state.in_backoff(run_id));
+    }
+
+    /// Each kind has its own slot budget, so a team's person tasks must not push its behavioral
+    /// runs behind another team's.
+    #[tokio::test]
+    async fn slot_loads_count_only_tasks_of_the_same_kind() {
+        use RunKind::{Behavioral, PersonProperty};
+
+        let (team, other_team) = (TeamId(2), TeamId(3));
+        let [heavy, sibling, person, other] = [1, 2, 3, 4].map(|n| RunId(Uuid::from_u128(n)));
+        let held = [
+            (Behavioral, team, heavy),
+            (Behavioral, team, heavy),
+            (PersonProperty, team, person),
+            (Behavioral, other_team, other),
+        ];
+        let mut tasks = JoinSet::new();
+        let mut inflight = InflightTasks::default();
+        for (kind, team_id, run_id) in held {
+            let run = InflightRun {
+                run_id,
+                team_id,
+                kind,
+            };
+            inflight.insert(tasks.spawn(async {}).id(), run);
+        }
+
+        let cases = [
+            (Behavioral, team, heavy, (2, 2)),
+            (Behavioral, team, sibling, (2, 0)),
+            (PersonProperty, team, person, (1, 1)),
+            (Behavioral, other_team, other, (1, 1)),
+        ];
+        for (kind, team_id, run_id, (team_load, run_load)) in cases {
+            let expected = SlotLoad {
+                team: team_load,
+                run: run_load,
+            };
+            assert_eq!(
+                inflight.load_of(kind, team_id, run_id),
+                expected,
+                "{kind:?} load of {run_id:?} in {team_id:?}"
+            );
+        }
     }
 }

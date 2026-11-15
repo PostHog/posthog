@@ -1,1 +1,1 @@
-0168_externaldataschema_scheduled_full_refresh
+0204_externaldataschema_live_query_enabled

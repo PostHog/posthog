@@ -1,5 +1,6 @@
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from redis.crc import key_slot
@@ -7,7 +8,7 @@ from redis.crc import key_slot
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker
 
 
-class TestRedisClusterKeySlots(BaseTest):
+class TestRedisClusterKeySlots(SimpleTestCase):
     @parameterized.expand(
         [
             ("team_1", 1),

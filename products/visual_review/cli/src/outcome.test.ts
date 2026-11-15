@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { VisualReviewClient, type Run } from './client.js'
 import { reportRunOutcome } from './outcome.js'
 
-function run(summary: Partial<Run['summary']> = {}): Run {
+function run(summary: Partial<Run['summary']> = {}, fields: Partial<Run> = {}): Run {
     return {
         id: 'run-1',
         branch: 'master',
+        status: 'completed',
         summary: { total: 10, unchanged: 10, changed: 0, new: 0, removed: 0, unresolved: 0, ...summary },
+        ...fields,
     } as Run
 }
 
@@ -107,6 +109,28 @@ describe('reportRunOutcome', () => {
         expect(exitCode).toBe(0)
         expect(output).toContain('No visual changes')
     })
+
+    // --tolerate-drift is for observe drift on master. It must not pass a failed gating review run.
+    it.each([
+        { purpose: 'observe', tolerateDrift: false, exitCode: 1 },
+        { purpose: 'review', tolerateDrift: true, exitCode: 1 },
+        { purpose: 'observe', tolerateDrift: true, exitCode: 0 },
+    ])(
+        'exits $exitCode for a failed $purpose run with tolerateDrift=$tolerateDrift',
+        async ({ purpose, tolerateDrift, exitCode }) => {
+            const result = await reportRunOutcome(
+                client,
+                run({}, { status: 'failed', error_message: 'The baseline file is missing 8 entries.' }),
+                'https://vr.example.com/run-1',
+                purpose,
+                tolerateDrift
+            )
+
+            expect(result).toBe(exitCode)
+            expect(output).toContain('Run failed: The baseline file is missing 8 entries.')
+            expect(output).not.toContain('No visual changes')
+        }
+    )
 
     it('still reports when the snapshot listing fails', async () => {
         vi.spyOn(client, 'getRunSnapshots').mockRejectedValue(new Error('boom'))

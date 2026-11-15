@@ -6,6 +6,7 @@ from django.db.models import Q
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.user_integration import UserIntegration, slack_link_fits
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from .oauth_credentials import oauth_credentials_source_is_allowed
@@ -205,6 +206,14 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.SET_NULL, related_name="installations", null=True, blank=True
     )
+    # The member's account link whose token this installation uses instead of a copy of it. The link stays the only
+    # place that holds the token, so an unlink also ends the installation's access.
+    linked_user_integration = models.ForeignKey(
+        "posthog.UserIntegration", on_delete=models.SET_NULL, related_name="+", null=True, blank=True
+    )
+    # When the account link made this installation. Set even after an unlink clears the link, until the member
+    # connects the server with a token of their own.
+    connected_from_link_at = models.DateTimeField(null=True, blank=True)
     display_name = models.CharField(max_length=200, blank=True, default="")
     url = models.URLField(max_length=2048, default="")
     description = models.TextField(blank=True, default="")
@@ -242,6 +251,20 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
                 name="uniq_shared_install",
             ),
         ]
+
+    def upstream_access_token(self) -> str | None:
+        """The installation's own OAuth token first. Otherwise the token of the member's Slack link, while the link
+        exists, belongs to the same member and grants exactly the scopes that the template allows."""
+        if own_token := (self.sensitive_configuration or {}).get("access_token"):
+            return own_token
+        link = self.linked_user_integration
+        if link is None or self.template is None:
+            return None
+        if link.user_id != self.user_id or link.kind != UserIntegration.IntegrationKind.SLACK:
+            return None
+        if not slack_link_fits(link, self.template.oauth_scope_allowlist or ()):
+            return None
+        return (link.sensitive_config or {}).get("user_access_token") or None
 
 
 class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -376,6 +399,22 @@ class MCPMemberServerRevocation(TeamScopedRootMixin, UUIDModel):
         db_table = "mcp_store_mcpmemberserverrevocation"
         constraints = [
             models.UniqueConstraint(fields=["gateway_server", "user"], name="uniq_member_server_revocation"),
+        ]
+
+
+class MCPMemberAutoConnectOptOut(TeamScopedRootMixin, UUIDModel):
+    """The member removed a server that PostHog connected for them from an account link. Presence = do not connect
+    it again for them. A manual connect stays allowed, and the row outlives the link."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    url = models.URLField(max_length=2048)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "mcp_store_mcpmemberautoconnectoptout"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "url"], name="uniq_member_auto_connect_opt_out"),
         ]
 
 
@@ -532,7 +571,7 @@ class MCPToolPolicy(TeamScopedRootMixin, UUIDModel):
                 name="uniq_agent_tool_policy",
             ),
             models.CheckConstraint(
-                check=(
+                condition=(
                     Q(scope_type="team", scope_user__isnull=True, scope_service_account__isnull=True)
                     | Q(scope_type="member", scope_user__isnull=False, scope_service_account__isnull=True)
                     | Q(scope_type="agent", scope_user__isnull=True, scope_service_account__isnull=False)

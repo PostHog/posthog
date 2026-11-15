@@ -32,10 +32,12 @@ import {
     visionScannersScoutReportsList,
     visionScannersScoutReportsRetrieve,
     visionScannersScoutsCreate,
+    visionScannersScoutsTemplatesList,
 } from '../generated/api'
-import type { ScoutReportApi } from '../generated/api.schemas'
+import type { ScannerScoutTemplateApi, ScoutReportApi } from '../generated/api.schemas'
+import type { ScoutTemplateKeyEnumApi } from '../generated/api.schemas'
 import type { ScannerScoutTemplateKey } from './scannerScout'
-import { isScannerScoutConfig, scannerScoutCreatePayload, scoutSkillName } from './scannerScout'
+import { isScannerScoutConfig, isTemplateScout, scannerScoutCreatePayload, scoutSkillName } from './scannerScout'
 import { isScoutDestination, scoutWebhookDestinationPayload } from './scannerScoutDelivery'
 
 /** Everything the scout form edits, in both create and settings mode. */
@@ -125,6 +127,7 @@ export interface scannerScoutLogicValues {
     openedReport: ScoutReportApi | null
     openedReportLoading: boolean
     reportsBySkill: Map<string, ScoutReportApi[]>
+    rootCauseScout: SignalScoutConfigApi | null
     runningRun: SignalScoutRunSummary | null
     scoutConfigsFailed: boolean
     scoutConfigsForScanner: SignalScoutConfigApi[]
@@ -133,6 +136,9 @@ export interface scannerScoutLogicValues {
     scoutReports: ScoutReportApi[]
     scoutReportsFailed: boolean
     scoutReportsLoading: boolean
+    scoutTemplates: ScannerScoutTemplateApi[]
+    scoutTemplatesFailed: boolean
+    scoutTemplatesLoading: boolean
     settingsFormId: number
     settingsSaving: boolean
     settingsSkillName: string | null
@@ -169,8 +175,12 @@ export interface scannerScoutLogicActions {
             | Partial<SignalScoutConfigApi>
             | import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
     } // scoutFleetLogic
-    runScoutNow: (configId: string) => {
+    runScoutNow: (
+        configId: string,
+        note?: string | undefined
+    ) => {
         configId: string
+        note: string | undefined
     } // scoutFleetLogic
     updateScoutConfig: (
         configId: string,
@@ -269,6 +279,21 @@ export interface scannerScoutLogicActions {
         scoutReports: ScoutReportApi[]
         payload?: any
     }
+    loadScoutTemplates: () => any
+    loadScoutTemplatesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutTemplatesSuccess: (
+        scoutTemplates: ScannerScoutTemplateApi[],
+        payload?: any
+    ) => {
+        scoutTemplates: ScannerScoutTemplateApi[]
+        payload?: any
+    }
     loadSkillPrompt: (_: void) => void
     loadSkillPromptFailure: (
         error: string,
@@ -293,7 +318,7 @@ export interface scannerScoutLogicActions {
         payload?: void
     }
     openCreateModal: (templateKey: ScannerScoutTemplateKey) => {
-        templateKey: ScannerScoutTemplateKey
+        templateKey: ScoutTemplateKeyEnumApi
     }
     openReport: (reportId: string) => {
         reportId: string
@@ -337,6 +362,7 @@ export interface scannerScoutLogicMeta {
         ) => string
         latestReportRow: (scoutReports: ScoutReportApi[]) => ScoutReportApi | null
         reportsBySkill: (scoutReports: ScoutReportApi[]) => Map<string, ScoutReportApi[]>
+        rootCauseScout: (scoutConfigsForScanner: SignalScoutConfigApi[]) => SignalScoutConfigApi | null
         latestRun: (
             rollups: Map<string, ScoutRollup>,
             scoutConfigsForScanner: SignalScoutConfigApi[]
@@ -412,6 +438,16 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
     }),
 
     loaders(({ props, values }) => ({
+        // Rendered by the backend, which also keeps scouts made from them on the latest template text.
+        scoutTemplates: [
+            [] as ScannerScoutTemplateApi[],
+            {
+                loadScoutTemplates: async () => {
+                    const projectId = teamLogic.values.currentProjectId
+                    return projectId ? await visionScannersScoutsTemplatesList(String(projectId), props.scannerId) : []
+                },
+            },
+        ],
         skillPrompt: [
             null as ScoutPrompt | null,
             {
@@ -515,6 +551,13 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
     })),
 
     reducers({
+        scoutTemplatesFailed: [
+            false,
+            {
+                loadScoutTemplates: () => false,
+                loadScoutTemplatesFailure: () => true,
+            },
+        ],
         // The roster must not read a failed load as "no scouts yet", which is the same empty list.
         scoutConfigsFailed: [
             false,
@@ -660,6 +703,12 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 }
                 return bySkill
             },
+        ],
+        // The scanner's root cause scout, if any. While one exists the prompts stop offering another.
+        rootCauseScout: [
+            (s) => [s.scoutConfigsForScanner],
+            (scoutConfigsForScanner: SignalScoutConfigApi[]): SignalScoutConfigApi | null =>
+                scoutConfigsForScanner.find((config) => isTemplateScout(config.skill_name, 'root-cause')) ?? null,
         ],
         // Newest run across all of the scanner's scouts, for the quiet-day "last checked" line.
         latestRun: [
@@ -812,6 +861,19 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             },
             [scoutFleetLogic.actionTypes.loadScoutConfigsFailure]: () => actions.setScoutConfigsFailed(true),
             [scoutFleetLogic.actionTypes.loadScoutRunsSuccess]: refetchReportsIfChanged,
+            // The overview's root cause prompt opens a create form without the scouts tab having loaded them.
+            openCreateModal: () => {
+                if (values.scoutTemplates.length === 0 && !values.scoutTemplatesLoading) {
+                    actions.loadScoutTemplates()
+                }
+            },
+            loadScoutTemplatesFailure: () => {
+                // The form renders nothing without its template, so close it rather than leave the button dead.
+                if (values.createTemplateKey) {
+                    lemonToast.error("Couldn't load the scout templates. Try again.")
+                    actions.closeCreateModal()
+                }
+            },
             createScout: async ({ form }) => {
                 const teamId = teamLogic.values.currentTeamId
                 // The template the form was opened from, which the skill name is derived from
@@ -845,6 +907,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                             body: form.body,
                             cron: form.cron,
                             outputDestinations: form.outputDestinations,
+                            templateKey,
                         })
                     )
                     return result.config

@@ -31,8 +31,9 @@ export function AppLoadError({ error }: AppLoadErrorProps): JSX.Element {
         <div className="p-4">
             <h1 className="mb-1 text-2xl font-bold">PostHog could not load</h1>
             <p>
-                Your browser could not download part of the app. This is usually a network problem. Reload the page to
-                try again. If it happens again, try a different network, or turn off browser extensions and proxies.
+                Your browser could not download part of the app. This can happen for a few minutes after we release an
+                update, or because of a network problem. Wait a minute, then reload the page. If it keeps happening, try
+                a different network, turn off browser extensions and proxies, or email an engineer.
             </p>
             <div className="flex gap-2 flex-wrap">
                 <LemonButton

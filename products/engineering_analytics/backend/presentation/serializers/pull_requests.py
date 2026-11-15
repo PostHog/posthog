@@ -3,11 +3,15 @@
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
+    AttentionPullRequestList,
     Author,
+    AuthorLLMSpendList,
+    AuthorPRLLMSpend,
     BranchPRMatch,
     CICardSummary,
     CIFailureLogs,
     CIStatusRollup,
+    LLMSpendCoverage,
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
@@ -58,6 +62,7 @@ class PRLifecycleEventSerializer(DataclassSerializer):
     class Meta:
         dataclass = PRLifecycleEvent
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "kind": {
                 "help_text": "Event kind: opened, ready_for_review, converted_to_draft, ci_started, "
                 "ci_finished, merged, or closed."
@@ -129,7 +134,8 @@ class RunCostSerializer(DataclassSerializer):
     class Meta:
         dataclass = RunCost
         extra_kwargs = {
-            "run_id": {"help_text": "GitHub Actions run id this cost is for."},
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
+            "run_id": {"help_text": "Integer run id this cost is for; unique only together with ci_engine."},
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
             "billable_minutes": {"help_text": "Billable (self-hosted) minutes for this run attempt."},
             "estimated_cost_usd": {
@@ -152,6 +158,69 @@ class PRLLMSpendSerializer(DataclassSerializer):
             "generations": {
                 "help_text": "Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch).",
             },
+            "cache_read_input_tokens": {
+                "help_text": "Total prompt tokens read from the provider's prompt cache across the attributed "
+                "generations ($ai_cache_read_input_tokens). Not included in input_tokens.",
+            },
+            "cache_creation_input_tokens": {
+                "help_text": "Total prompt tokens written to the provider's prompt cache across the attributed "
+                "generations ($ai_cache_creation_input_tokens). Not included in input_tokens.",
+            },
+            "peak_context_tokens": {
+                "help_text": "Largest prompt any single attributed generation sent: input plus cache read plus "
+                "cache write tokens.",
+            },
+        }
+
+
+class AuthorPRLLMSpendSerializer(DataclassSerializer):
+    llm_spend = PRLLMSpendSerializer(
+        allow_null=True,
+        help_text="Agent LLM token spend attributed to this pull request, by the same rule as `pr_cost`, or null "
+        "when no generation matched.",
+    )
+
+    class Meta:
+        dataclass = AuthorPRLLMSpend
+        extra_kwargs = {
+            "number": {"help_text": "Pull request number."},
+            "title": {"help_text": "Pull request title."},
+            "state": {"help_text": "Pull request state: open, closed, or merged."},
+            "head_branch": {"help_text": "The pull request's head branch, which attribution joins on."},
+            "created_at": {"help_text": "When the pull request was opened."},
+        }
+
+
+class AuthorLLMSpendListSerializer(DataclassSerializer):
+    items = AuthorPRLLMSpendSerializer(
+        many=True,
+        help_text="The author's pull requests active in the window, newest first, capped at `limit`. Each "
+        "spend covers the pull request's whole attribution window, so it can include spend from before "
+        "date_from.",
+    )
+
+    class Meta:
+        dataclass = AuthorLLMSpendList
+        extra_kwargs = {
+            "truncated": {"help_text": "True when more pull requests matched than `limit`."},
+            "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
+        }
+
+
+class LLMSpendCoverageSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = LLMSpendCoverage
+        extra_kwargs = {
+            "cost_usd": {
+                "help_text": "Total cost in USD of the $ai_generation events stamped with this repository "
+                "($ai_git_repo) in the window. Generations with no repository stamp are not counted.",
+            },
+            "attributed_cost_usd": {
+                "help_text": "The part of cost_usd that the branch and session attribution credits to a pull "
+                "request. A generation credited to several pull requests counts once.",
+            },
+            "generations": {"help_text": "Number of $ai_generation events in cost_usd."},
+            "attributed_generations": {"help_text": "Number of $ai_generation events in attributed_cost_usd."},
         }
 
 
@@ -285,14 +354,31 @@ class PullRequestListItemSerializer(DataclassSerializer):
 
 
 class PullRequestListSerializer(DataclassSerializer):
-    items = PullRequestListItemSerializer(many=True, help_text="Pull requests, newest first, capped at `limit`.")
+    items = PullRequestListItemSerializer(
+        many=True, help_text="This page of pull requests, newest first, capped at `limit`."
+    )
 
     class Meta:
         dataclass = PullRequestList
         extra_kwargs = {
             "truncated": {
-                "help_text": "True when more pull requests match than the cap; `items` is the newest `limit` rows "
-                "and the aggregate counts in ci_cards can exceed it.",
+                "help_text": "True when more pull requests match after this page; call again with `offset` "
+                "increased by `limit` to read them. The aggregate counts in ci_cards can exceed `items`.",
+            },
+            "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
+        }
+
+
+class AttentionPullRequestListSerializer(DataclassSerializer):
+    items = PullRequestListItemSerializer(
+        many=True, help_text="Open pull requests needing attention, failing CI first, then newest, capped at `limit`."
+    )
+
+    class Meta:
+        dataclass = AttentionPullRequestList
+        extra_kwargs = {
+            "total": {
+                "help_text": "Number of open pull requests needing attention, including the ones past the cap.",
             },
             "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
         }

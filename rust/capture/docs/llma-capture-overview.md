@@ -13,10 +13,7 @@ This document covers only the single-event multipart endpoint.
 
 ## Supported events
 
-Which event names the endpoint accepts depends on the deployment's `CAPTURE_AI_LANE_PREDICATE`.
-Under `allowlist` (the default) it accepts exactly six names (`ALLOWED_AI_EVENTS` in `ai_rejection.rs`):
-`$ai_generation`, `$ai_trace`, `$ai_span`, `$ai_embedding`, `$ai_metric`, and `$ai_feedback`.
-Under `prefix` it accepts any name that starts with `$ai_`.
+The endpoint accepts any event name that starts with `$ai_` (`is_ai_event` in `v0_request.rs`).
 Every event must carry a non-empty string `$ai_model` property, a `distinct_id`, and a client-supplied `uuid`.
 
 ## Request format

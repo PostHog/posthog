@@ -30,9 +30,7 @@ SESSION_PROPERTY_TO_FIRST_PAGEVIEW: dict[str, WebStatsBreakdown] = {
 }
 
 
-def evaluate_team_rollout_flag(
-    team: "Team", flag_key: str, failure_log_event: str, *, log_unresolved: bool = True
-) -> bool:
+def evaluate_team_rollout_flag(team: "Team", flag_key: str, failure_log_event: str) -> bool:
     """Evaluate a team-scoped rollout flag locally, failing closed on flag-service errors.
 
     A raised exception here must never fail the query: evaluation failure degrades
@@ -63,8 +61,7 @@ def evaluate_team_rollout_flag(
             send_feature_flag_events=False,
         )
         if enabled is None:
-            if log_unresolved:
-                logger.warning(failure_log_event, reason="feature_enabled_returned_none", team_id=team.pk)
+            logger.warning(failure_log_event, reason="feature_enabled_returned_none", team_id=team.pk)
             return False
         return bool(enabled)
     except Exception as e:

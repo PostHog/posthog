@@ -307,6 +307,106 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
         assert direct_result.baseline.number_of_samples == 4
         assert direct_result.baseline.sum == 2.0
 
+    def test_read_with_earlier_end_than_build_horizon_excludes_tail_exposure_anchors(self):
+        feature_flag = self.create_feature_flag(key="earlier-read-than-build")
+        # Running experiment (no end_date) so the window end follows as_of, letting the
+        # build and the read resolve to different horizons.
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=None,
+        )
+        experiment.end_date = None
+        experiment.save(update_fields=["end_date"])
+
+        metric = ExperimentFunnelMetric(
+            series=[EventsNode(event="purchase")],
+            conversion_window=1,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Converts inside the read window.
+        _create_person(distinct_ids=["control_0"], team_id=self.team.pk)
+        self._create_exposure_event("control_0", feature_flag, "control", datetime(2024, 1, 2, 10, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="control_0",
+            timestamp=datetime(2024, 1, 2, 12, 0, tzinfo=UTC),
+        )
+
+        # Exposed inside the read window, but the purchase is outside the 1-day conversion
+        # window of that exposure. The second exposure and the purchase fall after the read's
+        # date_to, inside its conversion-window tail and before the build horizon: an anchor
+        # the direct scan rejects, which the precomputed read must reject too.
+        _create_person(distinct_ids=["control_1"], team_id=self.team.pk)
+        self._create_exposure_event("control_1", feature_flag, "control", datetime(2024, 1, 2, 10, 0, tzinfo=UTC))
+        self._create_exposure_event("control_1", feature_flag, "control", datetime(2024, 1, 6, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="control_1",
+            timestamp=datetime(2024, 1, 6, 6, 0, tzinfo=UTC),
+        )
+
+        _create_person(distinct_ids=["test_0"], team_id=self.team.pk)
+        self._create_exposure_event("test_0", feature_flag, "test", datetime(2024, 1, 2, 10, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="test_0",
+            timestamp=datetime(2024, 1, 2, 11, 0, tzinfo=UTC),
+        )
+
+        read_as_of = datetime(2024, 1, 5, 12, 0, tzinfo=UTC)
+        build_as_of = datetime(2024, 1, 10, 12, 0, tzinfo=UTC)
+
+        self._disable_precomputation()
+        experiment.save()
+        direct_result = cast(
+            ExperimentQueryResponse, self._build_runner(experiment, metric, as_of=read_as_of).calculate()
+        )
+
+        # Build at the later horizon through the runner, so the jobs carry the same query
+        # hash the read-time runner computes.
+        self._enable_precomputation()
+        experiment.save()
+        build_runner = self._build_runner(experiment, metric, as_of=build_as_of)
+        build_result = build_runner._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, metric, as_of=build_as_of)
+        )
+        assert build_result.ready is True
+
+        read_runner = self._build_runner(experiment, metric, as_of=read_as_of)
+        reuse_result = read_runner._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, metric, as_of=read_as_of)
+        )
+        assert reuse_result.ready is True
+        # The read must reuse rows stored under the later build horizon; a rebuild at the
+        # read's own horizon would hide the regression this test covers.
+        assert set(reuse_result.job_ids) <= set(build_result.job_ids)
+
+        precomputed_result = cast(ExperimentQueryResponse, read_runner.calculate())
+
+        assert direct_result.baseline is not None
+        assert precomputed_result.baseline is not None
+        assert direct_result.baseline.number_of_samples == 2
+        assert direct_result.baseline.sum == 1.0
+        assert precomputed_result.baseline.number_of_samples == direct_result.baseline.number_of_samples
+        assert precomputed_result.baseline.sum == direct_result.baseline.sum
+
+        assert direct_result.variant_results is not None
+        assert precomputed_result.variant_results is not None
+        assert len(precomputed_result.variant_results) == len(direct_result.variant_results)
+        for i in range(len(direct_result.variant_results)):
+            assert (
+                precomputed_result.variant_results[i].number_of_samples
+                == direct_result.variant_results[i].number_of_samples
+            )
+            assert precomputed_result.variant_results[i].sum == direct_result.variant_results[i].sum
+
     def test_funnel_with_conversion_window(self):
         feature_flag = self.create_feature_flag(key="conv-window-test")
         experiment = self.create_experiment(

@@ -3,6 +3,8 @@ import { useValues } from 'kea'
 import { IconArrowRightDown, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+
 import {
     BillingProductV2AddonType,
     BillingProductV2Type,
@@ -12,11 +14,10 @@ import {
 
 import {
     createProductValueFormatter,
-    formatWithDecimals,
+    formatTierPrice,
     hasDisplayFormatting,
     isProductVariantPrimary,
 } from './billing-utils'
-import { billingLogic } from './billingLogic'
 import { getTierDescription } from './BillingProduct'
 import { billingProductLogic } from './billingProductLogic'
 
@@ -38,16 +39,6 @@ export const BillingProductPricingTable = ({
     const { isProductWithVariants, projectedAmountExcludingAddons, currentAmountTotalActual } = useValues(
         billingProductLogic({ product })
     )
-
-    // Adjust tier unit price for display formatting (e.g., per-MB price → per-GB price)
-    const formatTierPrice = (
-        unitAmountUsd: string | null | undefined,
-        prod: BillingProductV2Type | BillingProductV2AddonType
-    ): string => {
-        const price = parseFloat(unitAmountUsd || '0')
-        const adjusted = hasDisplayFormatting(prod) && prod.display_divisor ? price * prod.display_divisor : price
-        return `$${formatWithDecimals(adjusted)}`
-    }
 
     const showProjectedTotalWithLimitTooltip =
         'addons' in product && product.projected_amount_usd_with_limit !== product.projected_amount_usd

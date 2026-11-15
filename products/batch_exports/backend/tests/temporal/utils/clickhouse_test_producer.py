@@ -33,7 +33,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     SELECT_FROM_EVENTS_WORKFLOWS,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
@@ -147,7 +146,7 @@ class ClickHouseTestProducer:
         destination_default_fields: list[BatchExportField] | None = None,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
-        filters: list[dict[str, str | list[str] | None]] | None = None,
+        filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None = None,
         order_columns: collections.abc.Iterable[str] | None = ("_inserted_at", "event"),
         is_workflows: bool = False,
         **parameters,
@@ -204,9 +203,6 @@ class ClickHouseTestProducer:
             elif is_workflows:
                 self.logger.debug("Using workflows events query for batch export")
                 query_template = SELECT_FROM_EVENTS_WORKFLOWS
-            elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-                self.logger.debug("Using events_batch_export_unbounded view for batch export")
-                query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
                 self.logger.debug("Using events_batch_export_backfill view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL

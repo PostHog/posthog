@@ -158,6 +158,7 @@ export interface marketingAnalyticsSettingsLogicActions {
             | 'RoktAds'
             | 'SnapchatAds'
             | 'TikTokAds'
+            | 'TwitterAds'
     }
     removeConversionGoal: (goalId: string) => {
         goalId: string

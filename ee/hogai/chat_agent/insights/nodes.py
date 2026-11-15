@@ -21,6 +21,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.product_analytics.backend.facade.models import Insight
 
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
@@ -565,7 +566,10 @@ class InsightSearchNode(AssistantNode):
         """Execute query and format results with timing instrumentation."""
         try:
             query_executor = AssistantQueryExecutor(
-                team=self._team, user=self._user, utc_now_datetime=self._utc_now_datetime
+                team=self._team,
+                user=self._user,
+                utc_now_datetime=self._utc_now_datetime,
+                max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
             )
             results, _ = await query_executor.arun_and_format_query(query_obj, debug_timing=True)
             return results
@@ -864,9 +868,9 @@ class InsightSearchNode(AssistantNode):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1-mini",
-            temperature=0.7,
-            max_completion_tokens=1000,
+            model="gpt-6-luna",
+            reasoning_effort="low",
+            max_completion_tokens=4096,
             streaming=False,
             stream_usage=False,
             max_retries=3,

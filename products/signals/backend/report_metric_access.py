@@ -23,30 +23,28 @@ from products.access_control.backend.facade.user_access_control import ACCESS_CO
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_with_group_type_index_for_team,
 )
-
-_ORDINARY_PROPERTY_FILTER_TYPES = frozenset(
-    {
-        "element",
-        "event",
-        "group",
-        "person",
-        "person_metadata",
-        "session",
-    }
+from products.signals.backend.report_metric_query_access import (
+    conversion_goal_has_readable_shape,
+    property_filters_allow_read,
 )
-
-_MAX_PROPERTY_FILTER_DEPTH = 20
 
 
 class ReportMetricAccessPolicy:
     """Decide which data-bearing fields of a report metric this request may read."""
 
-    def __init__(self, *, request: Request | None, team: Team | None) -> None:
+    def __init__(
+        self,
+        *,
+        request: Request | None,
+        team: Team | None,
+        user: User | None = None,
+        token_scopes: Sequence[str] | None = None,
+    ) -> None:
         self._team = team
-        request_user = getattr(request, "user", None)
+        request_user = getattr(request, "user", None) if request is not None else user
         self._user = request_user if isinstance(request_user, User) else None
         authenticator = getattr(request, "successful_authenticator", None)
-        self._token_scopes = get_authenticator_scopes(authenticator) if request is not None else []
+        self._token_scopes = get_authenticator_scopes(authenticator) if request is not None else token_scopes
 
     def may_read_query(self, metric: Mapping[str, object]) -> bool:
         """Whether the stored definition itself is safe to return to this viewer."""
@@ -109,23 +107,14 @@ class ReportMetricAccessPolicy:
 
         conversion_goal = source.get("conversionGoal")
         if conversion_goal is not None:
-            if not isinstance(conversion_goal, Mapping):
+            if not isinstance(conversion_goal, Mapping) or not conversion_goal_has_readable_shape(conversion_goal):
                 return False
             if "actionId" in conversion_goal:
-                if set(conversion_goal) != {"actionId"} or not self._may_read_resource_id(
-                    "action", conversion_goal["actionId"]
-                ):
+                if not self._may_read_resource_id("action", conversion_goal["actionId"]):
                     return False
             elif "customEventName" in conversion_goal:
-                if (
-                    set(conversion_goal) != {"customEventName"}
-                    or not isinstance(conversion_goal["customEventName"], str)
-                    or not conversion_goal["customEventName"]
-                    or not self._token_grants("event_definition")
-                ):
+                if not self._token_grants("event_definition"):
                     return False
-            else:
-                return False
 
         return True
 
@@ -192,32 +181,9 @@ class ReportMetricAccessPolicy:
         return resource_key in access_control.allowlisted_resource_ids_by_scope.get(resource, frozenset())
 
     def _may_read_property_filters(self, filters: object) -> bool:
-        if filters is None:
-            return True
-        pending: list[tuple[object, int]]
-        if isinstance(filters, list):
-            pending = [(item, 0) for item in filters]
-        elif isinstance(filters, Mapping) and filters.get("type") in ("AND", "OR"):
-            pending = [(filters, 0)]
-        else:
-            return False
-
-        while pending:
-            item, depth = pending.pop()
-            if not isinstance(item, Mapping) or depth > _MAX_PROPERTY_FILTER_DEPTH:
-                return False
-            filter_type = item.get("type")
-            if filter_type in ("AND", "OR"):
-                values = item.get("values")
-                if not isinstance(values, list):
-                    return False
-                pending.extend((value, depth + 1) for value in values)
-            elif filter_type == "cohort":
-                if item.get("key") != "id" or not self._may_read_resource_id("cohort", item.get("value")):
-                    return False
-            elif not isinstance(filter_type, str) or filter_type not in _ORDINARY_PROPERTY_FILTER_TYPES:
-                return False
-        return True
+        return property_filters_allow_read(
+            filters, may_read_cohort=lambda cohort_id: self._may_read_resource_id("cohort", cohort_id)
+        )
 
     @staticmethod
     def _trends_series(query: object) -> Sequence[Mapping[str, object]] | None:

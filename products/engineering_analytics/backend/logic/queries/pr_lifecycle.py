@@ -1,19 +1,10 @@
-"""HogQL assembly of a single PR's lifecycle over the curated query builders.
-
-Embeds the curated ``github_pull_requests`` / ``github_workflow_runs`` builders
-as subqueries (via ``_curated``) — the product runs this privately rather than
-registering a global view. The curated SELECTs already carry the derived columns
-(canonical ``state``, ``is_bot``, repo identity, ``head_sha``), so this layer only
-shapes the rows into the ``PRLifecycle`` contract; no GitHub-isms or domain rules
-live here.
-"""
-
 from datetime import datetime
 
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
+    CIEngine,
     PRLifecycle,
     PRLifecycleEvent,
     PRLifecycleEventKind,
@@ -26,8 +17,6 @@ from products.engineering_analytics.backend.logic.queries._pr_header import pr_h
 from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 from products.engineering_analytics.backend.logic.views import issue_events
 
-# The curated subqueries and the repo filter are filled with str.replace (trusted
-# constants), leaving the HogQL {value} placeholders untouched for parse_select.
 _HEADER = pr_header_query(
     """
         id, number, title, state, is_draft,
@@ -39,15 +28,14 @@ _HEADER = pr_header_query(
 
 # Newest first, so a PR past the cap loses its oldest rows; the caller restores chronological order.
 _RUNS = f"""
-    SELECT id, workflow_name, status, conclusion, run_started_at, updated_at
+    SELECT id, workflow_name, status, conclusion, run_started_at, updated_at, ci_engine
     FROM __RUNS_SOURCE__ AS r
     WHERE head_sha = {{head_sha}}
     ORDER BY run_started_at DESC
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# pr_number alone is the key: a resolved table set is a single repo's, the same repo the
-# PR header was resolved from.
+# pr_number alone is the key, because a resolved table set belongs to the one repo the PR header came from.
 _STATE_EVENTS = f"""
     SELECT event, created_at, actor_login
     FROM __STATE_EVENTS_SOURCE__ AS se
@@ -117,15 +105,17 @@ def query_pr_lifecycle(
     events: list[PRLifecycleEvent] = []
 
     def add(
-        kind: PRLifecycleEventKind, at: datetime | None, *, detail: str | None = None, run_id: int | None = None
+        kind: PRLifecycleEventKind,
+        at: datetime | None,
+        *,
+        detail: str | None = None,
+        run_id: int | None = None,
+        ci_engine: CIEngine | None = None,
     ) -> None:
-        # Timestamps come from parseDateTimeBestEffort, which yields NULL on a malformed/missing
-        # value, so `at` can be None. Skip those events — a timeline can't place an event with no
-        # time, and `at` is non-nullable on the contract, so building one would raise. Guarding
-        # here keeps a single bad run timestamp from failing the whole PR's lifecycle (and the
-        # sort below never sees a None key).
+        # A malformed or missing source timestamp parses to NULL. The contract requires `at`, so one
+        # such event would otherwise fail the whole lifecycle.
         if at is not None:
-            events.append(PRLifecycleEvent(kind=kind, at=at, detail=detail, run_id=run_id))
+            events.append(PRLifecycleEvent(kind=kind, at=at, detail=detail, run_id=run_id, ci_engine=ci_engine))
 
     add(PRLifecycleEventKind.OPENED, created_at)
 
@@ -143,7 +133,7 @@ def query_pr_lifecycle(
 
     runs = (
         curated.run(
-            _RUNS.replace("__RUNS_SOURCE__", curated.run_source()),
+            _RUNS.replace("__RUNS_SOURCE__", curated.run_source(live=True)),
             query_type="engineering_analytics.pr_lifecycle.runs",
             placeholders={"head_sha": ast.Constant(value=head_sha)},
         )
@@ -151,12 +141,24 @@ def query_pr_lifecycle(
         else None
     )
     if runs is not None:
-        for run_id, workflow_name, status, conclusion, run_started_at, updated_at in reversed(runs.results):
+        for run_id, workflow_name, status, conclusion, run_started_at, updated_at, ci_engine in reversed(runs.results):
             run_id = int(run_id) if run_id is not None else None
-            add(PRLifecycleEventKind.CI_STARTED, run_started_at, detail=workflow_name, run_id=run_id)
+            add(
+                PRLifecycleEventKind.CI_STARTED,
+                run_started_at,
+                detail=workflow_name,
+                run_id=run_id,
+                ci_engine=CIEngine(ci_engine),
+            )
             if status == "completed":
                 detail = f"{workflow_name}: {conclusion}" if conclusion else workflow_name
-                add(PRLifecycleEventKind.CI_FINISHED, updated_at, detail=detail, run_id=run_id)
+                add(
+                    PRLifecycleEventKind.CI_FINISHED,
+                    updated_at,
+                    detail=detail,
+                    run_id=run_id,
+                    ci_engine=CIEngine(ci_engine),
+                )
 
     if merged_at is not None:
         add(PRLifecycleEventKind.MERGED, merged_at)

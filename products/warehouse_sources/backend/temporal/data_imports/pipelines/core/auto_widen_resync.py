@@ -127,8 +127,8 @@ def _schedule_auto_widen_resync(
         return None
     if not is_safe_numeric_widening(stored_type, incoming_type):
         return None
-    # A streaming-mode CDC schema has its per-schema schedule paused (CDCExtractionWorkflow owns
-    # it), so a stamped reset would never run; leave it to the manual repair flow.
+    # A streaming-mode CDC schema's run consumes its change buffer, which refuses a stamped reset: a
+    # re-sync has to go through snapshot mode, so leave it to the manual resync flow.
     if schema.is_cdc and schema.cdc_mode == "streaming":
         return None
     # A webhook-only resource consumes reset_pipeline without wiping the table (its rows can't be

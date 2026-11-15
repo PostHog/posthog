@@ -49,7 +49,7 @@ export class UncaughtHogVMException extends HogVMException {
 }
 
 /** Fixed cost per object in memory */
-const COST_PER_UNIT = 8
+export const COST_PER_UNIT = 8
 
 export function like(
     string: string,

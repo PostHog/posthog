@@ -6,6 +6,7 @@ import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import { ExternalDataSource } from '~/types'
 
 // If the sources never finish loading, fail open to the scene rather than
 // stranding the gate on its spinner.
@@ -15,6 +16,7 @@ const LOADING_FALLBACK_MS = 10000
 export interface marketingAnalyticsSetupLogicValues {
     hasSources: boolean // marketingAnalyticsLogic
     loading: boolean // marketingAnalyticsLogic
+    nativeSources: ExternalDataSource[] // marketingAnalyticsLogic
     setupStatus: ProductSetupStatus // productSetupStatusLogic
 }
 
@@ -32,9 +34,8 @@ export type marketingAnalyticsSetupLogicType = MakeLogicType<
 
 /**
  * Setup detection for the marketing analytics empty state. "Set up" means at
- * least one valid ad source (a native integration, or a warehouse table with
- * its UTM columns mapped) - the same `hasSources` the scene's own onboarding
- * keys off. The value comes from the scene logic (which sceneLogic keeps
+ * least one configured native ad source, including its first sync, or a warehouse
+ * table with its UTM columns mapped. The value comes from the scene logic (which sceneLogic keeps
  * mounted while the gate renders), so this logic just waits for its sources
  * to finish loading and mirrors the verdict.
  */
@@ -46,26 +47,35 @@ export const marketingAnalyticsSetupLogic = kea<marketingAnalyticsSetupLogicType
             productSetupStatusLogic({ productKey: ProductKey.MARKETING_ANALYTICS }),
             ['status as setupStatus'],
             marketingAnalyticsLogic,
-            ['hasSources', 'loading'],
+            ['hasSources', 'nativeSources', 'loading'],
         ],
         actions: [productSetupStatusLogic({ productKey: ProductKey.MARKETING_ANALYTICS }), ['setDetectedStatus']],
     })),
     subscriptions(({ actions, values }) => ({
         loading: (loading: boolean) => {
             if (!loading) {
-                actions.setDetectedStatus(values.hasSources ? 'has-data' : 'needs-setup')
+                actions.setDetectedStatus(
+                    values.hasSources || values.nativeSources.length > 0 ? 'has-data' : 'needs-setup'
+                )
+            }
+        },
+        nativeSources: () => {
+            if (!values.loading) {
+                actions.setDetectedStatus(
+                    values.hasSources || values.nativeSources.length > 0 ? 'has-data' : 'needs-setup'
+                )
             }
         },
         hasSources: (hasSources: boolean) => {
             // Covers a source configured from the wizard while this stays mounted.
             if (!values.loading) {
-                actions.setDetectedStatus(hasSources ? 'has-data' : 'needs-setup')
+                actions.setDetectedStatus(hasSources || values.nativeSources.length > 0 ? 'has-data' : 'needs-setup')
             }
         },
     })),
     afterMount(({ actions, values, cache }) => {
         if (!values.loading) {
-            actions.setDetectedStatus(values.hasSources ? 'has-data' : 'needs-setup')
+            actions.setDetectedStatus(values.hasSources || values.nativeSources.length > 0 ? 'has-data' : 'needs-setup')
             return
         }
         cache.disposables.add(() => {

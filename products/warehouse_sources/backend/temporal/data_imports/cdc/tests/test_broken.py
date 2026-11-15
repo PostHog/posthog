@@ -7,7 +7,8 @@ from unittest.mock import call, patch
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
+from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import BILLING_LIMIT_EXPIRED_REASON
+from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import clear_slot_loss_markers, mark_cdc_broken
 
 pytestmark = pytest.mark.django_db
 
@@ -150,3 +151,27 @@ def test_only_active_cdc_schemas_are_marked(team):
     # Visibility job rows follow the same scoping — a user-paused schema must not resurface
     # in the failure digest.
     assert list(ExternalDataJob.objects.values_list("schema_id", flat=True)) == [active.id]
+
+
+@pytest.mark.parametrize(
+    "reason,cleared",
+    [
+        ("auto_dropped_critical_lag", True),
+        ("slot_missing", True),
+        ("publication_missing", True),
+        ("critical_lag_self_managed", False),
+        (BILLING_LIMIT_EXPIRED_REASON, False),
+    ],
+)
+def test_a_recreated_slot_lifts_only_the_markers_of_a_lost_slot(team, reason, cleared):
+    source = _source(team)
+    schema = _cdc_schema(team, source)
+    with _mocked_boundaries():
+        mark_cdc_broken(source, reason, "msg")
+
+    assert clear_slot_loss_markers(source) == (1 if cleared else 0)
+
+    schema.refresh_from_db()
+    source.refresh_from_db()
+    assert ("cdc_broken" in schema.sync_type_config) is not cleared
+    assert source.status == (ExternalDataSource.Status.RUNNING if cleared else ExternalDataSource.Status.ERROR)

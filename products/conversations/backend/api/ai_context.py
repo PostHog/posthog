@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.paging import PageRequest
 from posthog.permissions import TeamMemberLightManagementPermission
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -31,15 +32,14 @@ class AIContextAccountPropertySerializer(serializers.Serializer):
 
 
 def list_account_property_options(team_id: int, user_access_control: UserAccessControl) -> list[dict[str, object]]:
-    page, _ = list_custom_property_definitions(
+    page = list_custom_property_definitions(
         team_id,
-        offset=0,
-        limit=MAX_ACCOUNT_PROPERTY_OPTIONS,
+        page=PageRequest(limit=MAX_ACCOUNT_PROPERTY_OPTIONS),
         user_access_control=user_access_control,
         exclude_group_targets=True,
         target_type=ACCOUNT_TARGET_TYPE,
     )
-    return [{"id": item.id, "name": item.name} for item in page if item.id is not None and item.name]
+    return [{"id": item.id, "name": item.name} for item in page.results if item.id is not None and item.name]
 
 
 class AIContextAccountPropertiesViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):

@@ -24,6 +24,7 @@ function PlayerExplorerSettings({ iframeKey, setIframeKey, onClose }: PlayerExpl
     return (
         <SettingsBar border="top" className="justify-between">
             <SettingsButton
+                data-attr="dom-explorer-reset"
                 icon={<IconRevert />}
                 onClick={() => setIframeKey(iframeKey + 1)}
                 label="Reset"
@@ -32,7 +33,7 @@ function PlayerExplorerSettings({ iframeKey, setIframeKey, onClose }: PlayerExpl
             <div className="font-medium flex items-center gap-1.5">
                 Snapshot of DOM as it was at <Timestamp size="small" noPadding />
             </div>
-            <SettingsButton onClick={onClose} label="Close" icon={<IconX />} />
+            <SettingsButton data-attr="dom-explorer-close" onClick={onClose} label="Close" icon={<IconX />} />
         </SettingsBar>
     )
 }

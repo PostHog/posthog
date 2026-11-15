@@ -3,17 +3,13 @@ import {
   Clock,
   DotsThreeVertical,
   GithubLogo,
-  Globe,
   Plus,
   Trash,
   Warning,
 } from "@phosphor-icons/react";
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   Button,
   Checkbox,
-  Chip,
-  ChipClose,
   cn,
   DropdownMenu,
   DropdownMenuContent,
@@ -24,7 +20,6 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Input,
   ItemContent,
   ItemDescription,
   ItemMedia,
@@ -35,15 +30,15 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@posthog/quill";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
-import { CopyButton } from "@posthog/ui/primitives/CopyButton";
 import { TimezonePicker } from "@posthog/ui/primitives/TimezonePicker";
 import { TimezoneTimestamp } from "@posthog/ui/primitives/TimezoneTimestamp";
 import {
   formatScheduleTimestamp,
   systemTimezone,
 } from "@posthog/ui/primitives/timezone";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import {
   compileCronSchedule,
   DEFAULT_SCHEDULE_TIME,
@@ -55,17 +50,10 @@ import {
   defaultLoopTriggerOfType,
   githubTriggerActionOptions,
   isTriggerDraftValid,
-  LOOPS_API_RULES,
-  type LoopFormRules,
   type LoopTriggerDraft,
-  WORKFLOW_RULES,
   withGithubTriggerEvents,
   withGithubTriggerFilters,
 } from "../loopFormTypes";
-import {
-  LOOPS_API_TRIGGER_LIMITS,
-  type LoopTriggerEditorLimits,
-} from "../loopTriggerLimits";
 import { LoopRepositoryPicker } from "./LoopRepositoryPicker";
 
 const TRIGGER_TYPES: {
@@ -89,53 +77,22 @@ const TRIGGER_TYPES: {
     menuDescription: "When a repo gets a push, PR or issue activity",
     icon: GithubLogo,
   },
-  {
-    type: "api",
-    label: "API",
-    subtitle: "Runs when your code calls an endpoint",
-    menuDescription: "An authenticated POST from your own systems",
-    icon: Globe,
-  },
 ];
 
 function triggerTypeMeta(type: LoopSchemas.LoopTriggerTypeEnum) {
   return TRIGGER_TYPES.find((t) => t.type === type) ?? TRIGGER_TYPES[0];
 }
 
-/** Names whichever half of the trigger is unfinished, so the disabled save button has a
- * reason. A blank condition row used to report the repository and events as missing. */
-function githubTriggerInvalidMessage(
-  config: LoopSchemas.LoopGithubTriggerConfig,
-  limits: LoopTriggerEditorLimits,
-): string {
-  if (limits.singleGithubEvent) {
-    return "Pick a repository and one event to finish this trigger.";
-  }
-  if (
-    !config.repository ||
-    !config.github_integration_id ||
-    !config.events.length
-  ) {
-    return "Pick a repository and at least one event to finish this trigger.";
-  }
-  return "Fill in a path and a value for each payload condition, or remove the empty rows.";
-}
-
 interface LoopTriggerEditorProps {
   triggers: LoopTriggerDraft[];
   onChange: (triggers: LoopTriggerDraft[]) => void;
-  /** Rendered in the API trigger card. Absent for a not-yet-created loop. */
-  triggerEndpointPath: string | null;
   disabled?: boolean;
-  limits?: LoopTriggerEditorLimits;
 }
 
 export function LoopTriggerEditor({
   triggers,
   onChange,
-  triggerEndpointPath,
   disabled,
-  limits = LOOPS_API_TRIGGER_LIMITS,
 }: LoopTriggerEditorProps) {
   const updateTrigger = (key: string, patch: Partial<LoopTriggerDraft>) => {
     onChange(
@@ -153,10 +110,6 @@ export function LoopTriggerEditor({
     onChange([...triggers, defaultLoopTriggerOfType(type)]);
   };
 
-  const triggerRequired = limits.maxTriggers !== null;
-  const canAddTrigger =
-    limits.maxTriggers === null || triggers.length < limits.maxTriggers;
-
   return (
     <div className="flex flex-col gap-3">
       {triggers.length === 0 ? (
@@ -167,9 +120,7 @@ export function LoopTriggerEditor({
             </EmptyMedia>
             <EmptyTitle>No triggers</EmptyTitle>
             <EmptyDescription>
-              {triggerRequired
-                ? "Add a trigger to choose when this loop runs."
-                : "This loop only runs when you start it from its page. Add a trigger to run it automatically."}
+              Add a trigger to choose when this loop runs.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -178,21 +129,15 @@ export function LoopTriggerEditor({
           <TriggerCard
             key={trigger.key}
             trigger={trigger}
-            triggerEndpointPath={triggerEndpointPath}
             disabled={disabled}
-            limits={limits}
             onChange={(patch) => updateTrigger(trigger.key, patch)}
             onRemove={() => removeTrigger(trigger.key)}
           />
         ))
       )}
 
-      {canAddTrigger ? (
-        <AddTriggerMenu
-          disabled={disabled}
-          triggerTypes={limits.triggerTypes}
-          onAdd={addTrigger}
-        />
+      {triggers.length === 0 ? (
+        <AddTriggerMenu disabled={disabled} onAdd={addTrigger} />
       ) : null}
     </div>
   );
@@ -200,16 +145,11 @@ export function LoopTriggerEditor({
 
 function AddTriggerMenu({
   disabled,
-  triggerTypes,
   onAdd,
 }: {
   disabled?: boolean;
-  triggerTypes: LoopSchemas.LoopTriggerTypeEnum[];
   onAdd: (type: LoopSchemas.LoopTriggerTypeEnum) => void;
 }) {
-  const options = TRIGGER_TYPES.filter((option) =>
-    triggerTypes.includes(option.type),
-  );
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -232,7 +172,7 @@ function AddTriggerMenu({
         sideOffset={6}
         className="w-auto min-w-[280px]"
       >
-        {options.map((option) => (
+        {TRIGGER_TYPES.map((option) => (
           <DropdownMenuItem
             key={option.type}
             onClick={() => onAdd(option.type)}
@@ -258,30 +198,21 @@ function AddTriggerMenu({
 
 function TriggerCard({
   trigger,
-  triggerEndpointPath,
   disabled,
-  limits,
   onChange,
   onRemove,
 }: {
   trigger: LoopTriggerDraft;
-  triggerEndpointPath: string | null;
   disabled?: boolean;
-  limits: LoopTriggerEditorLimits;
   onChange: (patch: Partial<LoopTriggerDraft>) => void;
   onRemove: () => void;
 }) {
   const meta = triggerTypeMeta(trigger.type);
   const Icon = meta.icon;
-  const rules: LoopFormRules =
-    limits.maxTriggers === null ? LOOPS_API_RULES : WORKFLOW_RULES;
-  const invalidMessage = isTriggerDraftValid(trigger, rules)
+  const invalidMessage = isTriggerDraftValid(trigger)
     ? null
     : trigger.type === "github"
-      ? githubTriggerInvalidMessage(
-          trigger.config as LoopSchemas.LoopGithubTriggerConfig,
-          limits,
-        )
+      ? "Pick a repository and one event to finish this trigger."
       : "Set when this trigger fires.";
 
   return (
@@ -354,13 +285,8 @@ function TriggerCard({
           <GithubTriggerFields
             config={trigger.config as LoopSchemas.LoopGithubTriggerConfig}
             disabled={disabled}
-            limits={limits}
             onChange={(config) => onChange({ config })}
           />
-        ) : null}
-
-        {trigger.type === "api" ? (
-          <ApiTriggerFields triggerEndpointPath={triggerEndpointPath} />
         ) : null}
       </div>
 
@@ -604,82 +530,20 @@ const GITHUB_EVENT_OPTIONS: {
   },
 ];
 
-/** Each accepted value is a discrete chip, committed with Enter. A single delimited text field
- * cannot represent a value that contains the delimiter, and GitHub payload fields we can match
- * on (a PR title, a team name) legitimately contain commas. */
-function PayloadConditionValues({
-  values,
-  disabled,
-  onChange,
-}: {
-  values: string[];
-  disabled?: boolean;
-  onChange: (values: string[]) => void;
-}) {
-  const [draft, setDraft] = useState("");
-
-  const commit = () => {
-    const value = draft.trim();
-    if (value && !values.includes(value)) {
-      onChange([...values, value]);
-    }
-    setDraft("");
-  };
-
-  return (
-    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 rounded-(--radius-2) border border-border px-1.5 py-1">
-      {values.map((value) => (
-        <Chip key={value} size="sm" className="max-w-full">
-          <span className="truncate">{value}</span>
-          <ChipClose
-            disabled={disabled}
-            aria-label={`Remove ${value}`}
-            onClick={() => onChange(values.filter((v) => v !== value))}
-          />
-        </Chip>
-      ))}
-      <input
-        value={draft}
-        disabled={disabled}
-        placeholder={values.length === 0 ? "team-security" : "Add value"}
-        aria-label="Condition value"
-        className="min-w-[80px] flex-1 bg-transparent text-[13px] text-gray-12 outline-none placeholder:text-gray-9"
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            commit();
-          }
-          if (event.key === "Backspace" && !draft && values.length > 0) {
-            onChange(values.slice(0, -1));
-          }
-        }}
-      />
-    </div>
-  );
-}
-
 function GithubTriggerFields({
   config,
   disabled,
-  limits,
   onChange,
 }: {
   config: LoopSchemas.LoopGithubTriggerConfig;
   disabled?: boolean;
-  limits: LoopTriggerEditorLimits;
   onChange: (config: LoopSchemas.LoopGithubTriggerConfig) => void;
 }) {
   const toggleEvent = (
     event: LoopSchemas.LoopGithubTriggerEventEnum,
     checked: boolean,
   ) => {
-    const events = checked
-      ? limits.singleGithubEvent
-        ? [event]
-        : [...config.events, event]
-      : config.events.filter((e) => e !== event);
+    const events = checked ? [event] : config.events.filter((e) => e !== event);
     onChange(withGithubTriggerEvents(config, events));
   };
 
@@ -692,25 +556,6 @@ function GithubTriggerFields({
       (action) => !offerableActions.includes(action),
     ),
   ];
-  const conditions = config.filters?.payload ?? [];
-
-  const setConditions = (
-    next: LoopSchemas.LoopGithubTriggerPayloadFilter[],
-  ) => {
-    onChange(withGithubTriggerFilters(config, { payload: next }));
-  };
-
-  const updateCondition = (
-    index: number,
-    patch: Partial<LoopSchemas.LoopGithubTriggerPayloadFilter>,
-  ) => {
-    setConditions(
-      conditions.map((condition, i) =>
-        i === index ? { ...condition, ...patch } : condition,
-      ),
-    );
-  };
-
   return (
     <div className="flex flex-col gap-3">
       <SubField label="Repository">
@@ -787,103 +632,6 @@ function GithubTriggerFields({
           </div>
         </SubField>
       ) : null}
-
-      {limits.githubPayloadConditions ? (
-        <SubField label="Payload conditions">
-          <div className="flex flex-col gap-2">
-            <span className="text-[12px] text-gray-10">
-              Optional. Match any other field in the GitHub payload, like{" "}
-              <code>requested_team.slug</code> for the team asked to review.
-            </span>
-            {conditions.map((condition, index) => (
-              <div
-                // Keying on the path instead would remount the input on every keystroke.
-                // biome-ignore lint/suspicious/noArrayIndexKey: rows carry no id and cannot be reordered, and both inputs are controlled off the config, so the index is a correct identity
-                key={index}
-                className="flex items-center gap-2"
-              >
-                <Input
-                  value={condition.path}
-                  disabled={disabled}
-                  placeholder="requested_team.slug"
-                  // The placeholder stops naming the field as soon as someone types into it.
-                  aria-label="Condition path"
-                  className="h-7 flex-1"
-                  onChange={(event) =>
-                    updateCondition(index, { path: event.target.value })
-                  }
-                />
-                <span className="text-[12px] text-gray-10">is</span>
-                <PayloadConditionValues
-                  values={
-                    Array.isArray(condition.equals)
-                      ? condition.equals
-                      : [condition.equals].filter(Boolean)
-                  }
-                  disabled={disabled}
-                  onChange={(equals) => updateCondition(index, { equals })}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={disabled}
-                  aria-label={
-                    condition.path
-                      ? `Remove condition ${condition.path}`
-                      : "Remove condition"
-                  }
-                  onClick={() =>
-                    setConditions(conditions.filter((_, i) => i !== index))
-                  }
-                >
-                  <Trash size={13} />
-                </Button>
-              </div>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={disabled}
-              className="self-start"
-              onClick={() =>
-                setConditions([...conditions, { path: "", equals: "" }])
-              }
-            >
-              <Plus size={13} />
-              Add condition
-            </Button>
-          </div>
-        </SubField>
-      ) : null}
-    </div>
-  );
-}
-
-function ApiTriggerFields({
-  triggerEndpointPath,
-}: {
-  triggerEndpointPath: string | null;
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <span className="text-[12.5px] text-gray-11 leading-relaxed">
-        Fires on an authenticated POST from your own code. Authenticate with a
-        project secret API key (<code>phs_...</code>) scoped to{" "}
-        <code>loop:write</code>. The request body becomes the run's trigger
-        context.
-      </span>
-      {triggerEndpointPath ? (
-        <div className="flex items-center justify-between gap-2 rounded-(--radius-2) border border-border bg-(--gray-2) px-3 py-2">
-          <span className="min-w-0 truncate text-[12px] text-gray-12 [font-family:var(--font-mono)]">
-            POST {triggerEndpointPath}
-          </span>
-          <CopyButton text={triggerEndpointPath} />
-        </div>
-      ) : (
-        <span className="text-[12px] text-gray-10">
-          Save the loop to get its trigger URL.
-        </span>
-      )}
     </div>
   );
 }

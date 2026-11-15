@@ -1,56 +1,39 @@
 import { useActions, useValues } from 'kea'
-import { useCallback } from 'react'
+import { Suspense } from 'react'
 
 import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
-import { navigateToHref } from 'lib/utils/navigateToHref'
-import { newInternalTab } from 'lib/utils/newInternalTab'
+import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { Search } from '../Search/Search'
-import { SearchItem } from '../Search/searchLogic'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
+
 import { commandLogic } from './commandLogic'
+
+const CommandKSearch = lazyWithRetry(() =>
+    import('../CommandKSearch/CommandKSearch').then(({ CommandKSearch }) => ({ default: CommandKSearch }))
+)
+
+const TODAY_PHONE_SHEET =
+    'max-md:top-0 max-md:h-dvh max-md:w-screen max-md:max-w-none max-md:max-h-none max-md:supports-[max-height:1dvh]:max-h-none max-md:rounded-none max-md:border-0'
 
 export function Command(): JSX.Element {
     const { isCommandOpen } = useValues(commandLogic)
+    const { todayRailEnabled } = useValues(todayShellLogic)
     const { closeCommand } = useActions(commandLogic)
 
-    const handleItemSelect = useCallback(
-        (item: SearchItem, openInNewTab?: boolean) => {
-            closeCommand()
-            if (item.onSelect) {
-                item.onSelect()
-                return
-            }
-            if (item.href) {
-                if (openInNewTab) {
-                    newInternalTab(item.href)
-                } else {
-                    navigateToHref(item.href)
-                }
-            }
-        },
-        [closeCommand]
-    )
-
-    const handleAskAiClick = useCallback(() => {
-        closeCommand()
-    }, [closeCommand])
-
     return (
-        <DialogPrimitive open={isCommandOpen} onOpenChange={(open) => !open && closeCommand()} className="w-[640px]">
+        <DialogPrimitive
+            open={isCommandOpen}
+            onOpenChange={(open) => !open && closeCommand()}
+            className={cn('w-[640px]', todayRailEnabled && TODAY_PHONE_SHEET)}
+        >
             <DialogPrimitiveTitle>Command</DialogPrimitiveTitle>
-            <Search.Root
-                logicKey="command"
-                isActive={isCommandOpen}
-                onItemSelect={handleItemSelect}
-                onAskAiClick={handleAskAiClick}
-                showAskAiLink
-            >
-                <Search.Input autoFocus />
-                <Search.Status />
-                <Search.Separator />
-                <Search.Results listClassName="pt-0 bg-surface-primary" groupLabelClassName="bg-surface-secondary" />
-                <Search.Footer />
-            </Search.Root>
+            {/* Mounted only while open, which scopes the search's caches and requests to one use of the palette. */}
+            {isCommandOpen && (
+                <Suspense fallback={null}>
+                    <CommandKSearch />
+                </Suspense>
+            )}
         </DialogPrimitive>
     )
 }

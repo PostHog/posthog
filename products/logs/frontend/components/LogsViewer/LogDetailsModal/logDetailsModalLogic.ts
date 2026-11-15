@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
+import type { ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 
 export type LogDetailsTab = 'details' | 'raw' | 'explore-ai' | 'comments' | 'related-errors'
 
@@ -19,6 +20,7 @@ export interface logDetailsModalLogicValues {
     hasSessionId: boolean
     isLogDetailsOpen: boolean
     jsonParseAllFields: boolean
+    relatedErrorsInitialScope: ErrorScope | null
     selectedLog: ParsedLogMessage | null
     sessionId: string | null
 }
@@ -30,6 +32,13 @@ export interface logDetailsModalLogicActions {
     }
     openLogDetails: (log: ParsedLogMessage) => {
         log: ParsedLogMessage
+    }
+    openLogRelatedErrors: (
+        log: ParsedLogMessage,
+        scope: ErrorScope
+    ) => {
+        log: ParsedLogMessage
+        scope: ErrorScope
     }
     setActiveTab: (tab: LogDetailsTab) => {
         tab: LogDetailsTab
@@ -66,6 +75,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
 
     actions({
         openLogDetails: (log: ParsedLogMessage) => ({ log }),
+        openLogRelatedErrors: (log: ParsedLogMessage, scope: ErrorScope) => ({ log, scope }),
         closeLogDetails: true,
         setJsonParseAllFields: (enabled: boolean) => ({ enabled }),
         setActiveTab: (tab: LogDetailsTab) => ({ tab }),
@@ -74,6 +84,9 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
     listeners(() => ({
         setActiveTab: ({ tab }) => {
             posthog.capture('logs details tab changed', { tab })
+        },
+        openLogRelatedErrors: () => {
+            posthog.capture('logs details tab changed', { tab: 'related-errors' })
         },
     })),
 
@@ -90,6 +103,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
             null as ParsedLogMessage | null,
             {
                 openLogDetails: (_, { log }) => log,
+                openLogRelatedErrors: (_, { log }) => log,
                 closeLogDetails: () => null,
             },
         ],
@@ -97,6 +111,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
             false,
             {
                 openLogDetails: () => true,
+                openLogRelatedErrors: () => true,
                 closeLogDetails: () => false,
             },
         ],
@@ -106,10 +121,21 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
                 setJsonParseAllFields: (_, { enabled }) => enabled,
             },
         ],
+        relatedErrorsInitialScope: [
+            null as ErrorScope | null,
+            {
+                openLogRelatedErrors: (_, { scope }) => scope,
+                // Cleared once the user leaves the tab, so a remount does not undo a scope they picked.
+                setActiveTab: () => null,
+                openLogDetails: () => null,
+                closeLogDetails: () => null,
+            },
+        ],
         activeTab: [
             'details' as LogDetailsTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+                openLogRelatedErrors: () => 'related-errors',
                 openLogDetails: () => 'details',
                 closeLogDetails: () => 'details',
             },

@@ -18,6 +18,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: web_vitals
+scout-precheck-query: |
+  SELECT 1 AS web_vitals_seen
+  FROM events
+  WHERE event = '$web_vitals'
+    AND timestamp > {now} - INTERVAL 7 DAY
+  LIMIT 1
 ---
 
 # Signals scout: web vitals
@@ -93,6 +99,8 @@ Activity history is optional. Use the reader guidance supplied by MCP only when 
 If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
 
 ## Quick close-out: is web vitals capture even on?
+
+A scheduled run can start with a `<precheck_result>` block. The block means that at least one `$web_vitals` event arrived in the last 7 days. It holds no count, so still run the count below when you need the volume. A trickle is not `not-in-use`.
 
 `$web_vitals` is opt-in (`capture_performance` in the SDK). Absence is **configuration,
 not health** — it is the health-checks scout's territory, not yours.
@@ -469,8 +477,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   Attach the page's daily p75 series via `charts` — for a dated regression show the band crossing and its onset; for a standing-poor page show just the observed window, since a series that starts in the poor band cannot date an onset.
   The fix lives in the team's own
   frontend code, CDN, or asset pipeline — so default to
-  `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops
-  `priority`+reviewers from spawning a pointless repo-selection sandbox); reserve
+  `actionability=requires_human_input` and `repository=NO_REPO`; reserve
   `actionability=immediately_actionable` + `repository=owner/repo` for a finding whose
   remediation is well-localized in a repo you can confidently name from project
   context. "Nameable" means named by a **trusted, human-authored source**: a steering

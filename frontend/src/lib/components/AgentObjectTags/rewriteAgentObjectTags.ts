@@ -11,13 +11,18 @@
  *
  * The kind registry is generated from `posthog/object_tags/kinds.py`, and the
  * transform mirrors the Slack renderer
- * (`products/tasks/backend/temporal/slack_relay/object_tags.py`) minus its
+ * (`posthog/object_tags/slack.py`) minus its
  * Slack-specific escaping, so a reply reads the same on both surfaces. Tags
  * inside fenced code blocks and inline code spans stay literal. A trailing
  * tag or fence that is still streaming in is held back from the rendered
  * output; it re-renders whole once the rest of the chunk arrives.
  */
-import { OBJECT_KIND_ALIASES, OBJECT_KIND_DATA, ObjectKindData } from './objectKinds.generated'
+import {
+    FALLBACK_OBJECT_KIND_DATA,
+    OBJECT_KIND_ALIASES,
+    OBJECT_KIND_DATA,
+    ObjectKindData,
+} from './objectKinds.generated'
 
 // A link whose URL is longer than this degrades to its plain label; a SQL editor
 // deep link carries the whole query in the query string.
@@ -34,6 +39,8 @@ const RE_FENCE_LINE = /^ {0,3}(`{3,}|~{3,})/
 const RE_BACKTICK_RUN = /`+/g
 const RE_LABEL_UNSAFE = /[[\]|]/g
 const RE_BARE_ID = /^[\w$.:-]{1,64}$/
+const RE_STANDALONE_LINK = /^\[([^[\]\n]*)\]\((?:<([^<>\n]*)>|(\S+?))(?:[ \t]+"([^"\n]*)")?\)[ \t]*$/
+const RE_SQL_EDITOR_PATH = /^(?:\/project\/\d+)?\/sql$/
 const RE_PARTIAL_OPEN_TAG = /^<(?:[a-z][\w-]*(?:\s[^>]*)?)?$/
 
 // Only the five entities the desktop composer's XML serializer emits (`escapeXmlAttr`);
@@ -47,7 +54,7 @@ const XML_ENTITIES: Record<string, string> = {
 }
 const RE_XML_ENTITY = /&(?:quot|apos|lt|gt|amp);/g
 
-function unescapeXml(value: string): string {
+export function unescapeXml(value: string): string {
     return value.replace(RE_XML_ENTITY, (entity) => XML_ENTITIES[entity])
 }
 
@@ -79,13 +86,24 @@ function parseAttrs(raw: string): Record<string, string> {
 
 /** CommonMark inline code on one line: a run of N backticks closes on the next run of exactly N. */
 function inlineCodeSpans(line: string, offset: number): Span[] {
+    if (!line.includes('`')) {
+        return []
+    }
     const runs = Array.from(line.matchAll(RE_BACKTICK_RUN))
+    // The next run of the same length for each run, found in one pass from the right, because a search
+    // from the start of the line for each opener is quadratic on many backtick pairs.
+    const nextSameLength = runs.map(() => -1)
+    const lastSeenAt = new Map<number, number>()
+    for (let i = runs.length - 1; i >= 0; i--) {
+        const length = runs[i][0].length
+        nextSameLength[i] = lastSeenAt.get(length) ?? -1
+        lastSeenAt.set(length, i)
+    }
     const spans: Span[] = []
     let index = 0
     while (index < runs.length) {
         const opener = runs[index]
-        const length = opener[0].length
-        const closerIndex = runs.findIndex((run, i) => i > index && run[0].length === length)
+        const closerIndex = nextSameLength[index]
         if (closerIndex === -1) {
             index += 1
             continue
@@ -95,6 +113,12 @@ function inlineCodeSpans(line: string, offset: number): Span[] {
         index = closerIndex + 1
     }
     return spans
+}
+
+// A backtick fence cannot carry a backtick in its info string. This is not a lookahead in
+// RE_FENCE_LINE, because the regex would then rescan the line for each shorter run.
+function opensFence(line: string, fence: RegExpExecArray): boolean {
+    return fence[1][0] !== '`' || !line.includes('`', fence[0].length)
 }
 
 /**
@@ -121,7 +145,7 @@ function scanCode(text: string): Span[] {
                 spans.push({ start: fenceStart, end: offset + line.length })
                 fenceChar = ''
             }
-        } else if (fence) {
+        } else if (fence !== null && opensFence(line, fence)) {
             fenceChar = fence[1][0]
             fenceLength = fence[1].length
             fenceStart = offset
@@ -231,6 +255,97 @@ function objectUrl(projectBase: string, kind: ObjectKindData, objectId: string):
     return projectBase + kind.pathTemplate.replace('{id}', encodeObjectId(objectId))
 }
 
+/** The object kind's display data and its page under `projectBase`, or a null url when it has no page. */
+export function objectKindLink(
+    kindName: string,
+    objectId: string,
+    projectBase: string
+): { kind: ObjectKindData; url: string | null } {
+    const kind = resolveKind(kindName) ?? FALLBACK_OBJECT_KIND_DATA
+    return { kind, url: objectUrl(projectBase, kind, objectId) }
+}
+
+function sqlBlock(title: string, url: string | null, sql: string, caption: string): string {
+    const longestRun = Math.max(0, ...Array.from(sql.matchAll(RE_BACKTICK_RUN), (run) => run[0].length))
+    const fence = '`'.repeat(Math.max(3, longestRun + 1))
+    const lines = [`**${link(title, url)}**`, fence, sql, fence]
+    if (caption) {
+        lines.push(`_${caption}_`)
+    }
+    return lines.join('\n')
+}
+
+function hogqlFromQueryNode(raw: string): string | null {
+    let node: unknown
+    try {
+        node = JSON.parse(raw)
+    } catch {
+        return null
+    }
+    for (let depth = 0; depth < 3; depth++) {
+        if (typeof node !== 'object' || node === null) {
+            return null
+        }
+        const record = node as Record<string, unknown>
+        if (record.kind === 'HogQLQuery' && typeof record.query === 'string') {
+            return record.query
+        }
+        node = record.source
+    }
+    return null
+}
+
+function sqlFromEditorUrl(href: string): string | null {
+    let url: URL
+    try {
+        url = new URL(href, window.location.origin)
+    } catch {
+        return null
+    }
+    if (url.origin !== window.location.origin || !RE_SQL_EDITOR_PATH.test(url.pathname)) {
+        return null
+    }
+    const value = url.searchParams.get('open_query')?.trim()
+    if (!value) {
+        return null
+    }
+    return value.startsWith('{') ? (hogqlFromQueryNode(value)?.trim() ?? null) || null : value
+}
+
+function expandStandaloneSqlLinks(text: string): string {
+    if (!text.includes('open_query=')) {
+        return text
+    }
+    const spans = scanCode(text)
+    const lines = text.split('\n')
+    let offset = 0
+    let changed = false
+    const output = lines.map((line, index) => {
+        const lineStart = offset
+        offset += line.length + 1
+        const match = RE_STANDALONE_LINK.exec(line)
+        if (
+            !match ||
+            inSpan(lineStart, spans) ||
+            (index > 0 && lines[index - 1].trim()) ||
+            (index < lines.length - 1 && lines[index + 1].trim())
+        ) {
+            return line
+        }
+        const href = match[2] ?? match[3]
+        const sql = sqlFromEditorUrl(href)
+        if (sql === null) {
+            return line
+        }
+        changed = true
+        const destination = match[2] !== undefined ? `<${href}>` : href
+        const title = safeLabel(match[1]) || OBJECT_KIND_DATA.hogql.kindLabel
+        const url = href.length > MAX_LINK_URL_LENGTH ? null : destination
+        return sqlBlock(title, url, sql, safeLabel(match[4] ?? ''))
+    })
+    return changed ? output.join('\n') : text
+}
+
 function renderHogql(tag: Tag, projectBase: string): string | null {
     // A body written by the desktop composer is XML-escaped, so `&lt;` is a `<` in the SQL.
     const sql = unescapeXml(tag.body).trim()
@@ -245,17 +360,10 @@ function renderHogql(tag: Tag, projectBase: string): string | null {
     }
     const title = safeLabel(tag.attrs['title'] || '') || hogql.kindLabel
     // A backtick run in the SQL at least as long as the fence would close it early
-    // and spill the rest of the query into ordinary markdown.
-    const longestRun = Math.max(0, ...Array.from(sql.matchAll(RE_BACKTICK_RUN), (run) => run[0].length))
-    const fence = '`'.repeat(Math.max(3, longestRun + 1))
-    const lines = [`**${link(title, url)}**`, fence, sql, fence]
-    // Same treatment as every other agent-authored string here: without it the
-    // caption is the one attribute that could smuggle markdown link/image syntax.
-    const caption = safeLabel(tag.attrs['caption'] || '')
-    if (caption) {
-        lines.push(`_${caption}_`)
-    }
-    return lines.join('\n')
+    // and spill the rest of the query into ordinary markdown. Same treatment as every
+    // other agent-authored string here: without it the caption is the one attribute
+    // that could smuggle markdown link/image syntax.
+    return sqlBlock(title, url, sql, safeLabel(tag.attrs['caption'] || ''))
 }
 
 function renderReference(tag: Tag, kind: ObjectKindData, projectBase: string): string | null {
@@ -367,9 +475,15 @@ function heldSuffixStart(text: string, spans: Span[], searchFrom: number): numbe
  *
  * `projectBase` is the app path every object link hangs off, e.g. `/project/2`.
  * Text with no tags passes through unchanged, so the transform is safe to run
- * on every render, including on text it already rewrote.
+ * on every render, including on text it already rewrote. A trailing tag that may
+ * still be streaming in is held back; pass `streaming: false` for complete text.
  */
-export function rewriteAgentObjectTags(text: string, projectBase: string): string {
+export function rewriteAgentObjectTags(
+    text: string,
+    projectBase: string,
+    { streaming = true }: { streaming?: boolean } = {}
+): string {
+    text = expandStandaloneSqlLinks(text)
     if (!text.includes('<')) {
         return text
     }
@@ -378,7 +492,7 @@ export function rewriteAgentObjectTags(text: string, projectBase: string): strin
     // Complete tags all end before the held region starts, so the slice below
     // cannot invalidate them.
     const searchFrom = tags.length > 0 ? tags[tags.length - 1].end : 0
-    const held = heldSuffixStart(text, spans, searchFrom)
+    const held = streaming ? heldSuffixStart(text, spans, searchFrom) : null
     if (held !== null && text.length - held <= MAX_HELD_SUFFIX) {
         text = text.slice(0, held)
     }

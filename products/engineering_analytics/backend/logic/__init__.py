@@ -1,22 +1,16 @@
-"""Orchestration for engineering_analytics.
+"""The builders the facade calls, re-exported from one module per area.
 
-Resolves caller inputs (PostHog-convention date strings, ``owner/name`` repo) and binds the
-team to its curated GitHub read layer (``CuratedGitHubSource``, which resolves the warehouse
-table names), then returns canonical contract types. The curated query builders
-(``backend/logic/views``) own all GitHub-shaped mapping and domain rules; this layer deals
-only in canonical types.
-
-Implementation lives in one module per surface area, mirroring ``presentation/views``; this
-package namespace is the layer's interface and re-exports the full builder surface for the
-facade.
+Each builder takes an already-authorized ``CuratedGitHubSource``, because source selection and
+warehouse access control happen once at the facade. A builder validates its own inputs (dates,
+repo) and returns contract types.
 """
 
-# Each builder operates on an already-resolved CuratedGitHubSource: source selection and per-source
-# warehouse access control happen once at the facade, which hands these builders the authorized
-# handle. They validate their own inputs (dates, repo) and read PR/CI data through the handle.
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     get_ci_signals_config as get_ci_signals_config,
     update_ci_signals_config as update_ci_signals_config,
+)
+from products.engineering_analytics.backend.logic.ci_timing_context import (
+    build_ci_timing_context as build_ci_timing_context,
 )
 from products.engineering_analytics.backend.logic.delivery import (
     build_delivery_comparison as build_delivery_comparison,
@@ -27,7 +21,9 @@ from products.engineering_analytics.backend.logic.delivery_scope import (
     DeliveryScope as DeliveryScope,
     SummaryScope as SummaryScope,
 )
+from products.engineering_analytics.backend.logic.depot_ci_usage import build_depot_ci_usage as build_depot_ci_usage
 from products.engineering_analytics.backend.logic.dora import build_dora_overview as build_dora_overview
+from products.engineering_analytics.backend.logic.enrollment import enroll as enroll
 from products.engineering_analytics.backend.logic.friction import (
     build_author_friction as build_author_friction,
     build_author_friction_detail as build_author_friction_detail,
@@ -36,10 +32,16 @@ from products.engineering_analytics.backend.logic.friction import (
 from products.engineering_analytics.backend.logic.github_teams import (
     build_github_team_roster as build_github_team_roster,
 )
+from products.engineering_analytics.backend.logic.job_log_insights import (
+    build_job_log_insights as build_job_log_insights,
+)
 from products.engineering_analytics.backend.logic.pull_requests import (
+    build_attention_pull_requests as build_attention_pull_requests,
+    build_author_llm_spend as build_author_llm_spend,
     build_author_workflow_costs as build_author_workflow_costs,
     build_ci_cards as build_ci_cards,
     build_ci_failure_logs as build_ci_failure_logs,
+    build_llm_spend_coverage as build_llm_spend_coverage,
     build_merged_pull_requests as build_merged_pull_requests,
     build_pr_cost as build_pr_cost,
     build_pr_lifecycle as build_pr_lifecycle,
@@ -64,6 +66,7 @@ from products.engineering_analytics.backend.logic.teams import (
     build_team_merge_trend as build_team_merge_trend,
 )
 from products.engineering_analytics.backend.logic.workflows import (
+    build_ci_data_freshness as build_ci_data_freshness,
     build_current_branch_health as build_current_branch_health,
     build_job_aggregates as build_job_aggregates,
     build_master_failures as build_master_failures,

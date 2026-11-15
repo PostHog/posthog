@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import sys
 import json
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import cast
@@ -17,6 +18,7 @@ import click
 
 from .census import census
 from .codeowners import project_repo
+from .coverage import newly_unowned
 from .github import GitHubLookupError, GitHubOrg
 from .matcher import compile_pattern, normalize_path
 from .resolver import OWNERS_FILENAME, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
@@ -108,6 +110,8 @@ def cmd_who(repo_root: Path | None, path: str) -> None:
     else:
         click.echo("owners:  (unowned)")
     click.echo(f"status:  {r.status}")
+    if r.sensitive:
+        click.echo("sensitive: yes")
     click.echo(f"slack:   {r.slack or '(none)'}")
     click.echo(f"source:  {r.source or '(none)'}")
 
@@ -154,9 +158,26 @@ def cmd_codeowners(output: str | None, org: str | None, repo_root: Path | None) 
 
 @click.command(name="owners:unowned", help="List unowned tracked files (respecting owners: null exemptions)")
 @repo_root_option
+@click.option(
+    "--against",
+    metavar="REF",
+    default=None,
+    help="List only the files that were not already unowned at the merge base of HEAD and REF",
+)
 @click.argument("prefix", required=False)
-def cmd_unowned(repo_root: Path | None, prefix: str | None) -> None:
+def cmd_unowned(repo_root: Path | None, against: str | None, prefix: str | None) -> None:
     resolver = _resolver(repo_root)
+    if against is not None:
+        if prefix:
+            raise click.UsageError("--against lists the whole repository, so it takes no PREFIX")
+        try:
+            paths = newly_unowned(resolver.repo_root, against)
+        except subprocess.CalledProcessError as exc:
+            reason = exc.stderr.strip() or "no merge base"
+            raise click.ClickException(f"could not compare with {against!r}: {reason}") from exc
+        for path in paths:
+            click.echo(path)
+        return
     files = resolver.tracked_files(prefix)
     unowned = resolver.unowned(files)
     for path in unowned:
@@ -333,6 +354,8 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
 
         for err in entry.errors:
             errors.append(f"{rel}: {err}")
+        for warning in entry.warnings:
+            warnings.append(f"{rel}: {warning}")
         owners_dirs[directory] = is_simple_owners_file(parsed)
         if parsed is None:
             continue
@@ -364,8 +387,16 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
         github = GitHubOrg(_github_org(org, settings))
         errors.extend(_validate_owners_live(_live_scope(owners_by_file, paths), github))
 
-    unowned = resolver.unowned(tracked)
-    warnings.append(f"coverage: {len(unowned)} of {len(tracked)} tracked file(s) resolve to unowned")
+    unowned_count = 0
+    sensitive_without_owners: list[str] = []
+    for path in tracked:
+        resolution = resolver.resolve(path, include_added=False)
+        unowned_count += resolution.is_unowned
+        # A consumer acts on `sensitive` through the owners of the path, so without owners the flag does nothing.
+        if resolution.sensitive and not resolution.owners:
+            sensitive_without_owners.append(f"{path}: sensitive but has no owners")
+    warnings.append(f"coverage: {unowned_count} of {len(tracked)} tracked file(s) resolve to unowned")
+    warnings.extend(sensitive_without_owners)
 
     for warning in warnings:
         click.echo(f"⚠ {warning}")

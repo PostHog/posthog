@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.mixins import validated_request
 from posthog.models.team import Team
 from posthog.permissions import IsStaffUser
+from posthog.uuidt import UUIDT
 
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 100
@@ -17,9 +18,9 @@ class StaffTeamSearchQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         help_text=(
             "Search string matched against team id (exact), api_token (exact), team name (partial), "
-            f"or organization name (partial). Non-numeric queries must be at least {MIN_SEARCH_LENGTH} "
-            "characters so an empty or single-letter query never returns half the table; a numeric team-id "
-            "lookup is allowed at a single digit."
+            "organization name (partial), or organization id (exact). Non-numeric queries must be at least "
+            f"{MIN_SEARCH_LENGTH} characters so an empty or single-letter query never returns half the table; "
+            "a numeric team-id lookup is allowed at a single digit."
         ),
     )
     limit = serializers.IntegerField(
@@ -98,6 +99,8 @@ class FeatureFlagsStaffTeamSearchViewSet(viewsets.ViewSet):
             query = Q(name__icontains=search) | Q(api_token=search) | Q(organization__name__icontains=search)
             if search.isdecimal():
                 query |= Q(id=int(search))
+            if UUIDT.is_valid_uuid(search):
+                query |= Q(organization_id=search)
 
         # icontains on name/organization__name forces a sequential scan (no btree-usable index);
         # acceptable today given staff-only, low-frequency usage. Revisit with a pg_trgm index if

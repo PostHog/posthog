@@ -224,6 +224,19 @@ describe('dateFilters utils', () => {
             tk.reset()
         })
 
+        // A window across a daylight saving change must start at local midnight, like the backend's
+        // relative_date_parse, and not keep the UTC offset of today.
+        it.each([
+            ['Europe/Zurich', '2026-03-31T10:00:00Z', '-7d', '2026-03-23T23:00:00.000Z'],
+            ['Europe/Zurich', '2026-10-27T10:00:00Z', '-7d', '2026-10-19T22:00:00.000Z'],
+            ['Europe/Zurich', '2026-04-15T10:00:00Z', '-1m', '2026-03-14T23:00:00.000Z'],
+            ['America/New_York', '2026-03-10T12:00:00Z', '-1w', '2026-03-03T05:00:00.000Z'],
+            ['Europe/Zurich', '2026-03-29T01:30:00Z', '-1h', '2026-03-29T00:30:00.000Z'],
+        ])('resolves %s %s %s across a daylight saving change', (timezone, now, date, expected) => {
+            tk.freeze(new Date(now))
+            expect(dateStringToDayJs(date, timezone)?.toISOString()).toEqual(expected)
+        })
+
         it('handles various dates', () => {
             expect(dateStringToDayJs('2022-02-22')?.utc(true).toISOString()).toEqual('2022-02-22T00:00:00.000Z')
             expect(dateStringToDayJs('1999-12-31')?.utc(true).toISOString()).toEqual('1999-12-31T00:00:00.000Z')

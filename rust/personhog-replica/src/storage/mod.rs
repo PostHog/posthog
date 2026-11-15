@@ -3,26 +3,33 @@ pub mod postgres;
 pub mod traits;
 pub mod types;
 
-pub use error::{StorageError, StorageResult};
+pub use error::{StorageError, StorageResult, TimeoutKind};
 
 pub use types::{
-    CohortMembership, DeletePersonsMode, DeletePersonsOutcome, DistinctIdMapping,
-    DistinctIdWithVersion, Group, GroupIdentifier, GroupKey, GroupTypeMapping, HashKeyOverride,
-    HashKeyOverrideContext, Person, SplitResult, TombstonedDeleteOutcome, TombstonedDistinctId,
-    TombstonedPerson,
+    CohortMembership, DeletePersonsOutcome, DistinctIdMapping, DistinctIdWithVersion, Group,
+    GroupIdentifier, GroupKey, GroupTypeMapping, HashKeyOverride, HashKeyOverrideContext, Person,
+    PersonVersionFloorResult, SplitResult, TombstoneTarget, TombstonedDeleteOutcome,
+    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 
-pub use traits::{CohortStorage, DistinctIdLookup, FeatureFlagStorage, GroupStorage, PersonLookup};
+pub use traits::{
+    CohortStorage, DistinctIdLookup, FeatureFlagStorage, GroupStorage, PersonLookup, PersonRepair,
+};
 
 /// Combined storage trait that includes all sub-traits.
 /// Use this when you need access to all storage operations.
 pub trait FullStorage:
-    PersonLookup + DistinctIdLookup + GroupStorage + CohortStorage + FeatureFlagStorage
+    PersonLookup + DistinctIdLookup + GroupStorage + CohortStorage + FeatureFlagStorage + PersonRepair
 {
 }
 
 // Blanket implementation: anything that implements all sub-traits automatically implements FullStorage
 impl<T> FullStorage for T where
-    T: PersonLookup + DistinctIdLookup + GroupStorage + CohortStorage + FeatureFlagStorage
+    T: PersonLookup
+        + DistinctIdLookup
+        + GroupStorage
+        + CohortStorage
+        + FeatureFlagStorage
+        + PersonRepair
 {
 }

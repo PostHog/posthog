@@ -1,31 +1,31 @@
 """
-The question and the tab meanings the decision model reads for a filter picker search.
+The question, tab meanings, and model for a filter picker search.
 
 They live in PostHog's own prompt management, as `taxonomic-filter-search-intent` in the PostHog project,
 so a new wording ships by moving the `production` label and not by a deploy. The prompt text is the
-question. Its config holds the tab meanings as `options` and the `confident_threshold`. The bundled
+question. Its config holds the tab meanings as `options`, the `confident_threshold`, and `model`. The bundled
 copy below is the fallback when the managed prompt is unreachable or malformed; keep it close to the
 `production` version so a fallback answer reads the same.
 """
 
-import time
-import threading
 from collections.abc import Mapping
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import structlog
-import posthoganalytics
-from posthoganalytics.ai.prompts import PromptResult, Prompts
+from posthoganalytics.ai.prompts import PromptResult
 
 from posthog.dataclasses import frozen
+from posthog.llm.managed_decision_model import (
+    DEFAULT_DECISION_MODEL,
+    BackgroundRefresher,
+    get_app_prompt,
+    model_from_config,
+)
 from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS
 
 logger = structlog.get_logger(__name__)
 
 SEARCH_INTENT_PROMPT_NAME = "taxonomic-filter-search-intent"
-SEARCH_INTENT_PROMPT_LABEL = "production"
-PROMPT_REFRESH_SECONDS = 60
 
 
 @frozen
@@ -35,6 +35,7 @@ class SearchIntentPrompt:
     confident_threshold: float
     # None for the bundled copy, so analysis can tell a fallback answer from a managed one.
     version: int | None
+    model: str = DEFAULT_DECISION_MODEL
 
 
 BUNDLED_SEARCH_INTENT_PROMPT = SearchIntentPrompt(
@@ -100,57 +101,19 @@ def parse_search_intent_prompt(result: PromptResult) -> SearchIntentPrompt:
         options=options if options is not None else bundled.options,
         confident_threshold=threshold if threshold is not None else bundled.confident_threshold,
         version=result.version,
+        model=model_from_config(config),
     )
 
 
-def fetch_search_intent_prompt(*, label: str | None = None, version: int | None = None) -> SearchIntentPrompt:
+def fetch_search_intent_prompt(*, version: int | None = None) -> SearchIntentPrompt:
     """Blocks on the network for up to the SDK timeout. Request code reads `current_search_intent_prompt` instead."""
-    # Without a key (tests, local dev, self-hosted) the SDK still sends the request and gets a 401.
-    if not posthoganalytics.personal_api_key:
+    result = get_app_prompt(SEARCH_INTENT_PROMPT_NAME, version=version)
+    if result is None:
         return BUNDLED_SEARCH_INTENT_PROMPT
-    # Built per fetch because the key is set in apps.ready(), after this module can be imported.
-    prompts = Prompts(posthoganalytics, capture_errors=True)
-    result = prompts.get(
-        SEARCH_INTENT_PROMPT_NAME,
-        with_metadata=True,
-        label=label if version is None else None,
-        version=version,
-        fallback=BUNDLED_SEARCH_INTENT_PROMPT.instructions,
-    )
     return parse_search_intent_prompt(result)
 
 
-class _PromptRefresher:
-    # The SDK fetch blocks for up to 10 s on a cache miss and the picker's budget is 2 s, so a request
-    # reads the last prompt it has and at most one background fetch replaces it.
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="search-intent-prompt")
-        self._prompt = BUNDLED_SEARCH_INTENT_PROMPT
-        self._refreshed_at = float("-inf")
-        self._refreshing = False
-
-    def current(self) -> SearchIntentPrompt:
-        with self._lock:
-            if not self._refreshing and time.monotonic() - self._refreshed_at >= PROMPT_REFRESH_SECONDS:
-                self._refreshing = True
-                self._executor.submit(self._refresh)
-            return self._prompt
-
-    def _refresh(self) -> None:
-        try:
-            prompt = fetch_search_intent_prompt(label=SEARCH_INTENT_PROMPT_LABEL)
-        except Exception:
-            logger.exception("taxonomic_search_intent_prompt_refresh_failed")
-            prompt = None
-        with self._lock:
-            if prompt is not None and (prompt.version is not None or self._prompt.version is None):
-                self._prompt = prompt
-            self._refreshed_at = time.monotonic()
-            self._refreshing = False
-
-
-_REFRESHER = _PromptRefresher()
+_REFRESHER = BackgroundRefresher(SEARCH_INTENT_PROMPT_NAME, BUNDLED_SEARCH_INTENT_PROMPT, fetch_search_intent_prompt)
 
 
 def current_search_intent_prompt() -> SearchIntentPrompt:

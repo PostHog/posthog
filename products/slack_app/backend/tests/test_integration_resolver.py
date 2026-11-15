@@ -1,3 +1,6 @@
+from collections.abc import Sequence
+from typing import Any
+
 import pytest
 
 from django.apps import apps
@@ -11,10 +14,12 @@ from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
 from products.slack_app.backend.services.integration_resolver import (
+    UserAndIntegrationsResolution,
     load_integrations,
     pick_a_project_message,
     resolve_from_candidates,
     resolve_user_for_workspace,
+    unresolved_user_properties,
 )
 
 WORKSPACE = "T_WS"
@@ -122,6 +127,12 @@ class TestResolveIntegration:
             task_run=task_run,
             mentioning_slack_user_id=SLACK_USER,
         )
+
+    def test_load_integrations_for_user_does_not_query_per_candidate(self, django_assert_num_queries):
+        with django_assert_num_queries(4):
+            result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], user=self.user)
+
+        assert {c.id for c in result.candidates} == {self.integration_a.id, self.integration_b.id}
 
     @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
     @pytest.mark.parametrize("has_default", [False, True])
@@ -592,7 +603,7 @@ class TestLoadIntegrationsAuthStateFilter:
             sensitive_config={"access_token": "xoxb"},
         )
 
-    def _candidate_ids(self, result_candidates: list[Integration]) -> list[int]:
+    def _candidate_ids(self, result_candidates: Sequence[Any]) -> list[int]:
         return [c.id for c in result_candidates]
 
     def test_cold_cache_runs_auth_test_per_candidate_and_caches_verdict(self):
@@ -819,3 +830,53 @@ class TestPickAProjectMessage:
         assert "<!channel>" not in message
         assert "&lt;!channel&gt;" in message
         assert "<https://evil.example|Open PostHog>" not in message
+
+
+class TestUnresolvedUserProperties:
+    @pytest.mark.parametrize(
+        "slack_email, account, scope, expected",
+        [
+            pytest.param(
+                None,
+                None,
+                "users:read,users:read.email",
+                {"slack_email_available": False, "posthog_account_exists": None, "account_linking_available": True},
+                id="slack_exposes_no_email",
+            ),
+            pytest.param(
+                "stranger@example.com",
+                None,
+                "users:read,users:read.email",
+                {"slack_email_available": True, "posthog_account_exists": False, "account_linking_available": True},
+                id="no_posthog_account",
+            ),
+            pytest.param(
+                "Outsider@Example.com",
+                "active",
+                "users:read,users:read.email",
+                {"slack_email_available": True, "posthog_account_exists": True, "account_linking_available": True},
+                id="account_outside_the_connected_organizations",
+            ),
+            pytest.param(
+                "former@example.com",
+                "deactivated",
+                "users:read,users:read.email",
+                {"slack_email_available": True, "posthog_account_exists": False, "account_linking_available": True},
+                id="deactivated_account",
+            ),
+            pytest.param(
+                "stranger@example.com",
+                None,
+                "chat:write",
+                {"slack_email_available": True, "posthog_account_exists": False, "account_linking_available": False},
+                id="install_cannot_link_accounts",
+            ),
+        ],
+    )
+    def test_reports_why_the_slack_user_was_not_identified(self, db, slack_email, account, scope, expected):
+        if account is not None:
+            User.objects.create(email=slack_email.lower(), distinct_id="u-outside", is_active=account == "active")
+        probe = Integration(kind="slack", integration_id=WORKSPACE, config={"scope": scope})
+        resolution = UserAndIntegrationsResolution(failure_reason="user_not_found", slack_email=slack_email)
+
+        assert unresolved_user_properties(resolution, probe) == expected

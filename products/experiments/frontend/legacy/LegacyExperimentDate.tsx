@@ -1,9 +1,6 @@
 import { TZLabel } from 'lib/components/TZLabel'
 import { Label } from 'lib/ui/Label/Label'
 
-/**
- * @deprecated Use the new ExperimentDate component instead
- */
 export const LegacyExperimentDate = ({
     label,
     date,

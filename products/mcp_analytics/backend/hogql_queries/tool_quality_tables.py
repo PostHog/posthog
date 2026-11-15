@@ -58,9 +58,12 @@ if TYPE_CHECKING:
 
 # The tab scopes to $mcp_tool_call events that carry a tool name. Category and tool are event-supplied
 # and bound as constants (never interpolated).
-_P50 = "round(quantile(0.5)(toFloat(properties.$mcp_duration_ms)))"
-_P95 = "round(quantile(0.95)(toFloat(properties.$mcp_duration_ms)))"
-_P99 = "round(quantile(0.99)(toFloat(properties.$mcp_duration_ms)))"
+# One sample for every level keeps p25 <= p50 <= p75. quantiles() returns NaN, not NULL, for a bucket
+# with no durations, so map NaN back to NULL.
+_LATENCY_QUANTILES = (
+    "arrayMap(q -> if(isNaN(q), NULL, round(q)), "
+    "quantiles(0.25, 0.5, 0.75, 0.95, 0.99)(toFloat(properties.$mcp_duration_ms)))"
+)
 _IS_ERROR = "countIf(toBool(properties.$mcp_is_error))"
 _TOOL_ROW_DEFAULT_LIMIT = 50
 _TOOL_ROW_MAX_LIMIT = 100
@@ -115,7 +118,6 @@ def _named_tool_where(
     filter_test_accounts: bool | None = None,
     *,
     tool_name: str | None = None,
-    search: str | None = None,
 ) -> ast.Expr:
     """Apply tool-name filters before aggregation so non-matching events skip the percentile and distinct aggregates."""
     exprs: list[ast.Expr] = [
@@ -136,17 +138,19 @@ def _named_tool_where(
                 },
             )
         )
-    if search:
-        exprs.append(
-            parse_expr(
-                "positionCaseInsensitive({effective_tool}, {search}) > 0",
-                placeholders={
-                    "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
-                    "search": ast.Constant(value=search),
-                },
-            )
-        )
     return ast.And(exprs=exprs)
+
+
+def _tool_search(search: str) -> list[ast.Expr]:
+    """Optional case-insensitive substring match on the effective tool name, the search term bound as a constant."""
+    if not search:
+        return []
+    return [
+        parse_expr(
+            "positionCaseInsensitive({effective_tool}, {search}) > 0",
+            placeholders={"effective_tool": parse_expr(EFFECTIVE_TOOL_SQL), "search": ast.Constant(value=search)},
+        )
+    ]
 
 
 class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQueryResponse]):
@@ -211,38 +215,63 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 count() OVER () AS total_count,
                 previous_errors,
                 if(previous_calls = 0 OR isNaN(previous_p95), NULL, previous_p95) AS previous_p95_duration_ms,
-                previous_sessions
+                previous_sessions,
+                total_sessions,
+                previous_total_sessions
             FROM (
                 SELECT
                     tool,
-                    countIf(is_current) AS total_calls,
-                    countIf(NOT is_current) AS previous_calls,
-                    countIf(is_current AND is_error) AS errors,
-                    countIf(NOT is_current AND is_error) AS previous_errors,
-                    round(quantileIf(0.5)(duration_ms, is_current)) AS p50_duration_ms,
-                    round(quantileIf(0.95)(duration_ms, is_current)) AS p95_duration_ms,
-                    round(quantileIf(0.95)(duration_ms, NOT is_current)) AS previous_p95,
-                    round(quantileIf(0.99)(duration_ms, is_current)) AS p99_duration_ms,
-                    uniqIf(distinct_id, is_current) AS users,
-                    uniqIf(session_id, is_current) AS sessions,
-                    uniqIf(session_id, NOT is_current) AS previous_sessions,
-                    minIf(timestamp, is_current) AS first_seen,
-                    maxIf(timestamp, is_current) AS last_seen
+                    total_calls,
+                    previous_calls,
+                    errors,
+                    previous_errors,
+                    p50_duration_ms,
+                    p95_duration_ms,
+                    previous_p95,
+                    p99_duration_ms,
+                    users,
+                    sessions,
+                    previous_sessions,
+                    first_seen,
+                    last_seen,
+                    uniqMerge(all_sessions_state) OVER () AS total_sessions,
+                    uniqMerge(all_previous_sessions_state) OVER () AS previous_total_sessions
                 FROM (
                     SELECT
-                        {_EFFECTIVE_TOOL} AS tool,
-                        timestamp >= {current_from} AS is_current,
-                        toBool(properties.$mcp_is_error) AS is_error,
-                        toFloat(properties.$mcp_duration_ms) AS duration_ms,
-                        nullIf({conversation_id}, '') AS session_id,
-                        distinct_id,
-                        timestamp
-                    FROM events
-                    WHERE {where}
+                        tool,
+                        countIf(in_current) AS total_calls,
+                        countIf(in_previous) AS previous_calls,
+                        countIf(in_current AND is_error) AS errors,
+                        countIf(in_previous AND is_error) AS previous_errors,
+                        round(quantileIf(0.5)(duration_ms, in_current)) AS p50_duration_ms,
+                        round(quantileIf(0.95)(duration_ms, in_current)) AS p95_duration_ms,
+                        round(quantileIf(0.95)(duration_ms, in_previous)) AS previous_p95,
+                        round(quantileIf(0.99)(duration_ms, in_current)) AS p99_duration_ms,
+                        uniqIf(distinct_id, in_current) AS users,
+                        uniqIf(session_id, in_current) AS sessions,
+                        uniqIf(session_id, in_previous) AS previous_sessions,
+                        minIf(timestamp, in_current) AS first_seen,
+                        maxIf(timestamp, in_current) AS last_seen,
+                        uniqState(if(is_current, session_id, NULL)) AS all_sessions_state,
+                        uniqState(if(is_current, NULL, session_id)) AS all_previous_sessions_state
+                    FROM (
+                        SELECT
+                            {_EFFECTIVE_TOOL} AS tool,
+                            timestamp >= {current_from} AS is_current,
+                            is_current AND {matches_table_filters} AS in_current,
+                            NOT is_current AND {matches_table_filters} AS in_previous,
+                            toBool(properties.$mcp_is_error) AS is_error,
+                            toFloat(properties.$mcp_duration_ms) AS duration_ms,
+                            nullIf({conversation_id}, '') AS session_id,
+                            distinct_id,
+                            timestamp
+                        FROM events
+                        WHERE {where}
+                    )
+                    GROUP BY tool
                 )
-                GROUP BY tool
-                HAVING countIf(is_current) > 0
             )
+            WHERE total_calls > 0
             ORDER BY total_calls DESC, tool ASC
             LIMIT {limit}
             OFFSET {offset}
@@ -253,14 +282,19 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "_min_k": ast.Constant(value=_TREND_SCORE_MIN_K),
                 "_volume_fraction": ast.Constant(value=_TREND_SCORE_VOLUME_FRACTION),
+                # The session totals ignore category and search so that narrowing the table does not turn a
+                # tool's share into 100%. Category and search only gate the per-tool aggregates, and the totals
+                # window runs before `total_calls > 0` drops the tools that they exclude.
+                "matches_table_filters": ast.And(
+                    exprs=[ast.Constant(value=True), *_category_in(self.query.categories), *_tool_search(search)]
+                ),
                 # Scans only the two windows, so every row outside the current one is a previous call.
                 "where": _named_tool_where(
                     self._both_windows(),
-                    self.query.categories,
+                    None,
                     self.team,
                     self.query.properties,
                     self.query.filterTestAccounts,
-                    search=search,
                 ),
                 "limit": ast.Constant(value=limit),
                 "offset": ast.Constant(value=offset),
@@ -283,7 +317,6 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
         )
 
     def _total_sessions_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        # Ignores category and search so that narrowing the table does not turn a tool's share into 100%.
         return parse_select(
             """
             SELECT uniqIf(session_id, is_current), uniqIf(session_id, NOT is_current)
@@ -323,7 +356,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 limit_context=self.limit_context,
             )
             rows = response.results or []
-            total_count = int(rows[0][13] or 0) if rows else 0
+            totals_row = rows[0] if rows else None
             if not rows and (self.query.offset or 0) > 0:
                 first_row_response = execute_hogql_query(
                     query=self.to_query(limit_override=1, offset_override=0),
@@ -335,17 +368,27 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                     limit_context=self.limit_context,
                 )
                 first_row = first_row_response.results or []
-                total_count = int(first_row[0][13] or 0) if first_row else 0
-            total_sessions_response = execute_hogql_query(
-                query=self._total_sessions_query(),
-                team=self.team,
-                user=self.user,
-                query_type="mcp_tool_quality_total_sessions_query",
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-            )
-        total_sessions_row = (total_sessions_response.results or [[0, 0]])[0]
+                totals_row = first_row[0] if first_row else None
+            if totals_row:
+                total_count, total_sessions, previous_total_sessions = (
+                    int(totals_row[13] or 0),
+                    int(totals_row[17] or 0),
+                    int(totals_row[18] or 0),
+                )
+            else:
+                total_sessions_response = execute_hogql_query(
+                    query=self._total_sessions_query(),
+                    team=self.team,
+                    user=self.user,
+                    query_type="mcp_tool_quality_total_sessions_query",
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
+                total_sessions_row = (total_sessions_response.results or [[0, 0]])[0]
+                total_count = 0
+                total_sessions = int(total_sessions_row[0] or 0)
+                previous_total_sessions = int(total_sessions_row[1] or 0)
         results = [
             MCPToolQualityRowItem(
                 tool=str(row[0] or ""),
@@ -370,8 +413,8 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
         return MCPToolQualityRowsQueryResponse(
             results=results,
             totalCount=total_count,
-            totalSessions=int(total_sessions_row[0] or 0),
-            previousTotalSessions=int(total_sessions_row[1] or 0),
+            totalSessions=total_sessions,
+            previousTotalSessions=previous_total_sessions,
             timings=response.timings,
             hogql=response.hogql,
             modifiers=self.modifiers,
@@ -397,25 +440,28 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
         interval = self.query.interval.value if self.query.interval else "day"
         return parse_select(
             """
-            SELECT
-                toString(dateTrunc({interval}, timestamp)) AS day,
-                count() AS calls,
-                {_IS_ERROR} AS errors,
-                {_P50} AS p50,
-                {_P95} AS p95,
-                {_P99} AS p99
-            FROM events
-            WHERE {where}
-            GROUP BY day
+            SELECT day, calls, errors, latency[2] AS p50, latency[4] AS p95, latency[5] AS p99,
+                min, latency[1] AS p25, mean, latency[3] AS p75, max
+            FROM (
+                SELECT
+                    toString(dateTrunc({interval}, timestamp)) AS day,
+                    count() AS calls,
+                    {_IS_ERROR} AS errors,
+                    {_LATENCY_QUANTILES} AS latency,
+                    min(toFloat(properties.$mcp_duration_ms)) AS min,
+                    round(avg(toFloat(properties.$mcp_duration_ms))) AS mean,
+                    max(toFloat(properties.$mcp_duration_ms)) AS max
+                FROM events
+                WHERE {where}
+                GROUP BY day
+            )
             ORDER BY day
             LIMIT 10000
             """,
             placeholders={
                 "interval": ast.Constant(value=interval),
                 "_IS_ERROR": parse_expr(_IS_ERROR),
-                "_P50": parse_expr(_P50),
-                "_P95": parse_expr(_P95),
-                "_P99": parse_expr(_P99),
+                "_LATENCY_QUANTILES": parse_expr(_LATENCY_QUANTILES),
                 "where": _named_tool_where(
                     _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),
                     self.query.categories,
@@ -452,6 +498,13 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
                 p50=float(row[3] or 0),
                 p95=float(row[4] or 0),
                 p99=float(row[5] or 0),
+                # None (not 0) when every duration in the bucket is missing, so the box plot
+                # skips the bucket instead of drawing a flat line at zero.
+                min=None if row[6] is None else float(row[6]),
+                p25=None if row[7] is None else float(row[7]),
+                mean=None if row[8] is None else float(row[8]),
+                p75=None if row[9] is None else float(row[9]),
+                max=None if row[10] is None else float(row[10]),
             )
             for row in (response.results or [])
         ]

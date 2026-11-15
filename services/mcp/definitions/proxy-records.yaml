@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product proxy-records
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product proxy-records
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Reverse proxy
 feature: reverse_proxy
 url_prefix: /settings/organization-proxy
@@ -91,9 +89,6 @@ tools:
             List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME
             target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to
             check whether a reverse proxy is set up before recommending one.
-    proxy-records-partial-update:
-        operation: proxy_records_partial_update
-        enabled: false
     proxy-retry:
         operation: proxy_records_retry_create
         enabled: true

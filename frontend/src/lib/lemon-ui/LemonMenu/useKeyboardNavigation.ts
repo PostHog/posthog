@@ -1,61 +1,61 @@
-import { createRef, useEffect, useRef } from 'react'
+import { FocusEventHandler, KeyboardEvent, KeyboardEventHandler, createRef, useRef } from 'react'
 
-export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I extends HTMLElement = HTMLElement>(
+export function useKeyboardNavigation<I extends HTMLElement = HTMLElement>(
     itemCount: number,
     activeItemIndex: number = -1,
     { enabled = true } = {}
 ): {
-    referenceRef: React.RefObject<R>
+    referenceRef: React.RefObject<HTMLElement>
     itemsRef: React.RefObject<React.RefObject<I>[]>
-    options?: { enabled: boolean }
+    onTriggerFocus: FocusEventHandler<HTMLElement>
+    onTriggerKeyDown: KeyboardEventHandler<HTMLElement>
+    onItemsKeyDown: KeyboardEventHandler<HTMLElement>
 } {
-    const focusedItemIndexRef = useRef(activeItemIndex)
-    const referenceRef = useRef<R>(null)
+    const referenceRef = useRef<HTMLElement>(null)
+    const focusedTriggerRef = useRef<HTMLElement | null>(null)
     const itemsRef = useRef(Array.from({ length: itemCount }, () => createRef<I>()))
+    // A menu can gain items after its first render, for example when its data loads.
+    while (itemsRef.current.length < itemCount) {
+        itemsRef.current.push(createRef<I>())
+    }
 
-    useEffect(() => {
-        focusedItemIndexRef.current = activeItemIndex
-    }, [activeItemIndex])
-
-    function focus(itemIndex: number): void {
-        if (itemIndex > -1) {
-            itemsRef.current[itemIndex].current?.focus()
-        } else {
-            referenceRef.current?.focus()
+    function moveFocus(e: KeyboardEvent<HTMLElement>, fromIndex: number): void {
+        if (!enabled || e.defaultPrevented) {
+            return
+        }
+        let target: HTMLElement | null = null
+        if (e.key === 'ArrowDown') {
+            target = itemsRef.current.find((item, i) => i > fromIndex && item.current)?.current ?? null
+        } else if (e.key === 'ArrowUp' && fromIndex >= 0) {
+            target =
+                itemsRef.current.findLast((item, i) => i < fromIndex && item.current)?.current ??
+                focusedTriggerRef.current ??
+                referenceRef.current
+        }
+        if (target) {
+            target.focus()
+            e.preventDefault()
         }
     }
 
-    useEffect(() => {
-        if (!enabled) {
-            return
-        }
-
-        const handleKeyDown = (e: KeyboardEvent): void => {
-            if (e.key === 'ArrowDown') {
-                if (focusedItemIndexRef.current < itemCount - 1) {
-                    focusedItemIndexRef.current += 1
-                    focus(focusedItemIndexRef.current)
-                    e.preventDefault()
-                }
-            } else if (e.key === 'ArrowUp') {
-                if (focusedItemIndexRef.current >= 0) {
-                    focusedItemIndexRef.current -= 1
-                    focus(focusedItemIndexRef.current)
-                    e.preventDefault()
-                }
+    return {
+        referenceRef,
+        itemsRef,
+        onTriggerFocus: (e) => {
+            // The positioning ref can point at a wrapper, so remember the element that actually took focus.
+            focusedTriggerRef.current = e.target
+        },
+        onTriggerKeyDown: (e) => {
+            // A closed submenu leaves arrow keys to its parent menu.
+            if (itemsRef.current.some((item) => item.current)) {
+                moveFocus(e, activeItemIndex)
             }
-        }
-
-        const controller = new AbortController()
-
-        referenceRef.current?.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
-        for (const item of itemsRef.current) {
-            item?.current?.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
-        }
-        return () => {
-            controller.abort()
-        }
-    }, [itemCount, enabled])
-
-    return { referenceRef, itemsRef }
+        },
+        onItemsKeyDown: (e) => {
+            const itemIndex = itemsRef.current.findIndex((item) => item.current === e.target)
+            if (itemIndex >= 0) {
+                moveFocus(e, itemIndex)
+            }
+        },
+    }
 }

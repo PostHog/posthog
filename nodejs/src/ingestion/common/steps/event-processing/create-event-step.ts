@@ -7,7 +7,7 @@ import { createEvent } from '~/ingestion/common/steps/event-processing/create-ev
 import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { EventHeaders, Person, PreIngestionEvent } from '~/types'
+import { EventHeaders, Person, PreIngestionEvent, Team } from '~/types'
 
 import { EventToEmit } from './emit-event-step'
 
@@ -18,6 +18,14 @@ const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'
 // event's uuid from its source event's uuid.
 const EXPERIMENT_EXPOSURE_UUIDV5_NAMESPACE = parseUuid('1b7c9119-5953-4668-97b7-ab0ef8a6bb48')
 
+// SDKs mark calls to flags on v2 rules with this property and send $experiment_exposure
+// themselves, so duplicating those calls would count each exposure twice. SDKs send the
+// number; the string is matched too because a duplicate costs more than a skipped one.
+function isConfigVersion2FeatureFlagCalledEvent(event: PreIngestionEvent): boolean {
+    const configVersion = event.properties['$feature_flag_config_version']
+    return configVersion === 2 || configVersion === '2'
+}
+
 // Flag definitions aren't available in ingestion, so multivariate is inferred from the
 // response shape; a variant literally keyed "true" or "false" is indistinguishable from
 // a boolean flag response and knowingly skipped.
@@ -26,6 +34,7 @@ function isMultivariateFeatureFlagCalledEvent(event: PreIngestionEvent): boolean
 
     return (
         event.event === FEATURE_FLAG_CALLED_EVENT &&
+        !isConfigVersion2FeatureFlagCalledEvent(event) &&
         typeof response === 'string' &&
         response !== '' &&
         response !== 'true' &&
@@ -34,6 +43,7 @@ function isMultivariateFeatureFlagCalledEvent(event: PreIngestionEvent): boolean
 }
 
 export interface CreateEventStepInput {
+    team: Team
     person?: Person
     preparedEvent: PreIngestionEvent
     processPerson: boolean
@@ -45,6 +55,7 @@ export interface CreateEventStepInput {
 }
 
 export interface CreateEventStepResult<O extends string> {
+    team: Team
     eventsToEmit: EventToEmit<O>[]
     teamId: number
     headers: EventHeaders
@@ -61,6 +72,7 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
 
     return function createEventStep(input) {
         const {
+            team,
             person,
             preparedEvent,
             processPerson,
@@ -95,6 +107,7 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
         }
 
         const result: CreateEventStepResult<O> = {
+            team,
             eventsToEmit,
             teamId: preparedEvent.teamId,
             headers,

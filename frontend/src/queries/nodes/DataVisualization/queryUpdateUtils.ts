@@ -1,13 +1,17 @@
 import type { MutableRefObject } from 'react'
 
-import { DataVisualizationNode } from '~/queries/schema/schema-general'
+import { NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
 
 export const applyDataVisualizationQueryUpdate = (
-    queryRef: MutableRefObject<DataVisualizationNode>,
-    setter: (query: DataVisualizationNode) => DataVisualizationNode,
-    setQuery: (query: DataVisualizationNode) => void
+    queryRef: MutableRefObject<VisualizationNode>,
+    setter: (query: VisualizationNode) => VisualizationNode,
+    setQuery: (query: VisualizationNode) => void
 ): void => {
-    const nextQuery = setter(queryRef.current)
+    const updated = setter(queryRef.current)
+    const nextQuery =
+        updated.kind === NodeKind.BIVisualizationNode && updated.display
+            ? { ...updated, config: { ...updated.config, chartType: updated.display } }
+            : updated
     queryRef.current = nextQuery
     setQuery(nextQuery)
 }

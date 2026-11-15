@@ -11,11 +11,13 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 health = { path = "../common/health" }
 axum = { workspace = true }
+common-kafka = { path = "../common/kafka" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-compression = { path = "../common/compression" }
 limiters = { path = "../common/limiters" }
+common-redis = { path = "../common/redis" }
 capture = { path = "../capture" }
 opentelemetry-proto = { workspace = true }
 tonic = { workspace = true }

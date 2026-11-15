@@ -1,11 +1,35 @@
 import crypto from 'crypto'
 
-import { sha1, sha1HmacChain } from '../stl/crypto'
+import { execSync } from '../execute'
+import { Operation as op } from '../operation'
+import { ed25519Verify, sha1, sha1HmacChain } from '../stl/crypto'
 import { STL } from '../stl/stl'
 import { ExecOptions } from '../types'
 
-describe('sha1 and sha1HmacChain', () => {
+describe('crypto STL', () => {
     const options: ExecOptions = { external: { crypto } }
+
+    describe('sha1 bytecode', () => {
+        test.each([
+            ['abc', 'a9993e364706816aba3e25717850c26c9cd0d89d'],
+            ['', 'da39a3ee5e6b4b0d3255bfef95601890afd80709'],
+            ['🦔', 'b1495135295ac36752f6579e93ba02140604590f'],
+            [null, null],
+        ])('sha1(%p) returns lowercase hex', (value, expected) => {
+            const argument = value === null ? [op.NULL] : [op.STRING, value]
+            expect(execSync(['_H', 1, ...argument, op.CALL_GLOBAL, 'sha1', 1], options)).toBe(expected)
+        })
+
+        test.each([
+            [[], 'Function sha1 requires at least 1 arguments'],
+            [['abc', 'hex', 'extra'], 'Function sha1 requires at most 2 arguments'],
+        ] as const)('rejects argument list %p', (values, expectedError) => {
+            const args = values.flatMap((value) => [op.STRING, value])
+            expect(() => execSync(['_H', 1, ...args, op.CALL_GLOBAL, 'sha1', values.length], options)).toThrow(
+                new Error(expectedError)
+            )
+        })
+    })
 
     describe('sha1', () => {
         test.each([
@@ -64,6 +88,15 @@ describe('sha1 and sha1HmacChain', () => {
         test('rejects fewer than two elements', () => {
             expect(() => sha1HmacChain(['only-a-key'], 'hex', options)).toThrow(
                 'Data array must contain at least two elements.'
+            )
+        })
+    })
+
+    describe('ed25519Verify', () => {
+        test('fails loudly on a crypto module without Ed25519, like the browser REPL', () => {
+            const browserLike = { ...crypto, createPublicKey: undefined, verify: undefined }
+            expect(() => ed25519Verify('r', 'aa', 'bb', 'hex', { external: { crypto: browserLike } })).toThrow(
+                'ed25519Verify is not supported in this runtime.'
             )
         })
     })

@@ -50,6 +50,8 @@ import type {
     LLMPromptReferencedByApi,
     LLMPromptResolveResponseApi,
 } from '../generated/api.schemas'
+import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { changedOnlyTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
 import { LLMPrompt, LLMPromptVersionSummary } from './types'
@@ -244,6 +246,8 @@ export interface llmPromptLogicValues {
     isViewMode: boolean
     labelPickerVersion: number | null
     labelsByVersion: Record<number, LLMPromptLabelApi[]>
+    markdownRenderingOverride: boolean | null
+    markdownRenderingPreference: boolean
     mode: PromptMode
     nextVersion: number | null
     prompt: PromptFormValues | ResolvedLLMPrompt | null
@@ -333,7 +337,7 @@ export interface llmPromptLogicActions {
         prompt: ResolvedLLMPrompt
         payload?: any
     }
-    loadResolvedPreview: () => any
+    loadResolvedPreview: (_: any) => any
     loadResolvedPreviewFailure: (
         error: string,
         errorObject?: any
@@ -388,6 +392,12 @@ export interface llmPromptLogicActions {
     ) => {
         labelName: string
         version: number
+    }
+    setMarkdownRenderingOverride: (override: boolean) => {
+        override: boolean
+    }
+    setMarkdownRenderingPreference: (preference: boolean) => {
+        preference: boolean
     }
     setMode: (mode: PromptMode) => {
         mode: PromptMode
@@ -461,6 +471,12 @@ export interface llmPromptLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isNewPrompt: (arg: any) => boolean
+        isRenderingMarkdown: (
+            markdownRenderingOverride: boolean | null,
+            markdownRenderingPreference: boolean,
+            mode: PromptMode,
+            isNewPrompt: boolean
+        ) => boolean
         isPromptMissing: (prompt: PromptFormValues | ResolvedLLMPrompt | null, promptLoading: boolean) => boolean
         shouldDisplaySkeleton: (prompt: PromptFormValues | ResolvedLLMPrompt | null, promptLoading: boolean) => boolean
         isHistoricalVersion: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => boolean
@@ -553,6 +569,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setAnalyticsScope: (analyticsScope: PromptAnalyticsScope) => ({ analyticsScope }),
         setRelatedTracesQuery: (query: DataTableNode) => ({ query }),
         toggleMarkdownRendering: true,
+        setMarkdownRenderingPreference: (preference: boolean) => ({ preference }),
+        setMarkdownRenderingOverride: (override: boolean) => ({ override }),
         toggleResolvedPreview: true,
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
         toggleOutlineExpanded: true,
@@ -611,9 +629,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         // content (navigation, version switch, refresh, failure) begins with
         // loadPrompt, so clearing on the trigger closes the whole class of
         // stale-preview states instead of patching individual outcomes.
+        // Cleared on loadResolvedPreview too: a late response for a previous
+        // version may have refilled it, and it would show while the new fetch
+        // is in flight.
         resolvedPreview: {
             loadPrompt: () => null,
             setMode: () => null,
+            loadResolvedPreview: () => null,
         },
         isShowingResolvedPreview: [
             false,
@@ -625,11 +647,21 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 loadResolvedPreviewFailure: () => false,
             },
         ],
-        isRenderingMarkdown: [
-            props.promptName === 'new' ? false : (props.mode ?? PromptMode.View) !== PromptMode.Edit,
+        // The preference survives across prompts and sessions; the override is this
+        // session's explicit choice and dies on mode switches, so edit mode can keep
+        // forcing the raw textarea without clobbering the stored preference.
+        markdownRenderingPreference: [
+            true,
+            buildAiObservabilityStorageConfig('prompts.isRenderingMarkdown'),
             {
-                toggleMarkdownRendering: (state) => !state,
-                setMode: (_, { mode }) => mode !== PromptMode.Edit,
+                setMarkdownRenderingPreference: (_, { preference }) => preference,
+            },
+        ],
+        markdownRenderingOverride: [
+            null as boolean | null,
+            {
+                setMarkdownRenderingOverride: (_, { override }) => override,
+                setMode: () => null,
             },
         ],
         compareVersion: [
@@ -731,15 +763,19 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     loaders(({ props }) => ({
         resolvedPreview: {
             __default: null as LLMPromptPublicApi | null,
-            loadResolvedPreview: async () => {
+            loadResolvedPreview: async (_, breakpoint) => {
                 // Version from the router, like loadPrompt: values.prompt still holds
                 // the previous version while a back/forward navigation is loading.
                 const urlVersion = getSelectedVersionFromUrl()
-                return await llmPromptsNameRetrieve(
+                const response = await llmPromptsNameRetrieve(
                     String(ApiConfig.getCurrentTeamId()),
                     props.promptName,
                     urlVersion !== undefined ? { version: urlVersion } : undefined
                 )
+                // A newer load started while this one was in flight: discard this
+                // response, or the older version's content would display as resolved.
+                breakpoint()
+                return response
             },
         },
     })),
@@ -865,6 +901,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
     selectors({
         isNewPrompt: [() => [(_, props) => props], (props) => props.promptName === 'new'],
+
+        isRenderingMarkdown: [
+            (s) => [s.markdownRenderingOverride, s.markdownRenderingPreference, s.mode, s.isNewPrompt],
+            (override: boolean | null, preference: boolean, mode: PromptMode, isNewPrompt: boolean): boolean =>
+                override ?? (isNewPrompt || mode === PromptMode.Edit ? false : preference),
+        ],
 
         isPromptMissing: [
             (s) => [s.prompt, s.promptLoading],
@@ -1264,9 +1306,18 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     }),
 
     listeners(({ actions, asyncActions, props, values }) => ({
+        toggleMarkdownRendering: () => {
+            const next = !values.isRenderingMarkdown
+            actions.setMarkdownRenderingOverride(next)
+            // Edit mode and new prompts force the raw textarea, so a toggle there is a
+            // preview peek, not a stated preference for how prompts should open.
+            if (values.mode !== PromptMode.Edit && !values.isNewPrompt) {
+                actions.setMarkdownRenderingPreference(next)
+            }
+        },
         toggleResolvedPreview: () => {
             if (values.isShowingResolvedPreview) {
-                actions.loadResolvedPreview()
+                actions.loadResolvedPreview(null)
             }
         },
         loadResolvedPreviewFailure: ({ errorObject }) => {
@@ -1566,10 +1617,15 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        '/prompt-management/prompts/:name': (_, __, ___, { method }) => {
+        '/prompt-management/prompts/:name': (_, __, ___, { method, pathname, searchParams }, previousLocation) => {
             if (method === 'PUSH' && values.isNewPrompt) {
                 actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)
                 actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)
+                return
+            }
+
+            // The trace drawer pushes each step, and opening or stepping it should not reload the prompt.
+            if (changedOnlyTraceDrawerParams(previousLocation, { pathname, searchParams })) {
                 return
             }
 

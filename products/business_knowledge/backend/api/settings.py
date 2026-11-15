@@ -3,6 +3,7 @@ from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -17,22 +18,29 @@ from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from .. import learning_settings
+from ..models import TeamBusinessKnowledgeConfig
 from .serializers import BusinessKnowledgeSettingsSerializer, BusinessKnowledgeSettingsUpdateSerializer
 
 
+def canonical_user_access_control(view: TeamAndOrgViewSetMixin) -> UserAccessControl:
+    """Access control for rows the parent project owns, so a child environment's own grant does not apply."""
+    team = view.team.parent_team or view.team
+    return UserAccessControl(user=cast(User, view.request.user), team=team, organization_id=view.organization_id)
+
+
 class CanonicalTeamTokenPermission(BasePermission):
-    """A token scoped only to a child environment cannot touch the parent-owned setting."""
+    """A child environment reaches parent-owned rows only when the caller can reach the parent project."""
 
     def has_permission(self, request: Request, view: Any) -> bool:
-        authenticator = getattr(request, "successful_authenticator", None)
-        if authenticator is None:
-            return True
-        scoped_teams = get_authenticator_scoped_team_ids(authenticator)
-        if not scoped_teams:
-            return True
         canonical_id = view.team.parent_team_id or view.team.id
-        if canonical_id not in scoped_teams:
+        authenticator = getattr(request, "successful_authenticator", None)
+        scoped_teams = get_authenticator_scoped_team_ids(authenticator) if authenticator is not None else None
+        if scoped_teams and canonical_id not in scoped_teams:
             self.message = f"API key does not have access to the requested project: ID {canonical_id}."
+            return False
+        # Core permissions check membership of the child only, and resource rules fall back to a default grant.
+        if view.team.parent_team_id and not canonical_user_access_control(view).has_project_access:
+            self.message = "You don't have access to the project."
             return False
         return True
 
@@ -55,15 +63,14 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
     posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
     pagination_class = None
-    http_method_names = ["get", "patch", "head", "options"]
+    http_method_names = ["get", "patch", "post", "head", "options"]
 
     @cached_property
     def user_access_control(self) -> UserAccessControl:
         # AccessControlPermission reads its resource-level check from here. Bind it to the
         # canonical team: the config row belongs to the parent project, so a child environment's
         # own `business_knowledge` grant must not read or change it when the parent grants `none`.
-        team = self.team.parent_team or self.team
-        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+        return canonical_user_access_control(self)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Combined GET+PATCH is neither list nor partial_update, so the default
@@ -74,11 +81,12 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
             return ["business_knowledge:write"]
         return ["business_knowledge:read"]
 
-    def _serialize(self, *, learn_from_support_enabled: bool) -> dict[str, bool]:
+    def _serialize(self, config: TeamBusinessKnowledgeConfig) -> dict[str, Any]:
         return BusinessKnowledgeSettingsSerializer(
             {
-                "learn_from_support_enabled": learn_from_support_enabled,
+                "learn_from_support_enabled": config.learn_from_support_enabled,
                 "support_enabled": bool(self.team.conversations_enabled),
+                "learning_backfill": learning_settings.get_learning_backfill_progress(config),
             }
         ).data
 
@@ -121,4 +129,34 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
             )
         else:
             config = learning_settings.get_team_business_knowledge_config(self.team)
-        return Response(self._serialize(learn_from_support_enabled=config.learn_from_support_enabled))
+        return Response(self._serialize(config))
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=BusinessKnowledgeSettingsSerializer,
+                description="The updated Business knowledge learning settings.",
+            ),
+            400: OpenApiResponse(description="Learn from support is off."),
+        },
+        summary="Learn from past support tickets",
+        description=(
+            "Start learning from resolved support tickets of the last 90 days. Tickets that were already "
+            "analyzed are skipped. The work runs in the background in small batches and can take a few hours."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="learning_backfill",
+        url_name="learning_backfill",
+        required_scopes=["business_knowledge:write"],
+    )
+    def learning_backfill(self, request: Request, **kwargs: Any) -> Response:
+        config = learning_settings.get_team_business_knowledge_config(self.team)
+        if not config.learn_from_support_enabled:
+            raise ValidationError("Turn on Learn from support to learn from past tickets.")
+        if not self.team.conversations_enabled:
+            raise ValidationError("Turn on Support to learn from resolved tickets.")
+        return Response(self._serialize(learning_settings.start_learning_backfill(self.team)))

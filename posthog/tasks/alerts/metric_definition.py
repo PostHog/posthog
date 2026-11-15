@@ -47,7 +47,7 @@ UNAVAILABLE = (
     "metric counts from its name; check the underlying data with your tools before proposing a cause."
 )
 
-_WRAPPER_KINDS = frozenset({"InsightVizNode", "DataTableNode", "DataVisualizationNode"})
+_WRAPPER_KINDS = frozenset({"InsightVizNode", "DataTableNode", "DataVisualizationNode", "BIVisualizationNode"})
 
 _MATH_LABELS = {
     "total": "total event count",

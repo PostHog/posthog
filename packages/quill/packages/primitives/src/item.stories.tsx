@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { BadgeCheckIcon, ChevronRightIcon } from 'lucide-react'
+import { BadgeCheckIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -60,36 +60,11 @@ export const Default: Story = {
     ),
 } satisfies Story
 
-export const Pressable: Story = {
-    render: () => (
-        <Item
-            variant="pressable"
-            size="sm"
-            render={
-                // eslint-disable-next-line react/forbid-elements
-                <a href="#">
-                    <ItemMedia variant="icon">
-                        <BadgeCheckIcon className="size-5" />
-                    </ItemMedia>
-                    <ItemContent>
-                        <ItemTitle>Your profile has been verified.</ItemTitle>
-                        <ItemDescription>A simple item with title and description.</ItemDescription>
-                    </ItemContent>
-                    <ItemActions>
-                        <ChevronRightIcon className="size-4" />
-                    </ItemActions>
-                </a>
-            }
-        />
-    ),
-} satisfies Story
-
-// Semantic `tone` is orthogonal to `variant` — here paired with `pressable`
-// (the right way to build a clickable, link-like row). Each renders as an <a>.
+// Semantic `tone` tints a callout: a status or warning that sits in the page, not a clickable row.
 export const Tones: Story = {
     render: () => {
         const tones = [
-            { tone: undefined, title: 'Default', description: 'Neutral pressable row' },
+            { tone: undefined, title: 'Default', description: 'Neutral callout' },
             { tone: 'info' as const, title: 'Info', description: 'Informational status' },
             { tone: 'success' as const, title: 'Success', description: 'Completed successfully' },
             { tone: 'warning' as const, title: 'Warning', description: 'Needs attention' },
@@ -99,26 +74,15 @@ export const Tones: Story = {
         return (
             <ItemGroup className="max-w-md">
                 {tones.map(({ tone, title, description }) => (
-                    <Item
-                        key={title}
-                        variant="pressable"
-                        tone={tone}
-                        render={
-                            // eslint-disable-next-line react/forbid-elements
-                            <a href="#">
-                                <ItemMedia variant="icon">
-                                    <BadgeCheckIcon className="size-5" />
-                                </ItemMedia>
-                                <ItemContent>
-                                    <ItemTitle>{title}</ItemTitle>
-                                    <ItemDescription>{description}</ItemDescription>
-                                </ItemContent>
-                                <ItemActions>
-                                    <ChevronRightIcon className="size-4" />
-                                </ItemActions>
-                            </a>
-                        }
-                    />
+                    <Item key={title} variant="outline" tone={tone}>
+                        <ItemMedia variant="icon">
+                            <BadgeCheckIcon className="size-5" />
+                        </ItemMedia>
+                        <ItemContent>
+                            <ItemTitle>{title}</ItemTitle>
+                            <ItemDescription>{description}</ItemDescription>
+                        </ItemContent>
+                    </Item>
                 ))}
             </ItemGroup>
         )
@@ -157,49 +121,6 @@ export const Group: Story = {
                     <Button variant="outline">Action</Button>
                 </ItemActions>
             </Item>
-        </ItemGroup>
-    ),
-} satisfies Story
-
-export const GroupList: Story = {
-    render: () => (
-        <ItemGroup>
-            <Item
-                variant="pressable"
-                size="xs"
-                render={
-                    // eslint-disable-next-line react/forbid-elements
-                    <a href="#">
-                        <ItemContent>
-                            <ItemTitle>List link item</ItemTitle>
-                        </ItemContent>
-                    </a>
-                }
-            />
-            <Item
-                variant="pressable"
-                size="xs"
-                render={
-                    // eslint-disable-next-line react/forbid-elements
-                    <a href="#">
-                        <ItemContent>
-                            <ItemTitle>List link item</ItemTitle>
-                        </ItemContent>
-                    </a>
-                }
-            />
-            <Item
-                variant="pressable"
-                size="xs"
-                render={
-                    // eslint-disable-next-line react/forbid-elements
-                    <a href="#">
-                        <ItemContent>
-                            <ItemTitle>List link item</ItemTitle>
-                        </ItemContent>
-                    </a>
-                }
-            />
         </ItemGroup>
     ),
 } satisfies Story
@@ -305,18 +226,14 @@ export const DropdownCheckboxesInItemWithSelectAll: Story = {
         const usernames = people.map((p) => p.username)
 
         const toggle = (username: string, checked: boolean): void => {
-            setSelected((prev) =>
-                checked ? [...prev, username] : prev.filter((u) => u !== username)
-            )
+            setSelected((prev) => (checked ? [...prev, username] : prev.filter((u) => u !== username)))
         }
 
         return (
             <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
-                    <ItemDescription>
-                        Multi-select with a headless select-all action above the list.
-                    </ItemDescription>
+                    <ItemDescription>Multi-select with a headless select-all action above the list.</ItemDescription>
                 </ItemContent>
                 <ItemActions>
                     <DropdownMenu open={open} onOpenChange={setOpen}>

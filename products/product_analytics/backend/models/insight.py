@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
@@ -15,6 +16,7 @@ from posthog.migration_helpers import deprecate_field
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
@@ -50,7 +52,7 @@ if TYPE_CHECKING:
 
     from posthog.models.team import Team
 
-    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.facade.contracts import AppliedDashboard
 
 
 class InsightManager(RootTeamManager):
@@ -266,7 +268,9 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
             type="insight",  # sync with APIScopeObject in scopes.py
             ref=self.short_id,
             name=self.name or self.derived_name or "Untitled",
-            href=f"/insights/{self.short_id}",
+            href=f"/bi/{self.short_id}"
+            if (self.query or {}).get("kind") == "BIVisualizationNode"
+            else f"/insights/{self.short_id}",
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,
@@ -281,7 +285,7 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
         return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
 
     def dashboard_filters(
-        self, dashboard: Optional["Dashboard"] = None, dashboard_filters_override: Optional[dict] = None
+        self, dashboard: Optional["AppliedDashboard"] = None, dashboard_filters_override: Optional[dict] = None
     ):
         # query date range is set in a different function, see dashboard_query
         if (dashboard is not None or dashboard_filters_override is not None) and not self.query:
@@ -358,7 +362,7 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
     def get_effective_query(
         self,
         *,
-        dashboard: Optional["Dashboard"],
+        dashboard: Optional["AppliedDashboard"],
         dashboard_filters_override: Optional[dict] = None,
         dashboard_variables_override: Optional[dict[str, dict]] = None,
     ) -> Optional[dict]:
@@ -477,17 +481,17 @@ class InsightViewed(models.Model):
 
 
 @timed("generate_insight_cache_key")
-def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboard"]) -> str:
-    # Deferred: the legacy filters layer imports the HogQL/schema universe, and this model
-    # loads at django.setup() in every process.
-    from posthog.models.filters.utils import get_filter  # noqa: PLC0415
-
+def generate_insight_filters_hash(insight: Insight, dashboard: Optional["AppliedDashboard"]) -> str:
+    # `dashboard_filters()` adds `date_from` and `date_to` whenever a dashboard is applied, so
+    # dropping None values keeps a dashboard with no date range hashing as the bare insight.
     try:
-        dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
-        candidate_filters_hash = generate_cache_key(
-            insight.team.pk, "{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id)
+        filters = insight.dashboard_filters(dashboard=dashboard)
+        stringified = json.dumps(
+            {key: value for key, value in filters.items() if value is not None},
+            sort_keys=True,
+            default=str,
         )
-        return candidate_filters_hash
+        return generate_cache_key(insight.team.pk, f"{stringified}_{insight.team_id}")
     except Exception as e:
         logger.error(
             "insight.generate_insight_cache_key.failed",
@@ -497,3 +501,23 @@ def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboa
             exc_info=True,
         )
         raise
+
+
+class InsightAgentRead(TeamScopedRootMixin):
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    insight = models.ForeignKey(Insight, on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    day = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "insight", "day"], name="product_analytics_unique_agent_read_day"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "-day"], name="product_analytics_agent_recent"),
+            models.Index(fields=["day"], name="product_analytics_agent_day"),
+        ]

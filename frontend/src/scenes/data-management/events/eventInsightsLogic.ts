@@ -8,8 +8,6 @@ import { toParams } from 'lib/utils/url'
 import { InsightsResult, SavedInsightFilters, cleanFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-
 export interface EventInsightsLogicProps {
     event: string
 }
@@ -118,7 +116,7 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
                 return {
                     ...response,
                     filters,
-                    results: (response?.results ?? []).map((rawInsight: any) => getQueryBasedInsightModel(rawInsight)),
+                    results: response?.results ?? [],
                 } as InsightsResult
             },
         },

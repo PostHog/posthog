@@ -4,9 +4,37 @@ use chrono::{DateTime, Utc};
 use personhog_common::grpc::{current_client_name, current_method_name};
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
-use crate::storage::error::StorageResult;
+use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::GroupStorage;
 use crate::storage::types::{Group, GroupIdentifier, GroupKey, GroupTypeMapping};
+
+async fn fetch_group_by_key(
+    conn: &mut sqlx::PgConnection,
+    team_id: i64,
+    group_type_index: i32,
+    group_key: &str,
+) -> StorageResult<Option<Group>> {
+    let row = sqlx::query_as!(
+        Group,
+        r#"
+        SELECT id::bigint as "id!", team_id::bigint as "team_id!",
+               group_type_index, group_key, group_properties::text as "group_properties?",
+               created_at,
+               properties_last_updated_at::text as "properties_last_updated_at?",
+               properties_last_operation::text as "properties_last_operation?",
+               version
+        FROM posthog_group
+        WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
+        "#,
+        team_id as i32,
+        group_type_index,
+        group_key
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    Ok(row)
+}
 
 #[async_trait]
 impl GroupStorage for PostgresStorage {
@@ -31,26 +59,7 @@ impl GroupStorage for PostgresStorage {
         let pool = self.pool_for_consistency(consistency);
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let row = sqlx::query_as!(
-            Group,
-            r#"
-            SELECT id::bigint as "id!", team_id::bigint as "team_id!",
-                   group_type_index, group_key, group_properties::text as "group_properties?",
-                   created_at,
-                   properties_last_updated_at::text as "properties_last_updated_at?",
-                   properties_last_operation::text as "properties_last_operation?",
-                   version
-            FROM posthog_group
-            WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
-            "#,
-            team_id as i32,
-            group_type_index,
-            group_key
-        )
-        .fetch_optional(&mut *conn)
-        .await?;
-
-        Ok(row)
+        fetch_group_by_key(&mut conn, team_id, group_type_index, group_key).await
     }
 
     async fn get_groups(
@@ -629,11 +638,12 @@ impl GroupStorage for PostgresStorage {
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
-        let row = sqlx::query_as!(
+        let inserted = sqlx::query_as!(
             Group,
             r#"
             INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, '{}'::jsonb, 0)
+            ON CONFLICT (team_id, group_key, group_type_index) DO NOTHING
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
                       group_type_index, group_key, group_properties::text as "group_properties?",
                       created_at,
@@ -647,10 +657,23 @@ impl GroupStorage for PostgresStorage {
             group_properties,
             created_at
         )
-        .fetch_one(&mut *conn)
+        .fetch_optional(&mut *conn)
         .await?;
 
-        Ok(row)
+        if let Some(group) = inserted {
+            return Ok(group);
+        }
+
+        // The lookup runs as a second statement, not as a CTE on the INSERT. A CTE reads the
+        // INSERT's snapshot. That snapshot does not contain a row that another transaction
+        // commits after the INSERT starts.
+        fetch_group_by_key(&mut conn, team_id, group_type_index, group_key)
+            .await?
+            .ok_or_else(|| {
+                StorageError::FailedPrecondition(format!(
+                    "group {team_id}/{group_type_index}/{group_key} deleted after insert conflict; retry"
+                ))
+            })
     }
 
     async fn update_group(

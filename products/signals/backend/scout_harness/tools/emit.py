@@ -590,6 +590,13 @@ def emit_eligibility(*, team: Team, run: SignalScoutRun | None) -> dict[str, Any
         scout_emit_enabled: bool | None = None
     else:
         blocking_reason = _preflight_emit_gates(team, run)
+        if isinstance((run.metadata or {}).get("scout_trial"), dict):
+            # Report capture has the same consent gates but does not publish to the inbox.
+            from products.signals.backend.scout_harness.tools.report import (
+                _preflight_report_emission,  # noqa: PLC0415 -- report tools import this module
+            )
+
+            blocking_reason = _preflight_report_emission(team, run)
         scout_emit_enabled = _SCOUT_EMIT_ENABLED_BY_REASON.get(blocking_reason, True)
     return {
         "ai_processing_approved": ai_processing_approved,

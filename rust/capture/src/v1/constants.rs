@@ -8,9 +8,11 @@
 pub const POSTHOG_SDK_INFO: &str = "PostHog-Sdk-Info";
 
 /// Max accepted `PostHog-Sdk-Info` length (real values are ~20 bytes). Longer
-/// values skip `$lib` injection so an oversized header can't be amplified
-/// into every event of a batch.
+/// values publish no `req_lib` / `req_lib_version` and skip `$lib` injection,
+/// so an oversized header can't be amplified into every event of a batch.
 pub(super) const MAX_SDK_INFO_LEN: usize = 200;
+
+pub const CAPTURE_V1_LEGACY_PROPERTY_SPLICE: &str = "capture_v1_legacy_property_splice";
 
 /// Header indicating the SDK retry attempt number.
 pub const POSTHOG_ATTEMPT: &str = "PostHog-Attempt";
@@ -87,7 +89,7 @@ pub(super) const CAPTURE_V1_PAYLOAD_SIZE: &str = "capture_v1_payload_size_bytes"
 /// configured in prometheus.rs (CLOCK_SKEW_SECONDS).
 pub(super) const CAPTURE_V1_CLOCK_SKEW_SECONDS: &str = "capture_v1_clock_skew_seconds";
 
-/// Histogram of batch serialize wall-time (label: batch_size bucket). Sink- and
+/// Histogram of batch serialize wall-time (label: batch_size bucket). Output- and
 /// product-agnostic by design — faceting comes from the per-mode service
 /// deployment (capture-analytics / capture-replay / capture-ai).
 pub(super) const CAPTURE_V1_SERIALIZE_DURATION_SECONDS: &str =

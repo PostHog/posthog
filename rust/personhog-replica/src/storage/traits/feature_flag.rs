@@ -10,7 +10,8 @@ pub trait FeatureFlagStorage: Send + Sync {
     /// Gets the context needed for hash key override decisions.
     ///
     /// This resolves distinct IDs to person IDs and returns existing hash key
-    /// override information for each person.
+    /// override information for each person. A stored override whose hash key is
+    /// the cookieless sentinel counts as no override.
     ///
     /// When `check_person_exists` is true, only returns results for persons that
     /// exist in the posthog_person table. This uses an EXISTS subquery against
@@ -40,7 +41,8 @@ pub trait FeatureFlagStorage: Send + Sync {
     ///
     /// Resolves all `distinct_ids` to person_ids via `posthog_persondistinctid`,
     /// cross-joins with `feature_flag_keys`, and inserts overrides with the given
-    /// `hash_key`. Returns the number of inserted records.
+    /// `hash_key`, replacing only a stored cookieless sentinel. Returns the number
+    /// of rows inserted or replaced.
     async fn upsert_hash_key_overrides(
         &self,
         team_id: i64,

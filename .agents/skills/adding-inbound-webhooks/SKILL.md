@@ -50,6 +50,7 @@ Rules that decide whether this works:
 - A handler that reads the database wraps the read in `bounded_statement_timeout(ms, models=...)` from `posthog.ingress.dispatch.database`, passing only the models the read actually uses. Opening an alias is itself unbounded, so naming one the read never touches can stall the delivery on connection setup.
 - An import-linter contract (`webhook consumers must only import facade`) holds the module to its own product's `facade/`. Reach product internals through the facade. `hogli product:lint` holds the same rule by AST for every product that has a `webhook_consumers.py`, including relative imports and products with no contract yet.
 - A consumer whose resources are split across regions declares `ownership=`, pointing at a facade function that returns a `DeliveryOwnership`. Ingress forwards the signed request when the answer is `ELSEWHERE`, and dispatches locally either way. The lookup runs inside the request, so bound it with `bounded_statement_timeout(ms, models=...)`. Let a transient error out of the lookup rather than answering `LOCAL` or `UNDECIDED` through it: a lookup that raises asks a provider with `retry_status` for the delivery again, and a guessed answer receipts a delivery the other region never sees.
+- A GitHub consumer cannot get its project from `installation.id`, because one installation can link to several projects. Read [Picking the project](../../../posthog/ingress/github/README.md#picking-the-project) for the two allowed shapes.
 
 Tests: extend the product's existing webhook test module rather than starting a parallel one.
 `products/stamphog/backend/tests/test_webhook_consumers.py` is the shape: drive the real view with a signed `RequestFactory` request and assert the enqueue, plus the event type the app does not register, the bad signature, the unparseable body, the non-POST, and the missing secret.
@@ -58,7 +59,7 @@ Reset the process-cached registry and the dedup cache between tests with `reset_
 ## Add a provider
 
 Create `posthog/ingress/<provider>/` with an `__init__.py` and a `provider.py`.
-Copy `github/` for the full shape, or `vapi/` for a small one.
+Copy `github/` for the full shape, or `pandadoc/` for a small one.
 Copy the layout, not the behavior: a provider package holds only what is specific to its third party. A need that a second provider could share becomes a lane, a scheme option or a `WebhookProvider` attribute, the way `retry_status` and `throttle_class` did. A true one-off stays in the provider with a `# One-off:` comment that says why no other provider needs it.
 `provider.py` holds three things:
 
@@ -75,7 +76,7 @@ Copy the layout, not the behavior: a provider package holds only what is specifi
 
 Three exist. Configure one; do not write a fourth without reading [the Schemes section of the package README](../../../posthog/ingress/README.md#schemes).
 
-- `HmacSha256` (`verify/schemes.py`) — a shared secret over the raw body. Covers hex or base64, an optional prefix, and the `v0:{timestamp}:{body}` input with a replay window that Slack and Customer.io sign. GitHub, Slack, PandaDoc, Vapi and Customer.io all use it.
+- `HmacSha256` (`verify/schemes.py`) — a shared secret over the raw body. Covers hex or base64, an optional prefix, and the `v0:{timestamp}:{body}` input with a replay window that Slack and Customer.io sign. GitHub, Slack, PandaDoc and Customer.io all use it.
 - `SnsSignature` (`verify/schemes.py`) — the AWS SNS envelope check plus a topic-ARN allowlist. The RSA work stays with a caller-supplied verifier.
 - `BearerJwt` (`verify/jwt.py`) — a `Bearer` token signed as a JWT, checked against the issuer's published JWKS. Its `facts` are the verified claims. The incarnation supplies the JWKS URI, the audience and the issuer allowlist as callables, and caches any discovery it does to find the URI. An endpoint on this scheme sets `throttle_class`, because an unsigned request costs a signing-key lookup.
 

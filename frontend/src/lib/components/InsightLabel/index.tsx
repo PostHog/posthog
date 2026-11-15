@@ -9,17 +9,19 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { formatEventName } from 'lib/insights/entityFilterNames'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { hexToRGBA } from 'lib/utils/colors'
 import { capitalizeFirstLetter, midEllipsis } from 'lib/utils/strings'
-import { formatEventName } from 'scenes/insights/utils'
+import { ResultSeries, getResultSeriesCustomName } from 'scenes/insights/utils/resultSeries'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ActionFilter, BreakdownKeyType } from '~/types'
+import { BreakdownKeyType } from '~/types'
 
 import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { isPropertyMath, mathTagLabel } from './mathTagLabel'
 
 export enum IconSize {
     Small = 'small',
@@ -27,10 +29,11 @@ export enum IconSize {
     Large = 'large',
 }
 
-// InsightsLabel pretty prints the action (or event) returned from /insights
+// InsightsLabel pretty prints the series a result row reports
 interface InsightsLabelProps {
     seriesColor?: string
-    action?: ActionFilter | null
+    /** The result row's series, from `getResultSeries`. */
+    series?: ResultSeries | null
     value?: string
     className?: string
     breakdownValue?: BreakdownKeyType
@@ -41,9 +44,9 @@ interface InsightsLabelProps {
     iconSize?: IconSize // Size of the series color icon
     iconStyle?: Record<string, any> // style on series color icon
     seriesStatus?: string // Used by lifecycle chart to display the series name
-    fallbackName?: string // Name to display for the series if it can be determined from `action`
+    fallbackName?: string // Name to display when the label has no series to name, e.g. on a formula row
     hasMultipleSeries?: boolean // Whether the query defines multiple series (not breakdown values). Derived from !isSingleSeriesDefinition.
-    showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
+    showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when the series math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
     onLabelClick?: () => void // Click handler for inner label
     showEventName?: boolean // Override internally calculated to always show event name
@@ -66,26 +69,12 @@ interface MathTagProps {
 function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagProps): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const label = mathTagLabel({ math, mathHogQL, mathGroupTypeIndex, mathDefinitions, aggregationLabel })
 
-    if (!math || math === 'total') {
-        return <LemonTag>Total</LemonTag>
-    }
-    if (math === 'dau') {
-        return <LemonTag>Unique</LemonTag>
-    }
-    if (math === 'unique_group' && mathGroupTypeIndex != undefined) {
-        return <LemonTag>Unique {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
-    }
-    if (math === 'weekly_active' && mathGroupTypeIndex != undefined) {
-        return <LemonTag>Weekly active {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
-    }
-    if (math === 'monthly_active' && mathGroupTypeIndex != undefined) {
-        return <LemonTag>Monthly active {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
-    }
-    if (math && ['sum', 'avg', 'min', 'max', 'median', 'p75', 'p90', 'p95', 'p99'].includes(math)) {
+    if (isPropertyMath(math)) {
         return (
             <>
-                <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
+                <LemonTag>{label}</LemonTag>
                 {mathProperty && (
                     <>
                         <span className="shrink-0">of</span>
@@ -96,15 +85,14 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
         )
     }
     if (math === 'hogql') {
-        return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'SQL'}</LemonTag>
+        return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{label}</LemonTag>
     }
-    // Use mathDefinitions first, then fall back to capitalizing the math string
-    return <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
+    return <LemonTag>{label}</LemonTag>
 }
 
 export function InsightLabel({
     seriesColor = '#000000',
-    action,
+    series,
     value,
     className,
     breakdownValue,
@@ -129,16 +117,15 @@ export function InsightLabel({
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
 
-    const displayAction = action
-        ? {
-              ...action,
-              name: formatEventName(action.name),
-          }
-        : undefined
+    const entity = series?.node
+    const math = series?.math
+    const seriesIndex = series?.node ? series.order : undefined
+    const customName = entity ? getResultSeriesCustomName(entity) : null
+    const displayEntity = entity ? { ...entity, name: formatEventName(entity.name) } : undefined
 
     const eventName = seriesStatus
         ? capitalizeFirstLetter(seriesStatus)
-        : displayAction?.name || formatEventName(fallbackName) || ''
+        : displayEntity?.name || formatEventName(fallbackName) || ''
 
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
     const pillValues = [...(hideBreakdown ? [] : [breakdownValue].flat()), hideCompare ? null : compareValue].filter(
@@ -163,12 +150,8 @@ export function InsightLabel({
                         }}
                     />
                 )}
-                {hasMultipleSeries && !hideIcon && action?.order !== undefined && (
-                    <SeriesLetter
-                        seriesIndex={action.order}
-                        seriesColor={seriesColor}
-                        hasBreakdown={!!breakdownValue}
-                    />
+                {hasMultipleSeries && !hideIcon && seriesIndex !== undefined && (
+                    <SeriesLetter seriesIndex={seriesIndex} seriesColor={seriesColor} hasBreakdown={!!breakdownValue} />
                 )}
                 <div
                     className={clsx('flex items-center w-fit gap-x-2', allowWrap && 'flex-wrap')}
@@ -176,9 +159,9 @@ export function InsightLabel({
                 >
                     {showEventName && (
                         <>
-                            {displayAction ? (
+                            {displayEntity ? (
                                 <EntityFilterInfo
-                                    filter={displayAction}
+                                    filter={displayEntity}
                                     allowWrap={allowWrap}
                                     showSingleName={showSingleName}
                                 />
@@ -194,14 +177,14 @@ export function InsightLabel({
                         </>
                     )}
 
-                    {((action?.math && action.math !== 'total') || showCountedByTag) &&
-                        !(hideHogQLTagWhenCustomName && action?.custom_name && action?.math === 'hogql') && (
+                    {((math?.math && math.math !== 'total') || showCountedByTag) &&
+                        !(hideHogQLTagWhenCustomName && customName && math?.math === 'hogql') && (
                             <div className="insights-label__math flex flex-nowrap items-center gap-x-1">
                                 <MathTag
-                                    math={action?.math}
-                                    mathProperty={action?.math_property}
-                                    mathHogQL={action?.math_hogql}
-                                    mathGroupTypeIndex={action?.math_group_type_index}
+                                    math={math?.math}
+                                    mathProperty={math?.math_property}
+                                    mathHogQL={math?.math_hogql}
+                                    mathGroupTypeIndex={math?.math_group_type_index}
                                 />
                             </div>
                         )}

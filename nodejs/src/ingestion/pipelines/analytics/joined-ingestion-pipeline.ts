@@ -27,7 +27,6 @@ import {
     createApplyEventRestrictionsStep,
     createEnrichSurveyPersonPropertiesStep,
     createRateLimitToOverflowStep,
-    createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
@@ -50,6 +49,7 @@ import {
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
+    RealtimeOnlyEventsOutput,
 } from './outputs'
 import {
     PostTeamPreprocessingSubpipelineConfig,
@@ -68,6 +68,7 @@ export interface JoinedIngestionPipelineConfig {
     outputs: IngestionOutputs<
         | EventOutput
         | FlagEvaluationsOutput
+        | RealtimeOnlyEventsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -231,7 +232,6 @@ export function createJoinedIngestionPipeline<
             .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
             .parseMessage()
             .resolveTeam()
-            .pipe(createValidateHistoricalMigrationStep())
             .pipe(createEnrichSurveyPersonPropertiesStep())
             .compose((b) => createPostTeamPreprocessingSubpipeline(b, postTeamConfig))
             // Group by token:distinctId and process each group concurrently.

@@ -20,11 +20,13 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
+import IconPagerDuty from 'public/services/pagerduty.png'
 import IconSlack from 'public/services/slack.png'
 import IconWebhook from 'public/services/webhook.svg'
 
+import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/PlatformAlertStateTimeline'
 import {
-    NotificationDestinationTypeEnumApi,
+    LogsAlertDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
     LogsAlertConfigurationThresholdOperatorEnumApi,
@@ -32,13 +34,13 @@ import {
 
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
-import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
 import { SNOOZE_DURATIONS } from './logsAlertUtils'
 
 const DESTINATION_TAGS = [
-    { type: NotificationDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
-    { type: NotificationDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
-    { type: NotificationDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
+    { type: LogsAlertDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
+    { type: LogsAlertDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
+    { type: LogsAlertDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
+    { type: LogsAlertDestinationTypeEnumApi.Pagerduty, label: 'PagerDuty', icon: IconPagerDuty },
 ] as const
 
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
@@ -49,7 +51,7 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
 export function LogsAlertDestinationTags({
     types,
 }: {
-    types: readonly NotificationDestinationTypeEnumApi[]
+    types: readonly LogsAlertDestinationTypeEnumApi[]
 }): JSX.Element {
     return (
         <div className="flex gap-1">
@@ -133,7 +135,7 @@ export function LogsAlertList(): JSX.Element {
                     <span className="cursor-help">Last 24h</span>
                 </Tooltip>
             ),
-            render: (_, alert) => <LogsAlertStateTimeline timeline={alert.state_timeline} className="h-6 w-72" />,
+            render: (_, alert) => <PlatformAlertStateTimeline timeline={alert.state_timeline} className="h-6 w-72" />,
         },
         {
             title: 'Notifications',

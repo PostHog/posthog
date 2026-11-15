@@ -16,6 +16,7 @@ use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_client::CymbalResolu
 use cymbal_proto::cymbal::resolution::v1::{
     resolve_outcome, Error, ErrorKind, ResolveItem, ResolveOutcome,
 };
+use cymbal_proto::CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES;
 use futures::StreamExt;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -333,7 +334,9 @@ async fn run_stream(
         }
     };
 
-    let mut client = CymbalResolutionClient::new(channel);
+    let mut client = CymbalResolutionClient::new(channel)
+        .max_decoding_message_size(CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES)
+        .max_encoding_message_size(CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES);
     let response = client.resolve(request).await;
 
     let mut response_stream = match response {

@@ -2,9 +2,11 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { IconTarget } from '@posthog/icons'
 
-import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalReportCheckApi, SignalReportStatusEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { SignalReportArtefact } from '../../types'
 import { DetailSection } from './DetailSection'
+import { checkObservationsByCheck } from './reportCheckObservations'
 import { buildReportCheckRows, reportChecksMeta } from './reportCheckPresentation'
 import { ReportCheckRow } from './ReportCheckRow'
 
@@ -23,6 +25,7 @@ function check(overrides: Partial<SignalReportCheckApi>): SignalReportCheckApi {
         expires_at: '2026-10-27T09:00:00Z',
         last_run_at: null,
         last_outcome: null,
+        last_outcome_reason: null,
         dispatched_at: null,
         consecutive_errors: 0,
         created_at: '2026-09-20T09:00:00Z',
@@ -56,6 +59,14 @@ const everyState: SignalReportCheckApi[] = [
         last_run_at: '2026-09-27T09:00:00Z',
     }),
     check({
+        id: 'inconclusive',
+        status: 'inconclusive',
+        title: 'The iOS crash no longer reproduces',
+        last_run_at: '2026-09-27T09:00:00Z',
+        last_outcome: 'inconclusive',
+        last_outcome_reason: 'needs_manual_verification',
+    }),
+    check({
         id: 'expired',
         status: 'expired',
         title: 'Confirm the retry budget holds',
@@ -72,18 +83,36 @@ const everyState: SignalReportCheckApi[] = [
 const explanations = new Map([
     ['passed', '11 rageclicks in the last 14 days. Expected at most 20, was 64 when set.'],
     ['failed', '14 new events after the fix, on the same stack frame.'],
+    ['inconclusive', 'The crash only shows on a physical device, which no tool here can reach.'],
 ])
 
-function ChecksSection({ checks }: { checks: SignalReportCheckApi[] }): JSX.Element {
+function ChecksSection({
+    checks,
+    reportStatus = 'resolved',
+    artefacts = [],
+}: {
+    checks: SignalReportCheckApi[]
+    reportStatus?: SignalReportStatusEnumApi
+    artefacts?: SignalReportArtefact[]
+}): JSX.Element {
+    const observations = checkObservationsByCheck(artefacts)
     return (
         <DetailSection
             icon={<IconTarget />}
             title="Follow-up checks"
-            meta={<span className="text-xs text-tertiary tabular-nums">{reportChecksMeta(checks)}</span>}
+            meta={<span className="text-xs text-tertiary tabular-nums">{reportChecksMeta(checks, reportStatus)}</span>}
         >
             <div className="flex flex-col gap-1.5">
-                {buildReportCheckRows(checks, explanations).map((row) => (
-                    <ReportCheckRow key={row.check.id} row={row} cancelling={false} onCancel={() => undefined} />
+                {buildReportCheckRows(checks, explanations, reportStatus).map((row) => (
+                    <ReportCheckRow
+                        key={row.check.id}
+                        row={row}
+                        reportId="story-report"
+                        observations={observations.get(row.check.id)}
+                        cancelling={false}
+                        onCancel={() => undefined}
+                        onSuggestMetric={() => undefined}
+                    />
                 ))}
             </div>
         </DetailSection>
@@ -93,7 +122,8 @@ function ChecksSection({ checks }: { checks: SignalReportCheckApi[] }): JSX.Elem
 const meta: Meta<typeof ChecksSection> = {
     title: 'Scenes-App/Inbox/Detail/Follow-up checks',
     component: ChecksSection,
-    parameters: { layout: 'centered', viewMode: 'story' },
+    // The rows say how long ago a check started, so pin the clock to keep that text fixed.
+    parameters: { layout: 'centered', viewMode: 'story', mockDate: '2026-09-21T19:00:00Z' },
     decorators: [
         (Story, context) => (
             // The rail is 26rem wide, and about 20rem of it survives next to an open side panel.
@@ -115,10 +145,103 @@ export const EveryState: Story = {
 }
 
 export const Running: Story = {
+    name: 'Resolved with stale dispatch',
     args: { checks: [check({ id: 'running', dispatched_at: '2026-09-21T09:00:00Z' })] },
 }
 
 export const NarrowRail: Story = {
     parameters: { railWidth: 'narrow' },
     args: { checks: everyState },
+}
+
+function observation(measuredAt: string, observedValue: number): SignalReportArtefact {
+    return {
+        id: `observation-${measuredAt}`,
+        type: 'check_observation',
+        created_at: measuredAt,
+        content: {
+            check_id: 'monitoring-scheduled',
+            title: 'Checkout errors stay at zero after the retry fix',
+            monitoring_started_at: '2026-09-21T00:00:00Z',
+            measured_at: measuredAt,
+            monitoring_ends_at: '2026-09-22T00:00:00Z',
+            unit: 'errors',
+            value_format: 'count',
+            observed_value: observedValue,
+            comparison: { operator: 'lte', value: 0 },
+            matches: observedValue <= 0,
+        },
+    }
+}
+
+export const Monitoring: Story = {
+    args: {
+        reportStatus: 'monitoring',
+        artefacts: [
+            observation('2026-09-21T18:00:00Z', 2),
+            observation('2026-09-21T12:00:00Z', 0),
+            observation('2026-09-21T06:00:00Z', 0),
+        ],
+        checks: [
+            check({
+                id: 'monitoring-scheduled',
+                kind: 'metric_threshold',
+                config: { comparison: { operator: 'lte', value: 0 } },
+                soak_minutes: 1440,
+                run_interval_minutes: 360,
+                next_run_at: '2026-09-21T21:00:00Z',
+                monitoring_timing: {
+                    state: 'scheduled',
+                    started_at: '2026-09-21T00:00:00Z',
+                    ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: '2026-09-21T21:00:00Z',
+                },
+            }),
+            check({
+                id: 'monitoring-ended',
+                title: 'The export backlog stays clear',
+                kind: 'metric_threshold',
+                config: { comparison: { operator: 'lte', value: 0 } },
+                soak_minutes: 1440,
+                next_run_at: '2026-09-21T00:00:00Z',
+                monitoring_timing: {
+                    state: 'window_ended',
+                    started_at: '2026-09-20T00:00:00Z',
+                    ends_at: '2026-09-21T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+            check({
+                id: 'monitoring-agent',
+                title: 'No new reports of the export timeout',
+                soak_minutes: 1440,
+                next_run_at: '2026-09-22T00:00:00Z',
+                monitoring_timing: {
+                    state: 'paused',
+                    final_verification_state: 'monitoring',
+                    started_at: '2026-09-21T00:00:00Z',
+                    ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+            check({
+                id: 'verifying-agent',
+                title: 'Checkout errors stay at zero after the retry fix',
+                soak_minutes: 1440,
+                next_run_at: '2026-09-21T00:00:00Z',
+                monitoring_timing: {
+                    state: 'paused',
+                    final_verification_state: 'verifying',
+                    started_at: '2026-09-20T00:00:00Z',
+                    ends_at: '2026-09-21T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+        ],
+    },
+}
+
+export const MonitoringNarrowRail: Story = {
+    ...Monitoring,
+    parameters: { railWidth: 'narrow' },
 }

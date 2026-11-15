@@ -11,6 +11,8 @@ from rest_framework import status
 
 from posthog.schema import ChartDisplayType
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
@@ -60,7 +62,12 @@ def _metric(
 
 
 def _measurement(value: float = 21, *, measured_at: datetime | None = None) -> MetricMeasurement:
-    return MetricMeasurement(value=value, measured_at=measured_at or timezone.now(), series=[1.0, 2.0, 3.0])
+    return MetricMeasurement(
+        value=value,
+        measured_at=measured_at or timezone.now(),
+        series=[1.0, 2.0, 3.0],
+        series_buckets=["2026-08-27", "2026-08-28", "2026-08-29"],
+    )
 
 
 class TestReportMetricRefreshRequestValidation(SimpleTestCase):
@@ -90,8 +97,20 @@ class TestReportMetricRefreshApi(APIBaseTest):
     def _refresh(self, *reports: SignalReport):
         return self.client.post(self._url(), {"report_ids": [str(report.id) for report in reports]}, format="json")
 
-    def test_refresh_replaces_only_the_numbers_and_returns_snapshots(self) -> None:
-        report = self._report()
+    @parameterized.expand(
+        [
+            ("event", None, 17),
+            ("hogql", "properties.$browser = 'Chrome'", 17),
+            ("hogql_without_snapshot", "properties.$browser = 'Chrome'", None),
+        ]
+    )
+    def test_refresh_replaces_only_the_numbers_and_returns_snapshots(
+        self, _name: str, expression: str | None, value: float | None
+    ) -> None:
+        metric = _metric(value=value, value_at=None if value is None else "2026-08-29T12:00:00Z")
+        if expression is not None:
+            metric["query"]["source"]["series"][0]["properties"] = [{"type": "hogql", "key": expression}]
+        report = self._report(metrics=[metric])
         before = SignalReport.objects.get(id=report.id)
         measured_at = timezone.now().replace(microsecond=0)
 
@@ -104,6 +123,7 @@ class TestReportMetricRefreshApi(APIBaseTest):
         assert row["id"] == str(report.id)
         assert row["metrics"][0]["value"] == 21.0
         assert row["metrics"][0]["series"] == [1.0, 2.0, 3.0]
+        assert row["metrics"][0]["series_buckets"] == ["2026-08-27", "2026-08-28", "2026-08-29"]
         assert "query" not in row["metrics"][0]
         assert "comparison" not in row["metrics"][0]
 
@@ -113,9 +133,13 @@ class TestReportMetricRefreshApi(APIBaseTest):
         assert after.metrics[0]["query"] == before.metrics[0]["query"]
         assert (after.title, after.summary, after.updated_at) == (before.title, before.summary, before.updated_at)
 
-    def test_fresh_snapshot_is_served_without_a_query(self) -> None:
+    @parameterized.expand([("event", None), ("hogql", "properties.$browser = 'Chrome'")])
+    def test_fresh_snapshot_is_served_without_a_query(self, _name: str, expression: str | None) -> None:
         recent = (timezone.now() - timedelta(minutes=1)).isoformat()
-        report = self._report(metrics=[_metric(value_at=recent)])
+        metric = _metric(value_at=recent)
+        if expression is not None:
+            metric["query"]["source"]["series"][0]["properties"] = [{"type": "hogql", "key": expression}]
+        report = self._report(metrics=[metric])
 
         with patch(_MEASURE) as measure:
             response = self._refresh(report)
@@ -150,6 +174,28 @@ class TestReportMetricRefreshApi(APIBaseTest):
         assert refreshed[(str(second.id), "primary")] == 5.0
         assert refreshed[(str(first.id), "occurrences")] == 17.0
 
+    def test_a_monitoring_row_metric_refreshes_before_the_card_metric_when_the_budget_runs_out(self) -> None:
+        report = self._report(
+            metrics=[
+                _metric(metric_id="affected-users", role="primary"),
+                _metric(metric_id="occurrences", kind="occurrences", role="supporting"),
+            ]
+        )
+
+        with (
+            patch("products.signals.backend.report_metric_refresh.MAX_REPORT_METRIC_SOURCE_RUNS_PER_REQUEST", 2),
+            patch(_MEASURE, return_value=_measurement(5)),
+        ):
+            refresh_report_metric_snapshots(
+                team=self.team,
+                reports=[report],
+                policy=ReportMetricAccessPolicy(request=None, team=self.team, user=self.user),
+                row_metric_ids={str(report.id): "occurrences"},
+            )
+
+        values = {metric["metric_id"]: metric["value"] for metric in SignalReport.objects.get(id=report.id).metrics}
+        assert values == {"affected-users": 17, "occurrences": 5}
+
     @parameterized.expand(
         [
             ("query_failure", RuntimeError("clickhouse down")),
@@ -167,7 +213,10 @@ class TestReportMetricRefreshApi(APIBaseTest):
         assert response.json()["reports"][0]["metrics"][0]["value"] == 17.0
         assert SignalReport.objects.get(id=report.id).metrics[0]["value"] == 17
 
-    def test_property_restricted_member_cannot_trigger_a_shared_refresh(self) -> None:
+    @parameterized.expand([("event", None), ("hogql", "properties.secret_plan = 'enterprise'")])
+    def test_property_restricted_member_cannot_trigger_a_shared_refresh(
+        self, _name: str, expression: str | None
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
@@ -181,7 +230,10 @@ class TestReportMetricRefreshApi(APIBaseTest):
             organization_member=self.organization_membership,
             access_level=PropertyAccessLevel.NONE.value,
         )
-        report = self._report()
+        metric = _metric()
+        if expression is not None:
+            metric["query"]["source"]["series"][0]["properties"] = [{"type": "hogql", "key": expression}]
+        report = self._report(metrics=[metric])
 
         with patch(_MEASURE) as measure:
             response = self._refresh(report)
@@ -207,14 +259,25 @@ class TestReportMetricRefreshApi(APIBaseTest):
         [row] = response.json()["reports"]
         assert row["metrics"][0]["value"] == 5.0
 
-    def test_reports_that_are_not_current_are_left_out(self) -> None:
+    @parameterized.expand([("monitoring_enabled", True), ("monitoring_disabled", False)])
+    def test_reports_that_are_not_current_are_left_out(self, _name: str, monitoring_enabled: bool) -> None:
         archived = self._report(status=SignalReport.Status.SUPPRESSED)
         current = self._report()
+        # A Monitoring row draws its trend across the fix, so its snapshots keep refreshing.
+        monitoring = self._report(status=SignalReport.Status.MONITORING, monitoring_started_at=timezone.now())
 
-        with patch(_MEASURE, return_value=_measurement(3)):
-            response = self._refresh(archived, current)
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false",
+                return_value=monitoring_enabled,
+            ),
+            patch(_MEASURE, return_value=_measurement(3)),
+        ):
+            response = self._refresh(archived, current, monitoring)
 
-        assert [row["id"] for row in response.json()["reports"]] == [str(current.id)]
+        refreshed = [str(current.id), str(monitoring.id)] if monitoring_enabled else [str(current.id)]
+        assert [row["id"] for row in response.json()["reports"]] == refreshed
+        assert (SignalReport.objects.get(id=monitoring.id).metrics[0]["value"] == 3) is monitoring_enabled
 
     def test_a_metric_refreshed_earlier_in_the_call_does_not_block_the_next_one(self) -> None:
         report = self._report(
@@ -321,7 +384,10 @@ class TestReportMetricQueryShapes(APIBaseTest):
             "products.signals.backend.report_metric_refresh.run_cached_trends_query",
             side_effect=[
                 TrendsQueryRunResult(results=[{"aggregated_value": 2.0}], last_refresh=measured_at),
-                TrendsQueryRunResult(results=[{"data": list(range(17))}], last_refresh=measured_at),
+                TrendsQueryRunResult(
+                    results=[{"data": list(range(17)), "days": [f"2026-08-{day:02d}" for day in range(1, 18)]}],
+                    last_refresh=measured_at,
+                ),
             ],
         ) as run_query:
             value, refreshed_at = whole_window_value(query, self.team)
@@ -329,19 +395,26 @@ class TestReportMetricQueryShapes(APIBaseTest):
 
         assert value == 2
         assert refreshed_at == measured_at
-        assert len(series) == MAX_METRIC_SERIES_POINTS
-        assert series == [float(value) for value in range(3, 17)]
+        assert len(series.values) == MAX_METRIC_SERIES_POINTS
+        assert series.values == [float(value) for value in range(3, 17)]
+        assert series.buckets == [f"2026-08-{day:02d}" for day in range(4, 18)]
         assert run_query.call_args_list[0].kwargs["query"]["trendsFilter"]["display"] == ChartDisplayType.BOLD_NUMBER
         assert run_query.call_args_list[1].kwargs["query"]["trendsFilter"]["display"] == ChartDisplayType.ACTIONS_BAR
 
-    def test_passes_the_snapshot_cache_age_to_both_shapes(self) -> None:
+    @parameterized.expand([("web", None), ("pipeline", ClickHouseUser.SIGNALS)])
+    def test_passes_the_snapshot_cache_age_to_both_shapes(self, _name: str, ch_user: ClickHouseUser | None) -> None:
         response = TrendsQueryRunResult(results=[{"aggregated_value": 2.0}], last_refresh=timezone.now())
         with patch(
             "products.signals.backend.report_metric_refresh.run_cached_trends_query", return_value=response
         ) as run_query:
-            whole_window_value(_metric()["query"], self.team)
+            if ch_user is None:
+                whole_window_value(_metric()["query"], self.team)
+            else:
+                whole_window_value(_metric()["query"], self.team, ch_user=ch_user)
 
         assert run_query.call_args.kwargs["cache_age_seconds"] == 15 * 60
+        assert run_query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
+        assert run_query.call_args.kwargs["workload"] == Workload.DEFAULT
 
     def test_skips_the_strip_when_the_deadline_passes_after_the_headline(self) -> None:
         measured_at = timezone.now()
@@ -386,3 +459,34 @@ class TestReportMetricQueryShapes(APIBaseTest):
         saved = SignalReport.objects.get(id=report.id).metrics
         assert saved[0]["value"] == 17
         assert saved[1]["value"] == 21
+
+    @parameterized.expand([("one_source", 1, 3.0), ("three_sources", 3, 12.0)])
+    def test_skips_a_metric_the_remaining_budget_would_starve(
+        self, _name: str, source_count: int, budget_seconds: float
+    ) -> None:
+        metric = _metric(kind="custom")
+        metric["query"] = trends_metric_query(
+            series=[
+                {"kind": "EventsNode", "event": f"event-{index}", "math": "total"} for index in range(source_count)
+            ],
+            date_from="-14d",
+        )
+        if source_count > 1:
+            metric["query"]["source"]["trendsFilter"] = {"formula": "+".join("ABC"[:source_count])}
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", metrics=[metric]
+        )
+        policy = type("ReadablePolicy", (), {"may_read_snapshot": lambda self, metric: True})()
+
+        with (
+            patch(
+                "products.signals.backend.report_metric_refresh.REPORT_METRIC_REFRESH_TIME_BUDGET_SECONDS",
+                budget_seconds,
+            ),
+            patch("products.signals.backend.report_metric_refresh.run_cached_trends_query") as run_query,
+        ):
+            summary = refresh_report_metric_snapshots(team=self.team, reports=[report], policy=policy)
+
+        run_query.assert_not_called()
+        assert (summary.refreshed, summary.skipped, summary.failed) == (0, 1, 0)
+        assert SignalReport.objects.get(id=report.id).metrics[0]["value"] == 17

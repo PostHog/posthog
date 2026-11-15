@@ -65,6 +65,16 @@ const ReconcileCompleteMarkerSchema = z.object({
 
 export type ReconcileCompleteMarker = z.infer<typeof ReconcileCompleteMarkerSchema>
 
+/** A withheld run never collects every marker, so it is never swept. */
+const ReconcileWithheldMarkerSchema = z.object({
+    type: z.literal('reconcile_withheld'),
+})
+
+const ReconcileMarkerSchema = z.discriminatedUnion('type', [
+    ReconcileCompleteMarkerSchema,
+    ReconcileWithheldMarkerSchema,
+])
+
 /** Membership-topic high watermarks at marker completeness, keyed by partition. */
 export type MembershipWatermarks = Record<number, number>
 
@@ -196,12 +206,16 @@ export class CohortMembershipSweeper {
                     continue
                 }
 
-                const parsed = ReconcileCompleteMarkerSchema.safeParse(parseJSON(value))
+                const parsed = ReconcileMarkerSchema.safeParse(parseJSON(value))
                 if (!parsed.success) {
                     markersConsumed.inc({ outcome: 'skipped' })
                     logger.warn('Skipping unusable reconcile marker', {
                         errors: parsed.error.issues,
                     })
+                    continue
+                }
+                if (parsed.data.type === 'reconcile_withheld') {
+                    markersConsumed.inc({ outcome: 'withheld' })
                     continue
                 }
 

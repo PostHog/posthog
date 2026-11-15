@@ -1,0 +1,168 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Flagging a news photo for a sensitive-content warning",
+  "scenario": "A news publishing app runs every article image through a Gemini classifier before it goes live, asking only whether the photo needs a sensitive-content warning; here it reviews a traffic-accident scene photo.",
+  "summary": {
+    "events": {
+      "$ai_span": 1,
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "opentelemetry/vercel-ai"
+    ],
+    "providers": [
+      "google.vertex.chat"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "gemini-2.5-flash-lite"
+    ],
+    "content_types": [
+      "file",
+      "image",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "ba45d6df2b0ee024",
+        "$ai_span_id": "859886b93a5e5007",
+        "$ai_trace_id": "e8afca0f5220d330e30d88b1fc5f9810",
+        "$geoip_disable": true,
+        "app.request.attempt_no": 0,
+        "ai.usage.cachedInputTokens": 0,
+        "ai.usage.inputTokenDetails.cacheReadTokens": 0,
+        "ai.usage.inputTokens": 3564,
+        "ai.usage.outputTokens": 5,
+        "ai.usage.reasoningTokens": 0,
+        "ai.usage.totalTokens": 3569,
+        "service.name": "relay-TcfZf7Zl",
+        "$ai_cache_reporting_exclusive": false,
+        "$ai_span_name": "classifyArticleImage",
+        "$ai_latency": 6.857258138,
+        "functionId": "classifyArticleImage",
+        "posthog_distinct_id": "7ba12151-f0cb-7450-7329-bdd9c1aab234",
+        "properties": "{\"feature\": \"article-image-moderation\"}",
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_reasoning_tokens": 0,
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "You moderate images attached to news articles before publish.\n\nLook at the attached image and decide whether it needs a sensitive-content warning.\n\nFlag as needing a warning if the image shows:\n- Graphic injury, visible blood, or a body\n- A weapon pointed at a person\n- A disaster scene with visible casualties\n\nDo not flag for:\n- A crowd, a protest, or a courtroom with no visible injury\n- Property damage alone (a burned building, a wrecked car with no visible people)\n- A photo of officials, politicians, or spokespeople\n\nReturn only JSON: {\"explicit\": true or false}. No other text, no explanation.\n\nWhen genuinely unsure, prefer false; an editor reviews every article before it goes live regardless of this flag."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "image": "https://media.example.com/vercel_otel_vertex_image_url_warning__W4258981.jpg"
+              },
+              {
+                "type": "text",
+                "text": "Does this image need a sensitive-content flag?"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "content": "{\"explicit\": false}"
+          }
+        ],
+        "$ai_input_state": {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "image": "https://media.example.com/vercel_otel_vertex_image_url_warning__W4258981.jpg"
+            },
+            {
+              "type": "text",
+              "text": "Does this image need a sensitive-content flag?"
+            }
+          ]
+        },
+        "$ai_output_state": {
+          "role": "assistant",
+          "content": "{\"explicit\": false}"
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 2,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "859886b93a5e5007",
+        "$ai_span_id": "f0b869c98ebb00eb",
+        "$ai_trace_id": "e8afca0f5220d330e30d88b1fc5f9810",
+        "$geoip_disable": true,
+        "app.request.attempt_no": 0,
+        "ai.usage.cachedInputTokens": 0,
+        "ai.usage.inputTokenDetails.cacheReadTokens": 0,
+        "ai.usage.inputTokens": 3564,
+        "ai.usage.outputTokens": 5,
+        "ai.usage.reasoningTokens": 0,
+        "ai.usage.totalTokens": 3569,
+        "gen_ai.request.temperature": 0,
+        "service.name": "relay-TcfZf7Zl",
+        "$ai_input_tokens": 3564,
+        "$ai_output_tokens": 5,
+        "$ai_model": "gemini-2.5-flash-lite",
+        "$ai_span_name": "ai.generateText.doGenerate",
+        "$ai_provider": "google.vertex.chat",
+        "$ai_latency": 6.854711358,
+        "functionId": "classifyArticleImage",
+        "posthog_distinct_id": "7ba12151-f0cb-7450-7329-bdd9c1aab234",
+        "properties": "{\"feature\": \"article-image-moderation\"}",
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_reasoning_tokens": 0,
+        "$ai_text_output_tokens": 5,
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "You moderate images attached to news articles before publish.\n\nLook at the attached image and decide whether it needs a sensitive-content warning.\n\nFlag as needing a warning if the image shows:\n- Graphic injury, visible blood, or a body\n- A weapon pointed at a person\n- A disaster scene with visible casualties\n\nDo not flag for:\n- A crowd, a protest, or a courtroom with no visible injury\n- Property damage alone (a burned building, a wrecked car with no visible people)\n- A photo of officials, politicians, or spokespeople\n\nReturn only JSON: {\"explicit\": true or false}. No other text, no explanation.\n\nWhen genuinely unsure, prefer false; an editor reviews every article before it goes live regardless of this flag."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "file",
+                "mediaType": "image/jpeg",
+                "data": "https://media.example.com/vercel_otel_vertex_image_url_warning__W4258981.jpg"
+              },
+              {
+                "type": "text",
+                "text": "Does this image need a sensitive-content flag?"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "content": "{\"explicit\": false}"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

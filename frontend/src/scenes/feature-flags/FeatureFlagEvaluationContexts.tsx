@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconInfo, IconPencil, IconPlus, IconX } from '@posthog/icons'
 
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -16,26 +17,27 @@ import { featureFlagLogic } from './featureFlagLogic'
 interface FeatureFlagEvaluationContextsProps {
     tags: string[]
     evaluationContexts: string[]
-    tagsAvailable?: string[]
     className?: string
-    flagId?: number | string | null
+    /** Keeps editor state separate per flag. Accepts undefined for new flags. */
+    flagId: number | string | null | undefined
     /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
     context: 'sidebar' | 'form' | 'static'
     /** Form mode: parent handles persistence. Mutually exclusive with onSave. */
     onChange?: (tags: string[], evaluationContexts: string[]) => void
     /** Sidebar mode: component handles persistence. Mutually exclusive with onChange. */
     onSave?: (tags: string[], evaluationContexts: string[]) => void
+    evaluationContextsDisabledReason?: string | null
 }
 
 export function FeatureFlagEvaluationContexts({
     tags,
     evaluationContexts,
-    tagsAvailable,
     className,
     flagId,
     context,
     onChange,
     onSave,
+    evaluationContextsDisabledReason,
 }: FeatureFlagEvaluationContextsProps): JSX.Element {
     const staticOnly = context === 'static'
     const logic = featureFlagEvaluationContextsLogic({ flagId, context, tags, evaluationContexts })
@@ -107,13 +109,10 @@ export function FeatureFlagEvaluationContexts({
                 <div className="text-sm font-medium">Tags</div>
                 {isEditingTags ? (
                     <>
-                        <LemonInputSelect
-                            mode="multiple"
-                            allowCustomValues
+                        <TagsInputSelect
                             value={localTags}
-                            options={tagsAvailable?.map((t: string) => ({ key: t, label: t }))}
                             onChange={handleTagsChange}
-                            loading={featureFlagLoading}
+                            saving={featureFlagLoading}
                             data-attr="feature-flag-tags-input"
                             placeholder='Add tags like "v2-launch", "experiment"'
                             autoFocus
@@ -240,7 +239,10 @@ export function FeatureFlagEvaluationContexts({
                         {!staticOnly && (
                             <LemonTag
                                 type="none"
-                                onClick={() => setIsEditingContexts(true)}
+                                onClick={
+                                    evaluationContextsDisabledReason ? undefined : () => setIsEditingContexts(true)
+                                }
+                                disabledReason={evaluationContextsDisabledReason}
                                 data-attr="button-edit-evaluation-contexts"
                                 icon={evaluationContexts.length > 0 ? <IconPencil /> : <IconPlus />}
                                 className="border border-dashed cursor-pointer"

@@ -26,6 +26,7 @@ from ee.hogai.queue import ConversationQueueStore
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_MAX_LENGTH,
     CONVERSATION_STREAM_TIMEOUT,
+    ApprovalEvent,
     ConversationEvent,
     ConversationRedisStream,
     GenerationStatusEvent,
@@ -300,6 +301,8 @@ class AgentExecutor:
             return (AssistantEventType.UPDATE, message.event.payload)
         elif isinstance(message.event, GenerationStatusEvent):
             return (AssistantEventType.STATUS, message.event.payload)
+        elif isinstance(message.event, ApprovalEvent):
+            return (AssistantEventType.APPROVAL, message.event.payload)
         else:
             return None
 

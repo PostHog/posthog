@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
+import { DlqOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { ingestionPipelineResultCounter } from '~/ingestion/common/metrics'
@@ -22,16 +22,20 @@ import {
 } from './results'
 
 export type PipelineConfig<R extends string = never> = {
-    outputs: IngestionOutputs<DlqOutput | IngestionWarningsOutput | R>
+    outputs: IngestionOutputs<DlqOutput | R>
     promiseScheduler: PromiseScheduler
+    /** Reject the side effect when the DLQ produce fails. Set it only when the consumer stores no offsets after a rejected side effect. */
+    rejectOnDlqFailure?: boolean
 }
 
 /**
  * Unified result handling pipeline that wraps any chunk-processing pipeline and handles
- * non-success results (DLQ, DROP, REDIRECT) by adding side effects.
+ * non-success results (DLQ, DROP, REDIRECT, TIMEOUT) by adding side effects.
  *
  * The redirect type R flows through — redirect results are kept in the output
  * with the redirect side effect attached.
+ *
+ * A TIMEOUT produces nothing, because its redelivery produces it.
  */
 export class ResultHandlingPipeline<
     TInput,
@@ -92,12 +96,10 @@ export class ResultHandlingPipeline<
         const sideEffects: Promise<unknown>[] = []
 
         if (isDlqResult(result)) {
-            const dlqPromise = produceMessageToDLQ(
-                this.config.outputs,
-                originalMessage,
-                result.error || new Error(result.reason),
-                stepName
-            )
+            const error = result.error || new Error(result.reason)
+            const dlqPromise = this.config.rejectOnDlqFailure
+                ? produceMessageToDLQ(this.config.outputs, originalMessage, error, stepName, { rethrowOnFailure: true })
+                : produceMessageToDLQ(this.config.outputs, originalMessage, error, stepName)
             sideEffects.push(dlqPromise)
         } else if (isDropResult(result)) {
             logDroppedMessage(originalMessage, result.reason, stepName)
@@ -133,5 +135,7 @@ function resultDetails<T, R extends string>(result: PipelineResult<T, R>): { res
             return { result: 'dlq', details: result.reason }
         case PipelineResultType.REDIRECT:
             return { result: 'redirect', details: redirectDetails(result) }
+        case PipelineResultType.TIMEOUT:
+            return { result: 'timeout', details: result.reason }
     }
 }

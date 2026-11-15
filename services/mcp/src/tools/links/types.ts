@@ -1,5 +1,6 @@
 // Shape of app-url-manifest.json, generated from the frontend's `urls` registry by
-// frontend/src/scenes/appUrlManifest.ts. Kept in sync by a drift test in that same dir.
+// frontend/bin/build-app-url-manifest.mjs. Kept in sync by the `build:app-urls:check` step
+// in .github/workflows/ci-frontend.yml.
 export type AppUrlScope = 'project' | 'global'
 
 export interface AppUrlEntry {

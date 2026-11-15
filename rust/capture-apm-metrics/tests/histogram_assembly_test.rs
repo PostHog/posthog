@@ -525,7 +525,7 @@ fn clamped_timestamps_are_not_folded() {
     assert_eq!(plain_rows(&rows).len(), 3);
     assert!(rows
         .iter()
-        .all(|row| row.attributes.contains_key("$originalTimestamp")));
+        .all(|row| row.attributes.contains_key("posthog.original_timestamp")));
     let fingerprints = |rows: &[KafkaMetricRow]| -> Vec<i64> {
         rows.iter().map(|row| row.series_fingerprint).collect()
     };

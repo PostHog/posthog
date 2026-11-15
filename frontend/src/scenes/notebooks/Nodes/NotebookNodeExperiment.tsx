@@ -4,16 +4,16 @@ import { useEffect } from 'react'
 import { IconFlag } from '@posthog/icons'
 
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
-import { NotebookExperimentComponent } from '~/scenes/experiments/notebook'
-import {
-    EXPERIMENT_NOTEBOOK_WIDGET_VIEWS,
-    ExperimentNotebookWidgetAttributes,
-} from '~/scenes/experiments/notebook/experimentNotebookWidgetViews'
 import { createPostHogWidgetNode } from '~/scenes/notebooks/Nodes/NodeWrapper'
 import { getNotebookWidgetDefaultView } from '~/scenes/notebooks/notebookWidgetCatalog'
 import { type NotebookNodeProps, NotebookNodeType } from '~/scenes/notebooks/types'
 import { urls } from '~/scenes/urls'
 
+import { NotebookExperimentComponent } from 'products/experiments/frontend/components/notebook'
+import {
+    EXPERIMENT_NOTEBOOK_WIDGET_VIEWS,
+    ExperimentNotebookWidgetAttributes,
+} from 'products/experiments/frontend/components/notebook/experimentNotebookWidgetViews'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 import {
     getExperimentStatusColor,

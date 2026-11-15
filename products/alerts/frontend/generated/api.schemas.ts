@@ -284,10 +284,23 @@ export const MetricsAlertConfigApiType = {
     MetricsAlertConfig: 'MetricsAlertConfig',
 } as const
 
+export interface MetricsDashboardVariableSelectionApi {
+    all?: boolean | null
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+}
+
+/**
+ * Values for the `$name` variables in the insight's query.
+ */
+export type MetricsAlertConfigApiVariables = { [key: string]: MetricsDashboardVariableSelectionApi } | null
+
 export interface MetricsAlertConfigApi {
     /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean | null
     type: MetricsAlertConfigApiType
+    /** Values for the `$name` variables in the insight's query. */
+    variables?: MetricsAlertConfigApiVariables
 }
 
 /**
@@ -569,11 +582,7 @@ export const LLMDetectorConfigApiType = {
 export interface LLMDetectorConfigApi {
     /** What counts as unusual or interesting for this metric, in your own words. Optional. */
     instructions?: string | null
-    /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
-    threshold?: number | null
     type: LLMDetectorConfigApiType
-    /** How many recent points the model is shown (default: 90) */
-    window?: number | null
 }
 
 /**
@@ -630,10 +639,10 @@ export interface AlertScheduleRestrictionApi {
  * * `notify` - Notify
  * * `suppress` - Suppress
  */
-export type InvestigationInconclusiveActionEnumApi =
-    (typeof InvestigationInconclusiveActionEnumApi)[keyof typeof InvestigationInconclusiveActionEnumApi]
+export type AlertInvestigationInconclusiveActionEnumApi =
+    (typeof AlertInvestigationInconclusiveActionEnumApi)[keyof typeof AlertInvestigationInconclusiveActionEnumApi]
 
-export const InvestigationInconclusiveActionEnumApi = {
+export const AlertInvestigationInconclusiveActionEnumApi = {
     Notify: 'notify',
     Suppress: 'suppress',
 } as const
@@ -660,6 +669,8 @@ export interface AlertApi {
      * @nullable
      */
     readonly llm_detector_available: boolean | null
+    /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
+    readonly pagerduty_available: boolean
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -696,6 +707,12 @@ export interface AlertApi {
     /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
     config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
+    /**
+     * Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
      * * `real_time` - real_time
@@ -730,7 +747,7 @@ export interface AlertApi {
      *
      * * `notify` - Notify
      * * `suppress` - Suppress */
-    investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
@@ -759,6 +776,8 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly llm_detector_available?: boolean | null
+    /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
+    readonly pagerduty_available?: boolean
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -795,6 +814,12 @@ export interface PatchedAlertApi {
     /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
     config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
+    /**
+     * Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
      * * `real_time` - real_time
@@ -829,9 +854,104 @@ export interface PatchedAlertApi {
      *
      * * `notify` - Notify
      * * `suppress` - Suppress */
-    investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
+}
+
+/**
+ * * `slack` - Slack
+ * * `discord` - Discord
+ * * `webhook` - Webhook
+ * * `teams` - Microsoft Teams
+ * * `pagerduty` - PagerDuty
+ * * `email` - Email
+ * * `in_app` - In-app notification
+ */
+export type DestinationTypeEnumApi = (typeof DestinationTypeEnumApi)[keyof typeof DestinationTypeEnumApi]
+
+export const DestinationTypeEnumApi = {
+    Slack: 'slack',
+    Discord: 'discord',
+    Webhook: 'webhook',
+    Teams: 'teams',
+    Pagerduty: 'pagerduty',
+    Email: 'email',
+    InApp: 'in_app',
+} as const
+
+/**
+ * * `critical` - critical
+ * * `error` - error
+ * * `warning` - warning
+ * * `info` - info
+ */
+export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
+
+export const PagerDutySeverityEnumApi = {
+    Critical: 'critical',
+    Error: 'error',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `us` - us
+ * * `eu` - eu
+ */
+export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
+
+export const PagerDutyRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+} as const
+
+export interface AlertDestinationListItemApi {
+    /**
+     * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead.
+     * @nullable
+     */
+    id: string | null
+    /** The HogFunctions that send for the destination. Empty once they are gone. */
+    hog_function_ids: string[]
+    /** Notification destination type.
+     *
+     * * `slack` - Slack
+     * * `discord` - Discord
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `pagerduty` - PagerDuty
+     * * `email` - Email
+     * * `in_app` - In-app notification */
+    type: DestinationTypeEnumApi
+    /** Whether the destination sends. */
+    enabled: boolean
+    /** Whether the destination's HogFunctions hear the firing event, which a test delivery sends. */
+    hears_firing: boolean
+    /** Whether someone edited the destination's message, so it no longer sends the standard one. */
+    message_customized: boolean
+    /** Slack workspace integration ID. */
+    slack_workspace_id?: number
+    /** Slack channel ID. */
+    slack_channel_id?: string
+    /** Slack channel name, when it was saved. */
+    slack_channel_name?: string
+    /** Webhook URL reduced to scheme and host. The path and query carry the secret. */
+    webhook_url?: string
+    /** PagerDuty integration key reduced to its last four characters. */
+    pagerduty_routing_key?: string
+    /** Severity of the incidents it opens.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** Region of the PagerDuty account.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
 }
 
 /**
@@ -863,11 +983,57 @@ export interface AlertDestinationResponseApi {
 
 export interface AlertDeleteDestinationApi {
     /**
-     * Destination IDs to delete, as returned when the destination was created.
-     * @minItems 1
+     * HogFunction IDs of the destination, as returned when it was created.
      * @maxItems 100
      */
-    hog_function_ids: string[]
+    hog_function_ids?: string[]
+    /**
+     * Destination IDs from the destinations list, to delete with their HogFunctions.
+     * @maxItems 100
+     */
+    destination_ids?: string[]
+}
+
+export interface AlertCreatePagerDutyDestinationApi {
+    /** The 32-character integration key of a PagerDuty Events API v2 integration. */
+    pagerduty_routing_key: string
+    /** Severity of the incidents the alert opens.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** Region of the PagerDuty account.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+/**
+ * * `discord` - discord
+ * * `teams` - teams
+ * * `webhook` - webhook
+ */
+export type AlertCreateUrlDestinationTypeEnumApi =
+    (typeof AlertCreateUrlDestinationTypeEnumApi)[keyof typeof AlertCreateUrlDestinationTypeEnumApi]
+
+export const AlertCreateUrlDestinationTypeEnumApi = {
+    Discord: 'discord',
+    Teams: 'teams',
+    Webhook: 'webhook',
+} as const
+
+export interface AlertCreateUrlDestinationApi {
+    /** Destination type: a Discord or Microsoft Teams channel, or any webhook.
+     *
+     * * `discord` - discord
+     * * `teams` - teams
+     * * `webhook` - webhook */
+    type: AlertCreateUrlDestinationTypeEnumApi
+    /** The https URL to send to. Its path and query are a credential, so reads show only the host. */
+    webhook_url: string
 }
 
 /**
@@ -891,7 +1057,18 @@ export interface AlertTestDeliveryResponseApi {
     failed_delivery_channels: FailedDeliveryChannelsEnumApi[]
 }
 
+export interface AlertPagerDutyAvailabilityApi {
+    /** Whether a new alert with these settings can open PagerDuty incidents. */
+    available: boolean
+}
+
 export interface AlertSimulateApi {
+    /**
+     * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** Numeric insight ID or saved insight short ID to simulate the detector on. */
     insight: number | string
     /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
@@ -905,6 +1082,11 @@ export interface AlertSimulateApi {
     date_from?: string | null
     /** Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row/first_row) so the preview matches the alert; ignored for trends. */
     config?: AlertConfigUnionApi | null
+    /**
+     * ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert.
+     * @nullable
+     */
+    alert?: string | null
 }
 
 export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
@@ -933,11 +1115,19 @@ export interface BreakdownSimulationResultApi {
 }
 
 export interface AlertSimulateResponseApi {
+    /** Completed intervals skipped. */
+    evaluation_delay_intervals?: number
+    /** Start of the latest eligible interval. */
+    evaluated_interval_start?: string
+    /** Exclusive end of the latest eligible interval. */
+    evaluated_interval_end?: string
+    /** Project timezone of the interval. */
+    evaluated_interval_timezone?: string
     /** Data values for each point. */
     data: number[]
     /** Date labels for each point. */
     dates: string[]
-    /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
+    /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI detector has no score, so every point is null in an AI preview. */
     scores: (number | null)[]
     /** Indices of points flagged as anomalies. */
     triggered_indices: number[]
@@ -954,6 +1144,13 @@ export interface AlertSimulateResponseApi {
     anomaly_count: number
     /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
     sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
+    /** AI detector only: the model's reason for its verdict on the latest point. */
+    rationale?: string
+    /**
+     * AI detector only: the shape the model saw at the latest point, or 'none'.
+     * @nullable
+     */
+    kind?: string | null
     /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
     breakdown_results?: BreakdownSimulationResultApi[]
 }
@@ -1029,6 +1226,37 @@ export type AlertsRetrieveParams = {
      */
     checks_offset?: number
 }
+
+export type AlertsPagerdutyAvailabilityRetrieveParams = {
+    /**
+     * How often the new alert is checked.
+     *
+     * * `real_time` - real_time
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly
+     * @minLength 1
+     */
+    calculation_interval: AlertsPagerdutyAvailabilityRetrieveCalculationInterval
+    /**
+     * Whether the new alert runs the investigation agent.
+     */
+    investigation_agent_enabled?: boolean
+}
+
+export type AlertsPagerdutyAvailabilityRetrieveCalculationInterval =
+    (typeof AlertsPagerdutyAvailabilityRetrieveCalculationInterval)[keyof typeof AlertsPagerdutyAvailabilityRetrieveCalculationInterval]
+
+export const AlertsPagerdutyAvailabilityRetrieveCalculationInterval = {
+    RealTime: 'real_time',
+    Every15Minutes: 'every_15_minutes',
+    Hourly: 'hourly',
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+} as const
 
 export type InsightsThresholdsListParams = {
     /**

@@ -27,7 +27,7 @@ from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from posthog.models.utils import uuid7
 from posthog.test.persons import add_cohort_members
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, delete_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 
@@ -85,7 +85,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_actions(self):
         with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
-            a0 = Action.objects.create(
+            a0 = create_action(
                 team=self.team,
                 name="Clicked Pay",
                 steps_json=[
@@ -97,7 +97,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
                 last_calculated_at=self.EVENT_TIMESTAMP,  # oldest
             )
-            a1 = Action.objects.create(
+            a1 = create_action(
                 team=self.team,
                 name="Contacted Sales",
                 steps_json=[
@@ -110,7 +110,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 pinned_at=self.QUERY_TIMESTAMP,
                 last_calculated_at=self.QUERY_TIMESTAMP,
             )
-            a2 = Action.objects.create(
+            a2 = create_action(
                 team=self.team,
                 name="Visited Web Analytics",
                 steps_json=[
@@ -262,7 +262,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         p2, s2 = self._create_person()
         self._visit_web_analytics(p1, s1)
         self._click_pay(p2, s2)
-        actions[0].delete()
+        delete_action(actions[0])
         results = self._run_web_goals_query("2024-11-01", None).results
         assert results == [
             ["Contacted Sales", (0, 0), (0, 0), (0, 0)],
@@ -293,7 +293,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Create multiple actions to generate complex query
         with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
-            Action.objects.create(
+            create_action(
                 team=self.team,
                 name="Test Action 1",
                 steps_json=[
@@ -314,7 +314,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 last_calculated_at=self.QUERY_TIMESTAMP,
             )
 
-            Action.objects.create(
+            create_action(
                 team=self.team,
                 name="Test Action 2",
                 steps_json=[
@@ -327,7 +327,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 last_calculated_at=self.QUERY_TIMESTAMP,
             )
 
-            Action.objects.create(
+            create_action(
                 team=self.team,
                 name="Test Action 3",
                 steps_json=[
@@ -341,7 +341,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 last_calculated_at=self.QUERY_TIMESTAMP,
             )
 
-            Action.objects.create(
+            create_action(
                 team=self.team,
                 name="Test Action 4",
                 steps_json=[
@@ -356,7 +356,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 last_calculated_at=self.QUERY_TIMESTAMP,
             )
 
-            Action.objects.create(
+            create_action(
                 team=self.team,
                 name="Test Action 5",
                 steps_json=[

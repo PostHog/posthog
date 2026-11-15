@@ -17,7 +17,8 @@ use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
 use crate::authorizer::Signal;
-use crate::metric_record::{compute_series_fingerprint, override_timestamp, KafkaMetricRow};
+use crate::log_record::override_timestamp;
+use crate::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use crate::service::Service;
 
 const METRIC_NAME_LABEL: &str = "__name__";
@@ -223,7 +224,10 @@ pub fn write_timeseries_to_kafka_rows(
             let mut sample_attributes = attributes.clone();
             if let Some(original) = original_timestamp {
                 timestamps_overridden += 1;
-                sample_attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+                sample_attributes.insert(
+                    crate::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+                    original.to_rfc3339(),
+                );
             }
 
             rows.push(KafkaMetricRow {
@@ -249,6 +253,7 @@ pub fn write_timeseries_to_kafka_rows(
                 series_fingerprint,
                 has_labels: true,
                 retention_days: None,
+                start_timestamp: None,
             });
         }
     }
@@ -491,7 +496,13 @@ pub async fn export_prometheus_remote_write_http(
 
     if let Err(e) = service
         .sink
-        .write_metrics(&token, rows, uncompressed_bytes, timestamps_overridden)
+        .write_metrics(
+            &token,
+            rows,
+            uncompressed_bytes,
+            None,
+            timestamps_overridden,
+        )
         .await
     {
         error!("Failed to send remote-write metrics to Kafka: {e}");
@@ -501,6 +512,8 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
+    counter!("capture_metrics_records_produced", "source" => "remote_write")
+        .increment(row_count as u64);
     debug!("Sent {row_count} remote-write data points to Kafka");
     Ok(StatusCode::NO_CONTENT)
 }

@@ -15,7 +15,6 @@ including non-associative ones that other systems have to reject.
 import json
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -24,51 +23,27 @@ from django.db import transaction
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import clear_locations
 
-DEFAULT_LOOKBACK_SECONDS = 0
+from products.data_modeling.backend.facade.contracts import (
+    DEFAULT_LOOKBACK_SECONDS,
+    IncrementalConfig,
+    IncrementalState,
+)
 
 # Guards against a config that would make every run re-read most of history. Any larger window
 # is better served by a full refresh, which at least produces a table with no stale rows.
 MAX_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
 
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class IncrementalConfig:
-    """The user-declared half of an incremental view."""
-
-    incremental_key: str
-    unique_key: tuple[str, ...]
-    lookback_seconds: int = DEFAULT_LOOKBACK_SECONDS
-
-    def canonical(self) -> dict[str, Any]:
-        """Fingerprint input. Order-insensitive for unique_key, since reordering it changes nothing.
-
-        Deliberately excludes lookback_seconds: it is operational, not definitional. It changes how
-        far future runs re-read, not what the stored rows mean, and rows arriving later than any
-        lookback are best-effort by design. Widening it does not repair past gaps either way; the
-        explicit rebuild action does.
-        """
-        return {
-            "incremental_key": self.incremental_key,
-            "unique_key": sorted(self.unique_key),
-        }
-
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class IncrementalState:
-    """The system-written half: how far the last successful run got."""
-
-    watermark: Any = None
-    watermark_type: Optional[str] = None
-    definition_fingerprint: Optional[str] = None
-    last_full_refresh_at: Optional[str] = None
-    last_run_mode: Optional[str] = None
-    has_incremental_history: bool = False
+# The incremental_state key under which the managed warehouse's Trino shadow keeps its own progress.
+TRINO_INCREMENTAL_SCOPE = "trino"
 
 
 def get_incremental_config(saved_query) -> Optional[IncrementalConfig]:
+    return parse_incremental_config(saved_query.incremental_config)
+
+
+def parse_incremental_config(raw: Any) -> Optional[IncrementalConfig]:
     """Return the config only when it is enabled and complete. Anything malformed reads as off,
     so a half-written config degrades to a full refresh rather than failing a run."""
-    raw = saved_query.incremental_config
     if not isinstance(raw, dict) or not raw.get("enabled"):
         return None
 
@@ -92,8 +67,16 @@ def get_incremental_config(saved_query) -> Optional[IncrementalConfig]:
     )
 
 
-def get_incremental_state(saved_query) -> IncrementalState:
-    raw = saved_query.incremental_state
+def _scoped(state: Any, scope: Optional[str]) -> Any:
+    """The state blob for one engine. ClickHouse owns the top level; other engines keep their own
+    watermark under a key, because a failed or lagging engine must not move another's progress."""
+    if scope is None or not isinstance(state, dict):
+        return state
+    return state.get(scope)
+
+
+def get_incremental_state(saved_query, *, scope: Optional[str] = None) -> IncrementalState:
+    raw = _scoped(saved_query.incremental_state, scope)
     if not isinstance(raw, dict):
         return IncrementalState()
     return IncrementalState(
@@ -103,6 +86,7 @@ def get_incremental_state(saved_query) -> IncrementalState:
         last_full_refresh_at=raw.get("last_full_refresh_at"),
         last_run_mode=raw.get("last_run_mode"),
         has_incremental_history=raw.get("has_incremental_history") is True,
+        table_uri=raw.get("table_uri"),
     )
 
 
@@ -194,7 +178,15 @@ def window_start(state: IncrementalState, config: IncrementalConfig) -> Any:
     return watermark
 
 
-def set_incremental_state(saved_query, *, watermark: Any, fingerprint: Optional[str], mode: str) -> None:
+def set_incremental_state(
+    saved_query,
+    *,
+    watermark: Any,
+    fingerprint: Optional[str],
+    mode: str,
+    scope: Optional[str] = None,
+    table_uri: Optional[str] = None,
+) -> None:
     """Row-locked read-modify-write of the state blob.
 
     Locked and re-read because the API can be writing ``incremental_config`` on the same row while
@@ -205,13 +197,16 @@ def set_incremental_state(saved_query, *, watermark: Any, fingerprint: Optional[
     with transaction.atomic():
         locked = model.objects.select_for_update().get(pk=saved_query.pk)
         state = dict(locked.incremental_state or {})
-        state["last_run_mode"] = mode
+        target = _writable_scope(state, scope)
+        target["last_run_mode"] = mode
         if mode == "full_refresh":
-            state["last_full_refresh_at"] = _isoformat(watermark_now())
+            target["last_full_refresh_at"] = _isoformat(watermark_now())
         if watermark is not None:
-            state["watermark"] = _serialize_watermark(watermark)
-            state["watermark_type"] = _watermark_type(watermark)
-        state["definition_fingerprint"] = fingerprint
+            target["watermark"] = _serialize_watermark(watermark)
+            target["watermark_type"] = _watermark_type(watermark)
+        target["definition_fingerprint"] = fingerprint
+        if table_uri is not None:
+            target["table_uri"] = table_uri
         locked.incremental_state = state
         locked.save(update_fields=["incremental_state"])
     saved_query.incremental_state = state
@@ -233,19 +228,28 @@ def _clamp_temporal_watermark(watermark: Any) -> Any:
     return watermark
 
 
-def clear_incremental_state(saved_query) -> None:
+def clear_incremental_state(saved_query, *, scope: Optional[str] = None) -> None:
     """Drop the watermark so the next run rebuilds from scratch. Used by a definition change, by
     an explicit full refresh, and by any engine failure we do not want to retry incrementally."""
     model = type(saved_query)
     with transaction.atomic():
         locked = model.objects.select_for_update().get(pk=saved_query.pk)
         state = dict(locked.incremental_state or {})
-        state.pop("watermark", None)
-        state.pop("watermark_type", None)
-        state.pop("definition_fingerprint", None)
+        target = _writable_scope(state, scope)
+        target.pop("watermark", None)
+        target.pop("watermark_type", None)
+        target.pop("definition_fingerprint", None)
         locked.incremental_state = state
         locked.save(update_fields=["incremental_state"])
     saved_query.incremental_state = state
+
+
+def _writable_scope(state: dict[str, Any], scope: Optional[str]) -> dict[str, Any]:
+    if scope is None:
+        return state
+    nested = state.get(scope)
+    state[scope] = dict(nested) if isinstance(nested, dict) else {}
+    return state[scope]
 
 
 def watermark_now() -> datetime:

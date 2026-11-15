@@ -36,7 +36,8 @@ class CIJobFailureLogSerializer(DataclassSerializer):
     class Meta:
         dataclass = CIJobFailureLog
         extra_kwargs = {
-            "job_id": {"help_text": "GitHub Actions job id of the failed job."},
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
+            "job_id": {"help_text": "Integer job id of the failed job; unique only together with ci_engine."},
             "run_id": {"help_text": "Workflow run id the job belongs to."},
             "conclusion": {
                 "help_text": "Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs.",

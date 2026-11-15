@@ -3,7 +3,10 @@ from typing import cast
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from django.conf import settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
@@ -16,13 +19,20 @@ from posthog.event_usage import (
     get_mcp_properties,
     is_wizard_self_driving_program,
     report_organization_deleted,
+    report_organization_deletion_completed,
     report_organization_deletion_initiated,
     report_user_action,
+    report_user_organization_membership_level_changed,
     report_user_signed_up,
     sanitize_header_value,
 )
 from posthog.models.oauth import OAuthAccessToken
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
+    SIGNALS_APP_CLIENT_ID_DEV,
+    WEBMCP_APP_CLIENT_ID,
+)
 
 # The MCP server's catch-all consumer, sent by every sandbox agent and by the agent PostHog
 # Desktop hosts locally.
@@ -45,6 +55,28 @@ def _oauth_authenticator(
 
 
 class TestReportUserAction(BaseTest):
+    @patch("posthog.ph_client.ph_scoped_capture")
+    def test_organization_deletion_completion_does_not_mark_the_user_active(self, mock_capture: MagicMock) -> None:
+        with self.settings(CLOUD_DEPLOYMENT="US"):
+            report_organization_deletion_completed(self.user.id, str(self.organization.id))
+
+        capture = mock_capture.return_value.__enter__.return_value
+        capture.assert_called_once_with(
+            distinct_id=self.user.distinct_id,
+            event="organization deletion completed",
+            properties={"organization_id": str(self.organization.id), "$update_person_last_seen_at": False},
+            groups={"instance": settings.SITE_URL, "organization": str(self.organization.id)},
+        )
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_membership_change_does_not_mark_the_affected_member_active(self, mock_capture: MagicMock) -> None:
+        report_user_organization_membership_level_changed(self.user, self.organization, new_level=8, previous_level=1)
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["distinct_id"] == self.user.distinct_id
+        assert mock_capture.call_args.kwargs["event"] == "membership level changed"
+        assert mock_capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
+
     @parameterized.expand(
         [
             (
@@ -232,12 +264,21 @@ class TestReportUserAction(BaseTest):
 
         assert mock_capture.call_args[1]["properties"]["access_method"] == expected
 
+    @parameterized.expand(
+        [
+            ("no_set_once", {}, {}),
+            ("caller_set_once_kept", {"$set_once": {"first_used_at": "2026-01-01"}}, {"first_used_at": "2026-01-01"}),
+        ]
+    )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_no_request_passes_properties_unchanged(self, mock_capture):
-        report_user_action(self.user, "test event", properties={"key": "val"})
+    def test_no_request_passes_properties_unchanged(self, _name, extra, expected_set_once, mock_capture):
+        report_user_action(self.user, "test event", properties={"key": "val", **extra})
 
         mock_capture.assert_called_once()
-        assert mock_capture.call_args[1]["properties"] == {"key": "val", "$set_once": {"email": self.user.email}}
+        assert mock_capture.call_args[1]["properties"] == {
+            "key": "val",
+            "$set_once": {**expected_set_once, "email": self.user.email},
+        }
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_analytics_props_merged_into_capture(self, mock_capture):
@@ -279,11 +320,12 @@ class TestReportUserAction(BaseTest):
             )
 
 
-class TestGetEventSource(BaseTest):
+class TestGetEventSource(SimpleTestCase):
     @parameterized.expand(
         [
             ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),
             ("cli_exact", "posthog-cli", EventSource.CLI),
+            ("hog_cli", "hog/1.0.0-alpha.0", EventSource.CLI),
             ("wizard", "posthog/wizard 1.0", EventSource.WIZARD),
             ("posthog_code", "posthog/code 1.2.3", EventSource.POSTHOG_CODE),
             ("desktop_app_direct", "posthog/desktop.hog.dev 0.1.0", EventSource.DESKTOP),
@@ -299,7 +341,7 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == expected
 
     def test_web_via_session_authentication(self):
-        from rest_framework.authentication import SessionAuthentication
+        from posthog.auth import SessionAuthentication
 
         request = SimpleNamespace(META={}, headers={}, successful_authenticator=SessionAuthentication())
         assert get_event_source(request) == EventSource.WEB
@@ -321,13 +363,19 @@ class TestGetEventSource(BaseTest):
         request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
         assert get_event_source(request) == EventSource.MCP
 
-    def test_posthog_ai_oauth_app_beats_the_mcp_header(self):
+    @parameterized.expand(
+        [
+            ("posthog_ai", POSTHOG_AI_APP_CLIENT_ID_DEV, EventSource.POSTHOG_AI),
+            ("webmcp", WEBMCP_APP_CLIENT_ID, EventSource.WEBMCP),
+        ]
+    )
+    def test_server_minted_oauth_app_beats_the_mcp_header(self, _name, client_id, expected):
         request = SimpleNamespace(
             META={},
             headers={"X-Posthog-Client": "mcp"},
-            successful_authenticator=_oauth_authenticator(POSTHOG_AI_APP_CLIENT_ID_DEV),
+            successful_authenticator=_oauth_authenticator(client_id),
         )
-        assert get_event_source(request) == EventSource.POSTHOG_AI
+        assert get_event_source(request) == expected
 
     @parameterized.expand(
         [
@@ -406,7 +454,7 @@ class TestGetEventSource(BaseTest):
         # that is not an EventSource drops out of every breakdown that joins the two. This list is
         # EVENT_SOURCE in `services/mcp/src/lib/event-source.ts`, which its own test pins; removing
         # a surface here without removing it there fails this.
-        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code", "self_driving"}
+        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code", "self_driving", "webmcp"}
         assert mcp_server_sources <= {source.value for source in EventSource}
 
     @parameterized.expand(
@@ -470,7 +518,7 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == expected
 
 
-class TestIsWizardSelfDrivingProgram(BaseTest):
+class TestIsWizardSelfDrivingProgram(SimpleTestCase):
     @parameterized.expand(
         [
             # Direct wizard → Django: the marker rides on the User-Agent itself.
@@ -570,7 +618,7 @@ class TestSignupCrmExclusion(BaseTest):
             mock_group_identify.assert_not_called()
 
 
-class TestSanitizeHeaderValue(BaseTest):
+class TestSanitizeHeaderValue(SimpleTestCase):
     @parameterized.expand(
         [
             ("passthrough", "posthog/wizard 1.0", "posthog/wizard 1.0"),

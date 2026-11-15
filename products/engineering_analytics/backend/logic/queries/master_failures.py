@@ -1,22 +1,11 @@
-"""Curated query: default-branch failures grouped by workflow + failing job.
-
-At this repo's volume a flat failure feed is a firehose (thousands of failing runs a
-day across all branches), so the triage view groups instead — error-tracking style:
-one row per (workflow, de-sharded failing job name) on the default branch, with a run
-count and first/last seen. PR-branch failures are deliberately out of scope here; they
-surface on their PR pages.
-
-Two-step like the failure-logs query: fetch the window's failed default-branch runs
-first (small — the branch filter does the heavy lifting), then their failed jobs by
-``run_id IN``, then group in Python where the shard-stripping regex lives.
-"""
+"""Curated query: failures on one branch, one row per workflow and de-sharded failing job name."""
 
 import re
 from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import MasterFailureGroup, RepoRef
+from products.engineering_analytics.backend.facade.contracts import CIEngine, MasterFailureGroup, RepoRef
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
@@ -24,11 +13,11 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_windowed_job_created_floor_constant,
 )
 
-# Failed default-branch runs in the window is a triage view, not an archive, so cap it.
+# This is a triage view, not an archive, so only the newest failed runs are read.
 _RUN_CAP = 500
 
 _FAILED_RUNS_SELECT = f"""
-    SELECT id, repo_owner, repo_name, workflow_name, run_started_at
+    SELECT id, repo_owner, repo_name, workflow_name, run_started_at, ci_engine
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__
         AND head_branch = {{branch}}
@@ -38,14 +27,14 @@ _FAILED_RUNS_SELECT = f"""
 """
 
 _FAILED_JOBS_SELECT = f"""
-    SELECT run_id, name
+    SELECT run_id, name, ci_engine
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id IN {{run_ids}} AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# Trailing "(G/N)" shard suffix, incl. nested parens ("Product tests (experiments (1/2))") —
-# same rule as the frontend's jobGroups.stripShardSuffix, so both sides group identically.
+# A trailing "(G/N)" shard suffix, including nested parens ("Product tests (experiments (1/2))").
+# Keep in sync with the frontend's jobGroups.stripShardSuffix and job_aggregates._JOB_NAME_TEMPLATE.
 _SHARD_SUFFIX = re.compile(r"\s*\((\d+)/(\d+)\)(\))?$")
 
 
@@ -69,7 +58,9 @@ def query_master_failures(
         placeholders["date_to"] = ast.Constant(value=date_to)
 
     runs_response = curated.run(
-        _FAILED_RUNS_SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace("__DATE_TO__", date_to_clause),
+        _FAILED_RUNS_SELECT.replace("__RUNS_SOURCE__", curated.run_source(since=date_from)).replace(
+            "__DATE_TO__", date_to_clause
+        ),
         query_type="engineering_analytics.master_failures_runs",
         placeholders=placeholders,
     )
@@ -77,13 +68,13 @@ def query_master_failures(
     if not runs:
         return []
 
-    # Failed job names per run — empty when the jobs source isn't synced, in which case
-    # groups degrade to workflow-level (failed_job = '').
-    jobs_by_run: dict[int, list[str]] = {}
-    # run_id IN (...) scopes the result but not the scan, and the builder's is_rerun_copy window would
-    # otherwise sort the whole jobs history. The run ids come from a run_started_at-windowed scan, so
-    # the floor takes the wider re-run slack.
-    jobs_source = curated.jobs_source(created_floor=True)
+    # Empty when the jobs source is not synced, so the groups degrade to workflow level
+    # (failed_job = '').
+    jobs_by_run: dict[tuple[str, int], list[str]] = {}
+    # run_id IN (...) scopes the result but not the scan, so without a floor the builder's
+    # is_rerun_copy duplicate scan reads the whole jobs history. The run ids come from a
+    # run_started_at-windowed scan, so the floor takes the wider re-run slack.
+    jobs_source = curated.jobs_source(created_floor=True, since=date_from)
     if jobs_source is not None:
         jobs_response = curated.run(
             _FAILED_JOBS_SELECT.replace("__JOBS_SOURCE__", jobs_source),
@@ -93,12 +84,12 @@ def query_master_failures(
                 "job_created_floor": run_windowed_job_created_floor_constant(date_from),
             },
         )
-        for run_id, job_name in jobs_response.results or []:
-            jobs_by_run.setdefault(run_id, []).append(job_name)
+        for run_id, job_name, ci_engine in jobs_response.results or []:
+            jobs_by_run.setdefault((ci_engine, run_id), []).append(job_name)
 
     groups: dict[tuple[str, str, str, str], dict] = {}
-    for run_id, repo_owner, repo_name, workflow_name, run_started_at in runs:
-        failed_jobs = {strip_shard_suffix(name) for name in jobs_by_run.get(run_id, [])} or {""}
+    for run_id, repo_owner, repo_name, workflow_name, run_started_at, ci_engine in runs:
+        failed_jobs = {strip_shard_suffix(name) for name in jobs_by_run.get((ci_engine, run_id), [])} or {""}
         for failed_job in failed_jobs:
             key = (repo_owner, repo_name, workflow_name, failed_job)
             group = groups.setdefault(
@@ -108,14 +99,16 @@ def query_master_failures(
                     "first_seen": run_started_at,
                     "last_seen": run_started_at,
                     "latest_run_id": run_id,
+                    "latest_ci_engine": ci_engine,
                 },
             )
-            group["run_ids"].add(run_id)
+            group["run_ids"].add((ci_engine, run_id))
             if run_started_at < group["first_seen"]:
                 group["first_seen"] = run_started_at
             if run_started_at > group["last_seen"]:
                 group["last_seen"] = run_started_at
                 group["latest_run_id"] = run_id
+                group["latest_ci_engine"] = ci_engine
 
     return sorted(
         (
@@ -127,6 +120,7 @@ def query_master_failures(
                 first_seen=group["first_seen"],
                 last_seen=group["last_seen"],
                 latest_run_id=group["latest_run_id"],
+                latest_ci_engine=CIEngine(group["latest_ci_engine"]),
             )
             for (repo_owner, repo_name, workflow_name, failed_job), group in groups.items()
         ),

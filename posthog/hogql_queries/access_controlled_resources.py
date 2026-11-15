@@ -1,5 +1,9 @@
 from dataclasses import field
+from functools import reduce
+from operator import or_
 from typing import TYPE_CHECKING, Optional
+
+from django.db.models import Q
 
 from pydantic import BaseModel
 
@@ -9,6 +13,8 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     HogQLQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsRecommendationsQuery,
+    MarketingAnalyticsSearchQuery,
     RetentionEntity,
 )
 
@@ -65,10 +71,21 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system._ticket_tagged_items": frozenset({"ticket"}),
     "system._ticket_assignments": frozenset({"ticket"}),
     "system._ticket_assignee_roles": frozenset({"ticket"}),
+    "system._event_definition_tagged_items": frozenset({"event_definition"}),
+    "system._property_definition_tagged_items": frozenset({"property_definition"}),
     # Task predicates need these public channel IDs even under object-only task grants.
     "system._task_public_channels": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
 }
+
+
+@frozen
+class _SavedViewRow:
+    """The saved-query fields `models_namespace_chain` reads, loaded without the model instance."""
+
+    name: str
+    origin: str | None
+    managed_viewset_id: object | None
 
 
 @frozen(frozen=False)
@@ -80,24 +97,26 @@ class _WarehouseCatalog:
     minutes here before it can read a single cached result."""
 
     team_id: int
-    table_names: Optional[set[str]] = None
+    table_names: set[str] = field(default_factory=set)
+    looked_up_table_names: set[str] = field(default_factory=set)
     view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
 
-    def get_table_names(self) -> set[str]:
+    def has_table(self, names: set[str]) -> bool:
         # Deferred to break the query_runner -> this module -> hogql import cycle.
         from posthog.hogql.database.database import get_data_warehouse_table_name  # noqa: PLC0415
 
         from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
-        if self.table_names is None:
-            # External tables are queryable under BOTH their raw name and the prefixed
-            # source_type.prefix.table key (see database.py schema build), so match either form —
-            # otherwise a denied user could read an allowed user's cached rows via the raw name.
-            self.table_names = set()
+        unknown_names = names - self.looked_up_table_names
+        if unknown_names:
+            # This runs on every cache hit, so load only candidate tables, not the whole catalog. Both
+            # queryable forms end with the table's name, so a suffix match finds every candidate.
+            # Python and Postgres case folding can disagree outside ASCII, so non-ASCII names always load.
+            suffix_filter = reduce(or_, (Q(name__iendswith=name.rsplit(".", 1)[-1]) for name in unknown_names))
             for table in (
-                DataWarehouseTable.objects.filter(team_id=self.team_id)
+                DataWarehouseTable.objects.filter(suffix_filter | Q(name__regex=r"[^ -~]"), team_id=self.team_id)
                 .exclude(deleted=True)
                 # clear the manager's created_by/schema eager-loads: select_related chains additively,
                 # so without this the .only() below raises FieldError (created_by deferred + traversed)
@@ -111,20 +130,46 @@ class _WarehouseCatalog:
                     "external_data_source__access_method",
                 )
             ):
+                # External tables are queryable under BOTH their raw name and the prefixed
+                # source_type.prefix.table key (see database.py schema build), so match either form —
+                # otherwise a denied user could read an allowed user's cached rows via the raw name.
                 self.table_names.add(table.name)
                 self.table_names.add(get_data_warehouse_table_name(table.external_data_source, table.name))
-        return self.table_names
+            self.looked_up_table_names |= unknown_names
+        return bool(names & self.table_names)
 
     def get_views(self, names: set[str]) -> list[tuple[str, object]]:
+        # Deferred to break the query_runner -> this module -> hogql import cycle.
+        from posthog.hogql.database.database import models_namespace_chain  # noqa: PLC0415
+
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
 
         unknown_names = names - self.looked_up_names
         if unknown_names:
-            self.view_queries.update(
-                DataWarehouseSavedQuery.objects.filter(team_id=self.team_id, name__in=unknown_names)
+            # An authored model is also queryable as `models.<stored name>` (see the schema build in
+            # database.py), so load the stored names of those reads in the same query. Without them the
+            # alias matches no row, the query carries no warehouse scope, and a user denied the model is
+            # served an allowed user's cached rows on a hit, together with whatever the definition reads.
+            stored_names = {name: name.removeprefix("models.") for name in unknown_names if name.startswith("models.")}
+            rows = {
+                name: (_SavedViewRow(name=name, origin=origin, managed_viewset_id=managed_viewset_id), query)
+                for name, query, origin, managed_viewset_id in DataWarehouseSavedQuery.objects.filter(
+                    team_id=self.team_id, name__in=unknown_names | set(stored_names.values())
+                )
                 .exclude(deleted=True)
-                .values_list("name", "query")
-            )
+                .values_list("name", "query", "origin", "managed_viewset_id")
+            }
+            for name in unknown_names:
+                found = rows.get(name)
+                if found is None:
+                    # The derived slot takes the name only when no stored row holds it, and only for the
+                    # rows that get one, so the eligibility rule has a single definition.
+                    stored_name = stored_names.get(name)
+                    candidate = rows.get(stored_name) if stored_name else None
+                    if candidate is not None and models_namespace_chain(candidate[0]) == name.split("."):
+                        found = candidate
+                if found is not None:
+                    self.view_queries[name] = found[1]
             self.looked_up_names |= unknown_names
         return [(name, self.view_queries[name]) for name in sorted(names) if name in self.view_queries]
 
@@ -144,10 +189,10 @@ def queried_access_controlled_resources(
     otherwise a denied user could be served an allowed user's cached rows on a cache hit (the hit
     short-circuits the schema strip that would otherwise raise "You don't have access to table").
 
-    `bypassed_scopes` are the scopes whose access control the principal bypasses. The parent such a
-    scope falls back to through `RESOURCE_FALLBACK_MAP` is left out, because the principal never
-    reaches the parent's rules; the parent still partitions the cache when a table carries that
-    scope directly.
+    `bypassed_scopes` are the scopes whose access control the principal bypasses on warehouse objects.
+    A bypassed scope is left out, and so is the parent it falls back to through `RESOURCE_FALLBACK_MAP`,
+    because the principal never reaches those rules. A system table that carries a bypassed scope keeps
+    it: system tables gate such a principal on its readable scopes, not on warehouse access control.
 
     `_catalog` carries the warehouse reads and the saved views already walked into nested calls. Each
     view is walked once per fingerprint: its scopes join the top-level result the first time, so a
@@ -198,6 +243,7 @@ def queried_access_controlled_resources(
         table_names = set(get_table_names(select))
         system_scopes = {f"system.{name}": scope for name, scope in access_controlled_system_tables().items()}
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
+        scopes_from_system_tables = set(scopes)
 
         # Cache partitioning runs before lazy joins resolve, so their resource scopes do not appear as table names yet.
         if "system.accounts" in table_names and any(
@@ -249,10 +295,10 @@ def queried_access_controlled_resources(
         # cache key by AnalyticsQueryRunner._get_object_access_restrictions.
         non_system_names = table_names - set(system_scopes)
         if non_system_names:
-            if non_system_names & catalog.get_table_names():
-                scopes.add("warehouse_table")
-
             views = catalog.get_views(non_system_names)
+            # Inside a view walk the parent view already added warehouse_table, so skip the table lookup.
+            if not views and _catalog is None and catalog.has_table(non_system_names):
+                scopes.add("warehouse_table")
             if views:
                 scopes.add("warehouse_view")
                 # A non-materialized view re-resolves to its underlying warehouse tables at execution.
@@ -277,13 +323,14 @@ def queried_access_controlled_resources(
                 if nested is None:
                     return None
                 scopes |= nested
+                # A nested result keeps a bypassed scope only when a system table carries it.
+                scopes_from_system_tables |= nested & bypassed_scopes
 
-        return _with_fallback_parents(scopes, bypassed_scopes)
+        return _with_fallback_parents(scopes, bypassed_scopes) - (bypassed_scopes - scopes_from_system_tables)
 
-    # Structured insight queries (Trends/Funnels/Lifecycle/...) read warehouse data via a
-    # DataWarehouseNode in their tree rather than by table name.
+    # Structured queries can reference warehouse tables without a HogQLQuery in their tree.
     return (
-        _with_fallback_parents({"warehouse_table", "warehouse_view"}, bypassed_scopes)
+        _with_fallback_parents({"warehouse_table", "warehouse_view"}, bypassed_scopes) - bypassed_scopes
         if _references_data_warehouse(query)
         else set()
     )
@@ -302,10 +349,14 @@ def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) ->
 
 
 def _references_data_warehouse(value) -> bool:
-    """True if a structured query reads a data-warehouse source via a DataWarehouseNode — or a
-    data-warehouse RetentionEntity — anywhere in its tree (series, sub-queries, exclusions, ...)"""
+    """True if a structured query reads warehouse data anywhere in its tree."""
     if isinstance(value, (DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode)):
         return True
+    if isinstance(value, MarketingAnalyticsSearchQuery):
+        return bool(value.sources)
+    if isinstance(value, MarketingAnalyticsRecommendationsQuery):
+        # No sources means the runner reads every synced source in the project.
+        return value.sources is None or bool(value.sources)
     if isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:
         return True
     if isinstance(value, BaseModel):

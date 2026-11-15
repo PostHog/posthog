@@ -16,6 +16,7 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, PaginatedMeetingListApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { accountPropertyDataLogic } from '../../scenes/CustomerAnalyticsAccountScene/accountPropertyDataLogic'
 import { accountMeetingsLogic, PAGE_SIZE } from './accountMeetingsLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
@@ -37,6 +38,7 @@ function pageOf(meetings: any[], count?: number): PaginatedMeetingListApi {
 
 describe('accountMeetingsLogic', () => {
     let logic: ReturnType<typeof accountMeetingsLogic.build>
+    let shared: ReturnType<typeof accountPropertyDataLogic.build>
 
     beforeEach(() => {
         initKeaTests()
@@ -44,10 +46,13 @@ describe('accountMeetingsLogic', () => {
         jest.spyOn(posthog, 'captureException').mockReturnValue(undefined as any)
         jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         mockRetrieve.mockResolvedValue({ id: 'acc-1', properties: {} } as AccountApi)
+        shared = accountPropertyDataLogic({ projectId: MOCK_DEFAULT_TEAM.id, accountId: 'acc-1' })
+        shared.mount()
     })
 
     afterEach(() => {
         logic?.unmount()
+        shared.unmount()
     })
 
     const mount = async (): Promise<void> => {
@@ -118,7 +123,11 @@ describe('accountMeetingsLogic', () => {
             id: 'acc-1',
             properties: { billing_id: 'cus_123', email_domains: ['old.com'] },
         } as AccountApi)
-        mockPartialUpdate.mockResolvedValue({ id: 'acc-1', properties: {} } as AccountApi)
+        const saved = {
+            id: 'acc-1',
+            properties: { billing_id: 'cus_123', email_domains: ['acme.com'], known_emails: ['jane@gmail.com'] },
+        } as AccountApi
+        mockPartialUpdate.mockResolvedValue(saved)
 
         await mount()
         logic.actions.setDomainsDraft(['@Acme.com', 'acme.com', ' '])
@@ -133,6 +142,7 @@ describe('accountMeetingsLogic', () => {
                 known_emails: ['jane@gmail.com'],
             },
         })
+        expect(shared.values.account).toEqual(saved)
         expect(logic.values.matchingEditorOpen).toBe(false)
         expect(logic.values.savingMatching).toBe(false)
     })

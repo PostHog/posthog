@@ -10,8 +10,17 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed
+from webauthn.helpers import bytes_to_base64url
 
-from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLoginViewSet
+from posthog.api.webauthn import (
+    PASSKEY_NOT_REGISTERED_ERROR,
+    PASSKEY_NOT_VERIFIED_ERROR,
+    WEBAUTHN_REGISTRATION_CHALLENGE_KEY,
+    WebAuthnLoginViewSet,
+    user_uuid_to_handle,
+)
+from posthog.auth import WebauthnBackend
 from posthog.models import Organization, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
@@ -254,6 +263,43 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
         self.assertEqual(me_response.json()["email"], self.user.email)
 
+    def test_backend_does_not_restore_session_for_inactive_user(self):
+        # A queryset update skips the pre_save signal that revokes sessions on deactivation.
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+
+        self.assertIsNone(WebauthnBackend().get_user(self.user.pk))
+
+    @patch(
+        "posthog.api.webauthn.refuse_blocked_account",
+        side_effect=AuthenticationFailed("We couldn't sign you in.", code="access_blocked"),
+    )
+    @patch("posthog.auth.verify_passkey_authentication_response")
+    def test_login_complete_is_refused_by_an_access_rule(self, mock_verify, _refuse):
+        self.client.logout()
+        self.client.post("/api/webauthn/login/begin/")
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        response = self.client.post(
+            "/api/webauthn/login/complete/",
+            {
+                "id": bytes_to_base64url(self.credential.credential_id),
+                "rawId": bytes_to_base64url(self.credential.credential_id),
+                "type": "public-key",
+                "response": {
+                    "authenticatorData": "data",
+                    "clientDataJSON": "data",
+                    "signature": "sig",
+                    "userHandle": bytes_to_base64url(user_uuid_to_handle(self.user.uuid)),
+                },
+            },
+            format="json",
+        )
+
+        # The view's catch-all would turn the refusal into a generic 400 and hide its code.
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+        self.assertEqual(response.json()["code"], "access_blocked")
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
     @patch("posthog.auth.verify_passkey_authentication_response")
@@ -299,36 +345,48 @@ class TestWebAuthnLogin(APIBaseTest):
         mock_is_email_available.assert_called_once()
         mock_send_email_verification.assert_called_once_with(self.user)
 
+    @parameterized.expand(
+        [
+            ("unverified_credential", False, b"test-credential-id", False, PASSKEY_NOT_REGISTERED_ERROR),
+            ("unknown_credential", True, b"removed-credential-id", False, PASSKEY_NOT_REGISTERED_ERROR),
+            ("failed_assertion", True, b"test-credential-id", True, PASSKEY_NOT_VERIFIED_ERROR),
+        ]
+    )
     @patch("posthog.auth.verify_passkey_authentication_response")
-    def test_login_with_unverified_credential_fails(self, mock_verify):
-        from webauthn.helpers import bytes_to_base64url
-
-        from posthog.api.webauthn import user_uuid_to_handle
-
-        self.credential.verified = False
+    def test_login_failure_names_the_cause(
+        self,
+        _name: str,
+        credential_verified: bool,
+        presented_credential_id: bytes,
+        assertion_fails: bool,
+        expected_error: str,
+        mock_verify,
+    ):
+        self.credential.verified = credential_verified
         self.credential.save()
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+        if assertion_fails:
+            mock_verify.side_effect = Exception("signature mismatch")
 
         self.client.post("/api/webauthn/login/begin/")
-
-        user_handle = user_uuid_to_handle(self.user.uuid)
-
         response = self.client.post(
             "/api/webauthn/login/complete/",
             {
-                "id": bytes_to_base64url(self.credential.credential_id),
-                "rawId": bytes_to_base64url(self.credential.credential_id),
+                "id": bytes_to_base64url(presented_credential_id),
+                "rawId": bytes_to_base64url(presented_credential_id),
                 "type": "public-key",
                 "response": {
                     "authenticatorData": "data",
                     "clientDataJSON": "data",
                     "signature": "sig",
-                    "userHandle": bytes_to_base64url(user_handle),
+                    "userHandle": bytes_to_base64url(user_uuid_to_handle(self.user.uuid)),
                 },
             },
             format="json",
         )
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("authentication failed", response.json()["error"].lower())
+        self.assertEqual(response.json()["error"], expected_error)
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_rejects_spoofed_user_handle(self, mock_verify):
@@ -429,7 +487,11 @@ class TestWebAuthnLogin(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("SSO", response.json()["error"])
+        body = response.json()
+        self.assertIn("SSO", body["error"])
+        self.assertEqual(body["code"], "sso_enforced")
+        self.assertEqual(body["sso_enforcement"], "saml")
+        self.assertEqual(body["email"], self.user.email)
 
         # Verify the user is NOT logged in
         me_response = self.client.get("/api/users/@me/")

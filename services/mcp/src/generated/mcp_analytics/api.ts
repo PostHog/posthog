@@ -166,6 +166,12 @@ export const McpAnalyticsSessionsListQueryParams = () => zod.object({
         .describe(
             "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`."
         ),
+    has_errors: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.'
+        ),
     limit: zod
         .number()
         .min(1)
@@ -247,6 +253,12 @@ export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
         .optional()
         .describe(
             "Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            "Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops there instead of reading up to now. Unbounded when omitted or unparseable."
         ),
     filter_test_accounts: zod
         .boolean()

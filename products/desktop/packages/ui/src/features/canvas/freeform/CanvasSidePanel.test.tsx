@@ -16,7 +16,7 @@ vi.mock("@posthog/ui/features/canvas/components/TaskCommentsList", () => ({
     taskId,
     onlySource,
   }: {
-    taskId: string;
+    taskId: string | null;
     onlySource: { target: { itemId: string } };
   }) => (
     <div data-testid="task-comments">
@@ -94,14 +94,17 @@ describe("CanvasSidePanel", () => {
     }
   });
 
-  it("opens comments when the generating run is not readable", () => {
+  it.each([
+    ["the generating run is not readable", "task-1", "task-1:canvas-1"],
+    ["no task backs the canvas", null, ":canvas-1"],
+  ])("opens comments when %s", (_name, commentTaskId, expected) => {
     mocks.task = undefined;
     useCanvasChatPanelStore.setState({ tab: "comments", collapsed: false });
 
     render(
       <CanvasSidePanel
         chatTaskId={null}
-        commentTaskId="task-1"
+        commentTaskId={commentTaskId}
         onMinimize={vi.fn()}
         dashboardId="canvas-1"
         channelId="channel-1"
@@ -115,8 +118,10 @@ describe("CanvasSidePanel", () => {
       />,
     );
 
-    expect(screen.getByTestId("task-comments")).toHaveTextContent(
-      "task-1:canvas-1",
+    expect(screen.getByLabelText("Comments")).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
     );
+    expect(screen.getByTestId("task-comments")).toHaveTextContent(expected);
   });
 });

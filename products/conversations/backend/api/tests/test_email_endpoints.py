@@ -1,4 +1,5 @@
 from datetime import timedelta
+from email import message_from_bytes
 from io import BytesIO
 
 from posthog.test.base import BaseTest
@@ -6,7 +7,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client
+from django.test import Client, SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -133,6 +134,15 @@ class TestEmailChannelPermissions(BaseTest):
                 "post",
                 "/api/conversations/v1/email/set-default",
                 {"config_id": "00000000-0000-0000-0000-000000000999"},
+            ),
+            (
+                "set-trusted-relay",
+                "post",
+                "/api/conversations/v1/email/set-trusted-relay",
+                {
+                    "config_id": "00000000-0000-0000-0000-000000000999",
+                    "trusted_relay_sender": "relay@example.com",
+                },
             ),
         ]
     )
@@ -385,15 +395,16 @@ class TestEmailChannelPermissions(BaseTest):
         mock_cache_delete.assert_called_once()
         assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
 
-    @patch("products.conversations.backend.api.email_settings.cache.add", side_effect=[True, False])
+    @patch("products.conversations.backend.api.email_settings.cache", wraps=cache)
     @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage")
     def test_forwarding_challenge_resend_respects_channel_cooldown(
         self,
         mock_email_message: MagicMock,
         _mock_smtp_available: MagicMock,
-        _mock_cache_add: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
+        mock_cache.add.side_effect = [True, False]
         channel = EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -424,19 +435,19 @@ class TestEmailChannelPermissions(BaseTest):
 
         assert first_response.status_code == 200
         assert second_response.status_code == 429
-        assert [cache_call.kwargs["timeout"] for cache_call in _mock_cache_add.call_args_list] == [30, 60]
+        assert [cache_call.kwargs["timeout"] for cache_call in mock_cache.add.call_args_list] == [30, 60]
         assert mock_email_message.call_count == 1
 
-    @patch("products.conversations.backend.api.email_settings.cache.get")
+    @patch("products.conversations.backend.api.email_settings.cache", wraps=cache)
     @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage")
     def test_forwarding_challenge_stops_after_the_address_reaches_its_attempt_limit(
         self,
         mock_email_message: MagicMock,
         _mock_smtp_available: MagicMock,
-        mock_cache_get: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
-        mock_cache_get.side_effect = lambda key, default=None: 8 if key.endswith(":attempts") else default
+        mock_cache.get.side_effect = lambda key, default=None: 8 if key.endswith(":attempts") else default
         channel = EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -785,26 +796,80 @@ class TestEmailMultiConfig(BaseTest):
         mock_mailgun.assert_not_called()
         assert not EmailChannel.objects.filter(team=self.team).exists()
 
-    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @parameterized.expand(
+        [
+            ("domain_still_in_mailgun", {"id": "mg-1", "state": "unverified"}, False),
+            ("domain_expired_from_mailgun", None, True),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_same_domain_skips_mailgun_add(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
+    def test_same_domain_reuses_registration_unless_mailgun_dropped_it(
+        self,
+        _name: str,
+        mailgun_domain: dict | None,
+        should_register_again: bool,
+        _mock_setting: MagicMock,
+        mock_add_domain: MagicMock,
+        mock_get_domain: MagicMock,
+    ):
+        old_records = {"sending_dns_records": [{"record_type": "TXT", "value": "old"}]}
+        new_records = {"sending_dns_records": [{"record_type": "TXT", "value": "new"}]}
+        mock_add_domain.return_value = old_records
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
             content_type="application/json",
         )
-        mock_mailgun.reset_mock()
+        mock_add_domain.reset_mock()
+        mock_add_domain.return_value = new_records
+        mock_get_domain.return_value = mailgun_domain
 
-        self.client.post(
+        response = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "billing@example.com", "from_name": "Billing"},
             content_type="application/json",
         )
-        # Mailgun add_domain NOT called for second email on same domain
-        mock_mailgun.assert_not_called()
+
+        assert response.status_code == 200
+        assert mock_add_domain.called == should_register_again
+        expected = new_records if should_register_again else old_records
+        assert list(EmailChannel.objects.filter(team=self.team).values_list("dns_records", flat=True)) == [
+            expected,
+            expected,
+        ]
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain", return_value=None)
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_same_domain_fails_when_registering_the_dropped_domain_again_fails(
+        self, _mock_setting: MagicMock, mock_add_domain: MagicMock, _mock_get_domain: MagicMock
+    ):
+        mock_add_domain.return_value = {"sending_dns_records": [{"record_type": "TXT", "value": "old"}]}
+        self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+        mock_add_domain.side_effect = Exception("mailgun down")
+
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "billing@example.com", "from_name": "Billing"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 502
+        assert list(EmailChannel.objects.filter(team=self.team).values_list("from_email", flat=True)) == [
+            "support@example.com"
+        ]
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
@@ -1493,6 +1558,90 @@ class TestEmailMultiConfig(BaseTest):
         assert response.status_code == 404
 
 
+class TestEmailTrustedRelaySettings(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.force_login(self.user)
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="relay-settings",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+    def test_admin_can_set_and_clear_trusted_relay_sender(self):
+        response = self.client.post(
+            "/api/conversations/v1/email/set-trusted-relay",
+            {
+                "config_id": str(self.config.id),
+                "trusted_relay_sender": "Relay@Example.COM",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        self.config.refresh_from_db()
+        assert self.config.trusted_relay_sender == "relay@example.com"
+
+        status_response = self.client.get("/api/conversations/v1/email/status")
+        assert status_response.json()["configs"][0]["trusted_relay_sender"] == "relay@example.com"
+
+        response = self.client.post(
+            "/api/conversations/v1/email/set-trusted-relay",
+            {
+                "config_id": str(self.config.id),
+                "trusted_relay_sender": "",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        self.config.refresh_from_db()
+        assert self.config.trusted_relay_sender == ""
+
+    def test_trusted_relay_update_is_scoped_to_the_current_team(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_config = EmailChannel.objects.create(
+            team=other_team,
+            inbound_token="other-relay-settings",
+            from_email="other@example.com",
+            from_name="Other",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/email/set-trusted-relay",
+            {
+                "config_id": str(other_config.id),
+                "trusted_relay_sender": "relay@example.com",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+        other_config.refresh_from_db()
+        assert other_config.trusted_relay_sender == ""
+
+    def test_invalid_trusted_relay_sender_returns_field_error(self):
+        response = self.client.post(
+            "/api/conversations/v1/email/set-trusted-relay",
+            {
+                "config_id": str(self.config.id),
+                "trusted_relay_sender": "not-an-email",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["attr"] == "trusted_relay_sender"
+        assert response.json()["detail"] == "Enter a valid email address."
+
+
 class TestEmailInboundRegionRouting(MailgunWebhookTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -1539,7 +1688,7 @@ class TestEmailInboundRegionRouting(MailgunWebhookTestMixin, BaseTest):
         mock_forward.assert_not_called()
 
 
-class TestBuildProxyKwargs(BaseTest):
+class TestBuildProxyKwargs(SimpleTestCase):
     """Unit tests for _build_proxy_kwargs multipart fallback."""
 
     def test_raw_body_available(self):
@@ -1907,7 +2056,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert b"From: " in mime_bytes
         assert b"support@example.com" in mime_bytes
 
-        # Guard against someone dropping linesep="\r\n" from the as_bytes() call.
+        # Guard against someone dropping linesep="\r\n" from mime_bytes_with_crlf().
         # RFC 5322 wants CRLF; Django's default is LF-only.
         assert b"\r\n" in mime_bytes
 
@@ -1984,6 +2133,27 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         config.refresh_from_db()
         assert config.domain_verified is (not flips_domain_verified)
+
+    @patch("products.conversations.backend.tasks.email.send_mime")
+    def test_send_email_reply_renders_markdown_without_rich_content(self, mock_send_mime: MagicMock):
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
+
+        self._run_reply(
+            ticket,
+            content="See [the docs](https://posthog.com/docs).\nThen [verify](https://attacker.example/phish)\n\nNew paragraph\n\n```\ncurl https://example.com/api\n```",
+        )
+
+        message = message_from_bytes(mock_send_mime.call_args.args[1])
+        html_part = next(part for part in message.walk() if part.get_content_type() == "text/html")
+        payload = html_part.get_payload(decode=True)
+        assert isinstance(payload, bytes)
+        html = payload.decode()
+        assert '<a href="https://posthog.com/docs"' in html and ">the docs</a>" in html
+        assert "attacker.example" not in html
+        assert "<br" in html
+        assert html.count("<p>") == 2
+        assert "<code>curl https://example.com/api\r\n</code>" in html
 
     @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_delivers_to_team_member_ticket(self, mock_send_mime: MagicMock):
@@ -2278,6 +2448,186 @@ class TestEmailInboundDmarcRewrite(MailgunWebhookTestMixin, BaseTest):
         assert comment.item_context["email_from_name"] == "Alex Smith"
 
 
+class TestEmailInboundTrustedRelay(MailgunWebhookTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="aa11bb22cc33dd44",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            trusted_relay_sender="relay@relay.example.com",
+        )
+
+    def _post(self, message_id: str, extra: dict[str, str]) -> None:
+        post_mailgun(
+            self.client,
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-aa11bb22cc33dd44@mg.posthog.com",
+                "from": "Relay <relay@relay.example.com>",
+                "sender": "relay@relay.example.com",
+                "X-Mailgun-Spf": "Pass",
+                "Message-Id": message_id,
+                "subject": "Support request",
+                "stripped-text": "Please help",
+                **extra,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "posthog_requester",
+                {"message-headers": '[["X-PostHog-Requester", "Alex Smith <alex@example.net>"]]'},
+                "alex@example.net",
+                "Alex Smith",
+            ),
+            (
+                "reply_to",
+                {"Reply-To": "Jane Doe <jane@example.net>"},
+                "jane@example.net",
+                "Jane Doe",
+            ),
+            (
+                "requester_precedes_reply_to",
+                {
+                    "X-PostHog-Requester": "Alex Smith <alex@example.net>",
+                    "Reply-To": "jane@example.net",
+                },
+                "alex@example.net",
+                "Alex Smith",
+            ),
+            (
+                "posthog_inbound_requester_falls_back_to_reply_to",
+                {
+                    "X-PostHog-Requester": "team-deadbeef@mg.eu.posthog.com",
+                    "Reply-To": "Jane Doe <jane@example.net>",
+                },
+                "jane@example.net",
+                "Jane Doe",
+            ),
+            (
+                "dkim_signed_requester",
+                {
+                    "X-Mailgun-Spf": "",
+                    "X-Mailgun-Dkim-Check-Result": "Pass",
+                    "DKIM-Signature": "v=1; d=relay.example.com; h=from:subject:x-posthog-requester; b=abc",
+                    "X-PostHog-Requester": "Alex Smith <alex@example.net>",
+                },
+                "alex@example.net",
+                "Alex Smith",
+            ),
+        ]
+    )
+    def test_trusted_relay_attributes_ticket_to_requester(
+        self,
+        name: str,
+        headers: dict[str, str],
+        expected_email: str,
+        expected_name: str,
+    ):
+        self._post(f"<trusted-relay-{name}@example.com>", headers)
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == expected_email
+        assert ticket.distinct_id == expected_email
+        assert ticket.anonymous_traits == {"name": expected_name, "email": expected_email, "email_relayed": True}
+        assert ticket.identity_verified is False
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.item_context is not None
+        assert comment.item_context["email_from"] == expected_email
+        assert comment.item_context["email_from_name"] == expected_name
+        assert comment.item_context["email_relay_from"] == "relay@relay.example.com"
+
+    @parameterized.expand(
+        [
+            (
+                "different_from",
+                {
+                    "from": "Other <other@relay.example.com>",
+                    "sender": "other@relay.example.com",
+                },
+                "other@relay.example.com",
+            ),
+            (
+                "different_envelope_sender",
+                {"sender": "other@relay.example.com"},
+                "relay@relay.example.com",
+            ),
+            (
+                "unauthenticated_relay",
+                {"X-Mailgun-Spf": ""},
+                "relay@relay.example.com",
+            ),
+            (
+                "dkim_does_not_sign_requester",
+                {
+                    "X-Mailgun-Spf": "",
+                    "X-Mailgun-Dkim-Check-Result": "Pass",
+                    "DKIM-Signature": "v=1; d=relay.example.com; h=from:subject; b=abc",
+                },
+                "relay@relay.example.com",
+            ),
+            (
+                "dkim_signs_one_of_duplicate_requesters",
+                {
+                    "X-Mailgun-Spf": "",
+                    "X-Mailgun-Dkim-Check-Result": "Pass",
+                    "DKIM-Signature": "v=1; d=relay.example.com; h=from:subject:x-posthog-requester; b=abc",
+                    "message-headers": '[["X-PostHog-Requester", "Alex Smith <alex@example.net>"]]',
+                },
+                "relay@relay.example.com",
+            ),
+        ]
+    )
+    def test_untrusted_mail_cannot_override_requester(
+        self,
+        name: str,
+        sender_fields: dict[str, str],
+        expected_email: str,
+    ):
+        self._post(
+            f"<untrusted-relay-{name}@example.com>",
+            {
+                "X-PostHog-Requester": "Victim <victim@example.net>",
+                **sender_fields,
+            },
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == expected_email
+        assert ticket.distinct_id == expected_email
+
+    def test_same_domain_relay_does_not_authenticate_the_requester(self):
+        self.config.trusted_relay_sender = "relay@posthog.com"
+        self.config.save(update_fields=["trusted_relay_sender"])
+
+        self._post(
+            "<same-domain-relay@posthog.com>",
+            {
+                "from": "Relay <relay@posthog.com>",
+                "sender": "relay@posthog.com",
+                "X-PostHog-Requester": self.user.email,
+            },
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.identity_verified is False
+        assert ticket.unread_team_count == 1
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.item_context is not None
+        assert comment.item_context["author_type"] == "customer"
+        assert comment.created_by is None
+
+
 class TestEmailInboundSelfAddressedAutoreply(MailgunWebhookTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -2490,6 +2840,9 @@ class TestEmailInboundTeamMemberDetection(MailgunWebhookTestMixin, BaseTest):
         )
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.identity_verified is expected_verified
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert isinstance(comment.item_context, dict)
+        assert comment.item_context["email_sender_authenticated"] is expected_verified
 
     def test_no_spf_treated_as_customer(self):
         """From header matches a team member but no SPF pass → customer."""

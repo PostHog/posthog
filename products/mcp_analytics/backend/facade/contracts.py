@@ -16,6 +16,14 @@ class IntentGenerationUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True)
+class CustomHarnessRule:
+    """A team's own harness: calls whose client token contains `pattern` are labelled `name`."""
+
+    name: str
+    pattern: str
+
+
+@dataclass(frozen=True)
 class Submission:
     id: UUID
     kind: SubmissionKind
@@ -65,6 +73,7 @@ class CreateMissingCapabilitySubmission:
 class MCPSession:
     session_id: str
     tool_calls: int
+    error_calls: int
     session_start: datetime
     session_end: datetime
     distinct_id_count: int
@@ -91,6 +100,16 @@ class MCPToolCall:
     is_error: bool
     error_message: str
     duration_ms: int | None
+    parameters: str
+    response: str
+    error_type: str
+    error_status: str
+    exec_verb: str
+    exec_target_tool: str
+    input_keys: list[str]
+    error_code: str
+    error_field: str
+    llm_model: str
 
 
 @dataclass(frozen=True)

@@ -9,22 +9,21 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
-import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { getReplayVisionEditDisabledReason, getScoutCreateDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { scannerScoutLogic } from '../scannerScoutLogic'
 import { ClippedPreview } from './ClippedPreview'
+import { HERO_CARD_HEADER, HERO_CARD_HEIGHT } from './scannerHeroCard'
 import { ScannerScoutReportModal } from './ScannerScoutReportModal'
 
 function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         <div
-            className="border rounded bg-surface-primary p-4 flex flex-col gap-2 min-h-38"
+            className={cn('border rounded bg-surface-primary p-4 flex flex-col gap-2', HERO_CARD_HEIGHT)}
             data-attr="vision-scanner-scout-card"
         >
             {children}
@@ -34,12 +33,14 @@ function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
 
 function CardHeader({ meta, actions }: { meta?: React.ReactNode; actions?: React.ReactNode }): JSX.Element {
     return (
-        <div className="flex items-center justify-between gap-2 border-b border-primary pb-2">
-            <div className="flex items-baseline gap-2">
-                <span className="text-sm font-medium">Latest scout report</span>
+        <div className={HERO_CARD_HEADER}>
+            {/* The title stays on one line, so in a narrow column the meta drops below it rather than
+                splitting the title across lines out of line with the meta. */}
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                <span className="whitespace-nowrap text-sm font-medium">Latest scout report</span>
                 {meta && <span className="text-xs text-muted">{meta}</span>}
             </div>
-            {actions && <div className="flex items-center gap-1">{actions}</div>}
+            {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
         </div>
     )
 }
@@ -72,10 +73,7 @@ export function ScannerScoutCard({
     // Running a scout spends credits and pausing one changes what the scanner watches, so every
     // mutating control here sits behind the scanner's own edit bar, like the digest and alert flows.
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
-    // Same bar as the Scouts tab, plus skill editing: a scout reads this scanner's observations.
-    const createDisabledReason =
-        editDisabledReason ??
-        getAccessControlDisabledReason(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
+    const createDisabledReason = getScoutCreateDisabledReason(scanner?.user_access_level)
     const scoutsTabUrl = combineUrl(urls.replayVision(scannerId), { tab: ReplayScannerTab.Scouts }).url
 
     if (scoutConfigs === null) {

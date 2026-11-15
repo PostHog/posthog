@@ -1,3 +1,10 @@
+import re
+
+_RE_MARKDOWN_LINK = re.compile(
+    r'(?<![!\\])\[([^\[\]\n]*)\]\((?:<[^<>\n]*>|(?:[^()\s]|\((?:[^()\s]|\([^()\s]*\))*\))+)(?:[ \t]+"[^"\n]*")?\)'
+)
+
+
 def escape_slack_mrkdwn(text: str) -> str:
     """Escape Slack mrkdwn control characters in user-supplied text.
 
@@ -16,3 +23,7 @@ def channel_id_from_target(value: str) -> str:
     opens a direct message, so a member target resolves the same way as a channel target.
     """
     return value.split("|", 1)[0].strip()
+
+
+def markdown_links_to_labels(text: str) -> str:
+    return _RE_MARKDOWN_LINK.sub(lambda match: match.group(1), text)

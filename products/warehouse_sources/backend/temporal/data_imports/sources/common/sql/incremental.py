@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import rank_incremental_fields
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
@@ -41,18 +42,22 @@ def build_incremental_fields(
     UI treats every field as indexed (no warning). When provided, each
     field reports `is_indexed=True` iff its column is the leading column
     of some index.
+
+    The result is ranked best first, see `rank_incremental_fields`.
     """
-    return [
-        {
-            "label": name,
-            "type": field_type,
-            "field": name,
-            "field_type": field_type,
-            "nullable": nullable,
-            "is_indexed": True if indexed_columns is None else name in indexed_columns,
-        }
-        for name, field_type, nullable in triples
-    ]
+    return rank_incremental_fields(
+        [
+            {
+                "label": name,
+                "type": field_type,
+                "field": name,
+                "field_type": field_type,
+                "nullable": nullable,
+                "is_indexed": True if indexed_columns is None else name in indexed_columns,
+            }
+            for name, field_type, nullable in triples
+        ]
+    )
 
 
 def initial_value_for_incremental_type(field_type: IncrementalFieldType) -> object:

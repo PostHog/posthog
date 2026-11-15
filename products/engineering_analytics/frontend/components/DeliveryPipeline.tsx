@@ -1,9 +1,7 @@
-// Where a change's time goes on the way to production, as bars sharing one scale.
-
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import type { DeliveryPipelineApi, DeliveryStageTimingApi } from '../generated/api.schemas'
-import { DeliveryStageTimingStageEnumApi } from '../generated/api.schemas'
+import { DeliveryStageEnumApi } from '../generated/api.schemas'
 import { compactAgeLabel, compactCount } from '../lib/format'
 import { ShareRow } from './ShareRow'
 
@@ -14,13 +12,13 @@ interface LegCopy {
 }
 
 const LEG_COPY: Record<DeliveryStageTimingApi['stage'], LegCopy> = {
-    [DeliveryStageTimingStageEnumApi.OpenToGate]: {
+    [DeliveryStageEnumApi.OpenToGate]: {
         label: 'Open to merge queue',
         sub: 'Review, changes, and waiting for a slot',
         tooltip:
             'From the PR opening to its first merge queue gate run starting. Nothing records when a PR joined the queue, so this is the earliest queue activity we can see and everything before it is folded in.',
     },
-    [DeliveryStageTimingStageEnumApi.GateToMerge]: {
+    [DeliveryStageEnumApi.GateToMerge]: {
         label: 'In the merge queue',
         sub: 'Gate runs until the PR merges',
         tooltip: 'From the first gate run starting to the PR merging. Retried attempts are included.',
@@ -37,7 +35,7 @@ const MERGE_TO_DEPLOY_COPY: LegCopy = {
 export interface MergeToDeployLeg {
     medianSeconds: number | null
     prCount: number
-    /** The Deploys tab's environment and team scope, shown beside the count because the legs above are repo-wide. */
+    /** Shown beside the count because the legs above are repo-wide. */
     scopeLabel: string
 }
 
@@ -56,7 +54,7 @@ export function DeliveryPipeline({
     loading = false,
 }: {
     pipeline: DeliveryPipelineApi | null | undefined
-    /** The post-merge leg, read from the DORA endpoint. Null while loading or when deploy data is not synced. */
+    /** Null while loading or when deploy data is not synced. */
     mergeToDeploy: MergeToDeployLeg | null
     loading?: boolean
 }): JSX.Element | null {

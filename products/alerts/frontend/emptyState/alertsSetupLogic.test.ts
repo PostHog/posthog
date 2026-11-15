@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import * as appContext from 'lib/utils/getAppContext'
 
@@ -70,9 +71,27 @@ describe('alertsSetupLogic', () => {
         expect(insightAlertsSpy).not.toHaveBeenCalled()
     })
 
-    it('fails open to unknown when a count query fails before any answer', async () => {
-        insightAlertsSpy.mockRejectedValue(new Error('network down'))
-        logAlertsSpy.mockResolvedValue({ count: 0, results: [] })
-        expect(await mountAndReadStatus()).toBe('unknown')
+    // A backend 403 means that kind is unreadable, so it must not fail the check and file an error.
+    it.each([
+        ['a 403 with log alerts readable', new ApiError(undefined, 403), 3, 'detectStatusSuccess', 'has-data'],
+        [
+            'a 403 on both kinds',
+            new ApiError(undefined, 403),
+            new ApiError(undefined, 403),
+            'detectStatusSuccess',
+            'unknown',
+        ],
+        ['any other failure', new Error('network down'), 0, 'detectStatusFailure', 'unknown'],
+    ] as const)('handles %s on the insight alerts count', async (_name, insightError, logAlerts, outcome, expected) => {
+        insightAlertsSpy.mockRejectedValue(insightError)
+        if (typeof logAlerts === 'number') {
+            logAlertsSpy.mockResolvedValue({ count: logAlerts, results: [] })
+        } else {
+            logAlertsSpy.mockRejectedValue(logAlerts)
+        }
+        const logic = alertsSetupLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([outcome]).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.ALERTS }).values.status).toBe(expected)
     })
 })

@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -18,12 +19,11 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { accountPropertyDataLogic } from './accountPropertyDataLogic'
+import { accountPropertyUpdatesLogic } from './accountPropertyUpdatesLogic'
 import { scene } from './CustomerAnalyticsAccountScene'
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
-import {
-    parseExternalAccountPath,
-    shouldRenderLegacyCustomerAnalyticsScene,
-} from './customerAnalyticsAccountSceneUtils'
+import { parseExternalAccountPath } from './customerAnalyticsAccountSceneUtils'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
@@ -41,6 +41,7 @@ const mockAccountsPresenceCreate = accountsPresenceCreate as jest.MockedFunction
 const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 
 const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
+const ACCOUNT_VIEW_TAB = 'view:11111111-2222-4333-8444-555555555555'
 const PROJECT_ID = 999
 const account: AccountApi = {
     id: ACCOUNT_ID,
@@ -81,7 +82,6 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
-            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: true,
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]: true,
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: true,
         })
@@ -113,7 +113,49 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         expect(logic.values.account).toEqual(account)
         expect(logic.values.accountLoadError).toBeNull()
         expect(logic.values.breadcrumbs.at(-1)?.name).toBe(account.name)
+        expect(logic.values.todayPeopleRecent).toEqual({
+            type: 'account',
+            name: account.name,
+            href: urls.customerAnalyticsAccount(ACCOUNT_ID),
+        })
     })
+
+    it.each([false, true])(
+        'keeps widget saves and editor drafts when a stale read finishes (external route: %s)',
+        async (externalRoute) => {
+            mockAccountsRetrieve.mockResolvedValue(account)
+            mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
+            if (externalRoute) {
+                router.actions.push(urls.customerAnalyticsAccountByExternalId(account.external_id!))
+                mountExternalIdLogic(account.external_id!)
+            } else {
+                mountLogic()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValue('website_domain', 'draft.example.com')
+            const pending = createDeferred<AccountApi>()
+            const retrieve = externalRoute ? mockAccountsByExternalIdRetrieve : mockAccountsRetrieve
+            retrieve.mockClear().mockReturnValueOnce(pending.promise)
+            logic.actions.loadAccount()
+            try {
+                await waitFor(() => expect(retrieve).toHaveBeenCalledTimes(1))
+                accountPropertyUpdatesLogic.actions.accountUpdated(PROJECT_ID, {
+                    ...account,
+                    properties: { website_domain: 'saved.example.com', billing_id: 'saved-billing' },
+                })
+            } finally {
+                pending.resolve(account)
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.account?.properties).toEqual({
+                website_domain: 'saved.example.com',
+                billing_id: 'saved-billing',
+            })
+            expect(logic.values.accountForm.website_domain).toBe('draft.example.com')
+            expect(logic.values.accountEditorOpen).toBe(true)
+        }
+    )
 
     it('loads a UUID account while the account scene flag is disabled', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {
@@ -275,6 +317,130 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         expect(logic.values.account).toEqual(account)
     })
 
+    describe('account editor', () => {
+        let shared: ReturnType<typeof accountPropertyDataLogic.build>
+
+        beforeEach(async () => {
+            shared = accountPropertyDataLogic({ projectId: PROJECT_ID, accountId: ACCOUNT_ID })
+            shared.mount()
+            mockAccountsRetrieve.mockResolvedValue(account)
+            mountLogic()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => shared.unmount())
+
+        it('saves only edited fields without replacing concurrent or unrelated properties', async () => {
+            const currentAccount = {
+                ...account,
+                properties: {
+                    hubspot_deal_id: 'deal-1',
+                    usage_dashboard_link: 'https://example.com/usage',
+                    metabase_link: 'https://example.com/metabase',
+                    stripe_customer_id: 'stripe-old',
+                    sfdc_id: 'salesforce-concurrent',
+                    billing_id: 'billing-concurrent',
+                    known_emails: ['concurrent@example.com'],
+                },
+            }
+            const updatedAccount = {
+                ...currentAccount,
+                name: 'Renamed account',
+            }
+            mockAccountsRetrieve.mockResolvedValueOnce(currentAccount)
+            mockAccountsPartialUpdate.mockResolvedValue(updatedAccount)
+
+            logic.actions.openAccountEditor()
+            expect(logic.values.accountForm.name).toBe(account.name)
+            logic.actions.loadAccountSuccess(currentAccount)
+            logic.actions.setAccountFormValues({
+                name: '  Renamed account  ',
+                website_domain: 'example.com',
+                billing_id: '',
+                slack_channel_id: 'C123',
+                sfdc_id: '',
+                stripe_customer_id: 'stripe-new',
+                email_domains: [' @Example.com', 'example.com'],
+                known_emails: [],
+            })
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
+                name: 'Renamed account',
+                properties: {
+                    hubspot_deal_id: 'deal-1',
+                    usage_dashboard_link: 'https://example.com/usage',
+                    metabase_link: 'https://example.com/metabase',
+                    stripe_customer_id: 'stripe-new',
+                    website_domain: 'example.com',
+                    billing_id: 'billing-concurrent',
+                    slack_channel_id: 'C123',
+                    sfdc_id: 'salesforce-concurrent',
+                    known_emails: ['concurrent@example.com'],
+                    email_domains: ['example.com'],
+                },
+            })
+            expect(shared.values.account).toEqual(updatedAccount)
+            expect(logic.values.accountEditorOpen).toBe(false)
+            expect(logic.values.breadcrumbs.at(-1)?.name).toBe('Renamed account')
+        })
+
+        it('leaves untouched email lists alone when stored values are not normalized', async () => {
+            const storedAccount = { ...account, properties: { known_emails: ['USER@example.com'] } }
+            logic.actions.loadAccountSuccess(storedAccount)
+            mockAccountsRetrieve.mockResolvedValueOnce(storedAccount)
+            mockAccountsPartialUpdate.mockResolvedValue(storedAccount)
+
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValue('name', 'Renamed account')
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
+                name: 'Renamed account',
+                properties: { known_emails: ['USER@example.com'] },
+            })
+        })
+
+        it('sends only status dates that changed, including cleared ones', async () => {
+            const datedAccount = {
+                ...account,
+                churned_at: '2026-05-01T10:00:00Z',
+                ignored_at: '2026-05-15T10:00:00Z',
+                properties: {},
+            }
+            logic.actions.loadAccountSuccess(datedAccount)
+            mockAccountsRetrieve.mockResolvedValueOnce(datedAccount)
+            mockAccountsPartialUpdate.mockResolvedValue({ ...datedAccount, ignored_at: null })
+
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValues({ churned_at: '2026-05-01T10:00:00.000Z', ignored_at: null })
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
+                ignored_at: null,
+                properties: {},
+            })
+            expect(logic.values.account?.ignored_at).toBeNull()
+        })
+
+        it('keeps the draft open when the save fails', async () => {
+            mockAccountsPartialUpdate.mockRejectedValue(new ApiError('Unavailable', 500))
+            jest.spyOn(posthog, 'captureException').mockImplementation()
+
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValue('name', 'Draft account')
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountEditorOpen).toBe(true)
+            expect(logic.values.accountForm.name).toBe('Draft account')
+            expect(logic.values.account?.name).toBe(account.name)
+        })
+    })
+
     describe('tag updates', () => {
         beforeEach(async () => {
             mockAccountsRetrieve.mockResolvedValue(account)
@@ -353,18 +519,6 @@ describe('customerAnalyticsAccountSceneLogic', () => {
     })
 
     describe('external ID routes', () => {
-        it('does not render the legacy scene for an external route while flags are unresolved', () => {
-            expect(
-                shouldRenderLegacyCustomerAnalyticsScene(
-                    urls.customerAnalyticsAccountByExternalId('unresolved account'),
-                    false
-                )
-            ).toBe(false)
-            expect(shouldRenderLegacyCustomerAnalyticsScene(urls.customerAnalyticsAccount(ACCOUNT_ID), false)).toBe(
-                true
-            )
-        })
-
         it.each([
             'spaces %2F slash / ? # + Unicode 漢字',
             'literal %2F sequence',
@@ -404,7 +558,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             })
             expect(mockAccountsRetrieve).not.toHaveBeenCalled()
             expect(mockAccountsPresenceCreate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID)
-            expect(logic.values.activeTab).toBe('usage')
+            expect(logic.values.requestedTab).toBe('usage')
             expect(router.values.location.pathname).toBe(urls.currentProject(externalUrl))
 
             logic.actions.setActiveTab('users')
@@ -435,9 +589,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
 
         it('does not load an external ID when customer analytics is unavailable', async () => {
             const externalId = 'unavailable account'
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: true,
-            })
+            featureFlagLogic.actions.setFeatureFlags([], {})
 
             router.actions.push(urls.customerAnalyticsAccountByExternalId(externalId))
             mountExternalIdLogic(externalId)
@@ -447,44 +599,34 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(mockAccountsPresenceCreate).not.toHaveBeenCalled()
         })
 
-        it.each([true, false])(
-            'waits for fresh flags before resolving with the detail scene enabled: %s',
-            async (accountSceneEnabled) => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true })
-                featureFlagLogic.unmount()
-                initKeaTests()
-                featureFlagLogic.mount()
-                expect(featureFlagLogic.values.receivedFeatureFlags).toBe(false)
-                expect(featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]).toBe(true)
-                const externalId = 'cached flag account'
-                const externalUrl = urls.customerAnalyticsAccountByExternalId(externalId, 'usage')
-                mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
-                router.actions.push(externalUrl)
-                mountExternalIdLogic(externalId)
-                await expectLogic(logic).toFinishAllListeners()
+        it('waits for fresh flags before resolving an external ID', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true })
+            featureFlagLogic.unmount()
+            initKeaTests()
+            featureFlagLogic.mount()
+            expect(featureFlagLogic.values.receivedFeatureFlags).toBe(false)
+            expect(featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]).toBe(true)
+            const externalId = 'cached flag account'
+            const externalUrl = urls.customerAnalyticsAccountByExternalId(externalId, 'usage')
+            mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
+            router.actions.push(externalUrl)
+            mountExternalIdLogic(externalId)
+            await expectLogic(logic).toFinishAllListeners()
 
-                expect(mockAccountsByExternalIdRetrieve).not.toHaveBeenCalled()
+            expect(mockAccountsByExternalIdRetrieve).not.toHaveBeenCalled()
 
-                featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
-                    [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: accountSceneEnabled,
-                })
-                await expectLogic(logic).toFinishAllListeners()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
+            })
+            await expectLogic(logic).toFinishAllListeners()
 
-                expect(mockAccountsByExternalIdRetrieve).toHaveBeenCalledTimes(1)
-                expect(router.values.location.pathname).toBe(
-                    urls.currentProject(
-                        accountSceneEnabled ? externalUrl : urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage')
-                    )
-                )
-            }
-        )
+            expect(mockAccountsByExternalIdRetrieve).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toBe(urls.currentProject(externalUrl))
+        })
 
         it('resolves an external account when customer analytics access arrives', async () => {
             const externalId = 'deferred external account'
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: true,
-            })
+            featureFlagLogic.actions.setFeatureFlags([], {})
             mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
 
             router.actions.push(urls.customerAnalyticsAccountByExternalId(externalId))
@@ -494,35 +636,12 @@ describe('customerAnalyticsAccountSceneLogic', () => {
 
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
-                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: true,
             })
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockAccountsByExternalIdRetrieve).toHaveBeenCalledWith(String(PROJECT_ID), {
                 external_id: externalId,
             })
-        })
-
-        it('redirects to the UUID detail route only when the detail scene flag is disabled', async () => {
-            const externalId = 'legacy account'
-            const externalUrl = urls.customerAnalyticsAccountByExternalId(externalId, 'usage')
-            const searchParams = { source: 'account-link' }
-            const hashParams = { view: { search: 'example' } }
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
-            })
-            mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
-
-            router.actions.push(externalUrl, searchParams, hashParams)
-            mountExternalIdLogic(externalId)
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(router.values.location.pathname).toBe(
-                urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
-            )
-            expect(router.values.currentLocation.searchParams).toEqual(searchParams)
-            expect(router.values.currentLocation.hashParams).toEqual(hashParams)
-            expect(mockAccountsPresenceCreate).not.toHaveBeenCalled()
         })
 
         it('ignores an external lookup that resolves after navigation', async () => {
@@ -557,32 +676,13 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         it('selects Notes for the bare account URL', () => {
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
 
-            expect(logic.values.activeTab).toBe('notes')
+            expect(logic.values.requestedTab).toBe('')
         })
 
         it.each(['users', 'usage', 'feature_requests', 'tasks'] as const)('selects the %s tab from the URL', (tab) => {
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, tab))
 
-            expect(logic.values.activeTab).toBe(tab)
-        })
-
-        it('selects Notes for an unknown tab', () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'unknown'))
-
-            expect(logic.values.activeTab).toBe('notes')
-        })
-
-        it('selects Notes for a feature-flag-hidden tab', () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
-            })
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'feature_requests'))
-
-            expect(logic.values.activeTab).toBe('notes')
-
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'tasks'))
-
-            expect(logic.values.activeTab).toBe('notes')
+            expect(logic.values.requestedTab).toBe(tab)
         })
 
         it('preserves URL state and captures only user tab changes', () => {
@@ -592,7 +692,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
 
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'users'), searchParams, hashParams)
 
-            expect(logic.values.activeTab).toBe('users')
+            expect(logic.values.requestedTab).toBe('users')
             expect(capture).not.toHaveBeenCalledWith(AccountsEvents.TabViewed, expect.anything())
 
             logic.actions.setActiveTab('usage')
@@ -604,9 +704,18 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(router.values.currentLocation.hashParams).toEqual(hashParams)
             expect(capture).toHaveBeenCalledWith(AccountsEvents.TabViewed, { tab: 'usage' })
 
+            logic.actions.setActiveTab(ACCOUNT_VIEW_TAB)
+
+            expect(router.values.location.pathname).toBe(
+                urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID, ACCOUNT_VIEW_TAB))
+            )
+            expect(logic.values.requestedTab).toBe(ACCOUNT_VIEW_TAB)
+
             logic.actions.setActiveTab('notes')
 
-            expect(router.values.location.pathname).toBe(urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID)))
+            expect(router.values.location.pathname).toBe(
+                urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID, 'notes'))
+            )
             expect(router.values.currentLocation.searchParams).toEqual(searchParams)
             expect(router.values.currentLocation.hashParams).toEqual(hashParams)
         })

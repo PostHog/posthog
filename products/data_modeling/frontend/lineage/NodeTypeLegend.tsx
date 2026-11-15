@@ -5,7 +5,7 @@ import { DataModelingNodeType } from '~/types'
 
 import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
 
-const LEGEND_ENTRIES: { type: DataModelingNodeType; description: string }[] = [
+export const LEGEND_ENTRIES: { type: DataModelingNodeType; description: string }[] = [
     { type: 'view', description: 'A virtual table based on a SQL query' },
     { type: 'matview', description: 'A persisted view with improved query performance' },
     { type: 'endpoint', description: 'A materialized endpoint for API access' },
@@ -28,7 +28,9 @@ export function NodeTypeLegend({ collapsed, onToggleCollapse }: NodeTypeLegendPr
                 onClick={onToggleCollapse}
                 data-attr="lineage-legend-toggle"
                 tooltip="Show what each node type means"
-            />
+            >
+                Node types
+            </LemonButton>
         )
     }
 

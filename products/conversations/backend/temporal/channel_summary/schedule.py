@@ -41,7 +41,12 @@ async def create_channel_summary_coordinator_schedule(client: Client) -> None:
             id=CHANNEL_SUMMARY_COORDINATOR_SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES), offset=timedelta(minutes=2))
+            ],
+            jitter=timedelta(minutes=10),
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 

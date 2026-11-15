@@ -5,20 +5,12 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_sentiment_result
 from posthog.temporal.ai_observability.sentiment.extraction import extract_sentiment_eval_messages
 from posthog.temporal.ai_observability.sentiment.schema import PendingClassification, SentimentResult
 from posthog.temporal.ai_observability.sentiment.utils import build_generation_result
 
-
-def _skipped_sentiment_activity_result(skip_reason: str, reasoning: str) -> EvaluationActivityResult:
-    return {
-        "result_type": "sentiment",
-        "reasoning": reasoning,
-        "skipped": True,
-        "skip_reason": skip_reason,
-    }
+from products.ai_observability.backend.facade.evaluation_runtime import extract_event_io
 
 
 def _build_sentiment_activity_result(
@@ -28,12 +20,13 @@ def _build_sentiment_activity_result(
     classification_results: list[SentimentResult],
 ) -> EvaluationActivityResult:
     if not user_messages:
-        return _skipped_sentiment_activity_result(
-            "no_user_messages", "No user messages found; sentiment evaluation skipped."
+        return build_skipped_sentiment_result(
+            skip_reason="no_user_messages", reasoning="No user messages found; sentiment evaluation skipped."
         )
     if not classification_results:
-        return _skipped_sentiment_activity_result(
-            "no_classifications", "No sentiment classifications produced; sentiment evaluation skipped."
+        return build_skipped_sentiment_result(
+            skip_reason="no_classifications",
+            reasoning="No sentiment classifications produced; sentiment evaluation skipped.",
         )
 
     pending = [
@@ -92,8 +85,8 @@ async def run_sentiment_eval(evaluation: dict[str, Any], event_data: dict[str, A
     trace_id = properties.get("$ai_trace_id", event_uuid)
     user_messages = extract_sentiment_eval_messages(io.input_raw)
     if not user_messages:
-        return _skipped_sentiment_activity_result(
-            "no_user_messages", "No user messages found; sentiment evaluation skipped."
+        return build_skipped_sentiment_result(
+            skip_reason="no_user_messages", reasoning="No user messages found; sentiment evaluation skipped."
         )
 
     texts = [text for _message_index, text in user_messages]

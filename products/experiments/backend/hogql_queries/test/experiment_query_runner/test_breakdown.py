@@ -5,6 +5,8 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 
 from django.test import override_settings
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     Breakdown,
     BreakdownFilter,
@@ -1121,6 +1123,26 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify error message mentions too many items
         self.assertIn("at most 3 items", str(context.exception))
+
+    def test_breakdown_validation_rejects_element_type(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="text", type="element")]),
+        )
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with self.assertRaises(ValidationError) as context:
+            query_runner._get_breakdowns_for_builder()
+
+        self.assertIn("Element breakdowns are not supported", str(context.exception))
 
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries

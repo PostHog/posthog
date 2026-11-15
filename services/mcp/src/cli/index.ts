@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
@@ -10,15 +9,16 @@ import type { CliConfig } from './config'
 import { resolveCliConfig, requireApiKey } from './config'
 import { buildCliContext, flushAnalytics } from './context'
 import { installSkill, listSkills } from './skills'
-import { buildToolCallProperties } from './tool-call-properties'
+import { trackCliToolCall } from './tool-call-properties'
 import { getCliTools } from './tools'
+import { failureText, isRunningInCI } from './utils'
 
 const COMMAND_REFERENCE = `CLI-style command string. Supported commands:
 tools
 search <regex_pattern>
 info [--json] <tool_name>
 schema <tool_name> [field_path]
-call [--json] [--confirm] <tool_name> <json_input>`
+call [--json] [--confirm] <tool_name> [json_input]`
 
 interface BuiltExec {
     context: Context
@@ -40,10 +40,13 @@ Usage:
   posthog-cli api search <regex>
   posthog-cli api info [--json] <tool>
   posthog-cli api schema <tool> [field.path]
-  posthog-cli api call [--json] [--dry-run] [--confirm] <tool> '<json>'
+  posthog-cli api call [--json] [--dry-run] [--confirm] <tool> ['<json>']
   posthog-cli api skill list [--json]
   posthog-cli api skill install [--force] <skill-id>
   posthog-cli api agents-md install [--path AGENTS.md]
+
+Call targets: --project-id <id> and --organization-id <id> override environment and login defaults.
+Targets apply to this invocation. Repeat them on each call or set per-process environment variables.
 
 Destructive tools require --confirm when executed. Use --dry-run before mutations.
 Agents: run \`posthog-cli api --agent-help\` and load the output into context before anything else.`
@@ -92,9 +95,7 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
         'Execute a PostHog CLI command',
         COMMAND_REFERENCE,
         'posthog-cli',
-        (toolName, properties) => {
-            void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, buildToolCallProperties(toolName, properties))
-        },
+        (toolName, properties) => trackCliToolCall(context, toolName, properties),
         [],
         { requireDestructiveConfirmation: true }
     )
@@ -112,8 +113,7 @@ async function runStaticExecCommand(command: string): Promise<void> {
     printResult(result)
 }
 
-async function runExecCommand(command: string): Promise<void> {
-    const config = resolveCliConfig()
+async function runExecCommand(command: string, config: CliConfig): Promise<void> {
     if (command.startsWith('call ')) {
         requireApiKey(config)
     }
@@ -241,6 +241,7 @@ async function main(): Promise<void> {
             return
         }
         case 'call': {
+            const config = resolveCliConfig(args)
             const dryRun = takeFlag(args, '--dry-run')
             if (dryRun) {
                 await runDryCall(args)
@@ -251,9 +252,12 @@ async function main(): Promise<void> {
             const toolName = args.shift()
             const jsonBody = args.length > 0 ? args.join(' ') : '{}'
             if (!toolName) {
-                throw new Error('Usage: posthog-cli api call [--json] [--dry-run] [--confirm] <tool> <json>')
+                throw new Error('Usage: posthog-cli api call [--json] [--dry-run] [--confirm] <tool> [json]')
             }
-            await runExecCommand(`call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`)
+            await runExecCommand(
+                `call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`,
+                config
+            )
             return
         }
         case 'skill':
@@ -268,8 +272,7 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    process.stderr.write(`Error: ${message}\n`)
+    process.stderr.write(`Error: ${failureText(error, isRunningInCI(process.env))}\n`)
     // process.exit() kills in-flight requests, which silently dropped every
     // errored $mcp_tool_call event; flush analytics before exiting non-zero.
     await flushAnalytics()

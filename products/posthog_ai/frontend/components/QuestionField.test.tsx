@@ -41,6 +41,25 @@ describe('QuestionField', () => {
         expect(screen.getByText('Option B')).toBeInTheDocument()
     })
 
+    it.each([
+        [false, 1],
+        [true, 0],
+    ])('select option click with disabled=%s answers %s times', (disabled, answers) => {
+        const onAnswer = jest.fn()
+        render(
+            <QuestionField
+                question={selectQuestion}
+                value={undefined}
+                onAnswer={onAnswer}
+                onChange={jest.fn()}
+                onSubmit={jest.fn()}
+                disabled={disabled}
+            />
+        )
+        fireEvent.click(screen.getByText('Option A'))
+        expect(onAnswer).toHaveBeenCalledTimes(answers)
+    })
+
     it('renders multi_select with checkboxes', () => {
         const onAnswer = jest.fn()
         const question: MultiQuestionFormQuestion = {

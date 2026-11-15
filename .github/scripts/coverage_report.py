@@ -411,8 +411,9 @@ def build_agent_hint() -> str:
     else:
         payload = "the **patch-coverage** artifact"
     return (
-        '🤖 **Agents:** add a test covering the lines above, or note why under "How did you test '
-        f'this code?". Machine-readable gap list: {payload}, or the `coverage-data` block at the end of this comment.'
+        "🤖 **Agents:** add a test only if an uncovered line exposes a realistic regression that existing tests miss. "
+        f'Otherwise explain why no new test is needed under "How did you test this code?". Gap list: {payload}, '
+        "or the `coverage-data` block at the end of this comment."
     )
 
 

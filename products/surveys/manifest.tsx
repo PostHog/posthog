@@ -1,14 +1,18 @@
-import { SurveysTabs } from 'scenes/surveys/surveysLogic'
+import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Surveys',
+    activityDescribers: {
+        [ActivityScope.SURVEY]: () =>
+            import('scenes/surveys/surveyActivityDescriber').then((module) => module.surveyActivityDescriber),
+    },
     urls: {
-        surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
+        surveys: (tab?: `${SurveysTabs}`): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
         /** @param id A UUID or 'new'. ':id' for routing. */
         survey: (id: string): string => `/surveys/${id}`,
         surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
@@ -20,7 +24,9 @@ export const manifest: ProductManifest = {
             name: 'Survey',
             iconType: 'survey',
             href: (ref: string) => urls.survey(ref),
-            iconColor: ['var(--color-product-surveys-light)'],
+            listHref: () => urls.surveys(),
+            listSearchParam: 'search',
+            iconColor: ['var(--color-product-surveys-light)', 'var(--color-product-surveys-dark)'],
             filterKey: 'survey',
         },
     },
@@ -30,7 +36,10 @@ export const manifest: ProductManifest = {
             type: 'survey',
             href: urls.surveyWizard('new'),
             iconType: 'survey',
-            iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-surveys-light)',
+                'var(--color-product-surveys-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [
@@ -40,8 +49,13 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'survey',
             href: urls.surveys(),
+            searchKeywords: ['feedback', 'nps', 'csat', 'polls'],
+            searchTabs: [{ name: 'Notifications', href: urls.surveys('notifications') }],
             iconType: 'survey',
-            iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-surveys-light)',
+                'var(--color-product-surveys-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'Surveys',
             sceneKeys: ['Survey', 'Surveys'],
         },

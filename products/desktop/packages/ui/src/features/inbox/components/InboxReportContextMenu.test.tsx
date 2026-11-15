@@ -4,6 +4,7 @@ import {
   useAuthStore,
 } from "@posthog/ui/features/auth/store";
 import { useInboxReportReadStore } from "@posthog/ui/features/inbox/stores/inboxReportReadStore";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   copyLink: vi.fn(),
   createPr: vi.fn(),
   createPrOptions: undefined as
-    | { surface?: string; reportId: string }
+    | { surface?: string; reportId: string; trackAction?: unknown }
     | undefined,
   dismissWithReason: vi.fn(),
   openDismissDialog: vi.fn(),
@@ -28,7 +29,22 @@ const mocks = vi.hoisted(() => ({
     | undefined,
 }));
 
+const readClient = vi.hoisted(() => ({
+  getReportReadState: vi.fn(async () => false),
+  getReportReadStates: vi.fn(async (ids: string[], read: boolean) =>
+    Object.fromEntries(ids.map((id) => [id, read])),
+  ),
+}));
+
+vi.mock("@posthog/ui/features/auth/authClient", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@posthog/ui/features/auth/authClient")
+  >()),
+  useOptionalAuthenticatedClient: () => readClient,
+}));
+
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  AUTH_SCOPED_QUERY_META: {},
   useCurrentUser: () => ({ data: { uuid: mocks.readerUuid } }),
 }));
 
@@ -61,7 +77,11 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxRestoreReport", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useCreatePrReport", () => ({
-  useCreatePrReport: (options: { surface?: string; reportId: string }) => {
+  useCreatePrReport: (options: {
+    surface?: string;
+    reportId: string;
+    trackAction?: unknown;
+  }) => {
     mocks.createPrOptions = options;
     return {
       createPrReport: mocks.createPr,
@@ -119,10 +139,15 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
 }
 
 function openMenu(report: SignalReport): void {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
-    <InboxReportContextMenu report={report}>
-      <div>{report.title}</div>
-    </InboxReportContextMenu>,
+    <QueryClientProvider client={queryClient}>
+      <InboxReportContextMenu report={report}>
+        <div>{report.title}</div>
+      </InboxReportContextMenu>
+    </QueryClientProvider>,
   );
   fireEvent.contextMenu(screen.getByText(report.title ?? ""));
 }
@@ -248,8 +273,8 @@ describe("InboxReportContextMenu", () => {
     openMenu(makeReport());
 
     await user.hover(screen.getByText("Resolve"));
-    fireEvent.click(await screen.findByText("PR was merged"));
-    expect(mocks.resolveWithReason).toHaveBeenCalledWith("pr_merged");
+    fireEvent.click(await screen.findByText("No action needed"));
+    expect(mocks.resolveWithReason).toHaveBeenCalledWith("no_action_needed");
 
     fireEvent.contextMenu(screen.getByText("Report one"));
     await user.hover(screen.getByText("Dismiss"));
@@ -275,9 +300,8 @@ describe("InboxReportContextMenu", () => {
     await user.click(screen.getByText("Create PR"));
 
     expect(mocks.createPr).toHaveBeenCalledOnce();
-    expect(mocks.trackAction).toHaveBeenCalledWith("create_pr", {
-      has_feedback: false,
-    });
+    // The hook records create_pr once the run starts, so the menu hands it the tracker.
+    expect(mocks.createPrOptions?.trackAction).toBe(mocks.trackAction);
     expect(mocks.trackerSurface).toBe("context_menu");
     expect(mocks.createPrOptions?.surface).toBe("context_menu");
   });
@@ -303,8 +327,8 @@ describe("InboxReportContextMenu", () => {
     );
 
     fireEvent.click(screen.getByText("Resolve"));
-    fireEvent.click(await screen.findByText("PR was merged"));
-    expect(mocks.openResolveDialog).toHaveBeenCalledWith("pr_merged");
+    fireEvent.click(await screen.findByText("No action needed"));
+    expect(mocks.openResolveDialog).toHaveBeenCalledWith("no_action_needed");
     expect(mocks.resolveWithReason).not.toHaveBeenCalled();
 
     fireEvent.contextMenu(screen.getByText("Report one"));

@@ -1,69 +1,44 @@
-import { useActions, useValues } from 'kea'
-import { useState, memo } from 'react'
+import clsx from 'clsx'
+import { useContext, memo } from 'react'
 
 import { IconCopy, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { stripMarkdown } from 'lib/utils/markdown'
 
-import { messageRatingsLogic } from '../logics/messageRatingsLogic'
 import { MessageTemplate } from '../messages/MessageTemplate'
-import { RunRef, captureTurnFeedbackText, captureTurnRating } from '../utils/feedbackEvents'
-
-export interface TurnFeedbackActionsProps {
-    /** Task id backing the sandbox conversation. Lands in `$ai_session_id`. */
-    sessionId: string
-    /** Ordinal of the completed turn — the rating's identity, stable across reloads. */
-    turnIndex: number
-    run: RunRef
-    /** The turn's gateway trace id, when the run reported one. Lands in `$ai_trace_id`. */
-    traceId?: string
-    turnText: string
-}
+import { useQuillThread } from './quill/quillThreadContext'
+import { QuillTurnFeedbackActions } from './quill/QuillTurnFeedbackActions'
+import type { TurnFeedbackActionsProps } from './turnFeedbackTypes'
+import { TurnRevealContext } from './TurnRevealContext'
+import { useTurnRating } from './useTurnRating'
 
 /**
- * Feedback actions under a completed turn: copy, thumbs up/down, and a free-text form on
- * thumbs-down. Counterpart of the legacy thread's `SuccessActions` — same events
+ * Feedback actions under a completed turn: copy, thumbs up/down, the completion time, and a
+ * free-text form on thumbs-down. Counterpart of the legacy thread's `SuccessActions` — same events
  * (`$ai_metric` quality / `$ai_feedback`), plus runtime/task/run properties.
  */
-export const TurnFeedbackActions = memo(function TurnFeedbackActions({
+export const TurnFeedbackActions = memo(function TurnFeedbackActions(props: TurnFeedbackActionsProps): JSX.Element {
+    return useQuillThread() ? <QuillTurnFeedbackActions {...props} /> : <LemonTurnFeedbackActions {...props} />
+})
+
+function LemonTurnFeedbackActions({
     sessionId,
     turnIndex,
     run,
     traceId,
     turnText,
+    timestamp,
 }: TurnFeedbackActionsProps): JSX.Element {
-    const { ratingForKey } = useValues(messageRatingsLogic)
-    const { setRating } = useActions(messageRatingsLogic)
-
-    const ratingKey = `${sessionId}:turn-${turnIndex}`
-    const rating = ratingForKey(ratingKey)
-    const [feedback, setFeedback] = useState<string>('')
-    const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
-
-    function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating) {
-            return // Already rated
-        }
-        setRating({ key: ratingKey, rating: newRating })
-        captureTurnRating(sessionId, traceId ?? null, newRating, turnIndex, run)
-        if (newRating === 'bad') {
-            setFeedbackInputStatus('pending')
-        }
-    }
-
-    function submitFeedback(): void {
-        if (!feedback) {
-            return // Input is empty
-        }
-        captureTurnFeedbackText(sessionId, traceId ?? null, feedback, turnIndex, run)
-        setFeedbackInputStatus('submitted')
-    }
+    const turnHovered = useContext(TurnRevealContext)
+    const { rating, submitRating, feedback, setFeedback, feedbackInputStatus, closeFeedback, submitFeedback } =
+        useTurnRating({ sessionId, turnIndex, run, traceId })
 
     return (
         <>
-            <div className="flex items-center ml-1">
+            <div className="group flex items-center ml-1">
                 {turnText && (
                     <LemonButton
                         icon={<IconCopy />}
@@ -94,6 +69,15 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
                         onClick={() => submitRating('bad')}
                     />
                 )}
+                {timestamp !== undefined && (
+                    <TZLabel
+                        time={new Date(timestamp).toISOString()}
+                        className={clsx(
+                            'text-xs text-muted ml-1 transition-opacity group-focus-within:opacity-100',
+                            !turnHovered && 'opacity-0'
+                        )}
+                    />
+                )}
             </div>
             {feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
@@ -103,12 +87,7 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
                                 ? 'What disappointed you about the answer?'
                                 : 'Thank you for your feedback!'}
                         </h4>
-                        <LemonButton
-                            icon={<IconX />}
-                            type="tertiary"
-                            size="xsmall"
-                            onClick={() => setFeedbackInputStatus('hidden')}
-                        />
+                        <LemonButton icon={<IconX />} type="tertiary" size="xsmall" onClick={closeFeedback} />
                     </div>
                     {feedbackInputStatus === 'pending' && (
                         <div className="flex w-full gap-1.5 items-center mt-1.5">
@@ -134,4 +113,4 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
             )}
         </>
     )
-})
+}

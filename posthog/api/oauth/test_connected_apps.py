@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from typing import Literal
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -11,6 +12,8 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
+from posthog.models.organization import Organization
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.user import User
 
 
@@ -136,8 +139,80 @@ class TestConnectedAppsViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 2
 
-    def test_list_shows_verified_and_first_party_flags(self):
-        app = self._create_app(is_verified=True, is_first_party=True)
+    @parameterized.expand(
+        [
+            (
+                "unverified_partner_that_set_up_the_users_org",
+                {"is_provisioning_partner": True},
+                "own",
+                {"is_verified": False, "is_first_party": False, "requires_access_confirmation": True},
+            ),
+            (
+                "verified_partner",
+                {"is_provisioning_partner": True, "is_verified": True},
+                "own",
+                {"is_verified": True, "is_first_party": False, "requires_access_confirmation": False},
+            ),
+            (
+                "first_party_partner",
+                {"is_provisioning_partner": True, "is_first_party": True},
+                "own",
+                {"is_verified": False, "is_first_party": True, "requires_access_confirmation": False},
+            ),
+            (
+                "partner_switched_off_after_setting_up_the_users_org",
+                {"is_provisioning_partner": False},
+                "own",
+                {"requires_access_confirmation": True},
+            ),
+            (
+                "partner_the_user_authorized_directly",
+                {"is_provisioning_partner": True, "provisioning": {"can_create_accounts": True}},
+                None,
+                {"requires_access_confirmation": False},
+            ),
+            (
+                "partner_that_set_up_another_org",
+                {"is_provisioning_partner": True},
+                "other",
+                {"requires_access_confirmation": False},
+            ),
+        ]
+    )
+    def test_list_shows_trust_flags(
+        self,
+        _name: str,
+        app_kwargs: dict,
+        provisioned_org: Literal["own", "other"] | None,
+        expected_flags: dict[str, bool],
+    ):
+        app = self._create_app(**app_kwargs)
+        self._create_token(app)
+        if provisioned_org is not None:
+            OrganizationProvisioning.objects.create(
+                organization=self.organization
+                if provisioned_org == "own"
+                else Organization.objects.create(name="Someone else's org"),
+                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+                application=app,
+            )
+
+        response = self.client.get("/api/oauth/connected-apps/")
+
+        data = response.json()[0]
+        assert {flag: data[flag] for flag in expected_flags} == expected_flags
+
+    @parameterized.expand(
+        [
+            ("dynamic_client_registration", {"is_dcr_client": True}, True),
+            ("client_id_metadata_document", {"client_id": "https://agent.example.com/oauth/client.json"}, True),
+            ("registered_by_posthog", {}, False),
+        ]
+    )
+    def test_list_shows_verified_first_party_and_self_registered_flags(
+        self, _name: str, app_kwargs: dict, is_self_registered: bool
+    ):
+        app = self._create_app(is_verified=True, is_first_party=True, **app_kwargs)
         self._create_token(app)
 
         response = self.client.get("/api/oauth/connected-apps/")
@@ -145,6 +220,7 @@ class TestConnectedAppsViewSet(APIBaseTest):
         data = response.json()[0]
         assert data["is_verified"] is True
         assert data["is_first_party"] is True
+        assert data["is_self_registered"] is is_self_registered
 
     def test_revoke_deletes_all_tokens_for_app(self):
         app = self._create_app()

@@ -15,7 +15,6 @@ import { urls } from 'scenes/urls'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
-import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 
 import type { ActionReferenceApi } from '../generated/api.schemas'
@@ -75,9 +74,6 @@ export interface actionEditLogicActions {
     loadEventDefinitions: (url?: string | null | undefined) => {
         url: string | null
     } // eventDefinitionsTableLogic
-    loadTags: () => {
-        value: true
-    } // tagsModel
     actionAlreadyExists: (actionId: number | null) => {
         actionId: number | null
     }
@@ -205,7 +201,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     props({} as ActionEditLogicProps),
     key((props) => `${props.id || 'new'}`),
     connect(() => ({
-        actions: [eventDefinitionsTableLogic, ['loadEventDefinitions'], tagsModel, ['loadTags']],
+        actions: [eventDefinitionsTableLogic, ['loadEventDefinitions']],
     })),
     actions({
         setAction: (action: Partial<ActionType>, options: SetActionProps = { merge: true }) => ({
@@ -298,6 +294,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
                         lemonToast.error('Action name cannot be empty.')
                         return { ...updatedAction }
                     }
+                    if (response.code === 'hidden_event') {
+                        lemonToast.error(response.detail)
+                        return { ...updatedAction }
+                    }
                     throw response
                 }
 
@@ -318,7 +318,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
                 actions.loadEventDefinitions()
                 actionsModel.findMounted({ shouldLoad: true })?.actions.loadActions(true)
-                actions.loadTags() // reload tags in case new tags are being saved
                 return action
             },
         },

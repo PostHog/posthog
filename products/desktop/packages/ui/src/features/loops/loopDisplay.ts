@@ -1,5 +1,5 @@
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import { formatClockTime } from "@posthog/shared";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { nextRecurringRun } from "@posthog/ui/primitives/nextRecurringRun";
 import {
   formatTimezoneAbbreviation,
@@ -68,63 +68,20 @@ function describeNextRun(
   return ` · Next run ${formatted}`;
 }
 
-type LoopStatusFields = Pick<
-  LoopSchemas.Loop,
-  "enabled" | "disabled_reason" | "last_run_status"
->;
+type LoopStatusFields = Pick<LoopSchemas.Loop, "enabled" | "last_run_status">;
 
 export function loopStatusColor(
   loop: LoopStatusFields,
 ): "gray" | "green" | "red" {
-  if (!loop.enabled) return loop.disabled_reason ? "red" : "gray";
+  if (!loop.enabled) return "gray";
   if (loop.last_run_status === "failed") return "red";
   return "green";
 }
 
 export function loopStatusLabel(loop: LoopStatusFields): string {
-  if (!loop.enabled) {
-    if (loop.disabled_reason === "usage_limited") return "Paused: usage limit";
-    if (loop.disabled_reason) return "Auto-paused";
-    return "Paused";
-  }
+  if (!loop.enabled) return "Paused";
   if (loop.last_run_status === "failed") return "Failing";
   return "Active";
-}
-
-const PAUSED_DESCRIPTIONS: Record<string, string> = {
-  usage_limited:
-    "Paused automatically: your organization reached its usage limit. Upgrade or wait for the limit to reset, then re-enable the loop.",
-  repeated_failures:
-    "Paused automatically after too many failed runs in a row. Check the last run's error, then re-enable the loop.",
-  owner_deactivated: "Paused because its owner's account was deactivated.",
-  owner_removed_from_org: "Paused because its owner left the organization.",
-  github_integration_disconnected:
-    "Paused because its GitHub connection was removed.",
-};
-
-/** Sentence explaining a backend-driven pause, or null for an enabled loop or a
- * normal owner pause. */
-export function loopPausedDescription(loop: LoopStatusFields): string | null {
-  if (loop.enabled || !loop.disabled_reason) return null;
-  return PAUSED_DESCRIPTIONS[loop.disabled_reason] ?? "Paused automatically.";
-}
-
-const FIRE_BLOCKED_MESSAGES: Record<string, string> = {
-  deduped: "An identical run was already started for this trigger.",
-  overlap_skipped: "The previous run is still in progress.",
-  rate_capped: "This loop reached its daily run cap.",
-  team_rate_capped: "Your team reached its daily loop run cap.",
-  disabled: "This loop or its trigger is disabled.",
-  gate_blocked: "Your organization reached its usage limit.",
-  owner_inactive: "The loop owner's account can no longer start runs.",
-  owner_changed:
-    "The loop's owner changed while the run was starting. Try again.",
-};
-
-export function loopFireBlockedMessage(
-  reason: LoopSchemas.LoopFireReasonEnum,
-): string {
-  return FIRE_BLOCKED_MESSAGES[reason] ?? `Run not started: ${reason}`;
 }
 
 interface TriggerLike {
@@ -137,7 +94,6 @@ export function summarizeNotificationDestinations(
 ): string[] {
   const destinations: string[] = [];
 
-  if (notifications.push.enabled) destinations.push("Push");
   if (notifications.email.enabled) destinations.push("Email");
   if (notifications.slack.enabled) {
     const channelName = notifications.slack.params.channel_name;
@@ -159,11 +115,8 @@ export function summarizeTrigger(trigger: TriggerLike): string {
       return `Once · ${new Date(config.run_at).toLocaleString()}`;
     return `${describeSchedule(config)}${describeNextRun(config)}`;
   }
-  if (trigger.type === "github") {
-    const config = trigger.config as LoopSchemas.LoopGithubTriggerConfig;
-    return `GitHub (${config.repository || "a repo"})`;
-  }
-  return "API";
+  const config = trigger.config as LoopSchemas.LoopGithubTriggerConfig;
+  return `GitHub (${config.repository || "a repo"})`;
 }
 
 /** Full description for the detail view's configuration summary. */
@@ -174,14 +127,6 @@ export function describeTrigger(trigger: TriggerLike): string {
       return `One-time · ${new Date(config.run_at).toLocaleString()}${describeNextRun(config)}`;
     return `Schedule · ${describeSchedule(config)}${describeNextRun(config)}`;
   }
-  if (trigger.type === "github") {
-    const config = trigger.config as LoopSchemas.LoopGithubTriggerConfig;
-    const conditions = config.filters?.payload ?? [];
-    const conditionSuffix =
-      conditions.length > 0
-        ? ` · ${conditions.length} payload condition${conditions.length === 1 ? "" : "s"}`
-        : "";
-    return `GitHub · ${config.repository || "?"} · ${config.events.join(", ") || "no events"}${conditionSuffix}`;
-  }
-  return "API · authenticated POST";
+  const config = trigger.config as LoopSchemas.LoopGithubTriggerConfig;
+  return `GitHub · ${config.repository || "?"} · ${config.events.join(", ") || "no events"}`;
 }

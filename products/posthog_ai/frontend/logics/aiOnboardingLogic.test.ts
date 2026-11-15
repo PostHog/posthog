@@ -133,11 +133,10 @@ describe('aiOnboardingLogic', () => {
     })
 
     // A replay opens the takeover on a surface that never showed it, so it has to write nothing on the way
-    // out as well as on open. Otherwise dismissing, finishing, or answering a prompt after a replay persists
+    // out as well as on open. Otherwise dismissing or answering a prompt after a replay persists
     // the flag and swallows the user's one real first-run showing on the new surface.
     it.each([
         ['dismissed', () => logic.actions.closeOnboarding()],
-        ['finished', () => logic.actions.finishOnboarding()],
         ['answered with a starter prompt', () => logic.actions.selectStarterPrompt('Audit my event tracking.')],
     ])('writes nothing when a replay is %s', async (_name, exit) => {
         mountLogic()

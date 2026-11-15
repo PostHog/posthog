@@ -48,7 +48,11 @@ REPLACE_TEMPLATES_BY_STAGING_TABLE_NAME = {
 
 
 def count_selected_teams() -> int:
-    with tags_context(product=ProductKey.WEB_ANALYTICS, feature=Feature.PREAGGREGATION):
+    with tags_context(
+        product=ProductKey.WEB_ANALYTICS,
+        feature=Feature.PREAGGREGATION,
+        query_type="web_pre_aggregated_selected_teams_count",
+    ):
         rows = sync_execute(f"SELECT count() FROM ({WEB_PRE_AGGREGATED_SELECTED_TEAMS_SQL()})")
     return rows[0][0]
 
@@ -99,7 +103,11 @@ def pre_aggregate_web_analytics_data(
         context.log.info(f"Populating staging table with hourly data from {date_start} to {date_end}")
         context.log.info(f"Processing team_ids: {team_ids or 'all teams in the team selection table'}")
         context.log.info(insert_query)
-        with tags_context(product=ProductKey.WEB_ANALYTICS, feature=Feature.PREAGGREGATION):
+        with tags_context(
+            product=ProductKey.WEB_ANALYTICS,
+            feature=Feature.PREAGGREGATION,
+            query_type=f"{staging_table_name}_insert",
+        ):
             sync_execute(insert_query)
 
         # 3. Sync replicas before partition swapping to ensure consistency

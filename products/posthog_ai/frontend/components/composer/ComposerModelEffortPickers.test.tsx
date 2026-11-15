@@ -3,9 +3,11 @@ import '@testing-library/jest-dom'
 import { type RenderResult, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import {
+    ModelAccessEnumApi,
     ModelChoiceApi,
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
@@ -13,8 +15,8 @@ import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 const CATALOGUE: ModelChoiceApi[] = [
     {
         runtime_adapter: RuntimeAdapterEnumApi.Claude,
-        model: 'claude-sonnet-5',
-        display_name: 'Claude Sonnet 5',
+        model: 'claude-sonnet-5-5',
+        display_name: 'Claude Sonnet 5.5',
         supported_efforts: [ReasoningEffortEnumApi.Low, ReasoningEffortEnumApi.Medium, ReasoningEffortEnumApi.High],
     },
     {
@@ -51,7 +53,7 @@ describe('ComposerModelEffortPickers', () => {
     ])('waits for the default model %s before switching to Codex', async (defaultModel, expectedModel) => {
         const onModelChange = jest.fn()
         const props: React.ComponentProps<typeof ComposerModelEffortPickers> = {
-            selectedModel: 'claude-sonnet-5',
+            selectedModel: 'claude-sonnet-5-5',
             selectedEffort: ReasoningEffortEnumApi.Low,
             defaultModel,
             onModelChange,
@@ -78,6 +80,82 @@ describe('ComposerModelEffortPickers', () => {
         fireEvent.click(await screen.findByText('Codex'))
 
         expect(onModelChange).toHaveBeenCalledWith(expectedModel)
+    })
+
+    describe('Codex billing', () => {
+        const withCodex: ModelChoiceApi[] = [
+            ...CATALOGUE,
+            {
+                runtime_adapter: RuntimeAdapterEnumApi.Codex,
+                model: 'gpt-6-sol',
+                display_name: 'GPT-6 Sol',
+                supported_efforts: [ReasoningEffortEnumApi.High],
+            },
+        ]
+        const billing = (overrides = {}): React.ComponentProps<typeof ComposerModelEffortPickers>['codexBilling'] => ({
+            value: ModelAccessEnumApi.PosthogGateway,
+            planConnected: false,
+            onChange: jest.fn(),
+            onConnectPlan: jest.fn(),
+            ...overrides,
+        })
+
+        it('is not offered on the Claude harness', () => {
+            renderPickers({ models: withCodex, codexBilling: billing() })
+
+            expect(screen.getByText('Harness')).toBeInTheDocument()
+            expect(screen.queryByText('Billing')).not.toBeInTheDocument()
+        })
+
+        it('keeps the ChatGPT plan out of reach until an account is connected', async () => {
+            const onConnectPlan = jest.fn()
+            renderPickers({
+                models: withCodex,
+                selectedModel: 'gpt-6-sol',
+                codexBilling: billing({ onConnectPlan }),
+            })
+            fireEvent.click(screen.getByText('Advanced'))
+            fireEvent.click(screen.getByText('Billing'))
+
+            expect(await screen.findByText('OpenAI (ChatGPT plan)')).toHaveAttribute('aria-disabled', 'true')
+            fireEvent.click(screen.getByText('Connect your ChatGPT account'))
+            await waitFor(() => expect(onConnectPlan).toHaveBeenCalledTimes(1))
+        })
+
+        it('switches a Codex run to the ChatGPT plan once connected', async () => {
+            const onChange = jest.fn()
+            renderPickers({
+                models: withCodex,
+                selectedModel: 'gpt-6-sol',
+                codexBilling: billing({ planConnected: true, onChange }),
+            })
+            fireEvent.click(screen.getByText('Advanced'))
+            fireEvent.click(screen.getByText('Billing'))
+            fireEvent.click(await screen.findByText('OpenAI (ChatGPT plan)'))
+
+            expect(onChange).toHaveBeenCalledWith(ModelAccessEnumApi.OwnSubscription)
+            expect(screen.queryByText('Connect your ChatGPT account')).not.toBeInTheDocument()
+        })
+    })
+
+    it('lists every model with no harness choice for a Pi task', async () => {
+        renderPickers({
+            taskRuntime: TaskRuntimeEnumApi.Pi,
+            models: [
+                ...CATALOGUE,
+                {
+                    runtime_adapter: RuntimeAdapterEnumApi.Codex,
+                    model: 'gpt-6-sol',
+                    display_name: 'GPT-6 Sol',
+                    supported_efforts: [ReasoningEffortEnumApi.High],
+                },
+            ],
+        })
+
+        expect(screen.queryByText('Harness')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByText('Model'))
+        expect(await screen.findByText('GPT-6 Sol')).toBeInTheDocument()
+        expect(screen.getByText('Claude Sonnet 5.5')).toBeInTheDocument()
     })
 
     it('offers no way to change the default on a surface that has none to change', () => {

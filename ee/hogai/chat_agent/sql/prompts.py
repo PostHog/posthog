@@ -28,8 +28,8 @@ HOGQL_FUNCTION_CASING_RULES = (
 HOGQL_DIALECT_RULES = """Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
-- Width-suffixed conversion functions (toInt64, toInt32, toFloat64, toUInt8, etc., including their OrNull/OrZero variants like toInt32OrNull, toFloat64OrZero) are not supported, if you use them, the query will fail. Use the unsuffixed form instead: toInt(), toFloat(), toUInt() and their OrNull/OrZero variants (toIntOrNull, toFloatOrZero, toUIntOrNull, ...).
-- Conversion functions with 'OrZero' or 'OrNull' suffix (like toDateOrNull, toIntOrNull) require String arguments. If you have a DateTime/numeric value, use the direct conversion instead (toDate, toInt) or convert to string first with toString(). Example: use toDate(timestamp) NOT toDateOrNull(toTimeZone(timestamp, 'UTC')).
+- Of the width-suffixed conversion functions, only the 64-bit ones work: toInt64, toFloat64 and their OrNull/OrZero/OrDefault variants are aliases of toInt, toFloat, toIntOrZero, and so on. Like toInt, toInt64 returns NULL instead of failing on input it cannot convert. Other widths (toInt32, toUInt8, toFloat32, ...) are not supported, so use toInt() or toFloat() instead.
+- Conversion functions with 'OrZero' or 'OrNull' suffix (like toDateOrNull, toIntOrZero) require String arguments. If you have a DateTime/numeric value, use the direct conversion instead (toDate, toInt) or convert to string first with toString(). Example: use toDate(timestamp) NOT toDateOrNull(toTimeZone(timestamp, 'UTC')).
 - toDate() takes exactly one argument. It does not accept a timezone argument like ClickHouse's toDate(value, timezone). Convert to the desired timezone first with toTimeZone(), then wrap in toDate(). Example: toDate(toTimeZone(timestamp, 'US/Pacific')) NOT toDate(timestamp, 'US/Pacific').
 - The ClickHouse `SETTINGS` clause is not supported in HogQL and will always cause an "Unsupported: SelectStmt.settingsClause()" error. Do not append `SETTINGS ...` to a query, even to tune things like `max_execution_time` or `join_algorithm`.
 - LAG()/LEAD() are not supported. Instead, use lagInFrame()/leadInFrame().
@@ -64,7 +64,8 @@ Standardized events/properties such as pageview or screen start with `$`. Custom
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 
 <person_id_join_limitation>
-CRITICAL: There is a known issue with queries where JOIN constraints reference events.person_id fields.
+CRITICAL: There is a known issue with queries where JOIN constraints reference the person_id field of
+events or flag_evaluations.
 
 TECHNICAL CAUSE:
 The person_id fields are ExpressionFields that expand to expressions referencing override tables
@@ -88,6 +89,13 @@ PROBLEMATIC PATTERNS:
 
    But e_all__override is defined later in the SQL, causing the error.
 
+3. Joining flag_evaluations to any table on flag_evaluations.person_id:
+   ❌ FROM posthog.flag_evaluations fe JOIN events e ON fe.person_id = e.person_id
+
+   flag_evaluations.person_id is the same kind of ExpressionField, so this fails with
+   "QueryError: Field not found: flag_evaluation_person_id", naming a column the query never used.
+   Note this table is only reachable as `posthog.flag_evaluations`; the bare name does not resolve.
+
 REQUIRED WORKAROUNDS:
 1. For accessing person data, use the person virtual table from events:
    ✅ SELECT e.person.id, e.person.properties.email, e.event
@@ -107,7 +115,16 @@ REQUIRED WORKAROUNDS:
       FROM events e
       WHERE e.person_id IN (SELECT DISTINCT person_id FROM events WHERE ...)
 
-NEVER use events.person_id directly in JOIN ON constraints - always use one of the workarounds above.
+4. For flag_evaluations, join on distinct_id, or filter with WHERE IN:
+   ✅ FROM posthog.flag_evaluations fe JOIN events e ON fe.distinct_id = e.distinct_id
+   ✅ SELECT p.id FROM persons p
+      WHERE p.id IN (SELECT DISTINCT person_id FROM posthog.flag_evaluations WHERE flag_key = 'my-flag')
+   A CROSS JOIN with the equality moved into WHERE also works.
+   The distinct_id join matches raw ids only, so it pairs a logged-out evaluation with the logged-out
+   events alone. Use the WHERE IN form when the question is about people rather than devices.
+
+NEVER use the person_id of events or flag_evaluations directly in JOIN ON constraints - always use one
+of the workarounds above.
 </person_id_join_limitation>"""
 
 # This is the authoritative code-owned query-writing guidance. Other HogQL consumers may add

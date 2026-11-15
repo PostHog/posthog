@@ -2,7 +2,9 @@ from dataclasses import replace
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.schema import (
     AgentMode,
@@ -24,6 +26,7 @@ from ee.hogai.api.serializers import (
     TaskSerializer,
 )
 from ee.hogai.chat_agent import AssistantGraph
+from ee.hogai.tool import ApprovalRequest
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 
@@ -156,6 +159,41 @@ class TestConversationSerializers(APIBaseTest):
 
         self.assertEqual(len(data["messages"]), 1)
         self.assertFalse(data["has_unsupported_content"])
+
+    @parameterized.expand([("checkpoint_loaded", True), ("checkpoint_read_failed", False)])
+    def test_pending_approval_without_live_interrupt_is_auto_rejected(self, _name: str, checkpoint_loads: bool):
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="Approvals",
+            type=Conversation.Type.ASSISTANT,
+            approval_decisions={
+                "live": {"decision_status": "pending", "tool_name": "create_insight", "preview": "Update"},
+                "stale": {"decision_status": "pending", "tool_name": "create_insight", "preview": "Older update"},
+            },
+        )
+        live_request = ApprovalRequest(
+            proposal_id="live", tool_name="create_insight", preview="Update", payload={"insight_id": "abc"}
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+            if checkpoint_loads:
+
+                class MockSnapshot:
+                    values = AssistantState(messages=[]).model_dump()
+                    tasks = [MagicMock(result=None, interrupts=[MagicMock(value=live_request)])]
+
+                mock_get_state.return_value = MockSnapshot()
+            else:
+                mock_get_state.side_effect = RuntimeError("checkpoint unavailable")
+
+            data = ConversationSerializer(conversation, context={"team": self.team, "user": self.user}).data
+
+        approvals = {a["proposal_id"]: (a["decision_status"], a["payload"]) for a in data["pending_approvals"]}
+        if checkpoint_loads:
+            self.assertEqual(approvals, {"live": ("pending", {"insight_id": "abc"}), "stale": ("auto_rejected", {})})
+        else:
+            self.assertEqual(approvals, {"live": ("pending", {}), "stale": ("pending", {})})
 
     def test_agent_mode_defaults_when_missing(self):
         conversation = Conversation.objects.create(

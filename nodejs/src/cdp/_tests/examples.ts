@@ -576,7 +576,40 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
 
 export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters'>> = {
     no_filters: { filters: { events: [], actions: [], bytecode: ['_h', 29] } },
-    broken_filters: { filters: { events: [], actions: [], bytecode: ['_H', 1, 29, 35, 35, 35] } },
+    /** Stamped against a runtime that is not the one running, so the throw classifies as `drift`. */
+    broken_filters: {
+        filters: { events: [], actions: [], bytecode: ['_H', 1, 29, 35, 35, 35], bytecode_contract: 'stale' },
+    },
+    /** The same throw with no stamp, so nothing can say whose fault it is. */
+    broken_filters_unstamped: { filters: { events: [], actions: [], bytecode: ['_H', 1, 29, 35, 35, 35] } },
+
+    /** Parses a JSON property off the event, so a malformed value is the event's own: `data`. */
+    filters_bad_event_json: {
+        filters: {
+            events: [],
+            actions: [],
+            bytecode: ['_H', 1, 32, 'payload', 32, 'properties', 1, 2, 2, 'jsonParse', 1],
+            bytecode_contract: 'stale',
+        },
+    },
+    /** Loops forever, so the VM stops it on its own budget: `limit`. */
+    filters_never_finish: {
+        filters: {
+            events: [],
+            actions: [],
+            bytecode: ['_H', 1, 33, 0, 36, 0, 33, 1, 6, 37, 0, 39, -9],
+            bytecode_contract: 'stale',
+        },
+    },
+    /** A pattern the regex engine refuses. It arrives through the standard library, so: `data`. */
+    filters_bad_regex: {
+        filters: {
+            events: [],
+            actions: [],
+            bytecode: ['_H', 1, 32, 'payload', 32, 'properties', 1, 2, 32, '(?=x)', 2, 'match', 2],
+            bytecode_contract: 'stale',
+        },
+    },
     // Test account filter: filters out users with @posthog.com in their email
     // This simulates filter_test_accounts: true with test_account_filters = [{key: "email", value: "@posthog.com", operator: "not_icontains", type: "person"}]
     test_account_filter: {

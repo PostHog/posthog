@@ -1,0 +1,88 @@
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+
+import { IconChevronDown, IconSparkles } from '@posthog/icons'
+import {
+    Badge,
+    Button,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@posthog/quill'
+
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { cn } from 'lib/utils/css-classes'
+import { inStorybook } from 'lib/utils/dom'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { INTERNAL_TAG_TOOLTIP } from '../dashboardReview/InternalTag'
+import { QuillSuggestionItem } from './QuillSuggestionItem'
+import { suggestedDashboardsLogic } from './suggestedDashboardsLogic'
+
+export function QuillSuggestedDashboardsMenu(): JSX.Element | null {
+    const { visibleSuggestions: suggestions, openingId, newSuggestionCount } = useValues(suggestedDashboardsLogic)
+    const { openSuggestion, dismissSuggestion, menuOpened } = useActions(suggestedDashboardsLogic)
+    const { user } = useValues(userLogic)
+
+    const disabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Dashboard, AccessControlLevel.Editor) ??
+        getAccessControlDisabledReason(AccessControlResourceType.Insight, AccessControlLevel.Editor)
+
+    if (suggestions === null || (suggestions.length === 0 && !user?.is_staff)) {
+        return null
+    }
+
+    return (
+        <DropdownMenu
+            onOpenChange={(open) => {
+                if (open) {
+                    menuOpened()
+                }
+            }}
+        >
+            <DropdownMenuTrigger render={<Button variant="outline" data-attr="metrics-suggested-dashboards-menu" />}>
+                <IconSparkles className="text-ai" />
+                <span className={cn('rainbow-text font-semibold', !inStorybook() && 'rainbow-text-animating')}>
+                    Suggested
+                </span>
+                {newSuggestionCount > 0 && <Badge>{newSuggestionCount}</Badge>}
+                <IconChevronDown />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-56">
+                {suggestions.length > 0 && (
+                    <DropdownMenuGroup>
+                        {suggestions.map((suggestion) => (
+                            <QuillSuggestionItem
+                                key={suggestion.id}
+                                suggestion={suggestion}
+                                openingId={openingId}
+                                openSuggestion={openSuggestion}
+                                dismissSuggestion={dismissSuggestion}
+                                disabledReason={disabledReason}
+                            />
+                        ))}
+                    </DropdownMenuGroup>
+                )}
+                {suggestions.length > 0 && user?.is_staff && <DropdownMenuSeparator />}
+                {user?.is_staff && (
+                    <DropdownMenuItem
+                        onClick={() => router.actions.push(urls.metricsDashboardReview())}
+                        tooltip={INTERNAL_TAG_TOOLTIP}
+                        data-attr="metrics-suggested-dashboards-review"
+                    >
+                        <span>Review generated dashboards</span>
+                        <Badge variant="info" className="ml-auto">
+                            Internal
+                        </Badge>
+                    </DropdownMenuItem>
+                )}
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}

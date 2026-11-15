@@ -1,15 +1,13 @@
-//! Media detection + placeholder/blur dispatch.
-//! Blur runs inline (native), so there is no deferred-job/blank-first dance — the attribute lands on
-//! its final blurred (or placeholder) value directly.
+//! Media detection, and dispatch of media sources to the image scrub or the placeholder.
 
 use std::borrow::Cow;
 
 use simd_json::borrowed::{Object, Value};
 
-use crate::blur::is_image_data_uri;
-use crate::collect::{collectable_data_uri_bytes, is_image_ref_strict};
+use crate::collect::is_image_ref_strict;
 use crate::context::{Ctx, ImageSource};
-use crate::images::ImageFallback;
+use crate::data_uri::is_image_data_uri;
+use crate::data_uri::ImageFallback;
 use crate::json::{as_f64, as_str, string_value};
 use crate::srcset::candidate_for_scrubbing;
 use crate::url::scrub_url;
@@ -140,36 +138,35 @@ pub fn has_media_src_attr(attrs: &Object<'_>) -> bool {
     MEDIA_SRC_ATTRS.iter().any(|name| attrs.contains_key(*name))
 }
 
-pub(crate) fn has_usable_srcset(value: &str, keep_image_refs: bool) -> bool {
-    (keep_image_refs && is_image_ref_strict(value))
-        || candidate_for_scrubbing(value).is_some_and(|url| {
-            collectable_data_uri_bytes(url).is_some() || canonicalize(url).is_some()
-        })
+pub(crate) fn has_usable_srcset(value: &str, ctx: &Ctx<'_>) -> bool {
+    (ctx.keeps_image_refs() && is_image_ref_strict(value))
+        || candidate_for_scrubbing(value)
+            .is_some_and(|url| ctx.can_collect_image(url) || canonicalize(url).is_some())
 }
 
-/// Blur an inlined-image data URI held in an attribute (a `<canvas>`/`<img>` `rr_dataURL`).
+/// Scrub an inlined-image data URI held in an attribute (a `<canvas>`/`<img>` `rr_dataURL`).
 /// Returns whether it acted.
-pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object<'_>, name: &str) -> bool {
+pub fn scrub_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object<'_>, name: &str) -> bool {
     let Some(value) = attrs.get(name).and_then(as_str).map(str::to_string) else {
         return false;
     };
     if !is_image_data_uri(&value) {
         return false;
     }
-    let blurred = ctx.scrub_image_from(
+    let scrubbed = ctx.scrub_image_from(
         &value,
         ImageFallback::Blank,
         ImageSource::HtmlAttribute(INLINE_IMAGE_ATTR),
     );
-    attrs.insert(Cow::Owned(name.to_string()), string_value(blurred));
+    attrs.insert(Cow::Owned(name.to_string()), string_value(scrubbed));
     true
 }
 
-/// Replace a media element's source attrs with the blurred image (data URIs) or placeholder (remote
+/// Replace a media element's source attrs with the scrubbed image (data URIs) or placeholder (remote
 /// URLs). A collected remote URL's ref and scrubbed original are stashed under separate namespaced
 /// attrs. Returns whether it changed any attribute — a media tag with no source attrs (e.g. a bare
 /// `<img>`) is left untouched.
-pub fn apply_blur(
+pub fn scrub_media_sources(
     ctx: &Ctx<'_>,
     attrs: &mut Object<'_>,
     tag: &str,
@@ -180,7 +177,7 @@ pub fn apply_blur(
         && attrs
             .get("srcset")
             .and_then(as_str)
-            .is_some_and(|value| has_usable_srcset(value, ctx.keeps_image_refs()));
+            .is_some_and(|value| has_usable_srcset(value, ctx));
     // Computed only when a remote image is about to be collected, because the inline style is
     // parsed for it and most elements never reach that branch.
     let mut hidden_pixel: Option<bool> = None;
@@ -219,12 +216,12 @@ pub fn apply_blur(
             continue;
         };
         if is_image_data_uri(&selected) {
-            let blurred = ctx.scrub_image_from(
+            let scrubbed = ctx.scrub_image_from(
                 &selected,
                 ImageFallback::Placeholder,
                 ImageSource::HtmlAttribute(key),
             );
-            attrs.insert(Cow::Borrowed(*key), string_value(blurred));
+            attrs.insert(Cow::Borrowed(*key), string_value(scrubbed));
         } else {
             let collected =
                 if !ctx.collects_urls() || !is_fetchable_image_attr(key, tag, parent_is_picture) {

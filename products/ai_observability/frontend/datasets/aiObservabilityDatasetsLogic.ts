@@ -12,13 +12,26 @@ import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 
+import {
+    cleanTagFilters,
+    restoreTagFilters,
+    saveTagFilters,
+    type ResourceTagFilters,
+} from '../components/resourceTagFilters'
 import type { PaginatedDatasetReadListApi } from '../generated/api.schemas'
 import { cleanPagedSearchOrderParams } from '../utils'
 import { datasetsApi } from './datasetsApi'
 
 export const DATASETS_PER_PAGE = 30
 
-const DATASET_NAVIGATION_SEARCH_PARAM_KEYS = new Set(['dataset_status', 'datasets_page', 'order_by', 'search'])
+const DATASET_NAVIGATION_SEARCH_PARAM_KEYS = new Set([
+    'dataset_status',
+    'datasets_page',
+    'order_by',
+    'search',
+    'tags',
+    'tag_match',
+])
 
 export function getDatasetNavigationSearchParams(searchParams: Record<string, any>): Record<string, any> {
     const navigationSearchParams = Object.fromEntries(
@@ -36,7 +49,7 @@ export function getDatasetDetailUrl(datasetId: string, searchParams: Record<stri
     return combineUrl(urls.aiObservabilityDataset(datasetId), getDatasetNavigationSearchParams(searchParams)).url
 }
 
-export interface DatasetFilters {
+export interface DatasetFilters extends ResourceTagFilters {
     page: number
     search: string
     order_by: string
@@ -47,6 +60,7 @@ function cleanFilters(
     values: Partial<DatasetFilters> & { dataset_status?: unknown; datasets_page?: unknown }
 ): DatasetFilters {
     return {
+        ...cleanTagFilters(values),
         page: parseInt(String(values.datasets_page ?? values.page)) || 1,
         search: String(values.search || ''),
         order_by: values.order_by || '-created_at',
@@ -74,6 +88,7 @@ export interface aiObservabilityDatasetsLogicActions {
     archiveDataset: (datasetId: string) => {
         datasetId: string
     }
+    datasetRetentionChanged: () => { value: true }
     loadDatasets: (debounce?: boolean) => {
         debounce: boolean
     }
@@ -143,6 +158,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
         loadDatasets: (debounce: boolean = true) => ({ debounce }),
         archiveDataset: (datasetId: string) => ({ datasetId }),
         restoreDataset: (datasetId: string) => ({ datasetId }),
+        datasetRetentionChanged: true,
         setArchivingDatasetId: (datasetId: string | null) => ({ datasetId }),
     }),
 
@@ -185,6 +201,9 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
                         offset: Math.max(0, (filters.page - 1) * DATASETS_PER_PAGE),
                         limit: DATASETS_PER_PAGE,
                         archived: filters.archived,
+                        ...(filters.tags.length
+                            ? { tags: JSON.stringify(filters.tags), tag_match: filters.tag_match }
+                            : {}),
                     }
 
                     // Scroll to top if the page changed, except if changed via back/forward
@@ -258,6 +277,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const { filters } = values
+            saveTagFilters('datasets', filters)
 
             if (!objectsEqual(oldFilters, filters)) {
                 await asyncActions.loadDatasets(debounce)
@@ -268,6 +288,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
             try {
                 const datasetName = values.datasets.results.find((dataset) => dataset.id === datasetId)?.name
                 await datasetsApi.archiveDataset(datasetId)
+                actions.datasetRetentionChanged()
                 lemonToast.info(`${datasetName || 'Dataset'} has been archived.`, {
                     button: {
                         label: 'Undo',
@@ -275,6 +296,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
                         action: async () => {
                             try {
                                 await datasetsApi.restoreDataset(datasetId)
+                                actions.datasetRetentionChanged()
                                 await asyncActions.loadDatasets(false)
                                 lemonToast.success(`${datasetName || 'Dataset'} has been restored.`)
                             } catch {
@@ -295,6 +317,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
             try {
                 const datasetName = values.datasets.results.find((dataset) => dataset.id === datasetId)?.name
                 await datasetsApi.restoreDataset(datasetId)
+                actions.datasetRetentionChanged()
                 await asyncActions.loadDatasets(false)
                 lemonToast.success(`${datasetName || 'Dataset'} has been unarchived.`)
             } catch {
@@ -319,12 +342,20 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
             const { page, ...pagedSearchOrderParams } = cleanPagedSearchOrderParams(values.filters)
             const nextValues = {
                 ...pagedSearchOrderParams,
+                tab: 'datasets',
                 datasets_page: page,
                 dataset_status: values.filters.archived ? 'archived' : undefined,
+                tags: values.filters.tags,
+                tag_match: values.filters.tag_match,
             }
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(values.filters, urlValues)) {
-                return [urls.aiObservabilityDatasets(), nextValues, {}, { replace: true }]
+                return [
+                    urls.aiObservabilityOfflineEvaluations(),
+                    nextValues,
+                    router.values.hashParams,
+                    { replace: true },
+                ]
             }
         }
         return {
@@ -333,17 +364,23 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
     }),
 
     urlToAction(({ actions, values }) => ({
-        [urls.aiObservabilityDatasets()]: (_, searchParams, __, { method }) => {
-            const newFilters = cleanFilters(searchParams)
+        [urls.aiObservabilityOfflineEvaluations()]: (_, searchParams, __, { method }) => {
+            if (searchParams.tab !== 'datasets') {
+                return
+            }
+            const newFilters = cleanFilters({ ...searchParams, ...restoreTagFilters('datasets', searchParams) })
             if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
             } else if (method !== 'REPLACE') {
+                actions.setFilters(newFilters, false)
                 actions.loadDatasets(false)
             }
         },
     })),
 
-    afterMount(({ actions }) => {
-        actions.loadDatasets()
+    afterMount(({ actions, values }) => {
+        if (values.rawFilters === null) {
+            actions.loadDatasets()
+        }
     }),
 ])

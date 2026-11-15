@@ -77,6 +77,7 @@ def get_csp_event(request):
                 distinct_id=csp_report.get("distinct_id", ""),
                 timestamp=csp_report.get("timestamp", None),
                 properties=csp_report.get("properties", {}),
+                options=csp_report.get("options"),
                 process_person_profile=False,
             )
             result.raise_for_status()

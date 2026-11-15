@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.management.commands.run_warehouse_sources_load import (
     Command,
     build_consumer_config,
+    build_thread_pool_sizes,
     parse_sync_types,
 )
 
@@ -57,6 +58,30 @@ class TestBuildConsumerConfig:
         config = build_consumer_config(_parse_options(["--recovery-grace", "900"]))
 
         assert config.lease_ttl_seconds == 900
+
+
+class TestBuildThreadPoolSizes:
+    @parameterized.expand(
+        [
+            ([], 16, 72),
+            (["--max-concurrency", "8"], 8, 40),
+            (["--max-concurrency", "8", "--nested-thread-pool-size", "64"], 8, 64),
+        ]
+    )
+    def test_pool_sizes_follow_the_flags(self, argv: list[str], expected_group: int, expected_nested: int):
+        options = _parse_options(argv)
+
+        sizes = build_thread_pool_sizes(options, build_consumer_config(options))
+
+        assert (sizes.group_threads, sizes.nested_threads) == (expected_group, expected_nested)
+
+    def test_undersized_nested_pool_fails_startup(self):
+        # A pool below the need can deadlock the loader with no error and no log, so the pod
+        # must crash at startup instead.
+        options = _parse_options(["--max-concurrency", "16", "--nested-thread-pool-size", "12"])
+
+        with pytest.raises(CommandError, match="--nested-thread-pool-size"):
+            build_thread_pool_sizes(options, build_consumer_config(options))
 
 
 class TestParseSyncTypes:

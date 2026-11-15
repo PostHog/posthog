@@ -1,12 +1,10 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product error_tracking
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product error_tracking --file ../../products/error_tracking/mcp/error_tracking_alerts.yaml
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Error tracking alerts
 feature: error_tracking
-url_prefix: /error_tracking
+url_prefix: /error-tracking
 ui_apps: {}
 tools:
     error-tracking-alerts-create:
@@ -99,7 +97,7 @@ tools:
                      {"type": "divider"},
                      {"type": "actions", "elements": [
                        {"type": "button", "text": {"type": "plain_text", "text": "View Issue"},
-                        "url": "{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"}
+                        "url": "{project.url}/error-tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"}
                      ]}
                    ]}
                  }

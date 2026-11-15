@@ -1,0 +1,45 @@
+// Both overlays are portaled outside the chart, so scope their visibility through the document.
+body:has([data-attr='bi-result-menu']) [data-hog-charts-tooltip] {
+    visibility: hidden;
+}
+
+.Popover.ResultMenu {
+    width: 300px;
+    max-width: calc(100vw - 16px);
+    transform: none;
+    perspective: none;
+
+    > .Popover__box {
+        margin: 0;
+        opacity: 1;
+        transition: none;
+        transform: none;
+    }
+}
+
+.ResultMenu__selection {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-border-primary);
+}
+
+.ResultMenu__items {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px;
+
+    [role='menuitem'] {
+        justify-content: flex-start;
+        width: 100%;
+        min-height: 32px;
+        text-align: left;
+    }
+}
+
+.ResultMenu--quill .ResultMenu__selection {
+    padding-inline: 8px;
+    margin-bottom: 4px;
+}

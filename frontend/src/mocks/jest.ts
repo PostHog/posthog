@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { setupServer } from 'msw/node'
 
 import { useAvailableFeatures } from '~/mocks/features'
@@ -12,6 +14,8 @@ import { Mocks, mocksToHandlers } from '~/mocks/utils'
 // still overrides them per test.
 const jestOnlyDefaultHandlers = mocksToHandlers({
     get: {
+        // teamLogic and projectLogic reload the tab project by id, and the paginated floor is not a project.
+        '/api/projects/:team_id/': MOCK_DEFAULT_TEAM,
         '/api/projects/:team_id/product_tours/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/integrations/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
@@ -24,6 +28,7 @@ const jestOnlyDefaultHandlers = mocksToHandlers({
             feature_flags: { results: [], total: 0, has_more: false },
             insights: { results: [], total: 0, has_more: false },
             cohorts: { results: [], total: 0, has_more: false },
+            workflows: { results: [], total: 0, hidden: 0, has_more: false },
         },
     },
 })

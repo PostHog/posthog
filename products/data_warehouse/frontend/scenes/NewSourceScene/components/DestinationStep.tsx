@@ -41,6 +41,13 @@ export function DestinationStep(): JSX.Element {
     }
     const { openForCreate, openForEdit } = useActions(destinationModalLogic(modalProps))
 
+    // A team with no destination rows yet has nothing to turn on, and its source writes to the
+    // PostHog warehouse, so that case reads as warehouse-only rather than as nowhere to sync.
+    const nothingSelected = destinations.length > 0 && selectedIds.length === 0
+    const warehouseOnly =
+        destinations.length === 0 ||
+        !selectedIds.some((id) => destinations.find((d) => d.id === id)?.type !== 'PostHogWarehouse')
+
     return (
         <div className="deprecated-space-y-4">
             <div className="flex gap-2 items-start justify-between">
@@ -67,12 +74,18 @@ export function DestinationStep(): JSX.Element {
             />
 
             {!destinationsLoading &&
-                !selectedIds.some((id) => destinations.find((d) => d.id === id)?.type !== 'PostHogWarehouse') && (
-                    <LemonBanner type="info">
-                        This source will sync into PostHog only. Turn on another destination to also send its tables to
-                        your own database.
+                (nothingSelected ? (
+                    <LemonBanner type="warning">
+                        This source has nowhere to sync. Turn on at least one destination to import it.
                     </LemonBanner>
-                )}
+                ) : (
+                    warehouseOnly && (
+                        <LemonBanner type="info">
+                            This source will sync into PostHog only. Turn on another destination to also send its tables
+                            to your own database.
+                        </LemonBanner>
+                    )
+                ))}
 
             <DestinationModal {...modalProps} />
         </div>

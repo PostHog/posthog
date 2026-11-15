@@ -128,8 +128,7 @@ def capture_space_context_changed(
 ) -> None:
     """Record a Space's CONTEXT.md being published or cleared.
 
-    `source` separates people from loops: a loop configured with `update_context`
-    republishes on every fire, which outnumbers human edits by orders of magnitude.
+    `source` separates people from agent runs, which republish far more often than people edit.
     Carries byte counts only — CONTEXT.md is customer-authored free text.
     """
     try:

@@ -1,11 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, FailureMessage, HumanMessage
 
 from ee.hogai.utils.openai import convert_to_openai_message, convert_to_openai_messages
 
 
-class TestOpenAIUtils(BaseTest):
+class TestOpenAIUtils(SimpleTestCase):
     def test_convert_context_message_to_openai_message(self):
         message = ContextMessage(content="Context information")
 

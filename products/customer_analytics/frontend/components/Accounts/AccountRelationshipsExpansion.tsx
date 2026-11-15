@@ -20,6 +20,7 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 
 const PAGE_SIZE = 10
 
@@ -31,13 +32,17 @@ const SOURCE_LABELS: Record<AccountRelationshipSourceEnumApi, string> = {
     migration: 'Migration',
 }
 
+interface AccountRelationshipsExpansionProps extends AccountViewTileLogicProps {
+    accountId: string
+    embedded?: boolean
+}
+
 export function AccountRelationshipsExpansion({
     accountId,
     embedded = true,
-}: {
-    accountId: string
-    embedded?: boolean
-}): JSX.Element {
+    ...tileProps
+}: AccountRelationshipsExpansionProps): JSX.Element {
+    const logic = accountRelationshipsLogic({ accountId, ...tileProps })
     const {
         relationships,
         relationshipsLoading,
@@ -50,7 +55,7 @@ export function AccountRelationshipsExpansion({
         canDeleteRelationships,
         relationshipSaving,
         relationshipToDelete,
-    } = useValues(accountRelationshipsLogic({ accountId }))
+    } = useValues(logic)
     const {
         setDefinitionFilter,
         setAssignDefinitionId,
@@ -59,7 +64,7 @@ export function AccountRelationshipsExpansion({
         openDeleteConfirmation,
         closeDeleteConfirmation,
         deleteRelationship,
-    } = useActions(accountRelationshipsLogic({ accountId }))
+    } = useActions(logic)
 
     const columns: LemonTableColumns<AccountRelationshipApi> = [
         {

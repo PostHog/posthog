@@ -1,15 +1,13 @@
-import { EntityTypes } from '~/types'
+import { EventsNode, NodeKind } from '~/queries/schema/schema-general'
 
-import { LocalFilter } from '../entityFilterLogic'
+import { SeriesNode } from '../seriesNode'
 
-export function makeFilter(overrides: Partial<LocalFilter> = {}): LocalFilter {
+export function makeSeriesNode(overrides: Partial<SeriesNode> = {}): SeriesNode {
     return {
-        id: '$autocapture',
+        kind: NodeKind.EventsNode,
+        event: '$autocapture',
         name: '$autocapture',
-        type: EntityTypes.EVENTS,
-        order: 0,
-        uuid: 'test-uuid',
         properties: [],
         ...overrides,
-    }
+    } as EventsNode
 }

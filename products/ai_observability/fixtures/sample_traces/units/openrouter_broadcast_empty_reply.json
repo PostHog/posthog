@@ -1,0 +1,100 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "SEO meta tag command returns an empty reply",
+  "scenario": "An SEO tooling backend calls a StreamLake-hosted model through OpenRouter with a one-word command to generate page meta tags, but the model returns reasoning tokens and no visible content.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "capture-api"
+    ],
+    "providers": [
+      "StreamLake"
+    ],
+    "frameworks": [],
+    "models": [
+      "z-ai/glm-5.2"
+    ],
+    "content_types": [
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_output_tokens_reasoning": 9,
+        "$ai_input_cost_usd": 7.271452e-06,
+        "openrouter_provider_headers_ms": 540,
+        "trace_name": "OpenRouter Request",
+        "openrouter_api_key_name": "seo-tags-1",
+        "openrouter_inter_token_latency_ms": 27.333333333333332,
+        "$ai_span_name": "LLM Generation",
+        "openrouter_entity_id": "org_lFdD2bR64JLmuyheNTDRD0bfQXq",
+        "$ai_provider": "StreamLake",
+        "openrouter_provider_request_ms": 4,
+        "$ai_trace_id": "e21c9a4d-6f3b-4a18-9d52-7bce4f0a91d6",
+        "$ai_input_tokens_audio": 0,
+        "$ai_latency": 0.786,
+        "$ai_output_cost_usd": 2.01476e-05,
+        "$ai_total_cost_usd": 2.714486148e-05,
+        "$ai_input_tokens_cached": 18,
+        "openrouter_source": "openrouter",
+        "openrouter_router_latency_ms": 4,
+        "openrouter_first_token_ms": 540,
+        "$ai_span_id": "e21c9a4d-6f3b-4a18-9d52-7bce4f0a91d6",
+        "$ai_model": "z-ai/glm-5.2",
+        "$ai_input_tokens": 26,
+        "$ai_output_tokens": 10,
+        "distinct_id": "org_lFdD2bR64JLmuyheNTDRD0bfQXq",
+        "openrouter_provider_body_end_ms": 786,
+        "metadata_provider_responses": [
+          {
+            "endpoint_id": "0e81eaf9-8860-7453-39eb-d78d7c8d04fc",
+            "id": "res_8f2a1c9d6e0b4a3f5c8d1e9b",
+            "is_byok": false,
+            "latency": 536,
+            "model_permaslug": "z-ai/glm-5.2-20260616",
+            "provider_name": "streamlake",
+            "status": 142
+          }
+        ],
+        "openrouter_provider_time_to_first_token_ms": 536,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You write SEO meta tags.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "tags",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

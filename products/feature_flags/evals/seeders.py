@@ -54,6 +54,8 @@ __all__ = [
     "STALE_FLAG_KEY",
     "STALE_FLAG_LAST_CALLED_DAYS_AGO",
     "STALE_FULL_ROLLOUT_FLAG_KEY",
+    "STALE_LOOKING_RECENT_UPDATE_DAYS_AGO",
+    "STALE_LOOKING_RECENT_UPDATE_FLAG_KEY",
     "STALE_PARTIAL_ROLLOUT_FLAG_KEY",
     "guard_claude_runtime",
     "seed_active_flag",
@@ -61,6 +63,7 @@ __all__ = [
     "seed_inactive_flag",
     "seed_metadata_flag",
     "seed_read_only_mcp_org",
+    "seed_recently_updated_flag",
     "seed_require_flag_tags",
     "seed_rollout_flag",
     "seed_stale_flag",
@@ -386,6 +389,42 @@ def seed_stale_full_rollout_flag(context: CustomPromptSandboxContext) -> dict[st
         filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
     )
     _backdate_updated_at(flag)
+    return {
+        "flag_id": flag.id,
+        "flag_key": flag.key,
+        "rollout": "full",
+        "state": read_flag_state(flag.id),
+    }
+
+
+STALE_LOOKING_RECENT_UPDATE_FLAG_KEY = "checkout-express-lane"
+STALE_LOOKING_RECENT_UPDATE_DAYS_AGO = 2
+
+
+def seed_recently_updated_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    """A flag that reads stale on every other signal, excluded only by a recent update.
+
+    Full rollout, never called, created 90 days ago, so every other exclusion in the
+    skill's "Find and assess candidates" step reads clean. Only `updated_at` inside the
+    last 30 days blocks it. A request that names the flag starts from the by-key lookup
+    and skips the stale list, so the agent has to apply the recency exclusion to the
+    definition itself.
+    """
+    _require_claude_runtime(context)
+    flag = _create_flag(
+        context,
+        key=STALE_LOOKING_RECENT_UPDATE_FLAG_KEY,
+        name="Express checkout lane",
+        filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+    )
+    # update() bypasses auto_now, the same technique _backdate_updated_at uses. It sets
+    # created_at too, which _create_flag cannot take, and writes neither `active` nor
+    # `filters`, so the gated-write scanner does not count it.
+    now = datetime.now(UTC)
+    FeatureFlag.objects.filter(pk=flag.pk).update(
+        created_at=now - timedelta(days=90),
+        updated_at=now - timedelta(days=STALE_LOOKING_RECENT_UPDATE_DAYS_AGO),
+    )
     return {
         "flag_id": flag.id,
         "flag_key": flag.key,

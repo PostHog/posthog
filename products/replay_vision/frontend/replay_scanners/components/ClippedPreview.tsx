@@ -6,6 +6,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 const CLIPS = {
     short: { className: 'max-h-20', px: 80 },
     tall: { className: 'max-h-60', px: 240 },
+    long: { className: 'max-h-100', px: 400 },
 } as const
 
 export function ClippedPreview({

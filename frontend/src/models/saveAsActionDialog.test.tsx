@@ -2,12 +2,12 @@ import '@testing-library/jest-dom'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
+import { EventsNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { EntityTypes, EventType, PropertyFilterType, PropertyOperator, RecordingEventType } from '~/types'
+import { EventType, PropertyFilterType, PropertyOperator, RecordingEventType } from '~/types'
 
 import {
     buildActionNameValidator,
@@ -16,7 +16,7 @@ import {
     isAutocaptureWithElements,
     openSaveAsActionDialog,
     saveActionFromEvent,
-    saveActionFromFilter,
+    saveActionFromSeriesNode,
 } from './saveAsActionDialog'
 
 function makeAutocaptureEvent(overrides: Partial<EventType> = {}): EventType {
@@ -31,13 +31,11 @@ function makeAutocaptureEvent(overrides: Partial<EventType> = {}): EventType {
     } as EventType
 }
 
-function makeFilter(overrides: Partial<LocalFilter> = {}): LocalFilter {
+function makeSeriesNode(overrides: Partial<EventsNode> = {}): EventsNode {
     return {
-        id: '$autocapture',
+        kind: NodeKind.EventsNode,
+        event: '$autocapture',
         name: '$autocapture',
-        type: EntityTypes.EVENTS,
-        order: 0,
-        uuid: 'test-uuid',
         properties: [],
         ...overrides,
     }
@@ -242,10 +240,10 @@ describe('saveAsActionDialog', () => {
         })
     })
 
-    describe('saveActionFromFilter', () => {
+    describe('saveActionFromSeriesNode', () => {
         it('pre-fills name and step from a filter with $el_text', async () => {
-            saveActionFromFilter(
-                makeFilter({
+            saveActionFromSeriesNode(
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -269,8 +267,8 @@ describe('saveAsActionDialog', () => {
         })
 
         it('posts the full filter → action step mapping for text + selector', async () => {
-            saveActionFromFilter(
-                makeFilter({
+            saveActionFromSeriesNode(
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',

@@ -9,7 +9,7 @@
 
 import { fromMarkdown } from 'mdast-util-from-markdown'
 
-export type ReportSummarySectionKind = 'problem' | 'impact' | 'solution' | 'other'
+export type ReportSummarySectionKind = 'problem' | 'impact' | 'expected-impact' | 'solution' | 'other'
 
 export interface ReportSummarySection {
     kind: ReportSummarySectionKind
@@ -32,6 +32,7 @@ export interface ParsedReportSummary {
 const SECTION_LABELS: Record<Exclude<ReportSummarySectionKind, 'other'>, string> = {
     problem: 'Problem',
     impact: 'Impact',
+    'expected-impact': 'Expected impact',
     solution: 'Solution',
 }
 
@@ -40,12 +41,21 @@ const SECTION_KINDS: Record<string, Exclude<ReportSummarySectionKind, 'other'>> 
     problem: 'problem',
     'the problem': 'problem',
     impact: 'impact',
+    'expected impact': 'expected-impact',
     solution: 'solution',
     fix: 'solution',
     'the fix': 'solution',
     'proposed fix': 'solution',
     'recommended fix': 'solution',
     recommendation: 'solution',
+}
+
+// `_layer_summary` in products/signals/backend/stack_plan.py appends this section to every layer it
+// creates. Keep the two in sync, or layer pages show the plain-text sentence beside the plan block.
+const GENERATED_PLAN_SECTION_BODY = /^This is layer \d+ of \d+ of the plan '.*'\.$/
+
+export function isGeneratedPlanSection(section: ReportSummarySection): boolean {
+    return section.kind === 'other' && section.heading === 'Plan' && GENERATED_PLAN_SECTION_BODY.test(section.body)
 }
 
 function headingText(node: any): string {

@@ -12,6 +12,7 @@ from . import (
     exporter,
     health_checks,
     integrations,
+    ip_restrictions,
     llm_prompt_cache,
     plugin_server,
     process_scheduled_changes,
@@ -25,6 +26,7 @@ from . import (
     sync_billing,
     tasks,
     team_access_cache_tasks,
+    transactional_email,
     usage_report,
 )
 
@@ -40,6 +42,7 @@ __all__ = [
     "exporter",
     "health_checks",
     "integrations",
+    "ip_restrictions",
     "llm_prompt_cache",
     "plugin_server",
     "process_scheduled_changes",
@@ -53,5 +56,6 @@ __all__ = [
     "sync_billing",
     "tasks",
     "team_access_cache_tasks",
+    "transactional_email",
     "usage_report",
 ]

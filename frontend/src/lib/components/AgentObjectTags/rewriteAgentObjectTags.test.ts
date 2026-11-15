@@ -1,6 +1,7 @@
 import { rewriteAgentObjectTags } from './rewriteAgentObjectTags'
 
 const BASE = '/project/2'
+const APP = window.location.origin
 
 describe('rewriteAgentObjectTags', () => {
     it.each([
@@ -23,7 +24,7 @@ describe('rewriteAgentObjectTags', () => {
         [
             'flag cited by numeric id links, by key stays a label',
             '<flag id="42">new-flow</flag> vs <flag id="my-key">old-flow</flag>',
-            '[new-flow](/project/2/feature_flags/42) vs old-flow',
+            '[new-flow](/project/2/feature-flags/42) vs old-flow',
         ],
         [
             'inline hogql links into the SQL editor',
@@ -40,6 +41,16 @@ describe('rewriteAgentObjectTags', () => {
             '<insight id="a">Error [rate] > 1% | daily</insight>',
             '[Error rate &gt; 1% daily](/project/2/insights/a)',
         ],
+        [
+            'a tag between a closed code span and an unmatched backtick',
+            '`a` <insight id="a">x</insight> `',
+            '`a` [x](/project/2/insights/a) `',
+        ],
+        [
+            'a tag between backtick runs of different lengths',
+            '`` <insight id="a">x</insight> `',
+            '`` [x](/project/2/insights/a) `',
+        ],
     ])('%s', (_name, input, expected) => {
         expect(rewriteAgentObjectTags(input, BASE)).toBe(expected)
     })
@@ -53,6 +64,12 @@ describe('rewriteAgentObjectTags', () => {
 
     it.each([
         ['inline code', 'Use `<insight id="a">kept</insight>`.'],
+        ['a double-backtick span that holds a single backtick', 'Use ``a ` <insight id="a">kept</insight>``.'],
+        [
+            'a double-backtick span that holds a whole single-backtick pair',
+            'Use `` <insight id="a">kept</insight> `b` ``.',
+        ],
+        ['the second of two code spans', 'Use `a` and `<insight id="a">kept</insight>`.'],
         ['fenced code', '```xml\n<insight id="a">kept</insight>\n```'],
         ['plain text without tags', 'Nothing to do here.'],
         ['unknown non-object markup', 'A <div>block</div> stays.'],
@@ -104,7 +121,44 @@ describe('rewriteAgentObjectTags', () => {
         expect(rewriteAgentObjectTags(once, BASE)).toBe(once)
     })
 
+    it.each([
+        [
+            'a raw SQL link',
+            `Daily users:\n\n[DAU, last 7 days](${APP}/project/2/sql?open_query=SELECT%20count()%20FROM%20events "Bots excluded")\n\nDone.`,
+            `Daily users:\n\n**[DAU, last 7 days](${APP}/project/2/sql?open_query=SELECT%20count()%20FROM%20events)**\n\`\`\`\nSELECT count() FROM events\n\`\`\`\n_Bots excluded_\n\nDone.`,
+        ],
+        [
+            'a query node SQL link',
+            `[Q](/project/2/sql?open_query=${encodeURIComponent(JSON.stringify({ kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } }))})`,
+            `**[Q](/project/2/sql?open_query=${encodeURIComponent(JSON.stringify({ kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } }))})**\n\`\`\`\nSELECT 1\n\`\`\``,
+        ],
+    ])('shows the query under %s alone in its paragraph', (_name, input, expected) => {
+        expect(rewriteAgentObjectTags(input, BASE)).toBe(expected)
+        expect(rewriteAgentObjectTags(expected, BASE)).toBe(expected)
+    })
+
+    it.each([
+        ['an inline SQL link', `See [q](${APP}/project/2/sql?open_query=SELECT%201) now.`],
+        ['a SQL link in a list', `- [q](${APP}/project/2/sql?open_query=SELECT%201)`],
+        ['a SQL link inside a fence', `\`\`\`\n\n[q](${APP}/project/2/sql?open_query=SELECT%201)\n\n\`\`\``],
+        ['a SQL-shaped link on another host', '[q](https://evil.example/project/2/sql?open_query=SELECT%201)'],
+        ['a link to another page', `[docs](${APP}/docs?open_query=x)`],
+    ])('leaves %s as written', (_name, input) => {
+        expect(rewriteAgentObjectTags(input, BASE)).toBe(input)
+    })
+
     it('links project-relative when no project base is known', () => {
         expect(rewriteAgentObjectTags('<insight id="a">x</insight>', '')).toBe('[x](/insights/a)')
+    })
+
+    it('rewrites a tag after a line that only looks like a fence opener', () => {
+        expect(rewriteAgentObjectTags('```js`\n<insight id="a">x</insight>', BASE)).toBe(
+            '```js`\n[x](/project/2/insights/a)'
+        )
+    })
+
+    it('keeps a trailing partial tag in complete text', () => {
+        expect(rewriteAgentObjectTags('keep <insight', BASE)).toBe('keep ')
+        expect(rewriteAgentObjectTags('keep <insight', BASE, { streaming: false })).toBe('keep <insight')
     })
 })

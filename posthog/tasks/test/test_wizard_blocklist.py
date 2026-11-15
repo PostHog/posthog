@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, revoke_oauth_session
 from posthog.models.user import User
 from posthog.tasks.wizard_blocklist import (
@@ -37,6 +39,7 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         expired: bool = False,
         user: User | None = None,
         scoped_organizations: list[str] | None = None,
+        scoped_teams: list[int] | None = None,
     ) -> OAuthAccessToken:
         owner = user or self.user
         expires = timezone.now() + (timedelta(hours=-1) if expired else timedelta(hours=1))
@@ -47,13 +50,14 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
             scope=scope,
             expires=expires,
             scoped_organizations=scoped_organizations,
+            scoped_teams=scoped_teams,
         )
         OAuthRefreshToken.objects.create(
             user=owner, application=self.application, token=f"refresh_{token}", access_token=access_token
         )
         return access_token
 
-    @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=True)
+    @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
     def test_a_blocked_user_loses_the_access_and_refresh_token(self, mock_blocked: MagicMock) -> None:
         self._token(token="live_token")
 
@@ -64,14 +68,14 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         assert not OAuthAccessToken.objects.filter(application=self.application).exists()
         assert not OAuthRefreshToken.objects.filter(application=self.application).exists()
 
-    @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=False)
-    def test_an_unlisted_user_keeps_their_credentials(self, mock_blocked: MagicMock) -> None:
+    @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=False)
+    def test_an_unblocked_user_keeps_their_credentials(self, mock_blocked: MagicMock) -> None:
         self._token(token="live_token")
 
         assert sweep_blocklisted_gateway_credentials() == SweepResult()
         assert OAuthAccessToken.objects.filter(application=self.application).exists()
 
-    @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=True)
+    @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
     def test_a_wildcard_token_is_a_candidate(self, mock_blocked: MagicMock) -> None:
         # The legacy gateway authenticates a bare `*`, so enumerating only the
         # literal scope leaves it live.
@@ -80,7 +84,7 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         assert sweep_blocklisted_gateway_credentials() == SweepResult(blocked_users=1, revoked_sessions=1)
         assert not OAuthAccessToken.objects.filter(token="wildcard_token").exists()
 
-    @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=True)
+    @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
     def test_a_credential_without_the_gateway_scope_is_untouched(self, mock_blocked: MagicMock) -> None:
         self._token(token="insight_token", scope="insight:read")
 
@@ -89,7 +93,7 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         # Nothing to revoke means nothing to ask about.
         mock_blocked.assert_not_called()
 
-    @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=True)
+    @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
     def test_an_expired_access_token_still_reaches_its_live_refresh_token(self, mock_blocked: MagicMock) -> None:
         # 7-day access against a 30-day refresh token: selecting only live rows
         # leaves a dormant account banned in name only.
@@ -98,8 +102,8 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         assert sweep_blocklisted_gateway_credentials() == SweepResult(blocked_users=1, revoked_sessions=1)
         assert not OAuthRefreshToken.objects.filter(application=self.application).exists()
 
-    @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=True)
-    def test_many_tokens_for_one_app_are_one_revoke_and_one_flag_read(self, mock_blocked: MagicMock) -> None:
+    @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
+    def test_many_tokens_for_one_app_are_one_revoke_and_one_rule_check(self, mock_blocked: MagicMock) -> None:
         self._token(token="token_one")
         self._token(token="token_two")
 
@@ -114,7 +118,7 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         assert not OAuthAccessToken.objects.filter(application=self.application).exists()
 
     @patch("posthog.tasks.wizard_blocklist._MAX_REVOCATIONS_PER_RUN", 1)
-    @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=True)
+    @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
     def test_a_capped_run_says_so_instead_of_reporting_a_finished_estate(self, mock_blocked: MagicMock) -> None:
         other = User.objects.create_and_join(self.organization, "capped@example.com", None)
         second_app = OAuthApplication.objects.create(
@@ -144,7 +148,7 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         # The backlog survives for the next tick.
         assert OAuthAccessToken.objects.filter(token="second_pair").exists()
 
-    @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=True)
+    @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
     def test_an_expired_token_with_no_refresh_token_is_not_a_candidate(self, mock_blocked: MagicMock) -> None:
         # Sandbox tokens carry this scope, have no refresh token and are kept 30
         # days, so reading them buys no reachability.
@@ -165,8 +169,8 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         self._token(token="org_b", scoped_organizations=["22222222-2222-4222-8222-222222222222"])
 
         with patch(
-            "posthog.tasks.wizard_blocklist.wizard_identity_blocked",
-            side_effect=lambda **kwargs: "22222222-2222-4222-8222-222222222222" in kwargs["organization_ids"],
+            "posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked",
+            side_effect=lambda subject: "22222222-2222-4222-8222-222222222222" in subject.organization_ids,
         ) as mock_blocked:
             result = sweep_blocklisted_gateway_credentials()
 
@@ -185,8 +189,8 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         )
 
         with patch(
-            "posthog.tasks.wizard_blocklist.wizard_identity_blocked",
-            side_effect=lambda **kwargs: "22222222-2222-4222-8222-222222222222" in kwargs["organization_ids"],
+            "posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked",
+            side_effect=lambda subject: "22222222-2222-4222-8222-222222222222" in subject.organization_ids,
         ):
             result = sweep_blocklisted_gateway_credentials()
 
@@ -199,8 +203,8 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         self._token(token="other_token", user=other)
 
         with patch(
-            "posthog.tasks.wizard_blocklist.wizard_identity_blocked",
-            side_effect=lambda **kwargs: kwargs["distinct_id"] == str(self.user.distinct_id),
+            "posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked",
+            side_effect=lambda subject: subject.user_uuid == str(self.user.uuid),
         ):
             result = sweep_blocklisted_gateway_credentials()
 
@@ -209,14 +213,23 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         assert not OAuthAccessToken.objects.filter(token="blocked_token").exists()
         assert OAuthAccessToken.objects.filter(token="other_token").exists()
 
-    @patch("posthog.tasks.wizard_blocklist.record_blocklist_outcome")
-    @patch("posthog.tasks.wizard_blocklist.blocklist_flag_defined", return_value=False)
-    def test_a_run_with_no_flag_defined_reports_itself(self, mock_defined: MagicMock, mock_record: MagicMock) -> None:
-        # A lost definitions cache looks the same as no ban list, so the skipped
-        # run has to reach the counter.
+    def test_an_organization_rule_reaches_a_token_scoped_only_to_one_of_its_teams(self) -> None:
+        # A team-scoped token carries no organizations of its own, and rules have no team target.
+        self._token(token="team_token", scoped_teams=[self.team.id])
+
+        with patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=False) as rule:
+            sweep_blocklisted_gateway_credentials()
+
+        assert rule.call_args.args[0].organization_ids == (str(self.team.organization_id),)
+
+    @parameterized.expand([("gateway in shadow", False, True), ("gateway enforced", True, False)])
+    @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
+    def test_the_task_sweeps_only_while_the_gateway_is_enforced(
+        self, _name: str, enforced: bool, kept: bool, _rule: MagicMock
+    ) -> None:
         self._token(token="untouched")
 
-        revoke_blocklisted_gateway_credentials()
+        with patch("posthog.tasks.wizard_blocklist.security_is_enforced", return_value=enforced):
+            revoke_blocklisted_gateway_credentials()
 
-        mock_record.assert_called_once_with("revoke_sweep", "unconfigured")
-        assert OAuthAccessToken.objects.filter(token="untouched").exists()
+        assert OAuthAccessToken.objects.filter(token="untouched").exists() is kept

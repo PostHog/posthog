@@ -387,6 +387,53 @@ class TestDiscoverCanonicalSkills:
         with pytest.raises(CanonicalSkillParseError, match=expected_error):
             discover_canonical_skills(tmp_path)
 
+    @pytest.mark.parametrize(
+        "dir_name,precheck_yaml,expected_error",
+        [
+            ("signals-scout-bar", "scout-precheck-query: ''", "must be a non-empty string"),
+            ("signals-scout-bar", "scout-precheck-query: 'SELEC 1'", "not a valid HogQL SELECT"),
+            ("signals-scout-bar", "scout-precheck-query: 'SELECT {unknown}'", "not a valid HogQL SELECT"),
+            ("authoring-scouts", "scout-precheck-query: 'SELECT 1'", "Only a signals-scout-\\* skill may declare"),
+        ],
+    )
+    def test_rejects_malformed_scout_precheck_query(
+        self, tmp_path: Path, dir_name: str, precheck_yaml: str, expected_error: str
+    ) -> None:
+        name = dir_name if dir_name == "authoring-scouts" else "signals-scout-bar"
+        _write_canonical_skill(
+            tmp_path,
+            dir_name=dir_name,
+            frontmatter=f"---\nname: {name}\ndescription: bar skill\n{precheck_yaml}\n---\n",
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match=expected_error):
+            discover_canonical_skills(tmp_path)
+
+    @pytest.mark.parametrize("marker,expected", [("", False), ("false", False), ("true", True)])
+    def test_trial_model_preservation_marker(self, tmp_path: Path, marker: str, expected: bool) -> None:
+        setting = f"scout-preserve-trial-model: {marker}\n" if marker else ""
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter=f"---\nname: signals-scout-bar\ndescription: bar skill\n{setting}---\n",
+            body="# Bar\n",
+        )
+        assert discover_canonical_skills(tmp_path)[0].preserve_trial_model is expected
+
+    @pytest.mark.parametrize(
+        "name,marker",
+        [("signals-scout-bar", '"false"'), ("signals-scout-bar", "null"), ("authoring-scouts", "true")],
+    )
+    def test_rejects_invalid_trial_model_marker(self, tmp_path: Path, name: str, marker: str) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name=name,
+            frontmatter=f"---\nname: {name}\ndescription: bar skill\nscout-preserve-trial-model: {marker}\n---\n",
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match="'scout-preserve-trial-model' must be a boolean"):
+            discover_canonical_skills(tmp_path)
+
     def test_parses_scout_role(self, tmp_path: Path) -> None:
         _write_canonical_skill(
             tmp_path,

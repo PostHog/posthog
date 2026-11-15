@@ -85,8 +85,11 @@ const COMPACT_AFTER_ENTRIES = 64
  * Every consumer's batch adds its candidates here, and the fetch workers take them in the order they
  * entered the pool, among the origins that are under their limits and past their crawl delay. The
  * order uses pool entry and not record age, because the pass deadline and the batch timeout count
- * from when the pod received the batch. The limits count across the pod, so two batches from one
- * partition cannot both claim a domain's slots.
+ * from when the pod received the batch. Inside one batch, the candidates enter in capture order. A
+ * pass-deadline deferral goes back to the end of its partition, behind URLs captured later. In input
+ * order, a domain that cannot serve its whole batch would serve those later URLs on every pass and
+ * never reach the deferred one. The limits count across the pod, so two batches from one partition
+ * cannot both claim a domain's slots.
  */
 export class FetchCandidatePool<T> {
     private readonly domains = new Map<string, DomainQueue<T>>()
@@ -137,7 +140,7 @@ export class FetchCandidatePool<T> {
         const nowMs = Date.now()
         const batch: PoolBatch<T> = { owner, entries: [], queued: 0, expiryTimer: undefined }
         const touched = new Set<OriginQueue<T>>()
-        for (const candidate of candidates) {
+        for (const candidate of [...candidates].sort((left, right) => left.firstSeenAtMs - right.firstSeenAtMs)) {
             const origin = this.originQueueFor(candidate)
             const entry: PoolEntry<T> = {
                 payload: { candidate, context, batch },

@@ -1,7 +1,6 @@
 import { compress, decompress } from '@mongodb-js/zstd'
 import avro from 'avsc'
 import { Counter, Histogram } from 'prom-client'
-import { Readable } from 'stream'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -118,14 +117,6 @@ export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | und
                 },
             })
 
-            const stream = new Readable()
-            stream.on('error', (err: Error) => {
-                reject(err)
-            })
-            stream.push(buffer)
-            stream.push(null)
-            stream.pipe(decoder)
-
             let logRecordType: avro.Type | undefined
             let compressionCodec: string = 'null'
 
@@ -150,6 +141,10 @@ export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | und
             decoder.on('error', (err: Error) => {
                 reject(err)
             })
+
+            // Write directly rather than through a pipe: avsc throws from inside `write` when a
+            // block count is not a safe long, and only a synchronous call lets this catch see it.
+            decoder.end(buffer)
         } catch (err) {
             reject(err)
         }
@@ -610,7 +605,7 @@ export const processLogMessageBuffer = instrumented({
             // No surviving records — signal the caller to suppress the message rather than forward or
             // re-encode an empty batch downstream. Checked before the visitor-only shortcut below so a
             // zero-record batch decoded solely for metric-rule tallying is suppressed too.
-            // `stats.droppedBy` distinguishes a filter drop (sampling / transformations) from an
+            // `stats.droppedBy` distinguishes a filter drop (it names the stage) from an
             // already-empty batch so the caller can attribute it correctly.
             return { value: null, pii, drops: stats }
         }

@@ -7,11 +7,12 @@ import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
-import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
@@ -21,13 +22,6 @@ import { type VerifyEmailReason, verifyEmailLogic } from './verifyEmailLogic'
 const HedgehogExplorer = pngHoggie(explorerPng)
 const HedgehogJackDawson = pngHoggie(jackDawsonPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
-
-const NOTES: Record<string, string[]> = {
-    pending: ['// one email away', '// we just hit send'],
-    send_failed: ['// the email did not go', '// give it another send'],
-    success: ['// verified', '// go explore'],
-    invalid: ['// nothing to verify', "// let's start again"],
-}
 
 const CHECKLIST = [
     'Wait 5 minutes, some email providers take a beat',
@@ -63,7 +57,7 @@ function NotSeeingIt(): JSX.Element {
                 Not seeing it?
             </button>
             {open && (
-                <div className="AuthScene__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left border border-dashed rounded">
+                <AuthBanner variant="note" className="mt-3 w-full">
                     <p className="m-0 mb-2.5 font-semibold text-primary">Before we resend, three quick checks:</p>
                     <div className="flex flex-col gap-2">
                         {CHECKLIST.map((item, i) => (
@@ -111,7 +105,7 @@ function NotSeeingIt(): JSX.Element {
                             Contact support
                         </LemonButton>
                     </div>
-                </div>
+                </AuthBanner>
             )}
         </>
     )
@@ -181,14 +175,14 @@ function CheckYourInbox(): JSX.Element {
     return (
         <div className="flex flex-col items-center text-center">
             {reason && (
-                <LemonBanner type="info" className="w-full mb-4 text-left">
+                <AuthBanner variant="note" className="w-full mb-4">
                     {DEEP_LINK_NOTICE[reason]}
-                </LemonBanner>
+                </AuthBanner>
             )}
             {!verificationEmailSent && (
-                <LemonBanner type="warning" className="w-full mb-4 text-left">
+                <AuthBanner variant="warning" className="w-full mb-4">
                     We couldn't send your code just now. Open "Not seeing it?" below to send a new one.
-                </LemonBanner>
+                </AuthBanner>
             )}
             <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
             <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
@@ -209,7 +203,9 @@ function CheckYourInbox(): JSX.Element {
             </p>
             {pendingConnection && (
                 <p className="AuthScene__sub -mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                    {reviewAccessCopy(pendingConnection, 'After you verify')}
+                    {`After you verify, you'll review what ${pendingConnection.clientName} can access${
+                        pendingConnection.redirectHost ? `, then go back to ${pendingConnection.redirectHost}` : ''
+                    }.`}
                 </p>
             )}
             <VerificationCodeEntry />
@@ -225,13 +221,17 @@ export function VerifyEmailForm(): JSX.Element {
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const { openSupportForm } = useActions(supportLogic)
 
-    const noteKey = view === 'pending' && !verificationEmailSent ? 'send_failed' : (view ?? 'pending')
-    const notes = NOTES[noteKey] ?? NOTES.pending
+    const notes =
+        view === 'success' || view === 'invalid'
+            ? AUTH_NOTES.verifyEmail[view]
+            : view === 'pending' && !verificationEmailSent
+              ? AUTH_NOTES.verifyEmail.sendFailed
+              : AUTH_NOTES.verifyEmail.pending
 
     if (view === 'success') {
         return (
             <AuthScene notes={notes}>
-                <AuthSceneCard>
+                <AuthSceneCard showPendingConnection>
                     <div className="flex flex-col items-center text-center">
                         <HedgehogExplorer className="block w-auto mx-auto h-32" />
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
@@ -256,6 +256,7 @@ export function VerifyEmailForm(): JSX.Element {
         return (
             <AuthScene notes={notes}>
                 <AuthSceneCard
+                    showPendingConnection
                     footer={
                         <p className="mt-5 mb-0 text-sm text-secondary text-center">
                             Already verified?{' '}
@@ -303,6 +304,7 @@ export function VerifyEmailForm(): JSX.Element {
     return (
         <AuthScene notes={notes}>
             <AuthSceneCard
+                showPendingConnection
                 footer={
                     <p className="mt-5 mb-0 text-sm text-secondary text-center">
                         Wrong address?{' '}

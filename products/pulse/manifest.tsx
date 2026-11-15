@@ -33,6 +33,7 @@ export const manifest: ProductManifest = {
             iconType: 'pulse',
             iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
             href: urls.pulse(),
+            searchKeywords: ['briefs', 'digest'],
             flag: FEATURE_FLAGS.PULSE,
             tags: ['alpha'],
             sceneKey: 'Pulse',

@@ -1,22 +1,16 @@
 from django.db import models
-from django.db.models import QuerySet
 
-import structlog
-
-from posthog.models.file_system.constants import DEFAULT_SURFACE
-from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
-logger = structlog.get_logger(__name__)
 
+# nosemgrep: no-new-uuidt-models -- a retired model, and a new primary key default would need a migration.
+class Link(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+    """The links product is retired. The model stays so that Django keeps cascading team and user
+    deletes into its table. A later migration removes the model and drops the table.
 
-class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    """
-    Links that redirect to a specified destination URL.
-    These are used for sharing URLs across the application.
-    """
+    The model does not use FileSystemSyncMixin. With the mixin, `link` would be a registered file
+    system type again and the unfiled saver would recreate tree rows for links."""
 
     redirect_url = models.URLField(max_length=2048)
     short_link_domain = models.CharField(max_length=255, help_text="Domain where the short link is hosted, e.g. hog.gg")
@@ -38,38 +32,3 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
             )
         ]
         db_table = "posthog_link"
-
-    def __str__(self) -> str:
-        return f"{self.id} -> {self.redirect_url}"
-
-    @classmethod
-    def get_links_for_team(cls, team_id: int, limit: int = 100, offset: int = 0) -> QuerySet["Link"]:
-        """
-        Get all links for a team with pagination.
-        Args:
-            team_id: The team ID to get links for
-            limit: Maximum number of links to return
-            offset: Offset for pagination
-        Returns:
-            A queryset of links for the team
-        """
-        return cls.objects.filter(team_id=team_id).order_by("-created_at")[offset : offset + limit]
-
-    @classmethod
-    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Link"]:
-        base_qs = cls.objects.filter(team=team)
-        return cls._filter_unfiled_queryset(base_qs, team, type="link", ref_field="id", surface=surface)
-
-    def get_file_system_representation(self) -> FileSystemRepresentation:
-        return FileSystemRepresentation(
-            base_folder=self._get_assigned_folder("Unfiled/Links"),
-            type="link",  # sync with APIScopeObject in scopes.py
-            ref=str(self.id),
-            name=self.short_code or "Untitled",
-            href=f"/link/{self.id}",
-            meta={
-                "created_at": str(self.created_at),
-                "created_by": self.created_by_id,
-            },
-            should_delete=False,
-        )

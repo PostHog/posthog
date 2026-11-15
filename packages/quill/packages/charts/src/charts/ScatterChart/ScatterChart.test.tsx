@@ -1,13 +1,7 @@
 import { act, fireEvent, waitFor } from '@testing-library/react'
 
 import type { ChartMargins, ChartTheme } from '../../core/types'
-import {
-    createDefaultTooltipAccessor,
-    getHogChartTooltip,
-    rawDrag,
-    renderHogChart,
-    waitForHogChartTooltip,
-} from '../../testing'
+import { createDefaultTooltipAccessor, getChartTooltip, rawDrag, renderChart, waitForChartTooltip } from '../../testing'
 import { ScatterChart } from './ScatterChart'
 import type { ScatterAreaSelection, ScatterChartConfig, ScatterPointDatum, ScatterSeries } from './types'
 
@@ -40,23 +34,20 @@ const SERIES: ScatterSeries[] = [
     { key: 'writes', label: 'Writes', points: [{ x: 0, y: 100, label: 'Top left' }] },
 ]
 
-function renderScatter(
-    props: Partial<React.ComponentProps<typeof ScatterChart>> = {}
-): ReturnType<typeof renderHogChart> {
-    return renderHogChart(
+function renderScatter(props: Partial<React.ComponentProps<typeof ScatterChart>> = {}): ReturnType<typeof renderChart> {
+    return renderChart(
         <ScatterChart
             series={SERIES}
             theme={THEME}
             config={{ margins: MARGINS, xAxis: { label: 'Reads' }, yAxis: { label: 'Writes' }, ...props.config }}
             {...props}
-        />,
-        { nativeTooltip: true }
+        />
     )
 }
 
 /** Hover a data coordinate, re-dispatching until the chart has committed its scales. */
 async function hoverPoint(wrapper: HTMLElement, x: number, y: number): Promise<HTMLElement> {
-    return waitForHogChartTooltip(3000, () => {
+    return waitForChartTooltip(3000, () => {
         act(() => {
             fireEvent.mouseMove(wrapper, { clientX: clientX(x), clientY: clientY(y) })
         })
@@ -64,6 +55,43 @@ async function hoverPoint(wrapper: HTMLElement, x: number, y: number): Promise<H
 }
 
 describe('ScatterChart', () => {
+    it('draws selection highlights without rereading point geometry', () => {
+        let coordinateReads = 0
+        const series: ScatterSeries[] = [
+            {
+                key: 'sample',
+                label: 'Sample',
+                points: [
+                    {
+                        get x(): number {
+                            coordinateReads++
+                            return 25
+                        },
+                        y: 80,
+                    },
+                    {
+                        get x(): number {
+                            coordinateReads++
+                            return 100
+                        },
+                        y: 0,
+                    },
+                ],
+            },
+        ]
+        const config = { margins: MARGINS }
+        const { chart, rerender } = renderScatter({ series, config })
+        const readsBeforeHighlight = coordinateReads
+        const stroke = jest.spyOn(chart.canvas.getContext('2d')!, 'stroke')
+        const strokesBeforeHighlight = stroke.mock.calls.length
+        const highlight = jest.fn((point: { x: number }) => point.x === 25)
+        rerender(<ScatterChart series={series} theme={THEME} config={{ ...config, isPointHighlighted: highlight }} />)
+        expect(highlight).toHaveBeenCalled()
+        expect(stroke.mock.calls.length).toBeGreaterThan(strokesBeforeHighlight)
+        expect(coordinateReads).toBe(readsBeforeHighlight)
+        stroke.mockRestore()
+    })
+
     it('ticks each axis over its own value range, not once per point', () => {
         const { chart } = renderScatter()
         expect(chart.xTicks()).toContain('100')
@@ -131,7 +159,7 @@ describe('ScatterChart', () => {
                 ],
             },
         ]
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <ScatterChart
                 series={series}
                 theme={THEME}
@@ -140,11 +168,10 @@ describe('ScatterChart', () => {
                     xAxis: { domain: [0, 100] },
                     yAxis: { scaleType: 'log', domain: [1, 100] },
                 }}
-            />,
-            { nativeTooltip: true }
+            />
         )
         // A log scale clamps, so the excluded point would otherwise sit hoverable on the top edge.
-        await waitForHogChartTooltip(3000, () => {
+        await waitForChartTooltip(3000, () => {
             act(() => {
                 fireEvent.mouseMove(chart.element, { clientX: clientX(10), clientY: PLOT_HEIGHT / 2 })
             })
@@ -152,7 +179,7 @@ describe('ScatterChart', () => {
         act(() => {
             fireEvent.mouseMove(chart.element, { clientX: clientX(10), clientY: 4 })
         })
-        await waitFor(() => expect(getHogChartTooltip()).toBeNull())
+        await waitFor(() => expect(getChartTooltip()).toBeNull())
     })
 
     it('drops a legend-hidden series from the plot, not just from the legend', async () => {
@@ -162,7 +189,7 @@ describe('ScatterChart', () => {
         act(() => {
             fireEvent.mouseMove(chart.element, { clientX: clientX(0), clientY: clientY(100) })
         })
-        await waitFor(() => expect(getHogChartTooltip()).toBeNull())
+        await waitFor(() => expect(getChartTooltip()).toBeNull())
     })
 
     it('reports the clicked point with its series and consumer meta', async () => {
@@ -170,9 +197,8 @@ describe('ScatterChart', () => {
         const series: ScatterSeries<{ orgId: string }>[] = [
             { key: 'orgs', label: 'Orgs', points: [{ x: 100, y: 100, label: 'Hedgebox', meta: { orgId: 'hb' } }] },
         ]
-        const { chart } = renderHogChart(
-            <ScatterChart series={series} theme={THEME} config={{ margins: MARGINS }} onPointClick={onPointClick} />,
-            { nativeTooltip: true }
+        const { chart } = renderChart(
+            <ScatterChart series={series} theme={THEME} config={{ margins: MARGINS }} onPointClick={onPointClick} />
         )
         await hoverPoint(chart.element, 100, 100)
         fireEvent.click(chart.element)

@@ -183,6 +183,20 @@ var (
 		Help: "How much of the Redis publish buffer is used",
 	})
 
+	// Subscriber-aware publishing metrics
+	RedisPublishSkippedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_publish_skipped_total",
+		Help: "Events not published because no subscriber is registered for the token (subscriber-aware publishing)",
+	})
+	SubscriberRegistryActiveTokens = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_subscriber_registry_active_tokens",
+		Help: "Tokens with at least one registered subscriber, as seen by the publisher snapshot",
+	})
+	SubscriberRegistryReadErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_subscriber_registry_read_errors_total",
+		Help: "Failed reads of the subscriber registry snapshot; publishers fail open on these",
+	})
+
 	// /notifications handler metrics
 	NotificationSubs = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "livestream_active_notification_subscriptions",

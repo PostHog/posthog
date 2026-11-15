@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.quota import compute_quota_snapshot, daily_spend_series
 
 
@@ -40,7 +41,7 @@ class VisionQuotaSerializer(serializers.Serializer):
     credits_reserved = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Credits held by in-flight observations and running prompt tests across every project in the organization. "
+            "Credits held by in-flight observations across every project in the organization. "
             "Released without charge when the work fails, settled into `credits_settled` when it succeeds."
         ),
     )
@@ -75,6 +76,13 @@ class VisionQuotaSerializer(serializers.Serializer):
             "A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. "
             "A monthly rate: only the part falling in the days left of the period lands this period. "
             "Scanners without a computed estimate contribute 0."
+        ),
+    )
+    scanners_period_credits = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "The part of `scanners_monthly_credits` that lands between now and `period_end`. "
+            "Use it for rest-of-period forecasts; billing forecasts from the same figure."
         ),
     )
     backfills_committed_credits = serializers.IntegerField(
@@ -122,7 +130,7 @@ class VisionQuotaViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "replay_scanner"
     # Custom viewsets must declare scopes or personal-API-key callers 403 silently.
     scope_object_read_actions = ["list", "spend_series"]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [ReplayVisionCloudOnly, IsAuthenticated]
 
     @extend_schema(operation_id="environment_vision_quota_retrieve", responses={200: VisionQuotaSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:

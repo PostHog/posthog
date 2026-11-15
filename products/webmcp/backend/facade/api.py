@@ -1,0 +1,29 @@
+"""
+Facade for webmcp.
+
+The ONLY module other products are allowed to import.
+Accept frozen dataclasses, call logic/, return frozen
+dataclasses. Never return ORM instances or import DRF.
+"""
+
+from __future__ import annotations
+
+from posthog.models import User
+
+from ..logic.mcp_server import McpServerClient, get_mcp_server_url
+from . import contracts
+
+
+def is_available() -> bool:
+    return get_mcp_server_url() is not None
+
+
+def run_exec(input: contracts.RunExecInput) -> contracts.ExecResult:
+    return McpServerClient.for_user(User.objects.get(id=input.user_id), input.team_id).call_exec(input.command)
+
+
+def call_tool(input: contracts.CallToolInput) -> contracts.ToolCallResult:
+    """Call one MCP tool by name as the user and return its JSON result."""
+    return McpServerClient.for_user(User.objects.get(id=input.user_id), input.team_id).call_tool(
+        input.tool, input.arguments
+    )

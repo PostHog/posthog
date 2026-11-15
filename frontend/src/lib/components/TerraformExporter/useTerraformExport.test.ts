@@ -4,12 +4,19 @@ import posthog from 'posthog-js'
 
 import api from '~/lib/api'
 
+import { membersList, rolesList } from 'products/platform_features/frontend/generated/api'
+
+import * as accessControlHclExporter from './accessControlHclExporter'
 import * as dashboardHclExporter from './dashboardHclExporter'
 import * as insightHclExporter from './insightHclExporter'
 import { TerraformExportResource, useTerraformExport } from './useTerraformExport'
 
 jest.mock('~/lib/api')
 jest.mock('posthog-js')
+jest.mock('products/platform_features/frontend/generated/api', () => ({
+    rolesList: jest.fn(),
+    membersList: jest.fn(),
+}))
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: jest.fn(),
@@ -109,6 +116,30 @@ describe('useTerraformExport', () => {
                     },
                 }
             )
+        })
+
+        it('captures access control export errors with the project id', async () => {
+            mockedApi.get.mockResolvedValue({ access_controls: [] })
+            ;(rolesList as jest.Mock).mockResolvedValue({ results: [], next: null })
+            ;(membersList as jest.Mock).mockResolvedValue({ results: [], next: null })
+            jest.spyOn(accessControlHclExporter, 'generateAccessControlHCL').mockImplementation(() => {
+                throw new Error('Test error for tracking')
+            })
+            const accessControlResource: TerraformExportResource = {
+                type: 'access_control',
+                data: { projectId: 73, projectName: 'Test project', organizationId: 'org-1' },
+            }
+
+            const { result } = renderHook(() => useTerraformExport(accessControlResource, true))
+
+            await waitFor(() => {
+                expect(result.current.loading).toBe(false)
+            })
+
+            expect(result.current.error).toBe('Test error for tracking')
+            expect(posthog.captureException).toHaveBeenCalledWith(expect.any(Error), {
+                extra: { context: 'TerraformExporter', resourceType: 'access_control', resourceId: 73 },
+            })
         })
 
         it('handles non-Error exceptions gracefully', async () => {

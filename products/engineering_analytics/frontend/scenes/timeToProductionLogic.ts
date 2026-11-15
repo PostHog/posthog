@@ -6,7 +6,7 @@ import { ApiConfig } from 'lib/api'
 import { engineeringAnalyticsRepoOverview } from '../generated/api'
 import type { RepoOverviewApi } from '../generated/api.schemas'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
-import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
+import { awaitsRepoForward, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -42,9 +42,7 @@ export interface timeToProductionLogicActions {
 
 export type timeToProductionLogicType = MakeLogicType<timeToProductionLogicValues, timeToProductionLogicActions>
 
-// The windowed PR-lifecycle timings behind the pull-requests page: cycle time, the pre-merge
-// pipeline legs, and the merge queue's outcomes. The repo hub reads the same endpoint for its
-// CI-health numbers, so the two pages share a payload shape but never share state.
+// The repo hub reads the same endpoint, so the two pages share a payload shape but never share state.
 export const timeToProductionLogic = kea<timeToProductionLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'timeToProductionLogic']),
 
@@ -92,6 +90,8 @@ export const timeToProductionLogic = kea<timeToProductionLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        actions.loadTiming()
+        if (!awaitsRepoForward()) {
+            actions.loadTiming()
+        }
     }),
 ])

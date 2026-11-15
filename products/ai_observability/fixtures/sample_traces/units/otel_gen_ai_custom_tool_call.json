@@ -1,0 +1,80 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Study assistant gateway logs a tool-call finish via OTel gen_ai",
+  "scenario": "A study assistant gateway's OpenTelemetry gen_ai instrumentation records a chat completion that ends in a custom tool call, with only span and usage metadata captured and no message content.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "otel"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "gpt-5.6-sol"
+    ],
+    "content_types": [
+      "custom_tool_call",
+      "custom_tool_call_output"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_span_id": "55b20f16f28715fa",
+        "$ai_trace_id": "1e042d1085a1614c45d1f2d70fc86465",
+        "$geoip_disable": true,
+        "app.genai.operation.name": "chatbot",
+        "app.genai.output.message.role": "chatbot",
+        "gen_ai.conversation.id": "s_pYl5vufzEOjH",
+        "app.genai.request.is_stream": true,
+        "gen_ai.response.finish_reasons": [
+          "tool_call"
+        ],
+        "gen_ai.response.id": "resp_b2PvBN1mh8COhz23NiayChK5WMuQsSnLgXdLtOnxDQmpBMTsVw",
+        "duration_ms": 424,
+        "service.name": "study-assistant-gateway",
+        "$ai_input_tokens": 106320,
+        "$ai_output_tokens": 154,
+        "$ai_model": "gpt-5.6-sol",
+        "$ai_provider": "openai",
+        "$ai_base_url": "openai.com/",
+        "$ai_span_name": "chat gpt-5.6-sol",
+        "$ai_latency": 4.75397279,
+        "$ai_input": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "custom_tool_call_output"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "custom_tool_call"
+              }
+            ],
+            "finish_reason": "completed"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

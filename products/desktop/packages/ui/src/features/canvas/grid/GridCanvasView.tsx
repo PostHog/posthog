@@ -73,6 +73,10 @@ export function GridCanvasView({
 
   // The layout version the grid is on, in the freeform toolbar's vocabulary.
   const { versions } = useCanvasVersions(canvasId);
+  const commentTaskId = canvasCommentTaskId(
+    dashboard?.generationTaskId ?? startedCanvasTaskId,
+    versions,
+  );
   const versionText = useMemo(() => {
     if (!currentVersionId || versions.length === 0) return null;
     const index = versions.findIndex(
@@ -254,10 +258,7 @@ export function GridCanvasView({
           <GridChatPanel
             target={widgetTarget}
             canvasTaskId={dashboard.generationTaskId ?? startedCanvasTaskId}
-            commentTaskId={canvasCommentTaskId(
-              dashboard.generationTaskId ?? startedCanvasTaskId,
-              versions,
-            )}
+            commentTaskId={commentTaskId}
             canvasVersionId={currentVersionId ?? null}
             commentVersionLabel={commentVersionLabel}
             canvasId={canvasId}

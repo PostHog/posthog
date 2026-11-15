@@ -48,6 +48,12 @@ describe('createXAxisTickCallback', () => {
             expected: ['Apr 7', 'Apr 14', 'Apr 21'],
         },
         {
+            scenario: 'inferred day interval when an early outlier precedes daily points',
+            interval: undefined,
+            allDays: ['2026-08-07', '2026-09-25', '2026-09-26', '2026-09-27'],
+            expected: ['Aug 7', 'Sep 25', 'Sep 26', 'Sep 27'],
+        },
+        {
             scenario: 'inferred hour interval from 1 hour gaps',
             interval: undefined,
             allDays: ['2025-04-01 10:00:00', '2025-04-01 11:00:00', '2025-04-01 12:00:00'],

@@ -29,6 +29,7 @@ interface QueryResult {
     results: unknown
     insight: { url: string }
     _posthogUrl: string
+    warehouse_suggestions?: unknown
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }
 
@@ -181,6 +182,27 @@ describe('queryHandler — link reflects overrides', () => {
 describe('queryHandler — result shape for UI rendering', () => {
     const formatted = 'c\n1'
 
+    it.each(['optimized', 'json'] as const)(
+        'returns event rows without a formatter in %s output',
+        async (output_format) => {
+            const query = {
+                kind: 'DataTableNode',
+                source: { kind: 'EventsQuery', select: ['event', 'timestamp'], limit: 25 },
+            }
+            const queryData = { columns: ['event', 'timestamp'], results: [['example_event', '2026-01-01T00:00:00Z']] }
+            const { context, insightsQuery } = createContext({
+                getData: { id: 42, short_id: 'abc12345', query },
+                queryData,
+            })
+
+            const result = (await queryHandler(context, { insightId: '42', output_format })) as QueryResult
+
+            expect(insightsQuery).toHaveBeenCalledWith({ query })
+            expect(result.results).toEqual(queryData)
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
+        }
+    )
+
     it('keeps structured results for a HogQL insight in optimized output', async () => {
         const { context } = createContext({
             queryData: { columns: ['c'], results: [[1]], formatted_results: formatted },
@@ -219,6 +241,17 @@ describe('queryHandler — result shape for UI rendering', () => {
 
         expect(result.results).toEqual({ columns: ['c'], results: [[1]] })
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
+    })
+
+    it('passes warehouse suggestions through', async () => {
+        const note = { id: 'note-id', kind: 'materialize', view_name: 'orders', message: 'm', url: 'u', can_act: true }
+        const { context } = createContext({
+            queryData: { columns: ['c'], results: [[1]], warehouse_suggestions: [note] },
+        })
+
+        const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as QueryResult
+
+        expect(result.warehouse_suggestions).toEqual([note])
     })
 
     it('passes the raw results array through for trends insights', async () => {

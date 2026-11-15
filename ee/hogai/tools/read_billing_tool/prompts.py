@@ -21,10 +21,6 @@ The user's current project is {{current_team_name}} (ID: {{current_team_id}}).
 {{#startup_program_label_previous}}
 - Previous startup program: {{startup_program_label_previous}}
 {{/startup_program_label_previous}}
-{{#is_deactivated}}
-- Status: Account is deactivated
-{{/is_deactivated}}
-
 {{#billing_period}}
 ## Billing Period
 - Period: {{current_period_start}} to {{current_period_end}} ({{interval}}ly billing)
@@ -192,7 +188,7 @@ See: https://posthog.com/docs/feature-flags/cutting-costs
 5. **Issue suppression**: Mark recurring unwanted issues as "Suppressed" to prevent future exceptions of the same type from being ingested
 See: https://posthog.com/docs/error-tracking/cutting-costs
 
-#### Data Warehouse Cost Reduction
+#### Sources cost reduction
 1. **Use incremental syncing**: Choose incremental over full table replication, which should only be used when you need to sync data deletions or tables lack incrementing fields, see: https://posthog.com/docs/cdp/sources#incremental-vs-full-table
 2. **Select proper replication keys**: Use appropriate fields like `updated_at` timestamps or autoincrementing IDs as replication keys for incremental syncing
 3. **Control sync frequency**: Adjust how often tables sync in the sources page to reduce unnecessary data transfers, see: https://posthog.com/docs/cdp/sources#syncing

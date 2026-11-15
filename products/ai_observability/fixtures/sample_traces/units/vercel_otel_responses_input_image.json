@@ -1,0 +1,190 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Describing and indexing a kitchen counter photo",
+  "scenario": "PhotoIndex describes an uploaded photo with a vision model, then embeds the resulting caption so the photo becomes searchable by its content later.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1,
+      "$ai_span": 2,
+      "$ai_embedding": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "opentelemetry/vercel-ai"
+    ],
+    "providers": [
+      "openai.responses"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "gpt-5.4-mini-2026-03-17"
+    ],
+    "content_types": [
+      "file",
+      "image"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "a551f8ab59885b7c",
+        "$ai_span_id": "d6c0460499016fcf",
+        "$ai_trace_id": "c5c594270afa7347166465e29ed6a4a1",
+        "$geoip_disable": true,
+        "ai.usage.cachedInputTokens": 0,
+        "ai.usage.inputTokenDetails.cacheReadTokens": 0,
+        "ai.usage.inputTokenDetails.cacheWriteTokens": 0,
+        "ai.usage.inputTokens": 102,
+        "ai.usage.outputTokens": 196,
+        "ai.usage.reasoningTokens": 0,
+        "ai.usage.totalTokens": 298,
+        "service.name": "photo-index",
+        "$ai_input_tokens": 102,
+        "$ai_output_tokens": 196,
+        "$ai_model": "gpt-5.4-mini-2026-03-17",
+        "$ai_span_name": "ai.generateText.doGenerate",
+        "$ai_provider": "openai.responses",
+        "$ai_latency": 1.936210641,
+        "functionId": "app.pipelines.describeAndIndexPhoto",
+        "posthog_distinct_id": "u_8f2a",
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_reasoning_tokens": 0,
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "Describe this photo in one paragraph."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "file",
+                "mediaType": "image/jpeg",
+                "data": "data:application/octet-stream;base64,⟦media:vercel_otel_responses_input_image__M5897000.png⟧"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "content": "A close-up photo of a wooden kitchen counter with three ripe tomatoes, a half-used garlic bulb, and a small glass jar of olive oil arranged near a cutting board.\n\nThe tomatoes are deep red, one with a slight bruise near the stem, and appear freshly washed based on the visible water droplets on their skin.\n\nA chef's knife rests diagonally across the cutting board, suggesting the photo was taken mid-preparation rather than as a staged shot.\n\nNatural light comes from the upper left, likely a kitchen window, casting soft shadows to the right of each object.\n\nThe overall scene reads as a home cooking setup rather than a restaurant kitchen, based on the counter material and the informal arrangement of ingredients."
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "9e0a9fe95fcc4921",
+        "$ai_span_id": "a551f8ab59885b7c",
+        "$ai_trace_id": "c5c594270afa7347166465e29ed6a4a1",
+        "$geoip_disable": true,
+        "ai.usage.cachedInputTokens": 0,
+        "ai.usage.inputTokenDetails.cacheReadTokens": 0,
+        "ai.usage.inputTokenDetails.cacheWriteTokens": 0,
+        "ai.usage.inputTokens": 102,
+        "ai.usage.outputTokens": 196,
+        "ai.usage.reasoningTokens": 0,
+        "ai.usage.totalTokens": 298,
+        "service.name": "photo-index",
+        "$ai_cache_reporting_exclusive": false,
+        "$ai_span_name": "app.pipelines.describeAndIndexPhoto",
+        "$ai_latency": 1.936931398,
+        "functionId": "app.pipelines.describeAndIndexPhoto",
+        "posthog_distinct_id": "u_8f2a",
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_reasoning_tokens": 0,
+        "$ai_input": [
+          {
+            "content": "Describe this photo in one paragraph.",
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "image": "data:application/octet-stream;base64,⟦media:vercel_otel_responses_input_image__M5897000.png⟧",
+                "type": "image"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "content": "A close-up photo of a wooden kitchen counter with three ripe tomatoes, a half-used garlic bulb, and a small glass jar of olive oil arranged near a cutting board.\n\nThe tomatoes are deep red, one with a slight bruise near the stem, and appear freshly washed based on the visible water droplets on their skin.\n\nA chef's knife rests diagonally across the cutting board, suggesting the photo was taken mid-preparation rather than as a staged shot.\n\nNatural light comes from the upper left, likely a kitchen window, casting soft shadows to the right of each object.\n\nThe overall scene reads as a home cooking setup rather than a restaurant kitchen, based on the counter material and the informal arrangement of ingredients."
+          }
+        ],
+        "$ai_input_state": {
+          "content": [
+            {
+              "image": "data:application/octet-stream;base64,⟦media:vercel_otel_responses_input_image__M5897000.png⟧",
+              "type": "image"
+            }
+          ],
+          "role": "user"
+        },
+        "$ai_output_state": {
+          "role": "assistant",
+          "content": "A close-up photo of a wooden kitchen counter with three ripe tomatoes, a half-used garlic bulb, and a small glass jar of olive oil arranged near a cutting board.\n\nThe tomatoes are deep red, one with a slight bruise near the stem, and appear freshly washed based on the visible water droplets on their skin.\n\nA chef's knife rests diagonally across the cutting board, suggesting the photo was taken mid-preparation rather than as a staged shot.\n\nNatural light comes from the upper left, likely a kitchen window, casting soft shadows to the right of each object.\n\nThe overall scene reads as a home cooking setup rather than a restaurant kitchen, based on the counter material and the informal arrangement of ingredients."
+        }
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 1937,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "0991ae24370a0abb",
+        "$ai_span_id": "4292e818f26ff7af",
+        "$ai_trace_id": "c5c594270afa7347166465e29ed6a4a1",
+        "$geoip_disable": true,
+        "service.name": "photo-index",
+        "$ai_span_name": "ai.embed.doEmbed",
+        "$ai_latency": 0.148489956,
+        "functionId": "app.pipelines.embedPhotoCaption",
+        "posthog_distinct_id": "u_8f2a",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 1937,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "9e0a9fe95fcc4921",
+        "$ai_span_id": "0991ae24370a0abb",
+        "$ai_trace_id": "c5c594270afa7347166465e29ed6a4a1",
+        "$geoip_disable": true,
+        "service.name": "photo-index",
+        "$ai_span_name": "embedCaption",
+        "$ai_latency": 0.148981118,
+        "functionId": "app.pipelines.embedPhotoCaption",
+        "posthog_distinct_id": "u_8f2a",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel"
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

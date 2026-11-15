@@ -8,7 +8,7 @@ description: >-
   too few exposures?", "why does the bias banner show?", or "why don't PostHog's
   numbers match my SQL?". Pulls the experiment's real data read-only, matches it
   to a known-cause catalog, and produces a customer-facing explanation, fix, and
-  review of the pertinent numbers. Loads diagnosing-experiment-results as its
+  review of the pertinent numbers. Loads diagnosing-experiment-health as its
   deep diagnostic library.
   DO NOT TRIGGER when: creating an experiment (use creating-experiments),
   only configuring rollout (configuring-experiment-rollout) or metrics
@@ -30,7 +30,7 @@ customer's own data, and hand back a plain-language explanation plus the fix.
 
 This skill is the customer-support front door. It carries the two most common complaints
 inline (uneven exposures, missing exposures) and loads
-[`diagnosing-experiment-results`](../diagnosing-experiment-results/SKILL.md) as a diagnostic
+[`diagnosing-experiment-health`](../diagnosing-experiment-health/SKILL.md) as a diagnostic
 library for the deeper long tail (interpretation traps, numbers-vs-SQL, mid-run surprises).
 
 ## Debugging workflow
@@ -71,7 +71,7 @@ library for the deeper long tail (interpretation traps, numbers-vs-SQL, mid-run 
 ## Known-cause catalog — "exposures aren't even" / "one variant has no traffic"
 
 Ordered by how often they're the answer. Full mechanism detail lives in
-[`diagnosing-experiment-results/references/bias-and-skew.md`](../diagnosing-experiment-results/references/bias-and-skew.md)
+[`diagnosing-experiment-health/references/bias-and-skew.md`](../diagnosing-experiment-health/references/bias-and-skew.md)
 (group A) — load it when a case needs more depth than the summary here.
 
 **First, split a real SRM into its two possible homes.** Assignment is a deterministic hash of a
@@ -159,7 +159,7 @@ tagged with the half they sit in.
 ## Known-cause catalog — "missing exposures" / "too few exposures" / "0 exposures"
 
 Full detail in
-[`diagnosing-experiment-results/references/empty-experiment.md`](../diagnosing-experiment-results/references/empty-experiment.md)
+[`diagnosing-experiment-health/references/empty-experiment.md`](../diagnosing-experiment-health/references/empty-experiment.md)
 (group B).
 
 - **Wrong SDK method.** Only single-flag accessors (`getFeatureFlag()`, `isFeatureEnabled()`)
@@ -211,15 +211,15 @@ three real-vs-noise checks (non-user split, dose-response, cohort stability) in
 ## Everything else → load the diagnostic library
 
 These aren't re-derived here. When the complaint is one of the following, read the matching
-group in `diagnosing-experiment-results` and diagnose from there, then still write the reply
+group in `diagnosing-experiment-health` and diagnose from there, then still write the reply
 with [references/customer-reply.md](references/customer-reply.md):
 
-| Customer complaint                                                                                    | Load                                                                     |
-| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Significance flips / A/A shows significant / "96% — should I ship?" / p-value confusion               | `diagnosing-experiment-results` group C (`references/interpretation.md`) |
-| "PostHog's number ≠ my SQL", funnel/breakdown/sum-of-revenue mismatch, filter didn't change the count | group D (`references/numbers-vs-sql.md`)                                 |
-| Numbers shifted after a mid-run edit, ship/reset/pause surprises, retention/matured-users quirks      | group E (`references/mid-run-changes.md`)                                |
-| Results won't load / many metric rows show `data: null`                                               | `references/diagnostic-snapshot.md` (transient-vs-real protocol)         |
+| Customer complaint                                                                                    | Load                                                                    |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Significance flips / A/A shows significant / "96% — should I ship?" / p-value confusion               | `diagnosing-experiment-health` group C (`references/interpretation.md`) |
+| "PostHog's number ≠ my SQL", funnel/breakdown/sum-of-revenue mismatch, filter didn't change the count | group D (`references/numbers-vs-sql.md`)                                |
+| Numbers shifted after a mid-run edit, ship/reset/pause surprises, retention/matured-users quirks      | group E (`references/mid-run-changes.md`)                               |
+| Results won't load / many metric rows show `data: null`                                               | `references/diagnostic-snapshot.md` (transient-vs-real protocol)        |
 
 ## The flag underneath is the problem → hand off
 

@@ -1,0 +1,4367 @@
+{
+ "cases": [
+  {
+   "name": "one_run",
+   "tail_bytes": 1500,
+   "parts": [
+    [
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:01Z",
+      "event_id": "b1-1",
+      "notification": {
+       "method": "_posthog/run_started",
+       "params": {
+        "runId": "run-1"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:02Z",
+      "event_id": "b1-2",
+      "notification": {
+       "method": "session/new",
+       "params": {
+        "_meta": {
+         "permissionMode": "default"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:03Z",
+      "event_id": "b1-3",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "available_commands_update",
+         "availableCommands": [
+          {
+           "name": "clear",
+           "description": "Clear the chat"
+          }
+         ]
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:04Z",
+      "event_id": "b1-4",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "Which pages get the most views?"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:05Z",
+      "event_id": "b1-5",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "Which pages get the most views?"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:06Z",
+      "event_id": "b1-6",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "Which pages get the most views?"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:07Z",
+      "event_id": "b1-7",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "t1",
+         "title": "query pageviews",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "query pageviews"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:08Z",
+      "event_id": "b1-8",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "t1",
+         "status": "completed",
+         "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:09Z",
+      "event_id": "b1-9",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "The pricing page gets the most views."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:10Z",
+      "event_id": "b1-10",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 900
+        },
+        "cost": 0.009
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:11Z",
+      "event_id": "b1-11",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 10000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:12Z",
+      "event_id": "b1-12",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:13Z",
+      "event_id": "b1-13",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "Compare this week with last week"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:14Z",
+      "event_id": "b1-14",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "Compare this week with last week"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:15Z",
+      "event_id": "b1-15",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "Compare this week with last week"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:16Z",
+      "event_id": "b1-16",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "a1",
+         "title": "this week",
+         "status": "in_progress"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:17Z",
+      "event_id": "b1-17",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "b1",
+         "title": "last week",
+         "status": "in_progress"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:18Z",
+      "event_id": "b1-18",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "a1",
+         "status": "completed",
+         "rawOutput": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:19Z",
+      "event_id": "b1-19",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "b1",
+         "status": "completed",
+         "rawOutput": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:20Z",
+      "event_id": "b1-20",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "Views grew by a tenth."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:21Z",
+      "event_id": "b1-21",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "current_mode_update",
+         "currentModeId": "plan"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:22Z",
+      "event_id": "b1-22",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 2100
+        },
+        "cost": 0.021
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:23Z",
+      "event_id": "b1-23",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 22000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:24Z",
+      "event_id": "b1-24",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:25Z",
+      "event_id": "b1-25",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "Summarize the signup funnel"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:26Z",
+      "event_id": "b1-26",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "Summarize the signup funnel"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:27Z",
+      "event_id": "b1-27",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "Summarize the signup funnel"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:28Z",
+      "event_id": "b1-28",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "task-1",
+         "title": "Task",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "Task"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:29Z",
+      "event_id": "b1-29",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "child-1",
+         "title": "funnel steps",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "funnel steps"
+         },
+         "_meta": {
+          "claudeCode": {
+           "parentToolCallId": "task-1"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:30Z",
+      "event_id": "b1-30",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "child-1",
+         "status": "completed",
+         "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+         "_meta": {
+          "claudeCode": {
+           "parentToolCallId": "task-1"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:31Z",
+      "event_id": "b1-31",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "child-2",
+         "title": "drop-off",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "drop-off"
+         },
+         "_meta": {
+          "claudeCode": {
+           "parentToolCallId": "task-1"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:32Z",
+      "event_id": "b1-32",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "child-2",
+         "status": "completed",
+         "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+         "_meta": {
+          "claudeCode": {
+           "parentToolCallId": "task-1"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:33Z",
+      "event_id": "b1-33",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "task-1",
+         "status": "completed",
+         "rawOutput": "done"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:34Z",
+      "event_id": "b1-34",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "Most people leave at the second step."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:35Z",
+      "event_id": "b1-35",
+      "notification": {
+       "method": "_posthog/permission_request",
+       "params": {
+        "requestId": "p1",
+        "toolCall": {
+         "toolCallId": "w1",
+         "toolName": "dashboard-create"
+        },
+        "options": [
+         {
+          "optionId": "allow_once",
+          "name": "Allow",
+          "kind": "allow_once"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:36Z",
+      "event_id": "b1-36",
+      "notification": {
+       "method": "_posthog/permission_resolved",
+       "params": {
+        "requestId": "p1"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:37Z",
+      "event_id": "b1-37",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 3600
+        },
+        "cost": 0.036
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:38Z",
+      "event_id": "b1-38",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 37000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:39Z",
+      "event_id": "b1-39",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:40Z",
+      "event_id": "b1-40",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "Show me retention"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:41Z",
+      "event_id": "b1-41",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "Show me retention"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:42Z",
+      "event_id": "b1-42",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "Show me retention"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:43Z",
+      "event_id": "b1-43",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "r1",
+         "title": "query retention",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "query retention"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:44Z",
+      "event_id": "b1-44",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "Also add a chart"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:45Z",
+      "event_id": "b1-45",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "r1",
+         "status": "completed",
+         "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:46Z",
+      "event_id": "b1-46",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "Retention is flat."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:47Z",
+      "event_id": "b1-47",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 4600
+        },
+        "cost": 0.046
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:48Z",
+      "event_id": "b1-48",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 47000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:49Z",
+      "event_id": "b1-49",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:50Z",
+      "event_id": "b1-50",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "Also add a chart"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:51Z",
+      "event_id": "b1-51",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "Also add a chart"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:52Z",
+      "event_id": "b1-52",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "c1",
+         "title": "create chart",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "create chart"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:53Z",
+      "event_id": "b1-53",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "c1",
+         "status": "completed",
+         "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:54Z",
+      "event_id": "b1-54",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "I added the chart."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:55Z",
+      "event_id": "b1-55",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 5400
+        },
+        "cost": 0.054
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:56Z",
+      "event_id": "b1-56",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 55000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:57Z",
+      "event_id": "b1-57",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:58Z",
+      "event_id": "b1-58",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "One more thing"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:59Z",
+      "event_id": "b1-59",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "and export it"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:00Z",
+      "event_id": "b1-60",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "e1",
+         "title": "export",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "export"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:01Z",
+      "event_id": "b1-61",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "e1",
+         "status": "completed",
+         "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:02Z",
+      "event_id": "b1-62",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "Exported."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:03Z",
+      "event_id": "b1-63",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "current_mode_update",
+         "currentModeId": "default"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:04Z",
+      "event_id": "b1-64",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 6300
+        },
+        "cost": 0.063
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:05Z",
+      "event_id": "b1-65",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 64000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:06Z",
+      "event_id": "b1-66",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:07Z",
+      "event_id": "b1-67",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "Delete the old dashboard"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:08Z",
+      "event_id": "b1-68",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "Delete the old dashboard"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:09Z",
+      "event_id": "b1-69",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "Delete the old dashboard"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:10Z",
+      "event_id": "b1-70",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "d1",
+         "title": "dashboard-delete",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "dashboard-delete"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:01:11Z",
+      "event_id": "b1-71",
+      "notification": {
+       "method": "_posthog/permission_request",
+       "params": {
+        "requestId": "p2",
+        "toolCall": {
+         "toolCallId": "d1",
+         "toolName": "dashboard-delete"
+        },
+        "options": [
+         {
+          "optionId": "allow_once",
+          "name": "Allow",
+          "kind": "allow_once"
+         }
+        ]
+       }
+      }
+     }
+    ]
+   ],
+   "pages": [
+    {
+     "offset": 57,
+     "count": 71,
+     "preamble": 6,
+     "turns_before": 5,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b1-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-1"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b1-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "default"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:03Z",
+       "event_id": "b1-3",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+           {
+            "name": "clear",
+            "description": "Clear the chat"
+           }
+          ]
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:21Z",
+       "event_id": "b1-21",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "current_mode_update",
+          "currentModeId": "plan"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:55Z",
+       "event_id": "b1-55",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 5400
+         },
+         "cost": 0.054
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:56Z",
+       "event_id": "b1-56",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 55000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:58Z",
+       "event_id": "b1-58",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "One more thing"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:59Z",
+       "event_id": "b1-59",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "and export it"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:00Z",
+       "event_id": "b1-60",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "e1",
+          "title": "export",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "export"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:01Z",
+       "event_id": "b1-61",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "e1",
+          "status": "completed",
+          "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:02Z",
+       "event_id": "b1-62",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "Exported."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:03Z",
+       "event_id": "b1-63",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "current_mode_update",
+          "currentModeId": "default"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:04Z",
+       "event_id": "b1-64",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 6300
+         },
+         "cost": 0.063
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:05Z",
+       "event_id": "b1-65",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 64000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:06Z",
+       "event_id": "b1-66",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:07Z",
+       "event_id": "b1-67",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "Delete the old dashboard"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:08Z",
+       "event_id": "b1-68",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "Delete the old dashboard"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:09Z",
+       "event_id": "b1-69",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "Delete the old dashboard"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:10Z",
+       "event_id": "b1-70",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "d1",
+          "title": "dashboard-delete",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "dashboard-delete"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:01:11Z",
+       "event_id": "b1-71",
+       "notification": {
+        "method": "_posthog/permission_request",
+        "params": {
+         "requestId": "p2",
+         "toolCall": {
+          "toolCallId": "d1",
+          "toolName": "dashboard-delete"
+         },
+         "options": [
+          {
+           "optionId": "allow_once",
+           "name": "Allow",
+           "kind": "allow_once"
+          }
+         ]
+        }
+       }
+      }
+     ]
+    },
+    {
+     "offset": 39,
+     "count": 71,
+     "preamble": 6,
+     "turns_before": 3,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b1-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-1"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b1-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "default"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:03Z",
+       "event_id": "b1-3",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+           {
+            "name": "clear",
+            "description": "Clear the chat"
+           }
+          ]
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:21Z",
+       "event_id": "b1-21",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "current_mode_update",
+          "currentModeId": "plan"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:37Z",
+       "event_id": "b1-37",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 3600
+         },
+         "cost": 0.036
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:38Z",
+       "event_id": "b1-38",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 37000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:40Z",
+       "event_id": "b1-40",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "Show me retention"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:41Z",
+       "event_id": "b1-41",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "Show me retention"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:42Z",
+       "event_id": "b1-42",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "Show me retention"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:43Z",
+       "event_id": "b1-43",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "r1",
+          "title": "query retention",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "query retention"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:44Z",
+       "event_id": "b1-44",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "Also add a chart"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:45Z",
+       "event_id": "b1-45",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "r1",
+          "status": "completed",
+          "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:46Z",
+       "event_id": "b1-46",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "Retention is flat."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:47Z",
+       "event_id": "b1-47",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 4600
+         },
+         "cost": 0.046
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:48Z",
+       "event_id": "b1-48",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 47000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:49Z",
+       "event_id": "b1-49",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:50Z",
+       "event_id": "b1-50",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "Also add a chart"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:51Z",
+       "event_id": "b1-51",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "Also add a chart"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:52Z",
+       "event_id": "b1-52",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "c1",
+          "title": "create chart",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "create chart"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:53Z",
+       "event_id": "b1-53",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "c1",
+          "status": "completed",
+          "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:54Z",
+       "event_id": "b1-54",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "I added the chart."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:55Z",
+       "event_id": "b1-55",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 5400
+         },
+         "cost": 0.054
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:56Z",
+       "event_id": "b1-56",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 55000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:57Z",
+       "event_id": "b1-57",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      }
+     ]
+    },
+    {
+     "offset": 24,
+     "count": 71,
+     "preamble": 6,
+     "turns_before": 2,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b1-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-1"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b1-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "default"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:03Z",
+       "event_id": "b1-3",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+           {
+            "name": "clear",
+            "description": "Clear the chat"
+           }
+          ]
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:21Z",
+       "event_id": "b1-21",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "current_mode_update",
+          "currentModeId": "plan"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:22Z",
+       "event_id": "b1-22",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 2100
+         },
+         "cost": 0.021
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:23Z",
+       "event_id": "b1-23",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 22000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:25Z",
+       "event_id": "b1-25",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "Summarize the signup funnel"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:26Z",
+       "event_id": "b1-26",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "Summarize the signup funnel"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:27Z",
+       "event_id": "b1-27",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "Summarize the signup funnel"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:28Z",
+       "event_id": "b1-28",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "task-1",
+          "title": "Task",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "Task"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:29Z",
+       "event_id": "b1-29",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "child-1",
+          "title": "funnel steps",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "funnel steps"
+          },
+          "_meta": {
+           "claudeCode": {
+            "parentToolCallId": "task-1"
+           }
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:30Z",
+       "event_id": "b1-30",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "child-1",
+          "status": "completed",
+          "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+          "_meta": {
+           "claudeCode": {
+            "parentToolCallId": "task-1"
+           }
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:31Z",
+       "event_id": "b1-31",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "child-2",
+          "title": "drop-off",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "drop-off"
+          },
+          "_meta": {
+           "claudeCode": {
+            "parentToolCallId": "task-1"
+           }
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:32Z",
+       "event_id": "b1-32",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "child-2",
+          "status": "completed",
+          "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+          "_meta": {
+           "claudeCode": {
+            "parentToolCallId": "task-1"
+           }
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:33Z",
+       "event_id": "b1-33",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "task-1",
+          "status": "completed",
+          "rawOutput": "done"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:34Z",
+       "event_id": "b1-34",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "Most people leave at the second step."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:35Z",
+       "event_id": "b1-35",
+       "notification": {
+        "method": "_posthog/permission_request",
+        "params": {
+         "requestId": "p1",
+         "toolCall": {
+          "toolCallId": "w1",
+          "toolName": "dashboard-create"
+         },
+         "options": [
+          {
+           "optionId": "allow_once",
+           "name": "Allow",
+           "kind": "allow_once"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:36Z",
+       "event_id": "b1-36",
+       "notification": {
+        "method": "_posthog/permission_resolved",
+        "params": {
+         "requestId": "p1"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:37Z",
+       "event_id": "b1-37",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 3600
+         },
+         "cost": 0.036
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:38Z",
+       "event_id": "b1-38",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 37000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:39Z",
+       "event_id": "b1-39",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      }
+     ]
+    },
+    {
+     "offset": 12,
+     "count": 71,
+     "preamble": 5,
+     "turns_before": 1,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b1-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-1"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b1-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "default"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:03Z",
+       "event_id": "b1-3",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+           {
+            "name": "clear",
+            "description": "Clear the chat"
+           }
+          ]
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:10Z",
+       "event_id": "b1-10",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 900
+         },
+         "cost": 0.009
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:11Z",
+       "event_id": "b1-11",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 10000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:13Z",
+       "event_id": "b1-13",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "Compare this week with last week"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:14Z",
+       "event_id": "b1-14",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "Compare this week with last week"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:15Z",
+       "event_id": "b1-15",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "Compare this week with last week"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:16Z",
+       "event_id": "b1-16",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "a1",
+          "title": "this week",
+          "status": "in_progress"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:17Z",
+       "event_id": "b1-17",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "b1",
+          "title": "last week",
+          "status": "in_progress"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:18Z",
+       "event_id": "b1-18",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "a1",
+          "status": "completed",
+          "rawOutput": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:19Z",
+       "event_id": "b1-19",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "b1",
+          "status": "completed",
+          "rawOutput": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:20Z",
+       "event_id": "b1-20",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "Views grew by a tenth."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:21Z",
+       "event_id": "b1-21",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "current_mode_update",
+          "currentModeId": "plan"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:22Z",
+       "event_id": "b1-22",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 2100
+         },
+         "cost": 0.021
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:23Z",
+       "event_id": "b1-23",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 22000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:24Z",
+       "event_id": "b1-24",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      }
+     ]
+    },
+    {
+     "offset": 3,
+     "count": 71,
+     "preamble": 3,
+     "turns_before": 0,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b1-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-1"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b1-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "default"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:03Z",
+       "event_id": "b1-3",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+           {
+            "name": "clear",
+            "description": "Clear the chat"
+           }
+          ]
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:04Z",
+       "event_id": "b1-4",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "Which pages get the most views?"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:05Z",
+       "event_id": "b1-5",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "Which pages get the most views?"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:06Z",
+       "event_id": "b1-6",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "Which pages get the most views?"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:07Z",
+       "event_id": "b1-7",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "t1",
+          "title": "query pageviews",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "query pageviews"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:08Z",
+       "event_id": "b1-8",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "t1",
+          "status": "completed",
+          "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:09Z",
+       "event_id": "b1-9",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "The pricing page gets the most views."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:10Z",
+       "event_id": "b1-10",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 900
+         },
+         "cost": 0.009
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:11Z",
+       "event_id": "b1-11",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 10000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:12Z",
+       "event_id": "b1-12",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      }
+     ]
+    },
+    {
+     "offset": 0,
+     "count": 71,
+     "preamble": 0,
+     "turns_before": 0,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b1-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-1"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b1-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "default"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:03Z",
+       "event_id": "b1-3",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+           {
+            "name": "clear",
+            "description": "Clear the chat"
+           }
+          ]
+         }
+        }
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "resume_chain",
+   "tail_bytes": 1200,
+   "parts": [
+    [
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:01Z",
+      "event_id": "b1-1",
+      "notification": {
+       "method": "_posthog/run_started",
+       "params": {
+        "runId": "run-1"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:02Z",
+      "event_id": "b1-2",
+      "notification": {
+       "method": "session/new",
+       "params": {
+        "_meta": {
+         "permissionMode": "default"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:03Z",
+      "event_id": "b1-3",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "How many signups this month?"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:04Z",
+      "event_id": "b1-4",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "How many signups this month?"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:05Z",
+      "event_id": "b1-5",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "How many signups this month?"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:06Z",
+      "event_id": "b1-6",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "s1",
+         "title": "query signups",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "query signups"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:07Z",
+      "event_id": "b1-7",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "s1",
+         "status": "completed",
+         "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:08Z",
+      "event_id": "b1-8",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "There were 120 signups."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:09Z",
+      "event_id": "b1-9",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 800
+        },
+        "cost": 0.008
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:10Z",
+      "event_id": "b1-10",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 9000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:11Z",
+      "event_id": "b1-11",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:12Z",
+      "event_id": "b1-12",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "And last month?"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:13Z",
+      "event_id": "b1-13",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "And last month?"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:14Z",
+      "event_id": "b1-14",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "And last month?"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:15Z",
+      "event_id": "b1-15",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "s2",
+         "title": "query signups",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "query signups"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:16Z",
+      "event_id": "b1-16",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "s2",
+         "status": "completed",
+         "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:17Z",
+      "event_id": "b1-17",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "There were 90 signups."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:18Z",
+      "event_id": "b1-18",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 1700
+        },
+        "cost": 0.017
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:19Z",
+      "event_id": "b1-19",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 18000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:20Z",
+      "event_id": "b1-20",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     }
+    ],
+    [
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:01Z",
+      "event_id": "b2-1",
+      "notification": {
+       "method": "_posthog/run_started",
+       "params": {
+        "runId": "run-2"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:02Z",
+      "event_id": "b2-2",
+      "notification": {
+       "method": "session/new",
+       "params": {
+        "_meta": {
+         "permissionMode": "bypassPermissions"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:03Z",
+      "event_id": "b2-3",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "You are resuming a previous conversation."
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:04Z",
+      "event_id": "b2-4",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "You are resuming a previous conversation. Here is what happened."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:05Z",
+      "event_id": "b2-5",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "Break it down by country"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:06Z",
+      "event_id": "b2-6",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "Break it down by country"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:07Z",
+      "event_id": "b2-7",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "Break it down by country"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:08Z",
+      "event_id": "b2-8",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "s3",
+         "title": "query countries",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "query countries"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:09Z",
+      "event_id": "b2-9",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "s3",
+         "status": "completed",
+         "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:10Z",
+      "event_id": "b2-10",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "Most signups come from the US."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:11Z",
+      "event_id": "b2-11",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 1000
+        },
+        "cost": 0.01
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:12Z",
+      "event_id": "b2-12",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 11000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:13Z",
+      "event_id": "b2-13",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:14Z",
+      "event_id": "b2-14",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "How many signups this month?"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:15Z",
+      "event_id": "b2-15",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "How many signups this month?"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:16Z",
+      "event_id": "b2-16",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "How many signups this month?"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:17Z",
+      "event_id": "b2-17",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call",
+         "toolCallId": "s4",
+         "title": "query signups",
+         "status": "in_progress",
+         "rawInput": {
+          "command": "query signups"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:18Z",
+      "event_id": "b2-18",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "tool_call_update",
+         "toolCallId": "s4",
+         "status": "completed",
+         "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:19Z",
+      "event_id": "b2-19",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "Still 120."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:20Z",
+      "event_id": "b2-20",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 1900
+        },
+        "cost": 0.019
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:21Z",
+      "event_id": "b2-21",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 20000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:22Z",
+      "event_id": "b2-22",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:23Z",
+      "event_id": "b2-23",
+      "notification": {
+       "method": "_posthog/user_message",
+       "params": {
+        "content": "Thanks"
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:24Z",
+      "event_id": "b2-24",
+      "notification": {
+       "method": "session/prompt",
+       "params": {
+        "prompt": [
+         {
+          "type": "text",
+          "text": "Thanks"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:25Z",
+      "event_id": "b2-25",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "user_message_chunk",
+         "content": {
+          "type": "text",
+          "text": "Thanks"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:26Z",
+      "event_id": "b2-26",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "agent_message",
+         "content": {
+          "type": "text",
+          "text": "You are welcome."
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:27Z",
+      "event_id": "b2-27",
+      "notification": {
+       "method": "_posthog/usage_update",
+       "params": {
+        "used": {
+         "inputTokens": 2600
+        },
+        "cost": 0.026
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:28Z",
+      "event_id": "b2-28",
+      "notification": {
+       "method": "session/update",
+       "params": {
+        "update": {
+         "sessionUpdate": "usage_update",
+         "used": 27000,
+         "size": 200000
+        }
+       }
+      }
+     },
+     {
+      "type": "notification",
+      "timestamp": "2026-01-01T00:00:29Z",
+      "event_id": "b2-29",
+      "notification": {
+       "method": "_posthog/turn_complete",
+       "params": {}
+      }
+     }
+    ]
+   ],
+   "pages": [
+    {
+     "offset": 42,
+     "count": 49,
+     "preamble": 4,
+     "turns_before": 4,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b2-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-2"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b2-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "bypassPermissions"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:20Z",
+       "event_id": "b2-20",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 1900
+         },
+         "cost": 0.019
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:21Z",
+       "event_id": "b2-21",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 20000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:23Z",
+       "event_id": "b2-23",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "Thanks"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:24Z",
+       "event_id": "b2-24",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "Thanks"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:25Z",
+       "event_id": "b2-25",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "Thanks"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:26Z",
+       "event_id": "b2-26",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "You are welcome."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:27Z",
+       "event_id": "b2-27",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 2600
+         },
+         "cost": 0.026
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:28Z",
+       "event_id": "b2-28",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 27000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:29Z",
+       "event_id": "b2-29",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      }
+     ]
+    },
+    {
+     "offset": 33,
+     "count": 49,
+     "preamble": 4,
+     "turns_before": 3,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b2-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-2"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b2-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "bypassPermissions"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:11Z",
+       "event_id": "b2-11",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 1000
+         },
+         "cost": 0.01
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:12Z",
+       "event_id": "b2-12",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 11000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:14Z",
+       "event_id": "b2-14",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "How many signups this month?"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:15Z",
+       "event_id": "b2-15",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "How many signups this month?"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:16Z",
+       "event_id": "b2-16",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "How many signups this month?"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:17Z",
+       "event_id": "b2-17",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "s4",
+          "title": "query signups",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "query signups"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:18Z",
+       "event_id": "b2-18",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "s4",
+          "status": "completed",
+          "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:19Z",
+       "event_id": "b2-19",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "Still 120."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:20Z",
+       "event_id": "b2-20",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 1900
+         },
+         "cost": 0.019
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:21Z",
+       "event_id": "b2-21",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 20000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:22Z",
+       "event_id": "b2-22",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      }
+     ]
+    },
+    {
+     "offset": 23,
+     "count": 49,
+     "preamble": 4,
+     "turns_before": 2,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:18Z",
+       "event_id": "b1-18",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 1700
+         },
+         "cost": 0.017
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:19Z",
+       "event_id": "b1-19",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 18000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b2-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-2"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b2-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "bypassPermissions"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:04Z",
+       "event_id": "b2-4",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "You are resuming a previous conversation. Here is what happened."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:05Z",
+       "event_id": "b2-5",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "Break it down by country"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:06Z",
+       "event_id": "b2-6",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "Break it down by country"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:07Z",
+       "event_id": "b2-7",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "Break it down by country"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:08Z",
+       "event_id": "b2-8",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "s3",
+          "title": "query countries",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "query countries"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:09Z",
+       "event_id": "b2-9",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "s3",
+          "status": "completed",
+          "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:10Z",
+       "event_id": "b2-10",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "Most signups come from the US."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:11Z",
+       "event_id": "b2-11",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 1000
+         },
+         "cost": 0.01
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:12Z",
+       "event_id": "b2-12",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 11000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:13Z",
+       "event_id": "b2-13",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      }
+     ]
+    },
+    {
+     "offset": 11,
+     "count": 49,
+     "preamble": 4,
+     "turns_before": 1,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b1-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-1"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b1-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "default"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:09Z",
+       "event_id": "b1-9",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 800
+         },
+         "cost": 0.008
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:10Z",
+       "event_id": "b1-10",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 9000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:12Z",
+       "event_id": "b1-12",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "And last month?"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:13Z",
+       "event_id": "b1-13",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "And last month?"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:14Z",
+       "event_id": "b1-14",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "And last month?"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:15Z",
+       "event_id": "b1-15",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "s2",
+          "title": "query signups",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "query signups"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:16Z",
+       "event_id": "b1-16",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "s2",
+          "status": "completed",
+          "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:17Z",
+       "event_id": "b1-17",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "There were 90 signups."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:18Z",
+       "event_id": "b1-18",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 1700
+         },
+         "cost": 0.017
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:19Z",
+       "event_id": "b1-19",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 18000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:20Z",
+       "event_id": "b1-20",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b2-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-2"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b2-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "bypassPermissions"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:03Z",
+       "event_id": "b2-3",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "You are resuming a previous conversation."
+          }
+         ]
+        }
+       }
+      }
+     ]
+    },
+    {
+     "offset": 2,
+     "count": 49,
+     "preamble": 2,
+     "turns_before": 0,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b1-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-1"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b1-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "default"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:03Z",
+       "event_id": "b1-3",
+       "notification": {
+        "method": "_posthog/user_message",
+        "params": {
+         "content": "How many signups this month?"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:04Z",
+       "event_id": "b1-4",
+       "notification": {
+        "method": "session/prompt",
+        "params": {
+         "prompt": [
+          {
+           "type": "text",
+           "text": "How many signups this month?"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:05Z",
+       "event_id": "b1-5",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+           "type": "text",
+           "text": "How many signups this month?"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:06Z",
+       "event_id": "b1-6",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "s1",
+          "title": "query signups",
+          "status": "in_progress",
+          "rawInput": {
+           "command": "query signups"
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:07Z",
+       "event_id": "b1-7",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "s1",
+          "status": "completed",
+          "rawOutput": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:08Z",
+       "event_id": "b1-8",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "agent_message",
+          "content": {
+           "type": "text",
+           "text": "There were 120 signups."
+          }
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:09Z",
+       "event_id": "b1-9",
+       "notification": {
+        "method": "_posthog/usage_update",
+        "params": {
+         "used": {
+          "inputTokens": 800
+         },
+         "cost": 0.008
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:10Z",
+       "event_id": "b1-10",
+       "notification": {
+        "method": "session/update",
+        "params": {
+         "update": {
+          "sessionUpdate": "usage_update",
+          "used": 9000,
+          "size": 200000
+         }
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:11Z",
+       "event_id": "b1-11",
+       "notification": {
+        "method": "_posthog/turn_complete",
+        "params": {}
+       }
+      }
+     ]
+    },
+    {
+     "offset": 0,
+     "count": 49,
+     "preamble": 0,
+     "turns_before": 0,
+     "entries": [
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:01Z",
+       "event_id": "b1-1",
+       "notification": {
+        "method": "_posthog/run_started",
+        "params": {
+         "runId": "run-1"
+        }
+       }
+      },
+      {
+       "type": "notification",
+       "timestamp": "2026-01-01T00:00:02Z",
+       "event_id": "b1-2",
+       "notification": {
+        "method": "session/new",
+        "params": {
+         "_meta": {
+          "permissionMode": "default"
+         }
+        }
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

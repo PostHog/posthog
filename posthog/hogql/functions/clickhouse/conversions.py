@@ -141,8 +141,26 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "defaultValueOfTypeName": HogQLFunctionMeta("defaultValueOfTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     "MD5": HogQLFunctionMeta("MD5", 1, 1),
+    # ClickHouse SHA1 returns a binary digest. Hex keeps API responses and cached results JSON-safe.
+    "sha1": HogQLFunctionMeta("lower(hex(SHA1({})))", 1, 1, using_placeholder_arguments=True),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
 }
+
+# ClickHouse names for the HogQL casts of the same width. The resolver renames them before anything reads the name.
+# Narrower widths stay unsupported because an alias would hide their overflow.
+NUMERIC_CONVERSION_ALIASES: dict[str, str] = {
+    "toInt64": "toInt",
+    "toInt64OrNull": "toInt",
+    "toIntOrNull": "toInt",
+    "toInt64OrZero": "toIntOrZero",
+    "toInt64OrDefault": "toIntOrDefault",
+    "toFloat64": "toFloat",
+    "toFloat64OrZero": "toFloatOrZero",
+    "toFloat64OrDefault": "toFloatOrDefault",
+}
+TYPE_CONVERSION_FUNCTIONS.update(
+    {alias: TYPE_CONVERSION_FUNCTIONS[name] for alias, name in NUMERIC_CONVERSION_ALIASES.items()}
+)
 
 # Date conversion functions (that overlap with type conversions)
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx

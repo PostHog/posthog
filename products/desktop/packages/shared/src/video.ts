@@ -1,4 +1,4 @@
-import { extensionOf } from "./image";
+import { extensionOf } from "@posthog/agent-contracts/image";
 
 // Container formats Chromium (and Electron, which bundles proprietary codecs)
 // can decode in a <video> element. Formats like avi, mkv, flv, wmv, and mpg are

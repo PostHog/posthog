@@ -185,7 +185,6 @@ registerTriggerType({
     icon: <IconSlack />,
     description: 'Trigger when someone posts in a Slack channel',
     group: 'Slack',
-    featureFlag: 'slack-workflow-triggers',
     matchConfig: (config) => isSlackMessageTriggerConfig(config),
     buildConfig: () => ({
         type: 'internal-event',

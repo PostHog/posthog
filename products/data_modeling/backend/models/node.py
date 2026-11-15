@@ -8,24 +8,16 @@ from django.utils import timezone
 from posthog.models import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from products.data_modeling.backend.facade.enums import LineageIssueKind, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 from .dag import DAG
-
-
-class NodeType(models.TextChoices):
-    TABLE = "table"
-    VIEW = "view"
-    MAT_VIEW = "matview"
-    ENDPOINT = "endpoint"
-    METRIC = "metric"
-
 
 SAVED_QUERY_NODE_TYPES = frozenset({NodeType.VIEW, NodeType.MAT_VIEW, NodeType.ENDPOINT})
 _SAVED_QUERY_NODE_TYPE_VALUES = sorted(node_type.value for node_type in SAVED_QUERY_NODE_TYPES)
 
 
-# properties["system"] marker set by consolidate_dags --adopt-unresolvable when a query's SQL
+# properties["system"] marker set by adopt_saved_query_without_edges when a query's SQL
 # would not resolve and its node was created without edges. A successful sync clears it.
 DEGRADED_SYNC_KEY = "degraded_sync"
 
@@ -42,11 +34,6 @@ class DegradedSyncMarker(TypedDict):
 class UnresolvedDependenciesMarker(TypedDict):
     names: list[str]
     at: str
-
-
-class LineageIssueKind(models.TextChoices):
-    SYNC_FAILED = "sync_failed"
-    UNRESOLVED = "unresolved"
 
 
 class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -66,8 +53,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     # for nodes with a saved_query, this is automatically synced from saved_query.name
     name = models.TextField(max_length=2048, db_index=True)
     # type of the node (source table, view, or mat view)
-    type = models.TextField(max_length=16, choices=NodeType, default=NodeType.TABLE)
-    description = models.TextField(max_length=1024, default="", blank=True)
+    type = models.TextField(max_length=16, choices=NodeType.choices, default=NodeType.TABLE.value)
     source_control_path = models.TextField(
         blank=True, default="", help_text="File path in the source control repository for synced nodes"
     )
@@ -92,6 +78,10 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         system.pop(UNRESOLVED_DEPENDENCIES_KEY, None)
         if not system:
             self.properties.pop("system", None)
+
+    @property
+    def belongs_to_managed_viewset(self) -> bool:
+        return self.saved_query is not None and self.saved_query.managed_viewset_id is not None
 
     @property
     def lineage_issue(self) -> dict[str, Any] | None:

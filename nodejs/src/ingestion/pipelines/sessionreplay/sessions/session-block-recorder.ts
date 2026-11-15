@@ -65,6 +65,8 @@ export interface EndResult {
     snapshotMode: SnapshotMode | null
     /** ID of the batch this session belongs to */
     batchId: string
+    /** Kafka timestamp of the earliest message in the block, which is the capture clock that the ML lanes compare */
+    earliestCapturedAtMs?: number
     replayIndexEntries?: ReplayIndexEntry[]
     replayIndexTruncated?: boolean
 }
@@ -100,6 +102,7 @@ export class SessionBlockRecorder {
     private building?: Promise<EndResult>
     private startDateTime: DateTime | null = null
     private endDateTime: DateTime | null = null
+    private earliestCapturedAtMs: number | undefined
     private _distinctId: string | null = null
     private urls: Set<string> = new Set()
     private firstUrl: string | null = null
@@ -160,6 +163,10 @@ export class SessionBlockRecorder {
         }
         if (!this.endDateTime || message.eventsRange.end > this.endDateTime) {
             this.endDateTime = message.eventsRange.end
+        }
+        const capturedAtMs = message.metadata.timestamp
+        if (capturedAtMs > 0 && (this.earliestCapturedAtMs === undefined || capturedAtMs < this.earliestCapturedAtMs)) {
+            this.earliestCapturedAtMs = capturedAtMs
         }
 
         if (message.preSerialized) {
@@ -356,6 +363,7 @@ export class SessionBlockRecorder {
             snapshotLibrary: this.snapshotLibrary,
             snapshotMode: this.snapshotMode,
             batchId: this.batchId,
+            ...(this.earliestCapturedAtMs === undefined ? {} : { earliestCapturedAtMs: this.earliestCapturedAtMs }),
             ...(this.replayIndexEntries.length ? { replayIndexEntries: this.replayIndexEntries } : {}),
             ...(this.replayIndexTruncated ? { replayIndexTruncated: true } : {}),
         }

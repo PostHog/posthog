@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { bulkSelectLogic } from '../logics/bulkSelectLogic'
-import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { sourceDisplay } from '../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDisplay'
 import { QuillAssigneeSelect } from './Assignee/QuillAssigneeSelect'
@@ -143,18 +142,7 @@ const IssueTitle = ({
     issueUrl: string
     runtime: ErrorTrackingRuntime
 }): JSX.Element => (
-    <Link
-        className="flex-1 pr-12 text-[0.9rem]"
-        to={issueUrl}
-        onClick={() => {
-            const issueLogic = errorTrackingIssueSceneLogic({
-                id: record.id,
-                timestamp: record.last_seen,
-            })
-            issueLogic.mount()
-            issueLogic.actions.setIssue(record)
-        }}
-    >
+    <Link className="flex-1 pr-12 text-[0.9rem]" to={issueUrl}>
         <div className="flex items-center gap-2 h-(--line-height)">
             <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.7rem" />
             <span className="font-semibold line-clamp-1">{record.name || 'Unknown Type'}</span>

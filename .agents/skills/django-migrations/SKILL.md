@@ -25,6 +25,7 @@ Adding migrations is fine. **Deleting a historical one — any `*/migrations/NNN
 To retire a model/table:
 
 1. Remove all usage and the model class. `makemigrations`, then wrap the generated `DeleteModel` in `migrations.SeparateDatabaseAndState(state_operations=[...])` (state only, no DB change). KEEP this file. Keep the app in `INSTALLED_APPS`.
+   Note: other apps' squash migrations depend on this app's migration files, not on its models, so the model class does not need to stay for them.
    **If the model has a `ForeignKey` to `posthog_team`, `posthog_user`, `posthog_organization` or `posthog_project`, drop that constraint with `DropForeignKey` in `database_operations` in this same migration.** This is required, not a cleanup. Django stops cascading into a table it can no longer see, so the child rows survive a parent delete. Those constraints are `DEFERRABLE INITIALLY DEFERRED`, so the parent delete runs its whole cascade and then fails at `COMMIT`, and team and organization deletion stay broken until someone drops the table.
 2. Deploy, wait at least one full deploy cycle.
 3. `SafeDropTable` later in a NEW migration — never by deleting old files. Treat this as owed work rather than an option whenever step 1 left a foreign key to a hot parent in place.
@@ -60,29 +61,15 @@ Delete an expired test instead of marking it skipped. Keep the migration file. F
 
 Do not apply this rule to migration tooling, migration safety checks, reusable backfill systems, or backfills that people can still run.
 
-## Growing enums need callable choices
+## Python-only field attributes make no migration
 
-A `choices=` list that grows over time generates an `AlterField` on every addition, on every model that uses the enum. Those migrations emit **no SQL** — `choices` is in Django's `Field.non_db_attrs`, so the schema editor skips them — but they still land in migration state, in CI's per-shard migration replay, and in `max_migration.txt`, where they collide with every other migration waiting in the merge queue.
+`makemigrations` uses `PostHogAutodetector` (`posthog/management/migration_autodetector.py`), which leaves `choices`, `help_text`, `verbose_name`, `validators`, `error_messages`, `editable`, `blank` and `limit_choices_to` out of the field comparison. None of them reach the database, so a change to only those attributes writes no migration. Add the enum member or edit the help text and stop there.
 
-Pass a callable instead. Django resolves it lazily, so the migration records the function reference once and never changes again:
-
-```python
-def external_data_source_type_choices() -> list[tuple[str, str]]:
-    return ExternalDataSourceType.choices
-
-
-source_type = models.CharField(max_length=128, choices=external_data_source_type_choices)
-```
-
-Runtime behavior is unchanged: DRF still builds a `ChoiceField`, so the OpenAPI enum and the generated frontend types are intact; `full_clean()` still rejects unknown values; admin still renders a dropdown; `get_FOO_display()` still resolves the label. A real schema change (`max_length`, `null`, a new field) still generates a migration.
-
-Reach for a callable when the enum is a **registry** that grows as the org adds things — sources, integrations, products, providers, model ids. Keep a plain list for a **closed vocabulary** intrinsic to the domain, like a status or a priority, where a new member is a genuine domain change worth recording.
-
-Two things a callable does not do for you:
-
-- Migrations reference it by import path forever, so renaming or moving it needs its own migration. Keep it next to the enum it wraps.
-- It has to be a module-level named function. A lambda or a closure returned by a shared factory has no importable path, so Django cannot serialize it — one small function per enum is the intended shape, not duplication to factor out.
-- It hides choice growth from migration state, not from the column. A new member longer than the field's `max_length` is still a real schema change, so check the headroom when the registry grows.
+- Do not write the `AlterField` by hand, and do not wrap it in `SeparateDatabaseAndState` to get past the hot-table check. `NonDbAlterFieldPolicy` in the migration risk analyzer points out both.
+- `default` is still compared, because `AlterField` and `RunPython` read it from migration state.
+- A real column change (`max_length`, `null`, a new field) still writes a migration, and that migration carries the current choices.
+- Django's `fields.E009` check still fails a choice value longer than the field's `max_length`.
+- Existing callable `choices=` functions stay importable, because old migrations reference them by path. Do not add new ones: a plain `choices=Enum.choices` no longer generates migrations.
 
 ## Workflow
 
@@ -100,10 +87,11 @@ Two things a callable does not do for you:
 - **Add a CHECK constraint** → `AddConstraintNotValid` then `ValidateConstraint` in a later migration (or same migration with `atomic = False`).
 - **Add a ForeignKey to a [hot table](#hot-table-hazard)** → declare the FK with `db_constraint=False` on the model (so `CreateModel` / `AddField` emit no parent lock), then add the DB constraint back with `AddForeignKeyNotValid` and follow up with `ValidateForeignKey` in a later migration. See [foreign keys to hot tables](#foreign-keys-to-hot-tables).
 - **Index expressed only as raw SQL** (no Django `Index`) → `CreateIndexConcurrently` / `DropIndexConcurrently` wrapped in `SeparateDatabaseAndState`.
+- **Drop an index Django creates for a field** (a `ForeignKey` or other `db_index=True` index, or the `_like` companion of a varchar or text field) → `DropFieldIndexesConcurrently(model_name=..., name=...)`, in place of the generated `AlterField` when `db_index` turns off. It derives Django's names, so the risk analyzer's block on hand-typed hash-suffixed names does not apply. On a foreign key it refuses to leave a key that a parent delete still reads without a btree index that leads with its column.
 - **Retire a column** → `deprecate_field` on the model, or `untrack_field` in place of the generated `RemoveField`. See [retire a column](#retire-a-column).
 - **Drop a retired table** → `SafeDropTable("posthog_oldfeature")`. It locks the referenced parents up front under a budget below `deadlock_timeout`, so a lock cycle tends to end with the migration retried rather than a live read killed, and it is idempotent under a retry. It refuses a partitioned or inherited table, because its lock list does not cover the members of a hierarchy.
 - **Drop the check and unique rules on a retiring column** → `DropColumnConstraints(table, columns=[...])`, before the release that stops writing the column. It finds every check, unique and exclusion constraint and every unique index on those columns in the catalog, including ones an earlier swap left behind that no migration names, and drops them under one bounded lock. Never type a Django-generated name into `DROP CONSTRAINT IF EXISTS`: a wrong name succeeds and drops nothing. The risk analyzer blocks a forward drop of a name with Django's hash suffix.
-- **Drop a foreign key left behind by a retirement** → `DropForeignKey(table, column=...)` or `DropForeignKey(table, to_table=...)`. It reads the name from `pg_constraint`, so nothing is hardcoded and a retry is a no-op. It locks every parent and then the child in one bounded phase, the same as `SafeDropTable`. The transaction holds those locks until `COMMIT`, so give one op every key on the table (`column=["a_id", "b_id"]`) and keep it alone in its migration, next to state-only operations at most. The risk analyzer blocks two drops, or a drop beside other database operations, in one atomic migration. For keys into several busy parents, use `atomic = False` with one op per key instead, so each drop commits alone, and acknowledge the migration in `atomic_false_acknowledged_migrations.txt`.
+- **Drop a foreign key left behind by a retirement** → `DropForeignKey(table, column=...)` or `DropForeignKey(table, to_table=...)`. It reads the name from `pg_constraint`, so nothing is hardcoded and a retry is a no-op. It locks every parent and then the child in one bounded phase, the same as `SafeDropTable`. The transaction holds those locks until `COMMIT`, so give one op every key on the table (`column=["a_id", "b_id"]`) and keep it alone in its migration, next to state-only operations at most. The risk analyzer blocks two drops, or a drop beside other database operations, in one atomic migration. For keys into several busy parents, use `atomic = False` with one op per key instead, so each drop commits alone, and acknowledge the migration in `atomic_false_acknowledged_migrations.txt`. The analyzer blocks one op whose keys reach two hot tables, even under `atomic = False`.
 
 All concurrent-index ops require `atomic = False`.
 

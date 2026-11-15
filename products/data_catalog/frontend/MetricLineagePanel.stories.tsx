@@ -1,9 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { DataCatalogMetricApi } from './generated/api.schemas'
 import { MetricLineagePanel, MetricLineagePanelProps } from './MetricLineagePanel'
+import { QuillMetricLineagePanel } from './QuillMetricLineagePanel'
 
 function metric(overrides: Partial<DataCatalogMetricApi> = {}): DataCatalogMetricApi {
     return {
@@ -27,7 +30,6 @@ const MARKDOWN_METRIC = metric({ definition_kind: 'MarkdownDefinition' })
 
 function node(partial: Pick<DataModelingNode, 'id' | 'name' | 'type'> & Partial<DataModelingNode>): DataModelingNode {
     return {
-        dag: 'dag-1',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
@@ -42,8 +44,8 @@ const NODES: DataModelingNode[] = [
     node({ id: '3', name: 'weekly_active_accounts', type: 'metric', metric_id: 'metric-1' }),
 ]
 const EDGES: DataModelingEdge[] = [
-    { id: 'e1', source_id: '1', target_id: '2', dag: 'dag-1', properties: {}, created_at: '', updated_at: '' },
-    { id: 'e2', source_id: '2', target_id: '3', dag: 'dag-1', properties: {}, created_at: '', updated_at: '' },
+    { id: 'e1', source_id: '1', target_id: '2' },
+    { id: 'e2', source_id: '2', target_id: '3' },
 ]
 
 const BASE: MetricLineagePanelProps = {
@@ -114,4 +116,49 @@ const ISOLATED_METRIC_NODE = node({
 
 export const LineageIssue: Story = {
     render: () => atWidths({ ...BASE, lineage: { nodes: [ISOLATED_METRIC_NODE], edges: [] } }),
+}
+
+const QUILL_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+    testOptions: { snapshotBrowsers: [] },
+}
+
+function quillAtWidths(props: MetricLineagePanelProps): JSX.Element {
+    return (
+        <div className="flex flex-col gap-4 p-4" data-quill>
+            <div className="w-[960px]">
+                <QuillMetricLineagePanel {...props} />
+            </div>
+            <div className="w-130">
+                <QuillMetricLineagePanel {...props} />
+            </div>
+        </div>
+    )
+}
+
+export const QuillGraph: Story = { parameters: QUILL_PARAMETERS, render: () => quillAtWidths(BASE) }
+
+export const QuillNoDefinition: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => quillAtWidths({ ...BASE, metric: MARKDOWN_METRIC, lineage: null }),
+}
+
+const VIEW_BACKED_METRIC = metric({
+    definition: { kind: 'HogQLQuery', query: 'select count() from active_accounts_view' },
+    referenced_table_names: ['events', 'accounts'],
+})
+
+export const QuillMissingLineage: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => quillAtWidths({ ...BASE, metric: VIEW_BACKED_METRIC, lineage: null, lineageProblem: 'missing' }),
+}
+
+export const QuillLoadFailed: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => quillAtWidths({ ...BASE, lineage: null, lineageProblem: 'failed' }),
+}
+
+export const QuillLineageIssue: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => quillAtWidths({ ...BASE, lineage: { nodes: [ISOLATED_METRIC_NODE], edges: [] } }),
 }

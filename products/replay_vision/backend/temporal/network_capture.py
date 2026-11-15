@@ -90,6 +90,8 @@ class SessionNetworkPayload(BaseModel, frozen=True):
     truncated: bool = False
     # True when a block could not be read, which makes the absence of failures unprovable.
     partial: bool = False
+    # True when a dropped request hid its status, so "nothing failed" is unprovable too.
+    unknown_outcomes: bool = False
 
 
 class NetworkCollector:
@@ -104,6 +106,7 @@ class NetworkCollector:
         self._captured = False
         self._kept: list[NetworkRequest] = []
         self._truncated = False
+        self._unknown_outcomes = False
 
     @property
     def full(self) -> bool:
@@ -116,7 +119,10 @@ class NetworkCollector:
         for raw_request, timestamp_ms in _iter_captured_requests(lines):
             self._captured = True
             request = _normalize(raw_request, timestamp_ms)
-            if request is None or not _is_interesting(request):
+            if request is None:
+                continue
+            if not _is_interesting(request):
+                self._unknown_outcomes = self._unknown_outcomes or request.status is None
                 continue
             if len(self._kept) >= MAX_REQUESTS_PER_SESSION:
                 self._truncated = True
@@ -126,7 +132,11 @@ class NetworkCollector:
     def finish(self, *, partial: bool = False) -> SessionNetworkPayload:
         self._kept.sort(key=lambda request: request.timestamp_ms)
         return SessionNetworkPayload(
-            requests=self._kept, captured=self._captured, truncated=self._truncated, partial=partial
+            requests=self._kept,
+            captured=self._captured,
+            truncated=self._truncated,
+            partial=partial,
+            unknown_outcomes=self._unknown_outcomes,
         )
 
 
@@ -219,6 +229,9 @@ def _normalize(raw: dict[str, Any], timestamp_ms: int) -> NetworkRequest | None:
             fields[field] = value
     if _PREFERRED_STATUS_FIELD in raw:
         fields["response_status"] = raw[_PREFERRED_STATUS_FIELD]
+    elif _as_int(fields.get("response_status")) == 0 and "method" not in fields:
+        # Without `method` only the observer saw it: 0 there means a cross-origin load hid its status.
+        fields.pop("response_status")
     if isinstance(raw.get("name"), str):
         fields["name"] = raw["name"]
 
@@ -284,7 +297,8 @@ def _is_interesting(request: NetworkRequest) -> bool:
     """Keep failures and slow requests; drop the successful traffic that explains nothing.
 
     Status 0 counts as a failure: wrapped fetch/xhr reports it when the request never completed, which is
-    a blocked, aborted or offline request, and that is exactly what a stuck spinner looks like.
+    a blocked, aborted or offline request, and that is exactly what a stuck spinner looks like. A fetch
+    that threw carries no `status`, only the observer's 0. The observer's 0 on its own reaches here as unknown.
     """
     if request.status is not None and (request.status >= 400 or request.status == 0):
         return True

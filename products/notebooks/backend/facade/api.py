@@ -16,6 +16,8 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.db import transaction
+
 from asgiref.sync import sync_to_async
 
 from .. import logic, markdown_migration
@@ -24,11 +26,6 @@ from .. import logic, markdown_migration
 # source (e.g. notebooks.NotebookCreationSource.TEMPORAL_AGENT) without importing internals.
 from ..analytics import NotebookCreationSource, capture_notebook_created, notebook_node_count
 from ..models import Notebook, ResourceNotebook
-
-# The run endpoint rejects a SQLV2 or PythonV2 cell from a user without this flag, so a caller
-# that writes notebook content must ask before it authors one. Re-exported so cross-product
-# callers read the same gate the endpoint enforces and the two cannot drift apart.
-from ..sql_v2 import is_sql_v2_enabled as is_sql_v2_enabled
 from . import contracts
 
 if TYPE_CHECKING:
@@ -37,14 +34,6 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = markdown_migration.MAX_NOTEBOOK_MIGRATION_BATCH_SIZE
-
-
-def is_notebook_widget_enabled(user: "User | None") -> bool:
-    from ..widgets import (
-        is_notebook_widget_enabled as is_enabled,  # noqa: PLC0415 — avoid loading widget generation and Temporal for unrelated facade callers
-    )
-
-    return is_enabled(user)
 
 
 def _to_notebook_data(notebook: Notebook) -> contracts.NotebookData:
@@ -127,7 +116,7 @@ async def aupdate_notebook_content(
     content: dict[str, Any],
     title: str,
     text_content: str | None,
-    last_modified_by_id: int | None,
+    user: "User",
 ) -> contracts.NotebookData | None:
     notebook = await logic.aupdate_notebook_content(
         team_id,
@@ -135,7 +124,7 @@ async def aupdate_notebook_content(
         content=content,
         title=title,
         text_content=text_content,
-        last_modified_by_id=last_modified_by_id,
+        user=user,
     )
     return _to_notebook_data(notebook) if notebook is not None else None
 
@@ -145,7 +134,7 @@ async def aupsert_notebook(
     short_id: str,
     *,
     created_by_id: int | None,
-    last_modified_by_id: int | None,
+    user: "User",
     title: str,
     content: dict[str, Any],
     text_content: str | None = None,
@@ -157,7 +146,7 @@ async def aupsert_notebook(
         team_id,
         short_id,
         created_by_id=created_by_id,
-        last_modified_by_id=last_modified_by_id,
+        user=user,
         title=title,
         content=content,
         text_content=text_content,
@@ -196,13 +185,15 @@ def create_notebook(
         last_modified_by_id=last_modified_by_id,
         visibility=visibility,
     )
-    capture_notebook_created(
-        short_id=notebook.short_id,
-        creation_source=creation_source,
-        team_id=team_id,
-        created_by_id=created_by_id,
-        visibility=notebook.visibility,
-        node_count=notebook_node_count(notebook.content),
+    transaction.on_commit(
+        lambda: capture_notebook_created(
+            short_id=notebook.short_id,
+            creation_source=creation_source,
+            team_id=team_id,
+            created_by_id=created_by_id,
+            visibility=notebook.visibility,
+            node_count=notebook_node_count(notebook.content),
+        )
     )
     return _to_notebook_data(notebook)
 
@@ -296,6 +287,13 @@ def _to_notebook_user(user) -> contracts.NotebookUserInfo | None:
     )
 
 
+def _notebook_tag_names(notebook: Notebook) -> list[str]:
+    prefetched = getattr(notebook, "prefetched_tags", None)
+    if prefetched is not None:
+        return sorted(item.tag.name for item in prefetched)
+    return sorted(notebook.tagged_items.values_list("tag__name", flat=True))
+
+
 def _to_account_notebook(notebook: Notebook) -> contracts.AccountNotebook:
     return contracts.AccountNotebook(
         id=notebook.id,
@@ -307,20 +305,38 @@ def _to_account_notebook(notebook: Notebook) -> contracts.AccountNotebook:
         last_modified_at=notebook.last_modified_at,
         created_by=_to_notebook_user(notebook.created_by),
         last_modified_by=_to_notebook_user(notebook.last_modified_by),
+        tags=_notebook_tag_names(notebook),
     )
 
 
 def list_account_notebooks(
-    account_id: str | UUID, *, search: str | None = None, order: str | None = None
+    account_id: str | UUID,
+    *,
+    search: str | None = None,
+    order: str | None = None,
+    tags: Iterable[str] | None = None,
+    created_by_ids: Iterable[int] | None = None,
 ) -> list[contracts.AccountNotebook]:
     return [
         _to_account_notebook(notebook)
-        for notebook in logic.list_account_notebooks(account_id, search=search, order=order)
+        for notebook in logic.list_account_notebooks(
+            account_id, search=search, order=order, tags=tags, created_by_ids=created_by_ids
+        )
     ]
 
 
 def get_account_notebook(account_id: str | UUID, short_id: str) -> contracts.AccountNotebook | None:
     notebook = logic.get_account_notebook(account_id, short_id)
+    return _to_account_notebook(notebook) if notebook is not None else None
+
+
+def update_account_notebook(
+    account_id: str | UUID,
+    short_id: str,
+    *,
+    tags: Iterable[str] | None = None,
+) -> contracts.AccountNotebook | None:
+    notebook = logic.update_account_notebook(account_id, short_id, tags=tags)
     return _to_account_notebook(notebook) if notebook is not None else None
 
 
@@ -340,6 +356,7 @@ def _to_team_account_note(link: ResourceNotebook) -> contracts.TeamAccountNote:
         account_id=link.account.id,
         account_name=link.account.name,
         created_by=_to_notebook_user(link.notebook.created_by),
+        tags=_notebook_tag_names(link.notebook),
     )
 
 
@@ -350,6 +367,8 @@ def list_team_account_notes(
     account_id: UUID | str | None = None,
     created_by_ids: Iterable[int] | None = None,
     search: str | None = None,
+    tags: Iterable[str] | None = None,
+    order: str | None = None,
     offset: int = 0,
     limit: int = 100,
 ) -> tuple[list[contracts.TeamAccountNote], int]:
@@ -359,6 +378,8 @@ def list_team_account_notes(
         account_id=account_id,
         created_by_ids=created_by_ids,
         search=search,
+        tags=tags,
+        order=order,
         offset=offset,
         limit=limit,
     )

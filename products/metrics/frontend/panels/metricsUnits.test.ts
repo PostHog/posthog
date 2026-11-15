@@ -1,4 +1,4 @@
-import { formatMetricValue, unitAxisFormatter } from './metricsUnits'
+import { formatMetricValue, metricValuesFormatter } from './metricsUnits'
 
 describe('formatMetricValue', () => {
     it.each([
@@ -23,6 +23,8 @@ describe('formatMetricValue', () => {
         [340, 'ms', '340 ms'],
         [1500, 'ms', '1.5 s'],
         [250000, 'us', '250 ms'],
+        // a zero tick on a duration axis reads in seconds, not the smallest unit
+        [0, 'ms', '0 s'],
         // percent
         [42.5, '%', '42.5%'],
         // ratio (UCUM "1")
@@ -33,8 +35,15 @@ describe('formatMetricValue', () => {
         [88, '1/s', '88/s'],
         [88, '{request}/s', '88 request/s'],
         [1500, '{message}/s', '1.5K message/s'],
+        [2048, 'By/s', '2 KiB/s'],
         // unknown unit falls back to compact + suffix
         [1234, 'widgets', '1.23K widgets'],
+        // small nonzero values keep two significant digits instead of rounding to zero
+        [0.0012, undefined, '0.0012'],
+        [0.0042, '%', '0.0042%'],
+        [0.00005, '1', '0.005%'],
+        [0.004, '1/s', '0.004/s'],
+        [0.0031, '{request}/s', '0.0031 request/s'],
     ])('formats %s with unit %s as %s', (value, unit, expected) => {
         expect(formatMetricValue(value, unit)).toBe(expected)
     })
@@ -45,14 +54,17 @@ describe('formatMetricValue', () => {
     })
 })
 
-describe('unitAxisFormatter', () => {
-    it('binds the unit into a reusable formatter', () => {
-        const fmt = unitAxisFormatter('ms')
-        expect(fmt(340)).toBe('340 ms')
-        expect(fmt(2000)).toBe('2 s')
-    })
-
-    it('falls back to compact with no unit', () => {
-        expect(unitAxisFormatter(undefined)(1500)).toBe('1.5K')
+describe('metricValuesFormatter', () => {
+    it.each([
+        // a ratio picks one scale for every value shown together, from the largest of them
+        ['1', [0, 0.5, 1, 1.5, 2], ['0', '0.5', '1', '1.5', '2']],
+        ['1', [-2, 0.5], ['-2', '0.5']],
+        ['1', [0, 0.25, 1], ['0%', '25%', '100%']],
+        // other units still format each value on its own
+        ['ms', [340, 2000], ['340 ms', '2 s']],
+        [undefined, [1500], ['1.5K']],
+    ])('formats unit %s over values %j', (unit, values, expected) => {
+        const fmt = metricValuesFormatter(unit, values)
+        expect(values.map(fmt)).toEqual(expected)
     })
 })

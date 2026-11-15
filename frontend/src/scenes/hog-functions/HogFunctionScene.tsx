@@ -20,6 +20,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -54,11 +55,13 @@ import {
     HogFunctionConfigurationSaveButton,
 } from './configuration/components/HogFunctionConfigurationButtons'
 import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
+import { HogFunctionPublishDraftButton } from './configuration/HogFunctionPublishDraftButton'
 import { humanizeHogFunctionType } from './hog-function-utils'
 import { HogInvocations } from './invocations/HogInvocations'
 import { TransformationInvocations } from './invocations/TransformationInvocations'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
+import { QuillHogFunctionSceneActions } from './QuillHogFunctionSceneActions'
 import { HogFunctionRuns } from './runs/HogFunctionRuns'
 
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'runs', 'invocations', 'backfills', 'history'] as const
@@ -427,12 +430,15 @@ export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
 function HogFunctionHeader(): JSX.Element {
     const { configuration, logicProps, loading, isLegacyPlugin } = useValues(hogFunctionConfigurationLogic)
     const { setConfigurationValue, duplicate, deleteHogFunction } = useActions(hogFunctionConfigurationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <>
             <SceneTitleSection
                 name={configuration.name}
                 description={configuration.description || ''}
+                markdown
+                descriptionAlwaysVisible
                 resourceType={{
                     type: 'data_pipeline',
                     forceIcon: (
@@ -440,7 +446,7 @@ function HogFunctionHeader(): JSX.Element {
                             logicKey={logicProps.id ?? 'new'}
                             src={configuration.icon_url}
                             onChange={(val) => setConfigurationValue('icon_url', val)}
-                            size="small"
+                            size="xsmall"
                         />
                     ),
                 }}
@@ -449,31 +455,40 @@ function HogFunctionHeader(): JSX.Element {
                 onDescriptionChange={(value) => setConfigurationValue('description', value)}
                 canEdit
                 actions={
-                    <>
-                        {!logicProps.templateId && (
-                            <>
-                                <More
-                                    size="small"
-                                    overlay={
-                                        <>
-                                            {!isLegacyPlugin && (
-                                                <LemonButton fullWidth onClick={() => duplicate()}>
-                                                    Duplicate
+                    todayRailNav ? (
+                        <QuillHogFunctionSceneActions />
+                    ) : (
+                        <>
+                            {!logicProps.templateId && (
+                                <>
+                                    <More
+                                        size="small"
+                                        overlay={
+                                            <>
+                                                {!isLegacyPlugin && (
+                                                    <LemonButton fullWidth onClick={() => duplicate()}>
+                                                        Duplicate
+                                                    </LemonButton>
+                                                )}
+                                                <LemonDivider />
+                                                <LemonButton
+                                                    status="danger"
+                                                    fullWidth
+                                                    onClick={() => deleteHogFunction()}
+                                                >
+                                                    Delete
                                                 </LemonButton>
-                                            )}
-                                            <LemonDivider />
-                                            <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
-                                                Delete
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                                <LemonDivider vertical />
-                            </>
-                        )}
-                        <HogFunctionConfigurationClearChangesButton />
-                        <HogFunctionConfigurationSaveButton />
-                    </>
+                                            </>
+                                        }
+                                    />
+                                    <LemonDivider vertical />
+                                </>
+                            )}
+                            <HogFunctionConfigurationClearChangesButton />
+                            <HogFunctionConfigurationSaveButton />
+                            {logicProps.id ? <HogFunctionPublishDraftButton logicProps={logicProps} /> : null}
+                        </>
+                    )
                 }
             />
         </>
@@ -509,6 +524,10 @@ export function HogFunctionScene(): JSX.Element {
                 caption="This function may belong to a different project. Switch to that project, or ask the person who shared the link which one it's in."
             />
         )
+    }
+
+    if (templateId && !loaded) {
+        return <NotFound object="template" caption="Check the link, or pick another template from the list." />
     }
 
     if (!templateId && !id) {

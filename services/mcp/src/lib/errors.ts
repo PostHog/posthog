@@ -1,8 +1,10 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
+import type { Schemas } from '@/api/generated'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
-import { sanitizeHeaderValue } from '@/lib/utils'
+import { withInformationalResponse } from '@/tools/tool-utils'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 export enum ErrorCode {
     INVALID_API_KEY = 'INVALID_API_KEY',
@@ -20,6 +22,17 @@ export class MCPToolError extends Error {
         this.tool = tool
         this.originalError = originalError
         this.timestamp = new Date()
+    }
+}
+
+export class MCPToolResultError extends Error {
+    constructor(
+        message: string,
+        public readonly errorType: NonNullable<Schemas.MCPToolResponse['error_type']>,
+        public readonly errorCode?: string
+    ) {
+        super(message)
+        this.name = 'MCPToolResultError'
     }
 }
 
@@ -84,7 +97,55 @@ function formatMissingOrganizationContextMessage(): string {
     )
 }
 
+/**
+ * Thrown by `switch-project` and `switch-organization` when the request pins the
+ * context and carries no MCP session id. Nothing records the switch across
+ * requests, so the next request applies the pin again. Failing here tells the
+ * agent the truth instead of a success that the next call silently reverts.
+ */
+export class PinnedContextSwitchError extends Error {
+    constructor(pinned: { organizationId?: string | undefined; projectId?: string | undefined }) {
+        super(formatPinnedContextSwitchMessage(pinned))
+        this.name = 'PinnedContextSwitchError'
+    }
+}
+
+function formatPinnedContextSwitchMessage(pinned: {
+    organizationId?: string | undefined
+    projectId?: string | undefined
+}): string {
+    const target = pinned.projectId ? `project \`${pinned.projectId}\`` : `organization \`${pinned.organizationId}\``
+    return (
+        `This connection pins ${target} on every request and sends no MCP session id, so a switch cannot persist. ` +
+        'The next tool call would run against the pinned context again, so the switch was not applied.' +
+        '\n\n' +
+        `Keep working in the pinned ${pinned.projectId ? 'project' : 'organization'}, or ask the user to change the pin in the MCP client configuration ` +
+        '(the `project_id` / `organization_id` URL parameters or the `x-posthog-project-id` / `x-posthog-organization-id` headers).'
+    )
+}
+
+export const SESSION_RESET_REQUIRED_REASON = 'session_reset_required'
+
+/**
+ * Thrown before any tool runs when an MCP session saved its project and
+ * organization selection under the store key that held only the session id.
+ * The server does not trust those values, because any credential can send the
+ * same session id, and it does not silently start over from the pin or the
+ * shared token selection either. A new session starts with a clean selection.
+ */
+export class McpSessionResetRequiredError extends Error {
+    constructor() {
+        super(
+            'This MCP session started before a PostHog MCP server update, and the server cannot restore its project and organization selection. ' +
+                'No tool ran. Reconnect the PostHog MCP server to start a new session, then try again.'
+        )
+        this.name = 'McpSessionResetRequiredError'
+    }
+}
+
 export interface PostHogValidationErrorOptions {
+    /** Only code-controlled remediation belongs here; upstream details stay in `detail`. */
+    message?: string
     detail: string
     attr: string | undefined
     code: string | undefined
@@ -108,8 +169,7 @@ export class PostHogValidationError extends Error {
     public readonly method: string
 
     constructor(options: PostHogValidationErrorOptions) {
-        const attr = options.attr ? ` (field: ${options.attr})` : ''
-        super(`Validation error: ${options.detail}${attr}`)
+        super(options.message ?? 'PostHog API validation error. Check the request parameters and try again.')
         this.name = 'PostHogValidationError'
         this.detail = options.detail
         this.attr = options.attr
@@ -129,17 +189,20 @@ export class PostHogValidationError extends Error {
  * noise problem the 4xx short-circuit exists to prevent.
  */
 export class ToolInputValidationError extends Error {
-    /** Value-free descriptors of the rejection for telemetry: offending
-     *  field paths + issue codes, and the top-level keys the caller sent. Never
-     *  includes input VALUES — see `describeValidationError`. */
+    /** Value-free descriptors of the rejection for telemetry. */
     public readonly fields: string[]
-    public readonly inputKeys: string[]
 
-    constructor(message: string, detail?: { fields?: string[]; inputKeys?: string[] }) {
+    constructor(message: string, detail?: { fields?: string[] }) {
         super(message)
         this.name = 'ToolInputValidationError'
         this.fields = detail?.fields ?? []
-        this.inputKeys = detail?.inputKeys ?? []
+    }
+}
+
+export class ExperimentNotStartedError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ExperimentNotStartedError'
     }
 }
 
@@ -151,6 +214,7 @@ export type ExecCommandErrorReason =
     | 'deprecated_tool'
     | 'gated_tool'
     | 'missing_scope'
+    | 'tool_not_granted'
     | 'invalid_json'
     | 'usage'
     | 'invalid_regex'
@@ -183,6 +247,7 @@ export interface PostHogApiErrorOptions {
     url: string
     method: string
     message?: string
+    retryAfterSeconds?: number | null
 }
 
 /**
@@ -203,6 +268,7 @@ export class PostHogApiError extends Error {
     public readonly body: string
     public readonly url: string
     public readonly method: string
+    public readonly retryAfterSeconds: number | null
 
     constructor(options: PostHogApiErrorOptions) {
         super(options.message ?? buildDefaultApiErrorMessage(options))
@@ -212,23 +278,24 @@ export class PostHogApiError extends Error {
         this.body = options.body
         this.url = options.url
         this.method = options.method
+        this.retryAfterSeconds = options.retryAfterSeconds ?? null
     }
 }
 
-/** The request path without the upstream host. The host is not something an
- *  agent can act on, and reading one makes a 4xx look like an infrastructure
- *  fault; `client.ts` already logs the full URL server-side. */
-function requestPath(url: string): string {
+/** Diagnostic targets omit credentials and query values; never fall back to the raw URL. */
+export function formatSafeRequestTarget(url: string): string {
     try {
-        const parsed = new URL(url)
-        return `${parsed.pathname}${parsed.search}`
+        const parsed = new URL(url, 'https://diagnostic.invalid')
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+            ? parsed.pathname
+            : '[invalid request target]'
     } catch {
-        return url
+        return '[invalid request target]'
     }
 }
 
 function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
-    return `Request failed:\nPath: ${options.method} ${requestPath(options.url)}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
+    return `Request failed:\nPath: ${options.method} ${formatSafeRequestTarget(options.url)}\nStatus Code: ${options.status}`
 }
 
 export interface PostHogRateLimitErrorOptions {
@@ -239,14 +306,10 @@ export interface PostHogRateLimitErrorOptions {
 }
 
 /**
- * Thrown when the PostHog API responds with HTTP 429. Never retried inside the
- * MCP server: sleeping here keeps the client's request open and lets pending
- * work pile up behind it, so the rate limit is surfaced immediately with the
- * server's Retry-After hint and the client decides when to retry.
+ * Thrown when an HTTP 429 reaches the caller, including after the JSON client's
+ * bounded retries. Preserves the server's Retry-After hint for the next attempt.
  */
 export class PostHogRateLimitError extends PostHogApiError {
-    public readonly retryAfterSeconds: number | null
-
     constructor(options: PostHogRateLimitErrorOptions) {
         const retryHint = options.retryAfterSeconds !== null ? ` Retry after ${options.retryAfterSeconds} seconds.` : ''
         super({
@@ -255,11 +318,16 @@ export class PostHogRateLimitError extends PostHogApiError {
             body: options.body,
             url: options.url,
             method: options.method,
-            message: `PostHog API rate limit exceeded (429) on ${options.method} ${options.url}.${retryHint}`,
+            retryAfterSeconds: options.retryAfterSeconds,
+            message: `PostHog API rate limit exceeded (429) on ${options.method} ${formatSafeRequestTarget(options.url)}.${retryHint}`,
         })
         this.name = 'PostHogRateLimitError'
-        this.retryAfterSeconds = options.retryAfterSeconds
     }
+}
+
+/** True for an error raised by a request deadline, as opposed to a cancellation or a network fault. */
+export function isTimeoutError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'TimeoutError'
 }
 
 export interface PostHogTransportErrorOptions {
@@ -286,39 +354,87 @@ export class PostHogTransportError extends Error {
     public readonly url: string
     public readonly method: string
     public readonly attempts: number
+    /** True when the request hit the client's deadline instead of failing to connect. */
+    public readonly timedOut: boolean
+    /**
+     * Names and codes from the cause chain, such as `TypeError > Error(ECONNREFUSED)`, for our
+     * logs and error tracking. It is not in `message`, and it never holds the cause's own text.
+     */
+    public readonly failure: string
 
     constructor(options: PostHogTransportErrorOptions) {
-        const reason = options.cause instanceof Error ? options.cause.message : String(options.cause)
         const advice = options.retryable
             ? 'The request applies nothing upstream, so it is safe to retry.'
             : 'The request may have been applied upstream, so check the state before you send it again.'
         super(
-            `Could not reach the PostHog API on ${options.method} ${requestPath(options.url)} after ${options.attempts} attempt${options.attempts === 1 ? '' : 's'}: ${reason}. ${advice}`
+            `Could not reach the PostHog API on ${options.method} ${formatSafeRequestTarget(options.url)} after ${options.attempts} attempt${options.attempts === 1 ? '' : 's'}. ${advice}`
         )
         this.name = 'PostHogTransportError'
         this.retryable = options.retryable
         this.url = options.url
         this.method = options.method
         this.attempts = options.attempts
-        ;(this as Error & { cause?: unknown }).cause = options.cause
+        // A forwarded request nests the local transport error, so look through the cause chain.
+        this.timedOut = hasTimeoutCause(options.cause)
+        this.failure = describeTransportCause(options.cause)
     }
+}
+
+const SAFE_ERROR_LABEL = /^[A-Za-z][\w.-]{0,63}$/
+
+/** Summarizes a transport cause by error names and codes only. Messages can hold headers or URL secrets. */
+export function describeTransportCause(cause: unknown): string {
+    const parts: string[] = []
+    let current: unknown = cause
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current) && parts.length < 5) {
+        seen.add(current)
+        if (!(current instanceof Error)) {
+            parts.push(typeof current)
+            break
+        }
+        // The client wraps each attempt's failure, and that error keeps no `cause` to walk.
+        if (current instanceof PostHogTransportError) {
+            parts.push(current.failure)
+            break
+        }
+        const name = SAFE_ERROR_LABEL.test(current.name) ? current.name : 'Error'
+        const code = (current as Error & { code?: unknown }).code
+        parts.push(typeof code === 'string' && SAFE_ERROR_LABEL.test(code) ? `${name}(${code})` : name)
+        current = (current as Error & { cause?: unknown }).cause
+    }
+    return parts.join(' > ') || 'unknown'
+}
+
+export function findTransportError(error: unknown): PostHogTransportError | undefined {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (current instanceof PostHogTransportError) {
+            return current
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return undefined
 }
 
 /**
  * Parses a Retry-After header into whole seconds. Returns null for missing
- * headers, HTTP-date values, and bogus negatives.
+ * headers, HTTP-date values, and invalid delay values.
  */
 export function parseRetryAfterSeconds(header: string | null): number | null {
-    if (!header) {
+    if (!header || !/^\d+$/.test(header.trim())) {
         return null
     }
-    const seconds = Number.parseInt(header, 10)
-    return Number.isNaN(seconds) || seconds < 0 ? null : seconds
+    const seconds = Number(header)
+    return Number.isSafeInteger(seconds) ? seconds : null
 }
 
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined
+    challengeScopes?: string[] | undefined
     url: string
     method: string
 }
@@ -331,19 +447,29 @@ export interface PostHogPermissionErrorOptions {
 export class PostHogPermissionError extends Error {
     public readonly detail: string
     public readonly missingScope: string | undefined
+    /** From the API's `insufficient_scope` challenge, which it sends only for a step-up token. */
+    public readonly challengeScopes: string[] | undefined
     public readonly url: string
     public readonly method: string
 
     constructor(options: PostHogPermissionErrorOptions) {
         const message = options.missingScope
             ? `Missing PostHog API scope: '${options.missingScope}'`
-            : `PostHog API permission denied: ${options.detail}`
+            : 'PostHog API permission denied'
         super(message)
         this.name = 'PostHogPermissionError'
         this.detail = options.detail
         this.missingScope = options.missingScope
+        this.challengeScopes = options.challengeScopes
         this.url = options.url
         this.method = options.method
+    }
+
+    get requiredScopes(): string[] | undefined {
+        if (this.challengeScopes?.length) {
+            return this.challengeScopes
+        }
+        return this.missingScope ? [this.missingScope] : undefined
     }
 }
 
@@ -363,7 +489,8 @@ export function wrapError(message: string, cause: unknown): Error {
 const PERSONAL_API_KEY_DOCS_URL = 'https://posthog.com/docs/api#how-to-authenticate-with-the-posthog-api'
 
 export function formatPermissionErrorMessage(error: PostHogPermissionError): string {
-    const callTarget = error.method && error.url ? `${error.method} ${error.url}` : 'this MCP request'
+    const callTarget =
+        error.method && error.url ? `${error.method} ${formatSafeRequestTarget(error.url)}` : 'this MCP request'
     if (error.missingScope) {
         return [
             `Missing PostHog API scope: '${error.missingScope}'`,
@@ -376,30 +503,24 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
         ].join('\n')
     }
 
+    // The backend sends this detail when a token restricted to some projects calls an organization endpoint.
+    if (error.detail.includes('API keys with scoped projects are only supported on project-based endpoints')) {
+        return [
+            'PostHog API permission denied',
+            '',
+            `The request to ${callTarget} was rejected with HTTP 403. This is an organization endpoint, and your API key or OAuth token is limited to specific projects. More project access does not fix this.`,
+            '',
+            'To fix: use a Personal API key or OAuth token with organization access. In PostHog, open User settings → Personal API keys and set the key access to "All access" or "Organizations" (with this organization), not "Projects".',
+            '',
+            `See: ${PERSONAL_API_KEY_DOCS_URL}`,
+        ].join('\n')
+    }
+
     return [
-        `PostHog API permission denied: ${error.detail}`,
+        'PostHog API permission denied',
         '',
         `The request to ${callTarget} was rejected with HTTP 403. Verify that your API key, OAuth token, and user account have access to this project.`,
     ].join('\n')
-}
-
-/**
- * RFC 6750 §3.1: OAuth 2.0 Bearer challenge for 403 insufficient_scope. When
- * a missing scope is known, advertise it so OAuth-aware clients can prompt
- * for re-consent with the correct scope instead of reporting a generic error.
- */
-export function buildInsufficientScopeChallenge(error: PostHogPermissionError): string {
-    const parts = ['Bearer error="insufficient_scope"']
-    const scope = sanitizeHeaderValue(error.missingScope)
-    if (scope) {
-        parts.push(`scope="${scope}"`)
-    }
-    // Replace double quotes to keep the challenge syntactically valid.
-    const description = sanitizeHeaderValue(error.detail)?.replace(/"/g, "'")
-    if (description) {
-        parts.push(`error_description="${description}"`)
-    }
-    return parts.join(', ')
 }
 
 // Literal message shape produced by `new PostHogPermissionError({...})`. We
@@ -475,6 +596,103 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
 }
 
 /**
+ * PostHog's own reason for refusing a request: the DRF `detail`, with the field for a validation
+ * error, and never a raw body. The reason can repeat values from the request, so error messages
+ * leave it out. The hosted server returns it to the agent that sent the request. The CLI prints it
+ * only outside CI, because CI logs are often public.
+ */
+export function serverDetailOf(error: unknown): string | undefined {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (current instanceof PostHogValidationError) {
+            return current.attr ? `${current.detail} (field: ${current.attr})` : current.detail
+        }
+        if (current instanceof PostHogPermissionError) {
+            return current.detail
+        }
+        if (current instanceof PostHogApiError) {
+            return drfDetail(current.body)
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return undefined
+}
+
+// Analytics-safe shapes: a snake_case code and a DRF field path. Anything else in the body is
+// free text that can hold caller input, so it never reaches analytics.
+const API_ERROR_CODE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/
+const API_ERROR_ATTR_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,127}$/
+
+export interface ApiErrorIdentifiers {
+    code?: string
+    attr?: string
+}
+
+/**
+ * The machine-readable `code` and field `attr` of an API error body, for analytics. Reads a top-level
+ * object or the first item of a list, and keeps a value only when it looks like an identifier.
+ * `detail`, `message` and every other field are never read.
+ */
+export function parseApiErrorIdentifiers(body: string): ApiErrorIdentifiers {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(body)
+    } catch {
+        return {}
+    }
+    const source = Array.isArray(parsed) ? parsed[0] : parsed
+    if (source === null || typeof source !== 'object') {
+        return {}
+    }
+    const { code, attr } = source as { code?: unknown; attr?: unknown }
+    return {
+        ...(typeof code === 'string' && API_ERROR_CODE_PATTERN.test(code) ? { code } : {}),
+        ...(typeof attr === 'string' && API_ERROR_ATTR_PATTERN.test(attr) ? { attr } : {}),
+    }
+}
+
+function drfDetail(body: string): string | undefined {
+    try {
+        const detail = (JSON.parse(body) as { detail?: unknown } | null)?.detail
+        return typeof detail === 'string' && detail ? detail : undefined
+    } catch {
+        return undefined
+    }
+}
+
+// The reason can quote text that someone other than the caller wrote, such as notebook content, so
+// it reaches the agent fenced as data and never as instructions.
+export function withServerDetail(message: string, error: unknown): string {
+    const detail = serverDetailOf(error)
+    if (!detail) {
+        return message
+    }
+    const fenced = withInformationalResponse(
+        { detail },
+        'posthog-error-detail',
+        "It holds PostHog's reason for refusing the request."
+    )
+    return `${message}\n\n${fenced[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]}`
+}
+
+/** True when the error or any error in its `cause` chain came from a request deadline. Tools that
+ *  rethrow through `wrapError` keep the timeout in `cause`. */
+export function hasTimeoutCause(error: unknown): boolean {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (isTimeoutError(current) || (current instanceof PostHogTransportError && current.timedOut)) {
+            return true
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return false
+}
+
+/**
  * Handles tool errors and returns a structured error message.
  * Any errors that originate from the tool SHOULD be reported inside the result
  * object, with `isError` set to true, _not_ as an MCP protocol-level error
@@ -488,7 +706,13 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
  *
  * @returns A structured error message.
  */
-export function handleToolError(error: any, tool?: string, distinctId?: string, sessionUuid?: string): CallToolResult {
+export function handleToolError(
+    error: any,
+    tool?: string,
+    distinctId?: string,
+    sessionUuid?: string,
+    suppressAnalytics = false
+): CallToolResult {
     const toolName = tool || 'unknown'
 
     // Recoverable: expected agent or user state, not a bug — no project picked,
@@ -498,8 +722,10 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     if (
         error instanceof MissingProjectContextError ||
         error instanceof MissingOrganizationContextError ||
+        error instanceof PinnedContextSwitchError ||
         error instanceof ToolInputValidationError ||
-        error instanceof ExecCommandError
+        error instanceof ExecCommandError ||
+        (error instanceof MCPToolResultError && ['validation', 'permission'].includes(error.errorType))
     ) {
         return {
             content: [
@@ -529,7 +755,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
                 content: [
                     {
                         type: 'text',
-                        text: `Error: [${toolName}]: ${recoverableApiError.message}`,
+                        text: `Error: [${toolName}]: ${withServerDetail(recoverableApiError.message, recoverableApiError)}`,
                     },
                 ],
                 isError: true,
@@ -543,6 +769,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             team: 'growth',
             tool: toolName,
             is_permission_error: true,
+            suppress_analytics: suppressAnalytics,
             missing_scope: permissionError.missingScope,
             $exception_fingerprint: `posthog-permission-error:${toolName}:${permissionError.missingScope ?? 'unknown'}`,
         }
@@ -561,7 +788,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             content: [
                 {
                     type: 'text',
-                    text: `Error: [${toolName}]: ${formatPermissionErrorMessage(permissionError)}`,
+                    text: `Error: [${toolName}]: ${withServerDetail(formatPermissionErrorMessage(permissionError), permissionError)}`,
                 },
             ],
             isError: true,
@@ -577,7 +804,9 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         team: 'growth',
         tool: mcpError.tool,
         is_mcp_tool_error: error instanceof MCPToolError,
+        suppress_analytics: suppressAnalytics,
         $exception_fingerprint: mcpError.tool,
+        transport_failure: findTransportError(error)?.failure,
     }
 
     if (sessionUuid) {
@@ -598,7 +827,11 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     // reach here (4xx short-circuited earlier).
     const recoveryHint =
         recoverableApiError instanceof PostHogApiError
-            ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
+            ? getToolRecoveryHint({
+                  url: recoverableApiError.url,
+                  status: recoverableApiError.status,
+                  retryAfterSeconds: recoverableApiError.retryAfterSeconds,
+              })
             : undefined
 
     return {

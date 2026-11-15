@@ -1,5 +1,6 @@
-import pytest
 from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -10,10 +11,8 @@ from products.revenue_analytics.backend.joins import (
     remove_person_join,
 )
 
-pytestmark = [pytest.mark.django_db]
 
-
-class TestGetCustomerRevenueViewName(BaseTest):
+class TestGetCustomerRevenueViewName(SimpleTestCase):
     @parameterized.expand(
         [
             ("", "stripe.customer_revenue_view"),

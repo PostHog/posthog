@@ -44,3 +44,19 @@ path = "junit.xml"
 [[profile.ci.overrides]]
 filter = 'package(personhog-stateright) and test(epoch_fenced_two_partitions_double_zombie_is_safe)'
 threads-required = "num-cpus"
+
+# cohort-stream-processor's integration tests include broker and S3 tests that can hang on a
+# shutdown or a broker wait. Fail any of them at 2 minutes, well past the slowest one, instead of
+# letting them eat the job's timeout.
+[[profile.ci.overrides]]
+filter = 'package(cohort-stream-processor) & kind(test)'
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+# The persons DB stall tests each run for up to a minute by design. A retry of every failing one
+# would push the shard past its job timeout, so they get none. Fail a hung one at 2 minutes, and
+# keep the measurements each one prints in the job log.
+[[profile.ci.overrides]]
+filter = 'package(feature-flags) & binary(stall_recovery)'
+retries = 0
+slow-timeout = { period = "60s", terminate-after = 2 }
+success-output = "final"

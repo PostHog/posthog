@@ -2,6 +2,8 @@ from datetime import datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import DateRange, EventsNode, FunnelsFilter, FunnelsQuery, IntervalType, StepOrderValue
 
 from posthog.test.test_journeys import journeys_for
@@ -56,6 +58,9 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaisesMessage(ValueError, "The first valid drop-off argument for funnelStep is -2"):
             get_actors(query, self.team, funnel_step=-1)
+
+        with self.assertRaisesMessage(ValidationError, "funnelStep is required"):
+            get_actors(query, self.team, funnel_step=None)
 
     def test_first_step(self):
         self._create_sample_data_multiple_dropoffs()

@@ -52,6 +52,8 @@ type ComponentScanState = {
 }
 
 const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
+const COLUMN_BOUNDARY_REGEX = /^<(Column|Columns)(\s[^\n]*?)?>$/
+const COLUMN_CLOSE_REGEX = /^<\/(Column|Columns)>$/
 const ESCAPED_COMPONENT_START_REGEX = /^\\<[A-Z][A-Za-z0-9]*(\s|>|\/)/
 const MAX_COMPONENT_BLOCK_LINES = 1_000
 const MAX_COMPONENT_BLOCK_CHARACTERS = 256 * 1024
@@ -338,6 +340,12 @@ function serializeNodeUncached(node: NotebookBlockNode): string {
     }
     if (node.type === 'component' && node.tagName === 'Image') {
         return serializeImageNode(node)
+    }
+    if (node.type === 'component' && (node.tagName === 'ColumnEnd' || node.tagName === 'ColumnsEnd')) {
+        return `</${node.tagName.slice(0, -3)}>`
+    }
+    if (node.type === 'component' && (node.tagName === 'Column' || node.tagName === 'Columns')) {
+        return `<${node.tagName}${serializeComponentProps(node.props)}>`
     }
     if (node.type === 'component') {
         const multilineSource = getUnchangedMultilineComponentSource(node)
@@ -691,6 +699,18 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         }
     }
 
+    const columnClose = COLUMN_CLOSE_REGEX.exec(trimmed)
+    if (columnClose) {
+        return {
+            node: { id: '', type: 'component', tagName: `${columnClose[1]}End`, props: {} },
+            nextLineIndex: lineIndex + 1,
+        }
+    }
+    if (COLUMN_BOUNDARY_REGEX.test(trimmed) && !trimmed.endsWith('/>')) {
+        const parsed = parseComponentTag(`${trimmed.slice(0, -1)} />`)
+        return { ...parsed, nextLineIndex: lineIndex + 1 }
+    }
+
     if (COMPONENT_START_REGEX.test(trimmed)) {
         const parsedComponent = parseComponentBlock(lines, lineIndex)
         const parsedNode = parsedComponent.node
@@ -800,6 +820,7 @@ function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResu
             DIVIDER_BLOCK_REGEX.test(trimmed) ||
             (trimmed.startsWith('<!--') && getCommentBlockEndLine(lines, nextLineIndex) !== null) ||
             COMPONENT_START_REGEX.test(trimmed) ||
+            COLUMN_CLOSE_REGEX.test(trimmed) ||
             HEADING_REGEX.test(line) ||
             isTableStart(lines, nextLineIndex) ||
             ORDERED_LIST_REGEX.test(line) ||
@@ -2008,11 +2029,35 @@ export function escapeMarkdownLineStart(line: string): string {
         return `${leadingWhitespace}${orderedListMatch[1]}\\${content.slice(orderedListMatch[1].length)}`
     }
 
-    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$|<[A-Z]|<!--)/.test(content)) {
+    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$)/.test(content) || COMPONENT_TAG_LINE_START.test(content)) {
         return `${leadingWhitespace}\\${content}`
     }
 
     return line
+}
+
+const COMPONENT_TAG_LINE_START = /^(<[A-Z]|<!--)/
+const COMPONENT_TAG_OPENER = /^\\?(<[A-Z][A-Za-z0-9]*|<!--)/
+// The notebooks backend reads a cell after Python's `str.strip()`, which also removes `\x1c` to `\x1f`
+// and `\x85`. The editor lifts a quoted tag out of its blockquote, so `>` markers count as a prefix too.
+const COMPONENT_TAG_LINE_PREFIX = /^[\s\x1c-\x1f\x85>]*/
+
+// A backslash is not enough: both parsers recover a `\<Tag` that spans lines, because the prose
+// serializer writes multiline components that way. Inline code cannot be recovered into a tag.
+function escapeComponentTagLineStart(line: string): string {
+    const prefix = line.match(COMPONENT_TAG_LINE_PREFIX)?.[0] ?? ''
+    const content = line.slice(prefix.length)
+    const match = content.match(COMPONENT_TAG_OPENER)
+    return match ? `${prefix}\`${match[1]}\`${content.slice(match[0].length)}` : line
+}
+
+// For markdown the author meant to render: only a line that would parse as a component tag or a
+// comment is neutralized, so headings and lists stay live. Lines inside code fences are neutralized
+// too, because the editor and the notebooks backend disagree on where a fence ends, and a fence can
+// span the blocks a caller joins. The cost is a stray pair of backticks in a code sample.
+// The notebooks backend reads `\r` as a line break, so it is one here too.
+export function escapeComponentTagLines(markdown: string): string {
+    return markdown.replace(/\r\n?/g, '\n').split('\n').map(escapeComponentTagLineStart).join('\n')
 }
 
 function getCodeBlockFence(text: string): string {

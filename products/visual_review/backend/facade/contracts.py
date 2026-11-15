@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import ShiftBandKind
+from .enums import AutoQuarantineMode, QuarantineLiftState, ShiftBandKind
 
 # Classification thresholds, applied by `diffing.classify_compare_result`:
 #
@@ -311,15 +311,17 @@ class Snapshot:
 
 @dataclass(frozen=True)
 class RunSnapshots:
-    """A run's snapshots plus the count of its currently-quarantined identifiers.
+    """One page of a run's snapshots plus the counts a caller needs around it.
 
-    `quarantined_count` always reflects the full run regardless of whether
-    quarantined snapshots were filtered out of `snapshots`, so callers can
-    surface "N hidden" without a second fetch.
+    `quarantined_count` counts the quarantined snapshots that match the other
+    filters, whether or not they were left out of `snapshots`, so callers can
+    surface "N hidden" without a second fetch. `total_count` counts every
+    snapshot that matches the filters, across all pages.
     """
 
     snapshots: list[Snapshot]
     quarantined_count: int
+    total_count: int
 
 
 @dataclass(frozen=True)
@@ -352,6 +354,7 @@ class Run:
     error_message: str | None
     created_at: datetime
     completed_at: datetime | None
+    purpose: str = "review"
     is_stale: bool = False
     superseded_by_id: UUID | None = None
     approved_by: UserBasicInfo | None = None
@@ -432,6 +435,7 @@ class QuarantinedIdentifierEntry:
     # failing snapshot prompted it). None for quarantines opened from the
     # snapshot history page or pre-dating this column.
     source_run: QuarantineSourceRun | None = None
+    lift_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -446,6 +450,37 @@ class QuarantineInput:
     # "what was wrong" later. Omitted when quarantining from the snapshot
     # history page where no run is in context.
     source_run_id: UUID | None = None
+    notify_owners: bool = False
+
+
+@dataclass(frozen=True)
+class LiftOnMergeInput:
+    """Request body for lifting a quarantine when the run's pull request merges. run_id comes from the URL."""
+
+    identifier: str
+
+
+@dataclass(frozen=True)
+class QuarantineLiftEntry:
+    """A request to lift one quarantine event once a pull request merges."""
+
+    id: UUID
+    quarantine_id: UUID
+    identifier: str
+    run_type: str
+    pr_number: int
+    # The picture a default-branch run must render, against a baseline entry that holds it too.
+    expected_hash: str
+    state: QuarantineLiftState
+    detail: str
+    source: str
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: datetime | None = None
+    source_run_id: UUID | None = None
+    requested_by: UserBasicInfo | None = None
+    merge_commit_sha: str | None = None
+    lifted_at_sha: str | None = None
 
 
 @dataclass(frozen=True)
@@ -455,6 +490,7 @@ class UpdateRepoRequestInput:
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
     debt_digest_enabled: bool | None = None
+    auto_quarantine_mode: AutoQuarantineMode | None = None
 
 
 @dataclass(frozen=True)
@@ -465,6 +501,7 @@ class UpdateRepoInput:
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
     debt_digest_enabled: bool | None = None
+    auto_quarantine_mode: AutoQuarantineMode | None = None
 
 
 @dataclass(frozen=True)
@@ -505,6 +542,7 @@ class Repo:
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
     debt_digest_enabled: bool
+    auto_quarantine_mode: AutoQuarantineMode
     created_at: datetime
 
 
@@ -652,6 +690,40 @@ FLAKINESS_MIN_HEADROOM = 0.2
 # lapse, so it counts toward `needs_decision`.
 FLAKINESS_EXPIRY_SOON_DAYS = 7
 
+# Latest expiry an agent's quarantine gets, and the one it gets when the call names
+# none. A quarantine without an expiry never lifts itself, and no agent comes back to lift it.
+AGENT_QUARANTINE_MAX_DAYS = 30
+
+# Short, because automatic release and the weekly debt digest follow up on the story.
+AUTO_QUARANTINE_DAYS = 14
+
+# The runs of a flake proof must be close in time, because the further apart two trees are, the more
+# code differs between them that the proof does not account for.
+AUTO_QUARANTINE_PROOF_WINDOW_HOURS = 24
+
+# Past this many automatic quarantines per repo in 24 hours, a proof is only logged. Many new flakes
+# at once mean the capture harness regressed, so the limit sits above a busy day and below a regression.
+# As of November 2026, people opened at most 8 quarantines a day on 95 percent of days in this repo,
+# and a capture regression produced 12 proofs in 24 hours.
+AUTO_QUARANTINE_DAILY_LIMIT = 10
+
+# A run count and not days, because a slow week would lift a story on too little evidence.
+# As of November 2026, 3 percent of clean streaks in this repo relapsed after 500 default-branch runs,
+# against 15 percent after 300.
+AUTO_LIFT_CLEAN_RUNS = 500
+
+# Bounds GitHub requests, so a storm of failures cannot stall run completion.
+AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25
+
+# Each candidate can cost GitHub requests, and the newest ones are the most likely to hold.
+AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY = 5
+
+# A proof needs runs close to the finishing run, so the newest few bound the rows read per story.
+AUTO_QUARANTINE_RUNS_READ = 80
+
+# Runs inside the diff task. A story left over is checked again by a later run.
+AUTO_QUARANTINE_BUDGET_SECONDS = 20
+
 # Safety cap on rows returned by the flakiness endpoint. The population is
 # already narrow (only identifiers carrying variants or a quarantine), so this
 # is a backstop against a repo whose diff threshold is misconfigured and
@@ -741,10 +813,6 @@ class FlakinessTotals:
     broken: int
     unstable: int
     at_risk: int
-    noisy: int
-    # Listed, but nothing failing or absorbed inside the rate span. A row
-    # reaches this state by carrying live variants, or history further back in
-    # the read window, so it is reported rather than silently unreachable.
     clean: int
     quarantined: int
     needs_decision: int

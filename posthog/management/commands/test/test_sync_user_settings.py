@@ -12,11 +12,13 @@ from parameterized import parameterized
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.user_home_settings import UserHomeSettings
+from posthog.test.starred_products import start_without_default_starred_products
 
 
 class TestSyncUserSettingsCommand(BaseTest):
     def setUp(self):
         super().setUp()
+        start_without_default_starred_products(self)
         # Set up initial local user state
         self.user.theme_mode = "light"
         self.user.toolbar_mode = "toolbar"

@@ -287,18 +287,16 @@ function CanvasBreadcrumb({
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
   const commentTarget = {
-    scope: "desktop_canvas" as const,
+    scope: "canvas" as const,
     itemId: dashboardId,
   };
   const commentTaskId = canvasCommentTaskId(
     dashboard?.generationTaskId,
     versions,
   );
-  const comments = useCommentsQuery(
-    commentTaskId ? commentTarget : null,
-    commentTaskId ?? "",
-    { live: true },
-  );
+  const comments = useCommentsQuery(commentTarget, commentTaskId ?? "", {
+    live: true,
+  });
   const openCommentCount = buildCommentThreads(comments.data ?? []).filter(
     (thread) => !thread.resolved,
   ).length;
@@ -321,15 +319,13 @@ function CanvasBreadcrumb({
       }
       trailing={
         <>
-          {commentTaskId && (
-            <Button size="sm" variant="outline" onClick={openComments}>
-              <ChatCircleIcon />
-              Comments
-              {openCommentCount > 0 && (
-                <span className="tabular-nums">{openCommentCount}</span>
-              )}
-            </Button>
-          )}
+          <Button size="sm" variant="outline" onClick={openComments}>
+            <ChatCircleIcon />
+            Comments
+            {openCommentCount > 0 && (
+              <span className="tabular-nums">{openCommentCount}</span>
+            )}
+          </Button>
           {trailing}
         </>
       }

@@ -1,5 +1,11 @@
 import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
-import { activityWindow, groupConsecutiveTools, groupThreadActivity } from './groupThreadActivity'
+import {
+    activityWindow,
+    groupConsecutiveTools,
+    groupThreadActivity,
+    groupToolRuns,
+    reuseActivityGroups,
+} from './groupThreadActivity'
 
 describe('thread activity grouping', () => {
     const tool = (id: string, startedAt = 1000): ThreadItem => ({
@@ -37,6 +43,115 @@ describe('thread activity grouping', () => {
         expect(result.flatMap((item) => (item.type === 'activity_group' ? item.items : [item]))).toEqual(items)
         expect(result[1]).toMatchObject({ startedAt: 1000, endedAt: 1300 })
         expect(groupThreadActivity([...items, tool('last', 3200)], new Set(['chart'])).at(-1)?.id).toBe('activity-next')
+    })
+
+    it('folds tool runs like PostHog Desktop, keeping plans, lone calls and the final chart of a closed run visible', () => {
+        const calls = new Map<string, ToolInvocation>()
+        const call = (id: string, status: ToolInvocation['status'] = 'completed'): ThreadItem => {
+            calls.set(id, {
+                toolCallId: id,
+                rawServerName: 'posthog',
+                rawToolName: 'exec',
+                input: {},
+                status,
+                contentBlocks: [],
+            })
+            return tool(id)
+        }
+        const thought = (id: string): ThreadItem => ({ id, type: 'assistant_thought', text: 'Checking' })
+        const prose = (id: string): ThreadItem => ({ id, type: 'assistant_message', text: 'Found it' })
+        const items: ThreadItem[] = [
+            { id: 'human', type: 'human_message', text: 'Why did signups drop?' },
+            { id: 'setup', type: 'status', status: 'setup_hooks' },
+            { id: 'init', type: 'status', status: 'sdk_initialization' },
+            thought('plan'),
+            call('read'),
+            thought('between'),
+            call('grep'),
+            prose('first-answer'),
+            call('lone'),
+            thought('after-lone'),
+            call('plan-card'),
+            call('schema'),
+            call('chart'),
+            prose('chart-answer'),
+            { id: 'end', type: 'turn_separator' },
+            call('live-chart'),
+        ]
+        const options = { pinnedToolIds: new Set(['plan-card']), widgetToolIds: new Set(['chart', 'live-chart']) }
+        const result = groupToolRuns(items, calls, { ...options, settled: false })
+        expect(result.map((item) => item.id)).toEqual([
+            'human',
+            'init',
+            'activity-read',
+            'first-answer',
+            'lone',
+            'after-lone',
+            'plan-card',
+            'schema',
+            'chart',
+            'chart-answer',
+            'end',
+            'activity-live-chart',
+        ])
+        expect(result[2]).toMatchObject({ items: [thought('plan'), tool('read'), thought('between'), tool('grep')] })
+        expect(result.flatMap((item) => (item.type === 'activity_group' ? item.items : [item]))).toEqual(
+            items.filter((item) => item.id !== 'setup')
+        )
+        expect(groupToolRuns(items, calls, { ...options, settled: true }).at(-1)?.id).toBe('live-chart')
+    })
+
+    it.each([
+        [
+            'the qualified name in the call meta',
+            {
+                rawServerName: 'posthog',
+                rawToolName: 'task_summary_update',
+                meta: { claudeCode: { toolName: 'mcp__posthog-code-tools__task_summary_update' } },
+            },
+        ],
+        ['the bare tool name', { rawServerName: 'posthog-code-tools', rawToolName: 'task_summary_update' }],
+    ])('keeps the final chart visible when the task summary call follows it, from %s', (_, summaryCall) => {
+        const calls = new Map<string, ToolInvocation>()
+        const call = (id: string, overrides: Partial<ToolInvocation> = {}): ThreadItem => {
+            calls.set(id, {
+                toolCallId: id,
+                rawServerName: 'posthog',
+                rawToolName: 'exec',
+                input: {},
+                status: 'completed',
+                contentBlocks: [],
+                ...overrides,
+            })
+            return tool(id)
+        }
+        const answer: ThreadItem = { id: 'answer', type: 'assistant_message', text: 'Signups dropped' }
+        const options = { pinnedToolIds: new Set<string>(), widgetToolIds: new Set(['chart']), settled: true }
+        const calledBeforeChart = [call('read-1'), call('read-2'), call('chart')]
+
+        expect(
+            groupToolRuns([...calledBeforeChart, call('summary', summaryCall), answer], calls, options).map(
+                (item) => item.id
+            )
+        ).toEqual(['activity-read-1', 'chart', 'summary', 'answer'])
+        expect(
+            groupToolRuns([...calledBeforeChart, call('other'), answer], calls, options).map((item) => item.id)
+        ).toEqual(['activity-read-1', 'answer'])
+    })
+
+    it('keeps a group id when earlier calls load in front of it', () => {
+        const latest = groupThreadActivity([tool('later'), tool('last', 1100)], new Set())
+        const loaded = reuseActivityGroups(
+            latest,
+            groupThreadActivity([tool('earlier', 900), tool('later'), tool('last', 1100)], new Set())
+        )
+
+        expect(loaded.map((item) => item.id)).toEqual(['activity-later'])
+        expect(loaded[0].type === 'activity_group' && loaded[0].items.map((row) => row.id)).toEqual([
+            'earlier',
+            'later',
+            'last',
+        ])
     })
 
     it('does not invent a duration when part of the group has no recorded start', () => {

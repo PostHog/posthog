@@ -42,6 +42,7 @@ import jwt
 import requests
 
 from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 
 GITHUB_APP_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"]
 DEFAULT_BASE_URL = "http://localhost:8010"
@@ -291,6 +292,7 @@ class Command(BaseCommand):
                 f"https://api.github.com/app-manifests/{quote(code, safe='')}/conversions",
                 source="signals",
                 timeout=30,
+                priority=Priority.CRITICAL,
             )
         except requests.RequestException as err:
             raise CommandError(f"Network error contacting GitHub: {err}") from err
@@ -349,6 +351,7 @@ class Command(BaseCommand):
                 source="signals",
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=30,
+                priority=Priority.CRITICAL,
             )
         except Exception as err:
             self.stdout.write(

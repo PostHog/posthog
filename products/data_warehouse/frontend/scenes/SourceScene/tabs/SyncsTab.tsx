@@ -16,6 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
 
+import { failedDestinationFor } from 'products/data_warehouse/frontend/shared/components/destinationFailure'
 import { JobDestinations } from 'products/data_warehouse/frontend/shared/components/JobDestinations'
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 
@@ -196,6 +197,15 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
                                           destinationIds={job.destination_ids ?? []}
                                           destinationsById={destinationsById}
                                           loading={destinationsLoading}
+                                          failedDestinationId={
+                                              job.status === ExternalDataJobStatus.Failed && job.latest_error
+                                                  ? failedDestinationFor(
+                                                        job.latest_error,
+                                                        job.destination_ids ?? [],
+                                                        destinationsById
+                                                    )?.id
+                                                  : undefined
+                                          }
                                       />
                                   ),
                               },

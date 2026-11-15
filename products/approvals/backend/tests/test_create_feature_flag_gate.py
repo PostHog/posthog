@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.approvals.backend.actions.feature_flags import (
     DisableFeatureFlagAction,
     EnableFeatureFlagAction,
@@ -11,6 +13,7 @@ from products.approvals.backend.actions.feature_flags import (
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.services import ChangeRequestService
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, MINTED_OWNER_CONTEXT_KEY
 
 
 class TestCreateDetection(APIBaseTest):
@@ -200,6 +203,24 @@ class TestCreateFlagGateAPI(APIBaseTest):
         flag = FeatureFlag.objects.get(team=self.team, key="rollout-gated")
         assert flag.filters["groups"][0]["rollout_percentage"] == 100
 
+    def test_public_create_cannot_claim_a_product_owner(self, _mock_enabled):
+        self._update_policy()
+
+        with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {
+                    "key": "claims-survey-owner",
+                    "active": False,
+                    "filters": {"groups": [{"rollout_percentage": 100}]},
+                    MINTED_OWNER_CONTEXT_KEY: FLAG_OWNER_SURVEY,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 409, response.json()
+        assert not FeatureFlag.objects.filter(team=self.team, key="claims-survey-owner").exists()
+
     def test_create_active_flag_with_rollout_under_both_policies_is_rejected(self, _mock_enabled):
         # A create that both enables the flag AND sets its rollout trips the enable policy and the
         # rollout-update policy at once. A single ChangeRequest carries one action's approval, and
@@ -241,6 +262,35 @@ class TestCreateFlagGateAPI(APIBaseTest):
 
         flag = FeatureFlag.objects.get(team=self.team, key="remote-config-flag")
         assert flag.filters["groups"][0]["rollout_percentage"] == 100
+
+    @parameterized.expand(
+        [
+            ("other_key", "second-flag", "approval_required", ["first-flag", "second-flag"]),
+            ("same_key", "first-flag", "change_request_pending", ["first-flag"]),
+        ]
+    )
+    def test_pending_create_blocks_only_a_create_for_the_same_key(
+        self, _mock_enabled, _name, second_key, expected_code, expected_pending_keys
+    ):
+        # A create has no resource id yet, so resource_id cannot tell two pending creates apart.
+        # The duplicate check must compare the flag key. Otherwise one pending create blocks every
+        # other create in the project with a 409 that names someone else's change request.
+        self._update_policy({"type": "any_change", "field": "rollout_percentage"})
+
+        def create(key: str) -> Any:
+            return self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"key": key, "active": False, "filters": {"groups": [{"rollout_percentage": 0}]}},
+                format="json",
+            )
+
+        assert create("first-flag").json().get("code") == "approval_required"
+        response = create(second_key)
+
+        assert response.status_code == 409, response.content
+        assert response.json().get("code") == expected_code
+        pending = ChangeRequest.objects.filter(team=self.team, state=ChangeRequestState.PENDING)
+        assert sorted(cr.intent["flag_key"] for cr in pending) == expected_pending_keys
 
     def test_reapplying_create_change_request_does_not_duplicate(self, _mock_enabled):
         self._enable_policy()

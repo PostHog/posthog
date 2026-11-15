@@ -1,9 +1,9 @@
 import { LemonTagType } from '@posthog/lemon-ui'
 
+import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
 import { DataVisualizationNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 import {
     DataModelingSyncInterval,
     DataWarehouseSyncInterval,
@@ -202,6 +202,12 @@ export function allowedSyncFrequencies(): DataWarehouseSyncInterval[] {
     return SYNC_FREQUENCY_ORDER.filter((frequency) => !LEGACY_SUB_FLOOR_SYNC_FREQUENCIES.includes(frequency))
 }
 
+// A CDC table's change buffer keeps files for 14 days, so the API rejects a CDC table slower than weekly.
+export function allowedCdcSyncFrequencies(): DataWarehouseSyncInterval[] {
+    const slowest = SYNC_FREQUENCY_ORDER.indexOf('7day')
+    return allowedSyncFrequencies().filter((frequency) => SYNC_FREQUENCY_ORDER.indexOf(frequency) <= slowest)
+}
+
 // Raise a requested frequency to the fastest allowed one (e.g. a legacy 1min → 5min).
 export function clampSyncFrequency(requested: DataWarehouseSyncInterval): DataWarehouseSyncInterval {
     const allowed = allowedSyncFrequencies()
@@ -238,7 +244,5 @@ export const cleanSourceId = (id: string): string => id.replace('self-managed-',
 /**
  * Checks if a template represents a managed data warehouse source.
  * Managed sources (Stripe, Postgres, etc.) have access control.
- * Self-managed sources (S3, GCS, Azure, R2) do not have access control.
  */
-export const isManagedSourceTemplate = (template: HogFunctionTemplateType): boolean =>
-    template.type === 'source' && !isSelfManagedSourceId(template.id)
+export const isManagedSourceTemplate = (template: HogFunctionTemplateType): boolean => template.type === 'source'

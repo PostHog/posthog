@@ -2,10 +2,11 @@ import datetime as dt
 import contextlib
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
@@ -13,28 +14,30 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_SEQ_COLUMN,
     CDC_SEQ_PROVENANCE,
     CDC_TIMESTAMP_COLUMN,
-    SCD2_VALID_FROM_COLUMN,
-    SCD2_VALID_TO_COLUMN,
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
     TOAST_OMITTED_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import resnapshot_stays_in_buffer
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    CDC_SNAPSHOT_POSITION_KEY,
+    resnapshot_stays_in_buffer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
     CDCLane,
     CDCSourceManager,
+    ListingProof,
     ReplayFilter,
     build_output_lanes,
     captures_to_buffer,
-    consumes_buffer,
     has_batches_in_flight,
     scheduled_sync_consumes_buffer,
     served_lanes,
     serves_buffered_lane,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCJobInputsUnreadableError
 
 _TEAM_ID = 7
 _SCHEMA_ID = "3f7c1f4e-0000-0000-0000-000000000001"
@@ -43,6 +46,7 @@ _PREFIX = f"bucket/cdc_producer/{_TEAM_ID}/{_SCHEMA_ID}"
 _NOW = dt.datetime(2026, 8, 14, 12, 0, tzinfo=dt.UTC)
 # Older than any completed-run start minus the clock-skew margin.
 _OLD_MTIME = _NOW - dt.timedelta(hours=2)
+_RECENT = _NOW - dt.timedelta(minutes=1)
 
 
 def _table(ids: list[int], seqs: list[int]) -> pa.Table:
@@ -108,6 +112,9 @@ class _FakeS3:
         missing_prefix: bool = False,
         mtimes: dict[str, dt.datetime] | None = None,
         missing_keys: set[str] | None = None,
+        etags: dict[str, str] | None = None,
+        etags_at_delete: dict[str, str] | None = None,
+        conflicting_deletes: set[str] | None = None,
     ) -> None:
         self.files = dict(files)
         # Listed but gone by the time the reader opens them, as a concurrent retry leaves things.
@@ -116,6 +123,10 @@ class _FakeS3:
         self.opened: list[str] = []
         self.missing_prefix = missing_prefix
         self.mtimes = mtimes or {}
+        self.etags = etags or {}
+        # What the store holds after the listing, for a file capture rewrote in between.
+        self.etags_at_delete = etags_at_delete or {}
+        self.conflicting_deletes = conflicting_deletes or set()
 
     async def _ls(self, prefix, detail=True, refresh=False):
         # The manager must always bypass the fsspec dircache — capture writes through a different
@@ -123,7 +134,40 @@ class _FakeS3:
         assert refresh, "buffer listings must pass refresh=True"
         if self.missing_prefix:
             raise FileNotFoundError(prefix)
-        return [{"type": "file", "Key": key, "LastModified": self.mtimes.get(key, _OLD_MTIME)} for key in self.files]
+        return [
+            {
+                "type": "file",
+                "Key": key,
+                "LastModified": self.mtimes.get(key, _OLD_MTIME),
+                "ETag": f'"{self.etags.get(key, "etag-0")}"',
+            }
+            for key in self.files
+        ]
+
+    def _current_etag(self, key):
+        return self.etags_at_delete.get(key, self.etags.get(key, "etag-0"))
+
+    def split_path(self, path):
+        bucket, _, key = path.partition("/")
+        return bucket, key, None
+
+    def invalidate_cache(self, path=None):
+        pass
+
+    async def get_s3(self, bucket):
+        fake = self
+
+        class _Client:
+            async def delete_object(self, Bucket, Key, IfMatch=None):
+                full_key = f"{Bucket}/{Key}"
+                if full_key in fake.conflicting_deletes:
+                    raise ClientError({"Error": {"Code": "ConditionalRequestConflict"}}, "DeleteObject")
+                if IfMatch is not None and IfMatch != f'"{fake._current_etag(full_key)}"':
+                    raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "DeleteObject")
+                fake.removed.append(full_key)
+                fake.files.pop(full_key, None)
+
+        return _Client()
 
     async def _rm(self, key):
         self.removed.append(key)
@@ -160,18 +204,18 @@ def _patched(s3: _FakeS3):
         yield
 
 
-def _manager(*, deletion_floor: int | None = None, proof_time: dt.datetime | None = None) -> CDCSourceManager:
+def _manager(*, deletion_floor: int | None = None, proof: ListingProof | None = None) -> CDCSourceManager:
     inputs = MagicMock()
     inputs.team_id = _TEAM_ID
     inputs.schema_id = _SCHEMA_ID
     inputs.reset_pipeline = False
-    return CDCSourceManager(inputs=inputs, logger=AsyncMock(), deletion_floor=deletion_floor, proof_time=proof_time)
+    return CDCSourceManager(inputs=inputs, logger=AsyncMock(), deletion_floor=deletion_floor, proof=proof)
 
 
 async def _collect(
-    s3: _FakeS3, *, deletion_floor: int | None = None, proof_time: dt.datetime | None = None, **kwargs
+    s3: _FakeS3, *, deletion_floor: int | None = None, proof: ListingProof | None = None, **kwargs: int
 ) -> list[pa.Table]:
-    manager = _manager(deletion_floor=deletion_floor, proof_time=proof_time)
+    manager = _manager(deletion_floor=deletion_floor, proof=proof)
     with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", AsyncMock()):
         return [t async for t in manager.get_items(**kwargs)]
 
@@ -265,30 +309,41 @@ class TestServedLanes:
     @parameterized.expand(
         [
             ("consolidated", "consolidated", [CDCLane(resource_name="users", write_mode="incremental_merge")]),
-            ("cdc_only", "cdc_only", [CDCLane(resource_name="users_cdc", write_mode="scd2_append")]),
+            (
+                "cdc_only",
+                "cdc_only",
+                [CDCLane(resource_name="users_history", write_mode="scd2_append", history=HISTORY_NAMING)],
+            ),
             (
                 "both",
                 "both",
                 [
                     CDCLane(resource_name="users", write_mode="incremental_merge"),
-                    CDCLane(resource_name="users_cdc", write_mode="scd2_append"),
+                    CDCLane(resource_name="users_history", write_mode="scd2_append", history=HISTORY_NAMING),
                 ],
             ),
         ]
     )
     def test_a_table_mode_names_the_tables_its_changes_feed(self, _name, table_mode, expected):
-        assert served_lanes(_schema(cdc_table_mode=table_mode)) == expected
+        assert served_lanes(_schema(cdc_table_mode=table_mode), HISTORY_NAMING) == expected
 
     def test_an_unrecognized_table_mode_feeds_nothing(self):
         # Fail closed: a mode this module cannot write must not reach the buffer at all.
-        assert served_lanes(_schema(cdc_table_mode="something_new")) == []
+        assert served_lanes(_schema(cdc_table_mode="something_new"), HISTORY_NAMING) == []
 
-    def test_the_companion_is_named_off_the_schema_not_the_folder(self):
+    @parameterized.expand(
+        [
+            ("new_table", HISTORY_NAMING, "public.users_history"),
+            ("legacy_table", LEGACY_HISTORY_NAMING, "public.users_cdc"),
+        ]
+    )
+    def test_the_companion_is_named_off_the_schema_not_the_folder(self, _name, history, expected):
         # The consolidated lane follows the snapshot's resolved folder, which diverges from `name`
         # for a row renamed bare to qualified. Following it here would append history into a table
-        # no query reads — the companion is keyed on `name`, like its snapshot seed.
+        # no query reads — the companion is keyed on `name`, like its snapshot seed. A legacy history
+        # table keeps writing under its own name.
         schema = _schema(name="public.users", resolved_s3_folder_name="users", cdc_table_mode="both")
-        assert [lane.resource_name for lane in served_lanes(schema)] == ["users", "public.users_cdc"]
+        assert [lane.resource_name for lane in served_lanes(schema, history)] == ["users", expected]
 
 
 class TestSnapshotCapture:
@@ -300,39 +355,28 @@ class TestSnapshotCapture:
                 {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
                 True,
             ),
-            ("snapshotting_on_deferred_runs", {"cdc_mode": "snapshot", "initial_sync_complete": False}, False),
+            ("snapshotting_not_started_yet", {"cdc_mode": "snapshot", "initial_sync_complete": False}, True),
             ("not_cdc", {"is_cdc": False}, False),
             ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}, False),
         ]
     )
-    def test_capture_follows_the_snapshot_lane(self, _name, overrides, captured):
+    def test_capture_writes_every_table_in_a_mode_the_buffer_serves(self, _name, overrides, captured):
         assert captures_to_buffer(_schema(**overrides)) is captured
 
     @parameterized.expand(
         [
-            ("streaming_on_a_buffered_source", {}, True, True),
-            ("flag_off", {}, False, False),
-            ("legacy_source", {"job_inputs": {}}, True, False),
-            ("deferred_runs_pending", {"sync_type_config": {"cdc_deferred_runs": [{"run": 1}]}}, True, False),
-            ("snapshotting_outside_the_buffer", {"cdc_mode": "snapshot", "initial_sync_complete": False}, True, False),
+            ("streaming", {}, True),
+            ("streaming_with_its_data_deleted", {"initial_sync_complete": False}, True),
+            ("snapshotting_outside_the_buffer", {"cdc_mode": "snapshot", "initial_sync_complete": False}, False),
             (
                 "already_in_the_buffer",
                 {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
-                False,
                 True,
             ),
         ]
     )
-    def test_a_resnapshot_stays_in_the_buffer_only_when_the_buffer_holds_every_change(
-        self, _name, overrides, flag, stays
-    ):
-        schema = _schema(**{"job_inputs": {"cdc_ingest_mode": "buffered"}, **overrides})
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.is_buffered_snapshot_enabled",
-            return_value=flag,
-        ):
-            assert resnapshot_stays_in_buffer(schema, MagicMock()) is stays
+    def test_a_resnapshot_stays_in_the_buffer_only_when_the_buffer_holds_every_change(self, _name, overrides, stays):
+        assert resnapshot_stays_in_buffer(_schema(**overrides)) is stays
 
 
 class TestBufferedGating:
@@ -344,73 +388,27 @@ class TestBufferedGating:
             ("no_table_yet", {"initial_sync_complete": False}),
         ]
     )
-    def test_ineligible_schemas_stay_on_the_legacy_path(self, _name, overrides):
+    def test_ineligible_schemas_do_not_consume_the_buffer(self, _name, overrides):
         assert serves_buffered_lane(_schema(**overrides)) is False
 
     @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
     def test_every_streaming_table_mode_serves_the_buffered_lane(self, table_mode):
         assert serves_buffered_lane(_schema(cdc_table_mode=table_mode)) is True
 
-    @parameterized.expand([("legacy",), ("",), ("nonsense",)])
-    def test_a_source_that_was_not_flipped_stays_on_the_legacy_path(self, ingest_mode):
-        assert consumes_buffer(_schema(), ingest_mode=ingest_mode) is False
-
-    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
-    def test_a_flipped_schema_consumes_the_buffer(self, table_mode):
-        assert consumes_buffer(_schema(cdc_table_mode=table_mode), ingest_mode="buffered") is True
-
-    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
-    def test_a_flipped_schema_forces_the_buffered_consumer_on_its_scheduled_sync(self, table_mode):
-        schema = _schema(job_inputs={"cdc_ingest_mode": "buffered"}, cdc_table_mode=table_mode)
-        assert scheduled_sync_consumes_buffer(schema) is True
-
     @parameterized.expand(
         [
-            ("source_never_flipped", {}),
-            ("no_job_inputs", {"job_inputs": None}),
-            (
-                "unrecognized_table_mode",
-                {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "something_new"},
-            ),
-            ("still_snapshotting", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_mode": "snapshot"}),
+            ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}),
+            ("still_snapshotting", {"cdc_mode": "snapshot"}),
         ]
     )
     def test_the_scheduled_sync_is_not_forced_off_the_flag_for(self, _name, overrides):
         assert scheduled_sync_consumes_buffer(_schema(**overrides)) is False
 
-    @parameterized.expand(
-        [
-            ("mapping", {"cdc_ingest_mode": "buffered"}, True),
-            ("json_string", '{"cdc_ingest_mode": "buffered"}', True),
-            ("json_string_not_flipped", '{"cdc_ingest_mode": "legacy"}', False),
-            ("empty_string", "", False),
-        ]
-    )
-    def test_the_flip_is_read_through_whichever_shape_job_inputs_decrypted_to(self, _name, job_inputs, consumes):
-        # EncryptedJSONField hands back a value that was written as a string as that same string,
-        # so reading only the mapping shape leaves a flipped source's buffer unconsumed.
-        assert scheduled_sync_consumes_buffer(_schema(job_inputs=job_inputs)) is consumes
-
-    @parameterized.expand([("not_json", "buffered"), ("json_scalar", "12"), ("not_a_string_either", 7)])
-    def test_job_inputs_that_is_no_mapping_at_all_is_an_error(self, _name, job_inputs):
-        with pytest.raises(CDCJobInputsUnreadableError):
-            scheduled_sync_consumes_buffer(_schema(job_inputs=job_inputs))
-
 
 @pytest.mark.asyncio
 class TestBatchesInFlight:
-    # Legacy deliveries carry no position column, so a consumer merge racing them can be overwritten
-    # by an older row. These prove both backlog forms hold the consumer off.
-
-    def test_deferred_runs_are_a_backlog_without_touching_the_queue(self):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.psycopg"
-        ) as mock_psycopg:
-            assert has_batches_in_flight(_schema(sync_type_config={"cdc_deferred_runs": [{"x": 1}]})) is True
-            mock_psycopg.Connection.connect.assert_not_called()
-
     @parameterized.expand([("batches_pending", 12.5, True), ("queue_drained", None, False)])
-    def test_sourcebatch_state_decides_when_no_deferred_runs(self, _name, age, expected):
+    def test_sourcebatch_state_decides(self, _name, age, expected):
         schema = _schema()
         schema.team_id = _TEAM_ID
         schema.id = _SCHEMA_ID
@@ -656,9 +654,7 @@ class TestReplayFilter:
         # `superseded` is the series the loader raised while the position lived there. Reporting
         # the identity drop under the same name would flatten a dashboard onto one number.
         counter = MagicMock()
-        replay = ReplayFilter(
-            LanePosition(position=20, applied=_held((2, "I")), key_columns=("id", CDC_OP_COLUMN)), team_id=7
-        )
+        replay = ReplayFilter(LanePosition(position=20, applied=_held((2, "I")), key_columns=("id", CDC_OP_COLUMN)))
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager."
@@ -690,7 +686,7 @@ class TestFloorDeletion:
 
     async def test_a_file_at_the_floor_goes_once_an_older_completed_listing_covers_it(self):
         s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
-        await _collect(s3, deletion_floor=20, proof_time=_NOW)
+        await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail={}))
 
         assert s3.removed == [_key(11, 20)]
 
@@ -701,14 +697,116 @@ class TestFloorDeletion:
         so without this proof an idle schema re-writes and re-bills its last transaction forever.
         """
         s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
-        await _collect(s3, deletion_floor=20, proof_time=_NOW)
+        await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail={}))
 
         assert s3.removed == [_key(11, 20)]
         assert s3.opened == []
 
+    @parameterized.expand(
+        [
+            (
+                "listed_with_the_same_etag",
+                {build_buffer_file_name(11, 20, 0): "etag-1"},
+                _RECENT,
+                "etag-1",
+                False,
+                True,
+            ),
+            (
+                "rewritten_with_an_mtime_that_looks_old",
+                {build_buffer_file_name(11, 20, 0): "etag-0"},
+                _OLD_MTIME,
+                "etag-1",
+                False,
+                False,
+            ),
+            ("not_in_the_listing", {}, _RECENT, "etag-1", False, False),
+            (
+                "rewritten_after_this_runs_listing",
+                {build_buffer_file_name(11, 20, 0): "etag-1"},
+                _RECENT,
+                "etag-2",
+                False,
+                False,
+            ),
+            (
+                "written_to_during_the_delete",
+                {build_buffer_file_name(11, 20, 0): "etag-1"},
+                _RECENT,
+                "etag-1",
+                True,
+                False,
+            ),
+        ]
+    )
+    async def test_a_file_written_just_before_the_listing_goes_on_the_next_run_only_if_that_listing_read_it(
+        self,
+        _name: str,
+        tail: dict[str, str],
+        modified: dt.datetime,
+        etag_at_delete: str,
+        delete_conflicts: bool,
+        deleted: bool,
+    ) -> None:
+        key = _key(11, 20)
+        s3 = _FakeS3(
+            {key: _parquet_bytes(_table([1], [20]))},
+            mtimes={key: modified},
+            etags={key: "etag-1"},
+            etags_at_delete={key: etag_at_delete},
+            conflicting_deletes={key} if delete_conflicts else None,
+        )
+        await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail=tail))
+
+        assert (s3.removed, s3.opened) == (([key], []) if deleted else ([], [key]))
+
+    async def test_a_listing_records_the_files_at_its_highest_position(self) -> None:
+        s3 = _FakeS3(
+            {
+                _key(1, 10): _parquet_bytes(_table([1], [10])),
+                _key(11, 20, 0): _parquet_bytes(_table([2], [20])),
+                _key(11, 20, 1): _parquet_bytes(_table([3], [20])),
+            },
+            etags={_key(11, 20, 0): "etag-a", _key(11, 20, 1): "etag-b"},
+        )
+        stamp = AsyncMock()
+        with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", stamp):
+            [t async for t in _manager().get_items()]
+
+        stamp.assert_awaited_once_with(
+            ANY,
+            {build_buffer_file_name(11, 20, 0): "etag-a", build_buffer_file_name(11, 20, 1): "etag-b"},
+        )
+
+    async def test_a_listed_file_that_is_gone_before_the_read_leaves_the_tail(self) -> None:
+        s3 = _FakeS3(
+            {
+                _key(11, 20, 0): _parquet_bytes(_table([2], [20])),
+                _key(11, 20, 1): _parquet_bytes(_table([3], [20])),
+            },
+            etags={_key(11, 20, 0): "etag-a", _key(11, 20, 1): "etag-b"},
+            missing_keys={_key(11, 20, 1)},
+        )
+        stamped: list[dict[str, str]] = []
+        stamp = AsyncMock(side_effect=lambda _listed_at, tail: stamped.append(dict(tail)))
+        with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", stamp):
+            [t async for t in _manager().get_items()]
+
+        first, second = build_buffer_file_name(11, 20, 0), build_buffer_file_name(11, 20, 1)
+        assert stamped == [{first: "etag-a", second: "etag-b"}, {first: "etag-a"}]
+
+    async def test_a_tail_too_large_to_store_is_left_out(self) -> None:
+        files = {_key(11, 20, index): _parquet_bytes(_table([index], [20])) for index in range(101)}
+        s3 = _FakeS3(files, etags={key: f"etag-{key}" for key in files})
+        stamp = AsyncMock()
+        with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", stamp):
+            [t async for t in _manager().get_items()]
+
+        stamp.assert_awaited_once_with(ANY, {})
+
     async def test_nothing_is_deleted_before_every_lane_has_a_position(self):
         s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([1], [10]))})
-        await _collect(s3, deletion_floor=None, proof_time=_NOW)
+        await _collect(s3, deletion_floor=None, proof=ListingProof(listed_at=_NOW, tail={}))
 
         assert s3.removed == []
 
@@ -732,15 +830,15 @@ class TestBuildOutputLanes:
                 AsyncMock(side_effect=positions),
             ),
         ):
-            return await build_output_lanes(schema, MagicMock(), AsyncMock())
+            return await build_output_lanes(schema, MagicMock(), AsyncMock(), HISTORY_NAMING)
 
     async def test_both_writes_two_tables_in_one_run(self):
         lanes, _ = await self._build(_schema(cdc_table_mode="both"), [_NO_POSITION, _NO_POSITION])
 
-        assert [lane.name for lane in lanes] == ["users", "users_cdc"]
+        assert [lane.name for lane in lanes] == ["users", "users_history"]
         assert [lane.cdc_write_mode for lane in lanes] == [CONSOLIDATED_WRITE_MODE, COMPANION_WRITE_MODE]
 
-    @parameterized.expand([("consolidated", "consolidated", "users"), ("cdc_only", "cdc_only", "users_cdc")])
+    @parameterized.expand([("consolidated", "consolidated", "users"), ("cdc_only", "cdc_only", "users_history")])
     async def test_a_single_table_mode_bills_its_only_lane(self, _name, table_mode, expected):
         lanes, _ = await self._build(_schema(cdc_table_mode=table_mode), [_NO_POSITION])
 
@@ -749,7 +847,7 @@ class TestBuildOutputLanes:
     async def test_both_bills_the_consolidated_lane_only(self):
         lanes, _ = await self._build(_schema(cdc_table_mode="both"), [_NO_POSITION, _NO_POSITION])
 
-        assert [(lane.name, lane.billable) for lane in lanes] == [("users", True), ("users_cdc", False)]
+        assert [(lane.name, lane.billable) for lane in lanes] == [("users", True), ("users_history", False)]
 
     async def test_only_the_append_lane_is_asked_for_identity(self):
         # Asserted on the call, not on hand-fed positions: if both lanes asked for identity the
@@ -771,14 +869,14 @@ class TestBuildOutputLanes:
                 "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.read_lane_position", reads
             ),
         ):
-            await build_output_lanes(_schema(cdc_table_mode="both"), MagicMock(), AsyncMock())
+            await build_output_lanes(_schema(cdc_table_mode="both"), MagicMock(), AsyncMock(), HISTORY_NAMING)
 
         merge_keys, append_keys = (call.kwargs["key_columns"] for call in reads.call_args_list)
         assert merge_keys is None
         assert append_keys == ["id", CDC_OP_COLUMN]
         # The history table's own merge predicates on valid_to, so it keeps its pruning too.
-        assert SCD2_VALID_TO_COLUMN in stats.call_args_list[1].args[1]
-        assert SCD2_VALID_TO_COLUMN not in stats.call_args_list[0].args[1]
+        assert HISTORY_NAMING.valid_to in stats.call_args_list[1].args[1]
+        assert HISTORY_NAMING.valid_to not in stats.call_args_list[0].args[1]
 
     async def test_a_lane_with_no_primary_keys_asks_for_no_identity(self):
         # Otherwise the identity is the operation alone, which matches rows the table never held.
@@ -798,7 +896,7 @@ class TestBuildOutputLanes:
             ),
         ):
             await build_output_lanes(
-                _schema(cdc_table_mode="cdc_only", primary_key_columns=[]), MagicMock(), AsyncMock()
+                _schema(cdc_table_mode="cdc_only", primary_key_columns=[]), MagicMock(), AsyncMock(), HISTORY_NAMING
             )
 
         assert reads.call_args.kwargs["key_columns"] is None
@@ -823,9 +921,32 @@ class TestBuildOutputLanes:
         assert history.column("id").to_pylist() == [4]
         # Stamped by the lane, not the loader: a loader on the previous release has no SCD2 step
         # and would append these rows with no validity at all.
-        assert SCD2_VALID_FROM_COLUMN in history.column_names
-        assert SCD2_VALID_TO_COLUMN in history.column_names
-        assert SCD2_VALID_FROM_COLUMN not in merged.column_names
+        assert HISTORY_NAMING.valid_from in history.column_names
+        assert HISTORY_NAMING.valid_to in history.column_names
+        assert HISTORY_NAMING.valid_from not in merged.column_names
+
+    @parameterized.expand(
+        [
+            ("seed_only", _NO_POSITION, [51, 4]),
+            (
+                "buffered_write_landed",
+                LanePosition(position=25, applied=_held((51, "I")), key_columns=("id", CDC_OP_COLUMN)),
+                [4],
+            ),
+        ]
+    )
+    async def test_the_history_lane_skips_changes_the_snapshot_already_holds(self, _name, history_position, expected):
+        lanes, floor = await self._build(
+            _schema(cdc_table_mode="both", sync_type_config={CDC_SNAPSHOT_POSITION_KEY: 20}),
+            [_NO_POSITION, history_position],
+        )
+
+        batch = _ops([1, 3, 2, 51, 4], [10, 15, 20, 25, 30], ["U", "D", "U", "I", "U"])
+        merged, history = (lane.transform(batch) for lane in lanes)
+
+        assert merged.column("id").to_pylist() == [1, 3, 2, 51, 4]
+        assert history.column("id").to_pylist() == expected
+        assert floor is None
 
     async def test_the_floor_is_the_lowest_position_any_table_holds(self):
         _, floor = await self._build(
@@ -834,6 +955,13 @@ class TestBuildOutputLanes:
         )
 
         assert floor == 20
+
+    async def test_a_seed_only_history_table_settles_the_buffer_its_snapshot_holds(self):
+        _, floor = await self._build(
+            _schema(cdc_table_mode="cdc_only", sync_type_config={CDC_SNAPSHOT_POSITION_KEY: 20}), [_NO_POSITION]
+        )
+
+        assert floor == 21
 
     async def test_a_lane_with_no_position_holds_the_floor_open(self):
         _, floor = await self._build(

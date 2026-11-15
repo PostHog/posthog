@@ -1,7 +1,7 @@
 import operator
 from datetime import datetime, timedelta
 from functools import reduce
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.db.models import Q
 from django.utils import timezone
@@ -43,10 +43,29 @@ INTERESTING_CHANGES = [
 class MyNotificationsSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer()
     unread = serializers.SerializerMethodField()
+    detail = serializers.JSONField(
+        source="safe_detail", read_only=True, help_text="What changed, with the values of masked fields hidden."
+    )
 
     class Meta:
         model = ActivityLog
-        exclude = ["team_id"]
+        # An explicit list, so that a new internal column such as `credential_id` stays out of the
+        # teammate feed.
+        fields = [
+            "id",
+            "user",
+            "unread",
+            "organization_id",
+            "was_impersonated",
+            "is_system",
+            "client",
+            "ip_address",
+            "activity",
+            "item_id",
+            "scope",
+            "detail",
+            "created_at",
+        ]
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""
@@ -188,6 +207,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 if interesting is None
                 else (
                     self.queryset.exclude(user=user)
+                    .select_related("user")
                     .filter(team_id=self.team.id, created_at__gte=history_cutoff)
                     .filter(interesting)
                     # notebooks log several activities per logical edit, so only the deduplicated ones count
@@ -200,7 +220,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # truncate created_at to millisecond precision to match last_read precision
                 # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
                 other_peoples_changes = other_peoples_changes.extra(
-                    where=["date_trunc('millisecond', created_at) > %s"], params=[last_read_date]
+                    where=["date_trunc('millisecond', posthog_activitylog.created_at) > %s"], params=[last_read_date]
                 )
 
         with timer("query_for_data"):
@@ -232,5 +252,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if bookmark_date is None:
             raise ValidationError("must provide a bookmark date")
 
-        NotificationViewed.objects.update_or_create(user=user, defaults={"last_viewed_activity_date": bookmark_date})
+        NotificationViewed.objects.update_or_create(
+            user=cast(User, user), defaults={"last_viewed_activity_date": bookmark_date}
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)

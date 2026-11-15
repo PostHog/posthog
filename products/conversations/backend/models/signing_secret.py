@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from django.db import models
+from django.utils import timezone
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.scoping.manager import EnvironmentScopedManager
@@ -21,6 +24,10 @@ class SigningSecret(UUIDModel):
     readers pass the environment's own id via `objects.for_team(team.id)`.
     """
 
+    # How long the previous secret keeps verifying after a rotation. Customers sign
+    # hashes on their servers, so they need a deploy window to pick up the new value.
+    PREVIOUS_SECRET_GRACE = timedelta(hours=48)
+
     objects = EnvironmentScopedManager()
 
     # db_constraint=False so CreateModel takes no lock on posthog_team.
@@ -33,6 +40,14 @@ class SigningSecret(UUIDModel):
     # Encryption/decryption is transparent via the field; value reads back as the raw string.
     # Non-deterministic ciphertext: never filter by this value — fetch by team and compare.
     secret = EncryptedTextField()
+    # Set on rotation via the conversations endpoint: the secret stops mirroring the legacy token.
+    rotated_independently = models.BooleanField(default=False)
+    # The secret that `secret` replaced, kept verifying for PREVIOUS_SECRET_GRACE after
+    # previous_secret_rotated_at so in-flight hashes survive a rotation. Expiry is judged
+    # at read time; the next rotation supersedes the value, and the revocation paths
+    # (expire_previous, the rotation and backup-deletion receivers) clear it.
+    previous_secret = EncryptedTextField(null=True)
+    previous_secret_rotated_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -41,3 +56,14 @@ class SigningSecret(UUIDModel):
 
     def __str__(self) -> str:
         return f"SigningSecret(team={self.team_id})"
+
+    @property
+    def previous_secret_valid_until(self) -> datetime | None:
+        if not self.previous_secret or not self.previous_secret_rotated_at:
+            return None
+        return self.previous_secret_rotated_at + self.PREVIOUS_SECRET_GRACE
+
+    @property
+    def previous_secret_active(self) -> bool:
+        valid_until = self.previous_secret_valid_until
+        return valid_until is not None and timezone.now() < valid_until

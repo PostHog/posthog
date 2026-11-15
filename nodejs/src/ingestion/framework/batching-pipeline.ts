@@ -1,7 +1,11 @@
 import pLimit from 'p-limit'
 
+import { DetachedSpan, runInContext, startDetachedSpan } from '~/common/tracing/tracing-utils'
+
+import { BatchBudget } from './batch-budget'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
+import { batchBudgetExhaustedCounter, batchBudgetOverrunHistogram } from './metrics'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
 
@@ -11,6 +15,7 @@ export type FeedResult = { ok: true } | { ok: false; kind: FeedRejectionKind; re
 
 export interface BatchingContext {
     messageId: number
+    budget: BatchBudget
 }
 
 export interface BeforeBatchInput<TInput, CInput, CBatch = Record<never, object>> {
@@ -69,12 +74,24 @@ const BATCHING_PIPELINE_DEFAULTS: BatchingPipelineOptions = {
     concurrentBatches: 1,
 }
 
+// The overrun is the tail the checkpoints cannot cut, because they only stop work from starting.
+// It includes afterBatch, which flushes the batch's writes before the batch can be acked.
+function recordBudgetOverrun(budget: BatchBudget): void {
+    if (!budget.exhausted) {
+        return
+    }
+    batchBudgetExhaustedCounter.inc()
+    batchBudgetOverrunHistogram.observe(Math.max(0, Date.now() - budget.softAt) / 1000)
+}
+
 interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never, CFeed extends object = object> {
     batchContext: CBatch & CFeed & { batchId: number }
+    budget: BatchBudget
     messageIds: number[]
     inflight: Set<number>
     results: Map<number, PipelineResultWithContext<TOutput, COutput, R>>
     beforeSideEffects: Promise<unknown>[]
+    trace: DetachedSpan | null
 }
 
 /**
@@ -91,7 +108,7 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never, CFeed
  *   registered and no hooks run (a zero-message batch could never complete).
  * - feed() runs beforeBatch which returns enriched elements (same count as
  *   fed — count changes throw) and side effects. Elements are tagged with
- *   messageId, then fed to the sub-pipeline.
+ *   messageId and the batch's budget, then fed to the sub-pipeline.
  * - next() collects results. When all messages in a batch complete, calls
  *   afterBatch with the batchContext and ordered results, then returns a
  *   BatchResult with concatenated side effects.
@@ -171,18 +188,23 @@ export class BatchingPipeline<
         this.options = { ...BATCHING_PIPELINE_DEFAULTS, ...options }
     }
 
-    feed(elements: OkResultWithContext<TInput, CInput>[], batchContext: CFeed): Promise<FeedResult> {
+    feed(
+        elements: OkResultWithContext<TInput, CInput>[],
+        batchContext: CFeed,
+        budget: BatchBudget = BatchBudget.unlimited()
+    ): Promise<FeedResult> {
         // Serialize so buffer order always matches batchId order: without this,
         // the await on beforePipeline between batchId assignment and
         // subPipeline.feed() lets two concurrent feeds enter the buffer inverted.
         // With one concurrent batch the caller is already sequential, so the
         // mutex is uncontended.
-        return this.feedLimit(() => this.feedSerialized(elements, batchContext))
+        return this.feedLimit(() => this.feedSerialized(elements, batchContext, budget))
     }
 
     private async feedSerialized(
         elements: OkResultWithContext<TInput, CInput>[],
-        feedContext: CFeed
+        feedContext: CFeed,
+        budget: BatchBudget
     ): Promise<FeedResult> {
         // An empty feed has no messages that could ever complete a batch:
         // completion is only detected in pump()'s result loop, so registering a
@@ -203,11 +225,21 @@ export class BatchingPipeline<
         }
 
         const batchId = this.nextBatchId++
+        const batchTrace = startDetachedSpan('batchingPipeline.batch', {
+            batch_id: batchId,
+            batch_size: elements.length,
+        })
 
         const beforeInput: BeforeBatchInput<TInput, CInput> = { elements, batchContext: { batchId } }
-        const beforeResult = await this.beforePipeline.process(createOkContext(beforeInput, {}))
+        const beforeResult = await runInContext(batchTrace?.parentContext, () =>
+            this.beforePipeline.process(createOkContext(beforeInput, {}))
+        ).catch((error: unknown) => {
+            batchTrace?.span.end()
+            throw error
+        })
 
         if (!isOkResult(beforeResult.result)) {
+            batchTrace?.span.end()
             return {
                 ok: false,
                 kind: 'before_batch_failed',
@@ -226,6 +258,7 @@ export class BatchingPipeline<
         // BaseChunkPipeline's count-mismatch throw for chunk steps. Nothing has
         // been registered yet, so the throw leaves no phantom batch behind.
         if (mappedElements.length !== elements.length) {
+            batchTrace?.span.end()
             throw new Error(
                 `batching_pipeline beforeBatch changed element count (${elements.length} -> ${mappedElements.length}) for batch ${batchId}`
             )
@@ -251,6 +284,8 @@ export class BatchingPipeline<
                 context: {
                     ...element.context,
                     messageId,
+                    traceContext: batchTrace?.parentContext,
+                    budget,
                 },
             }
         })
@@ -263,10 +298,12 @@ export class BatchingPipeline<
         // drop it.
         this.batches.set(batchId, {
             batchContext: { ...batchContext, ...feedContext },
+            budget,
             messageIds,
             inflight,
             results: new Map(),
             beforeSideEffects,
+            trace: batchTrace,
         })
         this.feedEpoch++
 
@@ -283,7 +320,14 @@ export class BatchingPipeline<
         // With one concurrent batch the caller is already sequential, so the
         // mutex is uncontended. Group processing started by the pump runs
         // concurrently in the background regardless of who holds the pump.
-        return this.pumpLimit(() => this.pump())
+        return this.pumpLimit(() =>
+            this.pump().catch((error: unknown) => {
+                for (const batch of this.batches.values()) {
+                    batch.trace?.span.end()
+                }
+                throw error
+            })
+        )
     }
 
     private async pump(): Promise<BatchResult<
@@ -348,7 +392,10 @@ export class BatchingPipeline<
                         batchContext: batch.batchContext,
                         batchId,
                     }
-                    const afterResult = await this.afterPipeline.process(createOkContext(afterInput, {}))
+                    const afterResult = await runInContext(batch.trace?.parentContext, () =>
+                        this.afterPipeline.process(createOkContext(afterInput, {}))
+                    ).finally(() => batch.trace?.span.end())
+                    recordBudgetOverrun(batch.budget)
 
                     if (!isOkResult(afterResult.result)) {
                         throw new Error(`batching_pipeline afterBatch hook returned non-ok result for batch ${batchId}`)

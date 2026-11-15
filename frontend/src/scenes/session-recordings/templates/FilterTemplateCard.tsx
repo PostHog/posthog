@@ -58,7 +58,11 @@ export function FilterTemplateCard({
                         </div>
                     ) : null}
                     <h3 className="mb-0">
-                        <Link onClick={() => showVariables()} className="text-accent">
+                        <Link
+                            data-attr="templates-show-variables"
+                            onClick={() => showVariables()}
+                            className="text-accent"
+                        >
                             {template.name}
                         </Link>
                     </h3>

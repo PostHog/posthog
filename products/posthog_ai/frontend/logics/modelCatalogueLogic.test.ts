@@ -88,6 +88,7 @@ describe('modelCatalogueLogic', () => {
     // access flag fails closed, so a flag left on the catalog row after its rollout finished
     // took them off the composer for anyone the flag service could not answer for.
     it.each([
+        'gpt-6.1-sol',
         'deepseek-ai/deepseek-v4-flash-0731',
         '@cf/zai-org/glm-5.2',
         'zai-org/glm-5.3',

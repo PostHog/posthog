@@ -14,6 +14,7 @@ from loginas.utils import is_impersonated_session
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.geoip import get_geoip_properties
 from posthog.models import User
+from posthog.models.activity_logging.utils import ActivityCredential
 from posthog.session.models import Session
 from posthog.utils import _is_valid_ip_address, get_ip_address, get_short_user_agent
 
@@ -30,6 +31,19 @@ _METADATA_SYNC_CACHE_PREFIX = "auth_session_synced:"
 
 def session_public_id(session_key: str) -> uuid.UUID:
     return uuid.uuid5(SESSION_PUBLIC_ID_NAMESPACE, session_key)
+
+
+def session_activity_credential(request: HttpRequest, impersonated_by_id: int | None) -> ActivityCredential:
+    """The session credential for an activity row. Its id is the public id that the login sessions
+    API lists and revokes by, so an investigator can go from a row to the live session."""
+    # A login that switches users flushes the session, and the new key exists only once the
+    # response saves it. The row then names the session without an id, rather than the old one.
+    session_key = getattr(getattr(request, "session", None), "session_key", None)
+    return ActivityCredential(
+        type="session",
+        id=str(session_public_id(session_key)) if session_key else None,
+        impersonated_by_id=impersonated_by_id,
+    )
 
 
 def _location_from_ip(ip: Optional[str]) -> Optional[str]:

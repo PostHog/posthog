@@ -12,6 +12,71 @@ Temporal lifecycle workflow for every issue-created, issue-reopened, or
 issue-spiking notification. Issue-created is capped per team per hour (see
 [Issue-created rate limit](#issue-created-rate-limit-notifications-mode)).
 
+## Shared exception counters (processing mode)
+
+`modes/processing/ledger.rs` counts a team's batch of exceptions per issue in one script call and returns the recent counts.
+Rules that limit or alert on exceptions decide from that result, so they do not need Redis keys of their own.
+The adaptive ingestion stage is its first caller.
+
+The caller chooses the windows.
+A window is a number of fixed buckets of one width, for example 12 buckets of 5 minutes or 24 buckets of one hour.
+Buckets follow the processing clock, not the event timestamp.
+
+| Key | Type | Fields | Expiry |
+| --- | --- | --- | --- |
+| `et:c1:{team_id}:b:<width>:<bucket>` | hash | `_n`: the team's exceptions in the bucket; one field per issue ID: that issue's exceptions in the bucket | `buckets + 2` widths after the first exception in the bucket |
+
+`<width>` is the bucket width in seconds, and `<bucket>` is the Unix time divided by the width.
+The `{team_id}` hash tag keeps all the keys of a team in one slot.
+The number of fields minus one is the number of issues with an exception in the bucket.
+A window can also keep the team total only, in which case its buckets hold the `_n` field alone.
+
+A rolling count is the sum of the buckets inside the window, plus the bucket before them weighted by the share of it that the window still covers.
+For that reason the ledger stores one bucket more than the window holds.
+The estimate assumes that the events of that oldest bucket were spread evenly.
+
+## Adaptive ingestion (processing mode)
+
+Adaptive ingestion marks the exceptions of a spike. It runs in shadow mode only: it never drops or samples an exception.
+It is off by default.
+A project is included when `ADAPTIVE_INGESTION_MODE=shadow` and its `adaptive_ingestion_enabled` setting is true.
+
+The stage runs after the manual rate limits and counts the exceptions they admit, through the shared counters above.
+It compares rolling counts with the project's typical day: the median of the days that had exceptions among the previous 29 UTC days.
+A project has no typical day, and so no lines, until 7 of those days had exceptions.
+A median over fewer days follows a new project's first days too closely.
+A typical day is never taken below 1,000 exceptions a month.
+
+| Line | An exception is over it when |
+| --- | --- |
+| Issue | its issue's rolling hour is above 12 typical hours and holds 20 exceptions or more, or its issue's rolling 24 hours is above 2 typical days |
+| Project | the project's rolling 24 hours is above 3 typical days |
+
+Within a batch, only the exceptions that arrive after a line is crossed are over it.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `ADAPTIVE_INGESTION_MODE` | `off` | Set to `shadow` to record what the lines say. |
+| `ADAPTIVE_INGESTION_ISSUE_HOUR_MULTIPLE` | `12` | Issue line, in typical hours per rolling hour. |
+| `ADAPTIVE_INGESTION_ISSUE_DAY_MULTIPLE` | `2` | Issue line, in typical days per rolling 24 hours. |
+| `ADAPTIVE_INGESTION_PROJECT_DAY_MULTIPLE` | `3` | Project line, in typical days per rolling 24 hours. |
+| `ADAPTIVE_INGESTION_MIN_HISTORY_DAYS` | `7` | Days with exceptions a project needs before it has a typical day, from 1 to 29. |
+
+Each exception of an included project that has a typical day gets these properties.
+The lines are not stored on the exception: a query applies any threshold to the ratios.
+Cymbal removes incoming properties with the `$adaptive_ingestion_` prefix, so only processing sets them.
+
+| Property | Value |
+| --- | --- |
+| `$adaptive_ingestion_typical_day` | the typical day |
+| `$adaptive_ingestion_issue_hour_ratio` | the issue's rolling hour divided by the typical hour |
+| `$adaptive_ingestion_issue_day_ratio` | the issue's rolling 24 hours divided by the typical day |
+| `$adaptive_ingestion_project_day_ratio` | the project's rolling 24 hours divided by the typical day |
+| `$adaptive_ingestion_history_days` | the days with exceptions behind the typical day |
+
+When the counters fail, the exception is kept and gets no property.
+`cymbal_adaptive_ingestion_events_total` counts exceptions by outcome: `seen`, `over_issue_line`, `over_project_line`, `no_baseline`, and `error`.
+
 ## Issue-created rate limit (notifications mode)
 
 Notifications mode caps issue-created workflow starts per team. One Redis token
@@ -54,6 +119,8 @@ are named for what is actually capped. Only issue-created is charged.
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-notifications-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. A value below 3600 is raised to 3600, because a bucket takes an hour to refill and a shorter TTL would loosen the limit. |
 
+Processing mode uses `ISSUE_BUCKETS_REDIS_URL` for spike counters, unique-issue sets, cooldown locks, and lifecycle event properties. When the event rate limiter is enabled, it uses `ERROR_TRACKING_CYMBAL_RATE_LIMITER_REDIS_URL`. Notifications mode uses `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL` for issue-created rate limiting.
+
 The limit covers every team. To size it before it cuts anything, set `PER_HOUR`
 far above real traffic, watch `cymbal_issue_created_rate_limit_outcomes`, then
 lower it. Setting `PER_HOUR` to zero or less switches the limit off.
@@ -74,6 +141,53 @@ Symbol resolution runs in resolution-mode pods via the
 `cymbal.resolution.v1` contract. Processing has no inline fallback.
 See the [resolution mode README](src/modes/resolution/README.md) for
 configuration and operator guidance.
+
+## Dropping code variables (processing mode)
+
+`ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS` takes a comma-separated list of
+team ids. The default is empty, which keeps code variables for every team. An
+entry that is not a team id stops processing mode at startup, so a typo cannot
+leave a team out of the list without an error. Use
+it for a team that receives events from senders you cannot upgrade, such as
+old SDK versions that attach frame locals without masking.
+
+For a listed team, processing mode removes `code_variables` from every frame
+two times:
+
+1. On the incoming event, before it is parsed. The resolution service then
+   never stores the variables, and an event that fails to parse is returned
+   without them.
+2. On the resolved frames. A stored frame record keeps the variables of the
+   event that first resolved that frame. The frame id does not include code
+   variables, so the record is reused for later events that hit the same
+   frame. This pass removes those replayed variables.
+
+The setting does not change frame records that are already in Postgres. Remove
+their variables separately if they must not stay there.
+
+## Masking code variables (processing mode)
+
+Processing mode masks `code_variables` in Python frames for every team that
+`ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS` does not list. The rules are the
+default masking rules of the posthog-python SDK, ported to
+`src/core/code_variables.rs`. Older SDK versions send values that the current
+rules redact, so applying the rules on the server covers those senders.
+
+- A variable, key or string value that contains a sensitive name, such as
+  `password`, `token` or `auth`, is redacted whole.
+- A value in a known vendor format, a high-entropy token, a PEM private key and
+  a signed URL with a `sig` parameter are redacted whole.
+- URL credentials and `Bearer` or `Basic` credentials are replaced in place, so
+  the rest of the text stays.
+- A string that holds a JSON object or array, which is how the SDK sends a dict
+  or an object, is masked field by field.
+
+Masking runs at the same two points as dropping, so new frame records hold
+masked values, and records stored earlier are masked when they are replayed.
+It does not change records that are already in Postgres.
+
+Masking has no setting and is always on. When the SDK changes its default
+rules, change `src/core/code_variables.rs` to match.
 
 ## Remote resolution behavior
 

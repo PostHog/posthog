@@ -44,6 +44,11 @@ def ok_canvas_artifact_policy(response, network_origins):
     response["Content-Security-Policy"] = artifact_csp(network_origins)
 
 
+def ok_canvas_sandbox_document_policy(response, document):
+    # ok: csp-header-outside-csp-middleware
+    response["Content-Security-Policy"] = _canvas_sandbox_document_csp(document)
+
+
 def ok_public_survey_policy(request, response):
     # ok: csp-header-outside-csp-middleware
     response["Content-Security-Policy"] = _public_survey_csp(request)
@@ -59,6 +64,11 @@ def ok_workflow_asset_policy(response):
 def flag_report_only_canvas_artifact_policy(response, network_origins):
     # ruleid: csp-header-outside-csp-middleware
     response["Content-Security-Policy-Report-Only"] = artifact_csp(network_origins)
+
+
+def flag_report_only_canvas_sandbox_document_policy(response, document):
+    # ruleid: csp-header-outside-csp-middleware
+    response["Content-Security-Policy-Report-Only"] = _canvas_sandbox_document_csp(document)
 
 
 def flag_report_only_public_survey_policy(request, response):

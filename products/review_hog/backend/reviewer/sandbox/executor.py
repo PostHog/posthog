@@ -1,15 +1,49 @@
+import re
+import uuid
+import hashlib
 import logging
+from collections.abc import Sequence
 from typing import TypeVar
 
 from pydantic import BaseModel
 
-from products.review_hog.backend.reviewer.constants import REVIEW_MCP_SCOPES
+from products.review_hog.backend.task_profiles import REVIEW, REVIEW_MCP_SCOPES
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
-from products.tasks.backend.facade.api import TaskOriginProduct
+from products.tasks.backend.facade.contracts import SessionFile
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
+
+TASK_ORIGIN_KEY_MAX_LENGTH = 128
+
+_REVIEW_PR_WORKFLOW_ID = re.compile(r"^(?P<kind>review-pr:\d+:)(?P<repository>[^:]+)(?P<pr>:\d+)(?P<step>.*)$")
+
+
+def _origin_key(workflow_id_prefix: str | None) -> str | None:
+    # Task.origin_key reaches $ai_generation as task_origin_key, and the workflow id holds the PR.
+    # Task allows one origin_key per team, so the unique part leads and survives truncation.
+    if not workflow_id_prefix:
+        return None
+    unique = uuid.uuid4().hex[:12]
+    key = f"{unique}:{workflow_id_prefix}"
+    match = _REVIEW_PR_WORKFLOW_ID.match(workflow_id_prefix)
+    if len(key) <= TASK_ORIGIN_KEY_MAX_LENGTH or match is None:
+        return key[:TASK_ORIGIN_KEY_MAX_LENGTH]
+    # Only the step may be cut, so a long owner/repo becomes a stable digest that keeps PRs apart.
+    repository = match["repository"]
+    pr_identity = f"{unique}:{match['kind']}{repository}{match['pr']}"
+    if len(pr_identity) > TASK_ORIGIN_KEY_MAX_LENGTH:
+        digest = hashlib.sha256(repository.encode()).hexdigest()[:16]
+        pr_identity = f"{unique}:{match['kind']}{digest}{match['pr']}"
+    return f"{pr_identity}{match['step']}"[:TASK_ORIGIN_KEY_MAX_LENGTH]
+
+
+# Sent once when the agent ends its first turn with prose instead of the JSON the step needs.
+JSON_RETRY_PROMPT = (
+    "Your last reply did not contain the JSON object the task asks for. "
+    "Reply now with only that JSON object, matching the schema above. Do not add prose or code fences."
+)
 
 
 async def _run_prompt(
@@ -20,6 +54,7 @@ async def _run_prompt(
     branch: str | None = None,
     step_name: str = "",
     workflow_id_prefix: str | None = None,
+    files: Sequence[SessionFile] = (),
 ) -> _ModelT:
     """Spawn a single-turn sandbox agent and return its validated end-of-turn.
 
@@ -40,11 +75,13 @@ async def _run_prompt(
             branch=branch or None,
             step_name=step_name,
             workflow_id_prefix=workflow_id_prefix,
+            origin_key=_origin_key(workflow_id_prefix),
             # ReviewHog-attributed and internal (pipeline plumbing, not a user-facing task); the step
             # lands on $ai_generation as ai_stage for per-stage cost attribution.
-            origin_product=TaskOriginProduct.REVIEW_HOG,
-            internal=True,
+            profile=REVIEW,
             ai_stage=step_name or None,
+            json_retry_prompt=JSON_RETRY_PROMPT,
+            files=files,
         )
     except Exception:
         logger.exception("Sandbox execution failed")
@@ -70,6 +107,8 @@ async def run_sandbox_review(
     model: str | None = None,
     reasoning_effort: str | None = None,
     initial_permission_mode: str | None = None,
+    files: Sequence[SessionFile] = (),
+    codex_max_subagents: int | None = None,
 ) -> _ModelT:
     """Run one review step in a sandbox and return its validated output.
 
@@ -87,9 +126,10 @@ async def run_sandbox_review(
     default (Claude). ``model_to_validate`` is the output *schema*, unrelated to ``model``.
     ``initial_permission_mode`` sets the agent's approval mode — a headless step that calls MCP tools
     under Codex must pass ``"full-access"`` or it stalls on an approval prompt (Codex ``"auto"`` does
-    not auto-approve MCP tool calls).
+    not auto-approve MCP tool calls). ``files`` go into the sandbox before the first turn, and
+    ``codex_max_subagents`` lets a step that starts Codex sub-agents run more of them at once.
     """
-    full_prompt = f"{system_prompt}\n\n{prompt}"
+    full_prompt = "\n\n".join(part for part in (system_prompt, prompt) if part)
     context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
@@ -97,9 +137,13 @@ async def run_sandbox_review(
         model=model,
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
+        codex_max_subagents=codex_max_subagents,
+        # Coordinator sub-agents carry no prompt cache marker, so only the run-wide scope shares their prefix.
+        codex_shared_prompt_cache=True,
         initial_permission_mode=initial_permission_mode,
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
         posthog_mcp_scopes=REVIEW_MCP_SCOPES,
+        github_token_scope="read",
     )
     return await _run_prompt(
         full_prompt,
@@ -108,6 +152,7 @@ async def run_sandbox_review(
         branch=branch,
         step_name=step_name,
         workflow_id_prefix=workflow_id_prefix,
+        files=files,
     )
 
 
@@ -126,6 +171,7 @@ async def start_sandbox_session(
     model: str | None = None,
     reasoning_effort: str | None = None,
     initial_permission_mode: str | None = None,
+    can_push: bool = False,
 ) -> tuple[MultiTurnSession, _ModelT]:
     """Open a multi-turn sandbox session and return it with its first validated turn.
 
@@ -137,7 +183,7 @@ async def start_sandbox_session(
     session's LLM exactly like ``run_sandbox_review``'s kwargs; all-``None`` keeps the agent server's
     default. The pin applies to the whole session — every follow-up turn runs on the opener's model.
     """
-    full_prompt = f"{system_prompt}\n\n{prompt}"
+    full_prompt = "\n\n".join(part for part in (system_prompt, prompt) if part)
     context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
@@ -145,9 +191,11 @@ async def start_sandbox_session(
         model=model,
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
+        codex_shared_prompt_cache=True,
         initial_permission_mode=initial_permission_mode,
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
         posthog_mcp_scopes=REVIEW_MCP_SCOPES,
+        github_token_scope="push" if can_push else "read",
     )
     try:
         return await MultiTurnSession.start(
@@ -157,10 +205,11 @@ async def start_sandbox_session(
             branch=branch or None,
             step_name=step_name,
             workflow_id_prefix=workflow_id_prefix,
-            # Same attribution trio as _run_prompt: ReviewHog-origin, internal, step as ai_stage.
-            origin_product=TaskOriginProduct.REVIEW_HOG,
-            internal=True,
+            origin_key=_origin_key(workflow_id_prefix),
+            # Same attribution as _run_prompt: the ReviewHog profile, step as ai_stage.
+            profile=REVIEW,
             ai_stage=step_name or None,
+            json_retry_prompt=JSON_RETRY_PROMPT,
         )
     except Exception:
         logger.exception("Sandbox session start failed")

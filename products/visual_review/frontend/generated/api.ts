@@ -13,12 +13,14 @@ import type {
     AddSnapshotsResultApi,
     ApproveRunRequestInputApi,
     BaselineOverviewApi,
+    CompleteRunInputApi,
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
     FinalizeResultApi,
     FinalizeRunRequestInputApi,
     FlakinessOverviewApi,
+    LiftOnMergeInputApi,
     MarkToleratedInputApi,
     PaginatedQuarantinedIdentifierEntryListApi,
     PaginatedRepoListApi,
@@ -28,6 +30,7 @@ import type {
     PaginatedToleratedHashEntryListApi,
     PatchedUpdateRepoRequestInputApi,
     QuarantineInputApi,
+    QuarantineLiftEntryApi,
     QuarantinedIdentifierEntryApi,
     RecomputeResultApi,
     RepoApi,
@@ -160,7 +163,7 @@ export const getVisualReviewReposFlakinessRetrieveUrl = (projectId: string, id: 
 }
 
 /**
- * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or were absorbed by a toleration on a recent default-branch run, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
+ * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate on a recent default-branch run, those whose absorbed diff is close to the threshold, and those under an active quarantine. Small absorbed diffs well under the threshold are omitted, as is everything else, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
  */
 export const visualReviewReposFlakinessRetrieve = async (
     projectId: string,
@@ -547,11 +550,14 @@ export const getVisualReviewRunsCompleteCreateUrl = (projectId: string, id: stri
 export const visualReviewRunsCompleteCreate = async (
     projectId: string,
     id: string,
+    completeRunInputApi?: CompleteRunInputApi,
     options?: RequestInit
 ): Promise<RunApi> => {
     return apiMutator<RunApi>(getVisualReviewRunsCompleteCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(completeRunInputApi),
     })
 }
 
@@ -580,6 +586,64 @@ export const visualReviewRunsFinalizeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(finalizeRunRequestInputApi),
+    })
+}
+
+export const getVisualReviewRunsLiftOnMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/lift_on_merge/`
+}
+
+/**
+ * Lift a quarantined snapshot's quarantine once this run's pull request merges. The lift applies only after a default-branch run that contains the merge renders the expected picture, and the baseline entry holds that same picture. Requesting a lift never approves a picture: approve a changed or new snapshot by identifier first. Requesting again from the same pull request replaces the pending request.
+ */
+export const visualReviewRunsLiftOnMergeCreate = async (
+    projectId: string,
+    id: string,
+    liftOnMergeInputApi: LiftOnMergeInputApi,
+    options?: RequestInit
+): Promise<QuarantineLiftEntryApi> => {
+    return apiMutator<QuarantineLiftEntryApi>(getVisualReviewRunsLiftOnMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(liftOnMergeInputApi),
+    })
+}
+
+export const getVisualReviewRunsQuarantineLiftsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/quarantine_lifts/`
+}
+
+/**
+ * Every request to lift a quarantine when this run's pull request merges, newest first, in any state. Empty for a run without a pull request.
+ */
+export const visualReviewRunsQuarantineLiftsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<QuarantineLiftEntryApi[]> => {
+    return apiMutator<QuarantineLiftEntryApi[]>(getVisualReviewRunsQuarantineLiftsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisualReviewRunsQuarantineLiftsCancelCreateUrl = (projectId: string, id: string, requestId: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/quarantine_lifts/${requestId}/cancel/`
+}
+
+/**
+ * Withdraw a pending request to lift a quarantine when this run's pull request merges.
+ */
+export const visualReviewRunsQuarantineLiftsCancelCreate = async (
+    projectId: string,
+    id: string,
+    requestId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisualReviewRunsQuarantineLiftsCancelCreateUrl(projectId, id, requestId), {
+        ...options,
+        method: 'POST',
     })
 }
 

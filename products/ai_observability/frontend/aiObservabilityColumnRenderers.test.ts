@@ -4,13 +4,26 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import {
     FilterIdentifier,
     PersonData,
+    aiObservabilityColumnRenderers,
     createPersonFilter,
     getEventData,
     getFilterIdentifier,
     getTracesUrlWithPersonFilter,
 } from './aiObservabilityColumnRenderers'
+import { aiObservabilityGlobalColumnRenderers } from './aiObservabilityGlobalColumns'
 
 describe('aiObservabilityColumnRenderers', () => {
+    describe('aiObservabilityGlobalColumnRenderers', () => {
+        // The global keys are listed by hand so that tables can skip the renderer module. A namespaced
+        // renderer missing from that list would stop applying outside the AI observability scenes.
+        it('lists every namespaced renderer', () => {
+            const namespacedKeys = Object.keys(aiObservabilityColumnRenderers).filter(
+                (key) => key.startsWith('properties.$ai_') || key.startsWith('__llm_')
+            )
+            expect(Object.keys(aiObservabilityGlobalColumnRenderers).sort()).toEqual(namespacedKeys.sort())
+        })
+    })
+
     describe('getEventData', () => {
         // Regression: without traceId + timestamp, useAIData can never fetch stripped heavy props,
         // so Input/Output cells fall back to empty instead of loading the full payload.

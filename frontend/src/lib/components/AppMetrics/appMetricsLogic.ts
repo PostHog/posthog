@@ -16,12 +16,13 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { retryWithBackoff } from 'lib/utils/async'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { HogQLQueryString, hogql } from 'lib/utils/hogql'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { HogQLQueryString, hogql } from '~/queries/utils'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 
@@ -33,9 +34,11 @@ export type AppMetricsCommonParams = {
     /** Match all app_source_ids starting with this prefix (e.g. `<hog flow id>/` for versioned hog flow metrics). */
     appSourceIdPrefix?: string
     instanceId?: string
+    /** Match any of these instance IDs. */
+    instanceIds?: string[]
     metricName?: string | string[]
     metricKind?: string | string[]
-    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id'
+    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id' | 'instance_id'
     interval?: 'day' | 'hour' | 'minute'
     dateFrom?: string
     dateTo?: string
@@ -85,6 +88,16 @@ export type AppMetricsTotalsResponse = Record<
     }
 >
 
+const CONCURRENCY_RETRY_MAX_WAIT_MS = 10_000
+
+const concurrencyRetryWaitMs = (error: unknown): number | undefined => {
+    if (!(error instanceof ApiError) || error.status !== 429) {
+        return undefined
+    }
+    const waitMs = Number(error.headers?.get('Retry-After')) * 1000
+    return waitMs > 0 && waitMs <= CONCURRENCY_RETRY_MAX_WAIT_MS ? waitMs : undefined
+}
+
 const appSourceIdPrefixPattern = (prefix: string): string => {
     // Escape LIKE wildcards so the prefix matches literally.
     return prefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_') + '%'
@@ -114,6 +127,9 @@ export const loadAppMetricsTotals = async (
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
     }
+    if (request.instanceIds) {
+        query = (query + hogql`\nAND instance_id IN ${request.instanceIds}`) as HogQLQueryString
+    }
     if (request.metricName) {
         const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]
         query = (query + hogql`\nAND metric_name IN ${metricNames}`) as HogQLQueryString
@@ -136,10 +152,18 @@ export const loadAppMetricsTotals = async (
 ORDER BY total DESC LIMIT ${request.limit}`) as HogQLQueryString
     }
 
-    const response = await api.queryHogQL(
-        query,
-        { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        { refresh: 'force_blocking' }
+    const response = await retryWithBackoff(
+        () =>
+            api.queryHogQL(
+                query,
+                { scene: 'HogFunction', productKey: 'pipeline_destinations' },
+                { refresh: 'force_blocking' }
+            ),
+        {
+            maxAttempts: 2,
+            shouldRetry: (error) => concurrencyRetryWaitMs(error) !== undefined,
+            getDelayMs: concurrencyRetryWaitMs,
+        }
     )
 
     const res: AppMetricsTotalsResponse = {}
@@ -226,6 +250,9 @@ export const loadAppMetricsTimeSeries = async (
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
+    }
+    if (request.instanceIds) {
+        query = (query + hogql`\nAND instance_id IN ${request.instanceIds}`) as HogQLQueryString
     }
     if (request.metricName) {
         const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]

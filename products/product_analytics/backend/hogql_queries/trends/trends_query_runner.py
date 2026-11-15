@@ -1,7 +1,8 @@
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
-from functools import partial
+from functools import cached_property, partial
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -14,6 +15,7 @@ from natsort import natsorted, ns
 
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
     BreakdownItem,
     BreakdownType,
     CachedTrendsQueryResponse,
@@ -21,11 +23,11 @@ from posthog.schema import (
     Compare,
     CompareFilter,
     CompareItem,
-    DashboardFilter,
     DataWarehouseEventsModifier,
     DataWarehouseNode,
     DayItem,
     EventsNode,
+    GroupMathType,
     GroupNode,
     HogQLQueryModifiers,
     HogQLQueryResponse,
@@ -35,6 +37,7 @@ from posthog.schema import (
     MetricSummary,
     MultipleBreakdownOptions,
     MultipleBreakdownType,
+    PropertyMathType,
     QueryTiming,
     ResolvedDateRangeResponse,
     Series,
@@ -53,8 +56,9 @@ from posthog.caching.insights_api import (
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.dataclasses import frozen
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -68,6 +72,7 @@ from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql_queries.utils.result_series import get_action_names, get_series_custom_name
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.hogql_queries.utils.utils import get_response_hogql
@@ -78,12 +83,12 @@ from posthog.hogql_queries.validation.rules import (
 )
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import multisort
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade import api as actions_facade
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay
@@ -91,11 +96,55 @@ from products.product_analytics.backend.hogql_queries.trends.series_with_extras 
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
     DisallowDaysOfWeekWithSmoothing,
     DisallowUnsupportedPropertyMathForHistogramBreakdown,
+    RequirePropertyForPropertyMath,
     ValidateDataWarehouseBreakdown,
 )
-from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import (
+    ActorsDateWindow,
+    TrendsActorsQueryBuilder,
+)
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
+
+
+def resolve_series_custom_name(
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode], series_label: str | None
+) -> str | None:
+    # A series' display override for legends and tooltips. `custom_name` is set by the in-app
+    # "Rename graph series" modal; a `name` that differs from the series label (None for all events)
+    # is a rename applied via the query editor or API. Either should win over the raw event name.
+    # get_series_custom_name applies the same rule to a serialized node, for exports and cache hits.
+    if series.custom_name:
+        return series.custom_name
+    if series.name and series.name != series_label:
+        return series.name
+    return None
+
+
+# Daily values of these add up to the range total, so any other math needs its total counted over the whole range.
+ADDITIVE_MATHS: frozenset[str | None] = frozenset(
+    {
+        None,
+        BaseMathType.TOTAL,
+        BaseMathType.FIRST_TIME_FOR_USER,
+        BaseMathType.FIRST_MATCHING_EVENT_FOR_USER,
+        GroupMathType.FIRST_TIME_FOR_GROUP,
+        GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP,
+        PropertyMathType.SUM,
+    }
+)
+
+
+@frozen
+class _ResultSeries:
+    order: int | None
+    compare_label: str | None
+
+
+@frozen
+class _ResultSeriesBreakdown:
+    series: _ResultSeries
+    breakdown_value_repr: str
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -103,6 +152,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     cached_response: CachedTrendsQueryResponse
     series: list[SeriesWithExtras]
     hogql_settings: HogQLGlobalSettings | None
+    # For a caller that cannot use a partial result. When set, the first failed series query calls it once,
+    # and no queued series query starts after that. The callback can cancel the series queries in flight.
+    on_series_error: Callable[[Exception], None] | None = None
 
     def __init__(
         self,
@@ -115,6 +167,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         *,
         workload: Workload = Workload.DEFAULT,
         hogql_settings: Optional[HogQLGlobalSettings] = None,
+        ch_user: ClickHouseUser | None = None,
     ):
         from posthog.hogql_queries.utils.utils import convert_active_user_math_based_on_interval
 
@@ -161,6 +214,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             limit_context=limit_context,
             workload=workload,
             user=user,
+            ch_user=ch_user or ClickHouseUser.DEFAULT,
         )
 
     def __post_init__(self):
@@ -169,9 +223,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     def single_flight_variant(self) -> str:
         # A caller can pass its own execution time, which does not reach the cache key.
-        if self.hogql_settings is None:
-            return super().single_flight_variant()
-        return f"{super().single_flight_variant()}:max_execution_time={self.hogql_settings.max_execution_time}"
+        variant = super().single_flight_variant()
+        if self.hogql_settings is not None:
+            variant = f"{variant}:max_execution_time={self.hogql_settings.max_execution_time}"
+        return variant
 
     def validators(self) -> Sequence[QueryValidationRule[TrendsQuery]]:
         return (
@@ -179,6 +234,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             DisallowUnsupportedDataWarehouseSettings(),
             ValidateDataWarehouseBreakdown(),
             DisallowUnsupportedPropertyMathForHistogramBreakdown(),
+            RequirePropertyForPropertyMath(),
             DisallowDaysOfWeekWithSmoothing(),
         )
 
@@ -248,6 +304,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             query = query_builder.build_actors_query()
 
         return query
+
+    def to_actors_date_window(
+        self, time_frame: Optional[str], series_index: int, compare_value: Optional[Compare] = None
+    ) -> ActorsDateWindow:
+        return self._get_trends_actors_query_builder(
+            time_frame=time_frame, series_index=series_index, compare_value=compare_value
+        ).actors_date_window()
 
     def _get_trends_actors_query_builder(
         self,
@@ -351,9 +414,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     team=self.team,
                     user=self.user,
                     workload=self.workload,
+                    ch_user=self.ch_user,
                     settings=self.hogql_settings,
+                    modifiers=self.modifiers,
                     # timings=timings,
-                    # modifiers=modifiers,
                 )
 
                 breakdown_values = [
@@ -399,6 +463,38 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         )
 
     def _calculate(self):
+        if self.query.marketingAnalyticsCostFallback is not None:
+            from products.marketing_analytics.backend.facade.queries import (
+                resolve_marketing_cost_trend,  # noqa: PLC0415 - keeps marketing adapters off the startup path
+            )
+
+            date_ranges = [self.query_date_range]
+            if self.query.compareFilter and self.query.compareFilter.compare:
+                date_ranges.append(self.query_previous_date_range)
+            resolved = resolve_marketing_cost_trend(
+                query=self.query,
+                team=self.team,
+                date_ranges=date_ranges,
+                get_database=lambda: self.shared_database,
+            )
+            runner = TrendsQueryRunner(
+                query=resolved.query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                user=self.user,
+                workload=self.workload,
+                hogql_settings=self.hogql_settings,
+            )
+            # The live fallback reads other warehouse tables, so it needs a database built with its own modifiers.
+            if runner.modifiers == self.modifiers:
+                runner._shared_database = self._shared_database
+            response = runner.calculate()
+            if resolved.warning is not None:
+                response.warnings = [*(response.warnings or []), resolved.warning]
+            return response
+
         queries = self.to_queries()
 
         response_hogql = get_response_hogql(
@@ -416,6 +512,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             timings: HogQLTimings,
             is_parallel: bool,
         ):
+            if self.on_series_error is not None and errors:
+                return
             try:
                 series_with_extra = self.series[index]
 
@@ -425,6 +523,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     team=self.team,
                     user=self.user,
                     workload=self.workload,
+                    ch_user=self.ch_user,
                     settings=self.hogql_settings,
                     timings=timings,
                     modifiers=self.modifiers,
@@ -438,6 +537,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     debug_errors.append(response.error)
             except Exception as e:
                 errors.append(e)
+                # Only the first error calls back. A list append is atomic, so two failing threads cannot both see it first.
+                if self.on_series_error is not None and errors[0] is e:
+                    self.on_series_error(e)
             finally:
                 if is_parallel:
                     from django.db import connection
@@ -464,7 +566,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     thread_name_prefix="trends_series",
                 )
 
-        # Raise any errors raised in a seperate thread
+        # Raise any errors raised in a separate thread
         if len(errors) > 0:
             raise errors[0]
 
@@ -477,6 +579,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 returned_results.append([result])
 
         final_result, has_more = self.format_results(returned_results)
+
+        if self._metric_total_needs_range_query():
+            with self.timings.measure("metric_range_totals"):
+                self._apply_range_totals(final_result)
 
         timings_matrix[-1] = self.timings.to_list()
 
@@ -502,6 +608,69 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             )
             if self.query.compareFilter is not None and self.query.compareFilter.compare
             else None,
+        )
+
+    def _metric_total_needs_range_query(self) -> bool:
+        trends_filter = self.query.trendsFilter
+        if trends_filter is None or trends_filter.display != ChartDisplayType.METRIC:
+            return False
+        if trends_filter.metricSummary not in (None, MetricSummary.TOTAL):
+            return False
+        return bool(trends_filter.formulaNodes) or any(
+            getattr(series, "math", None) not in ADDITIVE_MATHS for series in self.query.series
+        )
+
+    def _apply_range_totals(self, results: list[dict[str, Any]]) -> None:
+        query = self.query.model_copy(deep=True)
+        assert query.trendsFilter is not None
+        query.trendsFilter.display = ChartDisplayType.BOLD_NUMBER
+        runner = TrendsQueryRunner(
+            query=query,
+            team=self.team,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            user=self.user,
+            workload=self.workload,
+            ch_user=self.ch_user,
+            hogql_settings=self.hogql_settings,
+        )
+        runner._shared_database = self._shared_database
+        # BoldNumber would resolve a daily range, so the totals would cover different days than the sparkline.
+        runner.query_date_range = self.query_date_range
+        runner.query_previous_date_range = self.query_previous_date_range
+        range_results = runner.calculate().results or []
+
+        totals = {self._range_total_key(item): item.get("aggregated_value") for item in range_results}
+        named_breakdowns = self._named_breakdowns_by_series(results)
+        range_named_breakdowns = self._named_breakdowns_by_series(range_results)
+        for item in results:
+            if (
+                self.breakdown_enabled
+                and self._is_other_breakdown(item["breakdown_value"])
+                and named_breakdowns[self._range_total_series(item)]
+                != range_named_breakdowns[self._range_total_series(item)]
+            ):
+                continue
+            total = totals.get(self._range_total_key(item))
+            if total is not None:
+                item["count"] = total
+
+    def _named_breakdowns_by_series(self, results: list[dict[str, Any]]) -> defaultdict[_ResultSeries, set[str]]:
+        named: defaultdict[_ResultSeries, set[str]] = defaultdict(set)
+        for item in results:
+            breakdown_value = item.get("breakdown_value")
+            if breakdown_value is not None and not self._is_other_breakdown(breakdown_value):
+                named[self._range_total_series(item)].add(repr(breakdown_value))
+        return named
+
+    @staticmethod
+    def _range_total_series(item: dict[str, Any]) -> _ResultSeries:
+        return _ResultSeries(order=item.get("order"), compare_label=item.get("compare_label"))
+
+    @classmethod
+    def _range_total_key(cls, item: dict[str, Any]) -> _ResultSeriesBreakdown:
+        return _ResultSeriesBreakdown(
+            series=cls._range_total_series(item), breakdown_value_repr=repr(item.get("breakdown_value"))
         )
 
     def format_results(self, returned_results: list[list[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:
@@ -543,9 +712,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         final_result.extend(formula_results)
         else:
             for series_results in returned_results:
-                for item in series_results:
-                    item["order"] = item.get("action", {}).get("order", 0)
-
                 final_result.extend(series_results)
 
         has_more = False
@@ -584,7 +750,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         for val in response.results:
             try:
                 series_label = self.series_event(series.series)
-            except Action.DoesNotExist:
+            except ActionNotFound:
                 # Dont append the series if the action doesnt exist
                 continue
 
@@ -606,20 +772,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     "count": 0,
                     "aggregated_value": get_value("total", val),
                     "label": "All events" if series_label is None else series_label,
-                    "filter": self._query_to_filter(),
-                    "action": {  # TODO: Populate missing props in `action`
-                        "days": self.query_date_range.all_values(),
-                        "id": series_label,
-                        "type": "events",
-                        "order": series.series_order,
-                        "name": series_label or "All events",
-                        "custom_name": resolve_series_custom_name(series.series, series_label),
-                        "math": series.series.math,
-                        "math_property": series.series.math_property,
-                        "math_hogql": series.series.math_hogql,
-                        "math_group_type_index": series.series.math_group_type_index,
-                        "properties": {},
-                    },
                 }
             else:
                 if self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
@@ -643,20 +795,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     ],
                     "count": count,
                     "label": "All events" if series_label is None else series_label,
-                    "filter": self._query_to_filter(),
-                    "action": {  # TODO: Populate missing props in `action`
-                        "days": self.query_date_range.all_values(),
-                        "id": series_label,
-                        "type": "events",
-                        "order": series.series_order,
-                        "name": series_label or "All events",
-                        "custom_name": resolve_series_custom_name(series.series, series_label),
-                        "math": series.series.math,
-                        "math_property": series.series.math_property,
-                        "math_hogql": series.series.math_hogql,
-                        "math_group_type_index": series.series.math_group_type_index,
-                        "properties": {},
-                    },
                 }
 
             # Modifications for when comparing to previous period
@@ -726,7 +864,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             if self.query.samplingFactor and self.query.samplingFactor != 1:
                 factor = self.query.samplingFactor
-                math = series_object.get("action", {}).get("math")
+                math = series.series.math
                 if "count" in series_object:
                     series_object["count"] = correct_result_for_sampling(series_object["count"], factor, math)
                 if "aggregated_value" in series_object:
@@ -738,6 +876,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         correct_result_for_sampling(value, factor, math) for value in series_object["data"]
                     ]
 
+            series_object["order"] = series.series_order
+            series_object["custom_name"] = resolve_series_custom_name(series.series, series_label)
             res.append(series_object)
         return res
 
@@ -791,12 +931,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     new_result["count"] = new_result["data"][-1]
                 else:
                     new_result["count"] = float(sum(new_result["data"]))
-
-            # Filter action.days too (formula series have action=None)
-            if new_result.get("action") is not None and "days" in new_result["action"]:
-                action_days = new_result["action"]["days"]
-                new_result["action"] = {**new_result["action"]}
-                new_result["action"]["days"] = [d for d in action_days if d.isoweekday() in allowed_iso_days]
 
             filtered.append(new_result)
         return filtered
@@ -854,7 +988,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return series.event
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
-            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+            action = actions_facade.get_action(action_id=int(series.id), project_id=self.team.project_id)
             return action.name
 
         if isinstance(series, DataWarehouseNode):
@@ -865,8 +999,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             action_ids = [int(node.id) for node in series.nodes if isinstance(node, ActionsNode)]
             actions_by_id = {}
             if action_ids:
-                actions = Action.objects.filter(pk__in=action_ids, team__project_id=self.team.project_id)
-                actions_by_id = {action.pk: action.name or "Unnamed action" for action in actions}
+                action_names = actions_facade.get_action_names(project_id=self.team.project_id, action_ids=action_ids)
+                actions_by_id = {action_id: name or "Unnamed action" for action_id, name in action_names.items()}
 
             events = []
             for node in series.nodes:
@@ -879,6 +1013,34 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return ", ".join(events)
 
         return None  # type: ignore [unreachable]
+
+    def series_custom_name(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:
+        """The `custom_name` that build_series_response writes on the rows of this series."""
+        if series.custom_name:
+            return series.custom_name
+        if not series.name:
+            return None
+        # The series label costs a query for an action series, so it is resolved only when a `name` needs comparing
+        try:
+            series_label = self.series_event(series)
+        except ActionNotFound:
+            # build_series_response drops a series whose action is gone, so no row reads this name
+            return None
+        return resolve_series_custom_name(series, series_label)
+
+    def _series_custom_names(self) -> list[str | None] | None:
+        if super()._series_custom_names() is None:
+            return None
+        return self._resolved_series_custom_names
+
+    @cached_property
+    def _resolved_series_custom_names(self) -> list[str | None]:
+        # A cache hit asks for the names twice: to decide whether to parse the results, then to patch them.
+        # get_action_names loads every action the series reference in one query, where series_event runs one per series.
+        series_query = {"series": [series.model_dump(mode="json") for series in self.query.series]}
+        needs_label = any(not series.custom_name and series.name for series in self.query.series)
+        action_names = get_action_names(self.team, series_query) if needs_label else {}
+        return [get_series_custom_name(node, action_names) for node in series_query["series"]]
 
     def update_hogql_modifiers(self) -> None:
         if (
@@ -1089,7 +1251,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                                 "data": [0] * data_length,
                                 "count": 0,
                                 "aggregated_value": 0,
-                                "action": None,
                                 "breakdown_value": any_result.get("breakdown_value"),
                                 "compare_label": any_result.get("compare_label"),
                                 "days": any_result.get("days"),
@@ -1142,7 +1303,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         formula = formula_node.formula
         base_result = results_group[0]
         base_result["label"] = formula_node.custom_name or f"Formula ({formula})"
-        base_result["action"] = None
+        base_result["custom_name"] = formula_node.custom_name
 
         if aggregate_values:
             series_data = [[s["aggregated_value"]] for s in results_group]
@@ -1240,7 +1401,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         breakdown_type: BreakdownType | MultipleBreakdownType | None,
         breakdown_group_type_index: int | None = None,
     ):
-        if breakdown_type == "hogql" or breakdown_type == "cohort" or breakdown_type == "session":
+        if breakdown_type in ("hogql", "cohort", "session", "element"):
             return False
 
         if breakdown_type == "person":
@@ -1287,28 +1448,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         except PropertyDefinition.DoesNotExist:
             return "String"
 
-    # TODO: Move this to posthog/hogql_queries/legacy_compatibility/query_to_filter.py
-    def _query_to_filter(self) -> dict[str, Any]:
-        filter_dict = {
-            "insight": "TRENDS",
-            "properties": self.query.properties,
-            "filter_test_accounts": self.query.filterTestAccounts,
-            "date_to": self.query_date_range.date_to(),
-            "date_from": self.query_date_range.date_from(),
-            "entity_type": "events",
-            "sampling_factor": self.query.samplingFactor,
-            "aggregation_group_type_index": self.query.aggregation_group_type_index,
-            "interval": self.query.interval,
-        }
-
-        if self.query.trendsFilter is not None:
-            filter_dict.update(self.query.trendsFilter.__dict__)
-
-        if self.query.breakdownFilter is not None:
-            filter_dict.update(**self.query.breakdownFilter.__dict__)
-
-        return {k: v for k, v in filter_dict.items() if v is not None}
-
     @cached_property
     def _trends_display(self) -> TrendsDisplay:
         if self.query.trendsFilter is None or self.query.trendsFilter.display is None:
@@ -1318,17 +1457,16 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         return TrendsDisplay(display)
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
-
-        if (
-            self.query.compareFilter is not None
-            and self.query.compareFilter.compare
-            and dashboard_filter.date_from == "all"
-        ):
-            # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
-            # we should disable `compare` _no matter how_ we arrived at the final executed query
-            self.query.compareFilter.compare = False
+    def _accepts_dashboard_compare_filter(self) -> bool:
+        # These displays have no compare toggle in the insight editor (see `supportsCompare` in insightVizDataLogic)
+        # and do not draw a previous-period series. The world map keeps one series per country, so a comparison
+        # makes it show the previous period's counts.
+        display = self.query.trendsFilter.display if self.query.trendsFilter else None
+        return display not in (
+            ChartDisplayType.WORLD_MAP,
+            ChartDisplayType.CALENDAR_HEATMAP,
+            ChartDisplayType.ACTIONS_PROPORTION_BAR,
+        )
 
     def _format_breakdown_label(self, breakdown_value: Any):
         if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdowns is not None:

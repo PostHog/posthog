@@ -2,8 +2,8 @@ import structlog
 from social_django.models import UserSocialAuth
 
 from posthog.github.metrics import GitHubWebhookAttributionOutcome, observe_github_webhook_attribution
-from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
-from posthog.models.integration import Integration
+from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout, read_aliases
+from posthog.integrations.backend import database_read_aliases
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -21,7 +21,11 @@ _ATTRIBUTION_STATEMENT_TIMEOUT_MS = 800
 # Models the org-member resolver reads. ReplicaRouter only sends a model to the replica when
 # that model is named in READ_REPLICA_OPT_IN, so the set of aliases the lookup can touch is
 # knowable up front.
-_ATTRIBUTION_MODELS = (Team, User, OrganizationMembership, UserSocialAuth, UserIntegration, Integration)
+_ATTRIBUTION_MODELS = (Team, User, OrganizationMembership, UserSocialAuth, UserIntegration)
+
+
+def _attribution_aliases() -> list[str]:
+    return list(dict.fromkeys([*read_aliases(_ATTRIBUTION_MODELS), *database_read_aliases()]))
 
 
 def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | None:
@@ -38,7 +42,7 @@ def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | 
     )
 
     try:
-        with bounded_statement_timeout(_ATTRIBUTION_STATEMENT_TIMEOUT_MS, models=_ATTRIBUTION_MODELS):
+        with bounded_statement_timeout(_ATTRIBUTION_STATEMENT_TIMEOUT_MS, aliases=_attribution_aliases()):
             resolved = resolve_github_login_distinct_id(str(login), team_id)
     except Exception as e:
         # timeout is meant to be the leading indicator for the cap we just installed, so it
@@ -74,3 +78,20 @@ def _merged_by_attribution(payload: dict, team_id: int) -> tuple[dict, str | Non
     if distinct_id is not None:
         properties["pr_merged_by_distinct_id"] = distinct_id
     return properties, distinct_id
+
+
+def _closed_by_attribution(payload: dict, team_id: int) -> dict:
+    """Identity of the GitHub user who closed the PR without a merge, from the delivery's `sender`.
+
+    The event keeps the caller's default actor, because the closer is often the GitHub App itself
+    (a dismissed report closes its PR), which never resolves to an org member.
+    """
+    sender = payload.get("sender") or {}
+    login = sender.get("login")
+    if not login:
+        return {}
+    properties: dict = {"pr_closed_by_login": login, "pr_closed_by_id": sender.get("id")}
+    distinct_id = _resolve_github_login_distinct_id(login, team_id)
+    if distinct_id is not None:
+        properties["pr_closed_by_distinct_id"] = distinct_id
+    return properties

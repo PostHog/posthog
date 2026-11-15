@@ -15,6 +15,10 @@ class Announcement(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMet
         PARTIALLY_FAILED = "partially_failed", "Partially failed"
         FAILED = "failed", "Failed"
 
+    class SendAs(models.TextChoices):
+        BOT = "bot", "SupportHog"
+        USER = "user", "The person who created it"
+
     all_teams = models.Manager()  # noqa: DJ012
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
@@ -25,6 +29,12 @@ class Announcement(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMet
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     message = models.TextField()
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    send_as = models.CharField(max_length=20, choices=SendAs.choices, default=SendAs.BOT)
+    # Slack name and avatar resolved from created_by when send_as is USER. Snapshotted at
+    # create time so every channel gets the same identity, even if the Slack profile
+    # changes (or becomes unresolvable) while the send task runs.
+    sender_display_name = models.CharField(max_length=200, blank=True, default="")
+    sender_icon_url = models.TextField(blank=True, default="")
     total_channels = models.PositiveIntegerField(default=0)
     sent_count = models.PositiveIntegerField(default=0)
     failed_count = models.PositiveIntegerField(default=0)

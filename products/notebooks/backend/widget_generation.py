@@ -10,7 +10,7 @@ from anthropic.types import OutputConfigParam, RawMessageStreamEvent
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_anthropic_client
 
-from products.canvas.backend import notebook_integration as canvas_facade
+from products.canvas.backend.facade import notebooks as canvas_facade
 from products.notebooks.backend.widget_models import DEFAULT_WIDGET_MODEL, WIDGET_MODEL_CHOICES
 
 MAX_GENERATION_ATTEMPTS = 2

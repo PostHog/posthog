@@ -1,3 +1,7 @@
+import os
+import sys
+import subprocess
+from collections import Counter
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -139,6 +143,38 @@ def test_retry_failure_uses_separate_junit_file(tmp_path: Path, when: Literal["s
     failure = testcase.find("failure" if when == "call" else "error")
     assert failure is not None
     assert failure.get("message") == "first failure"
+
+
+def test_a_test_that_fails_every_attempt_is_written_to_junit_once(tmp_path: Path) -> None:
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    (tmp_path / "test_always_fails.py").write_text(
+        "import pytest\n"
+        "\n"
+        "\n"
+        "@pytest.fixture\n"
+        "def broken():\n"
+        "    raise RuntimeError('setup always fails')\n"
+        "\n"
+        "\n"
+        "def test_setup_errors(broken):\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        "def test_call_fails():\n"
+        "    assert False\n"
+    )
+    environment = {name: value for name, value in os.environ.items() if name != "PYTEST_ADDOPTS"}
+
+    subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "pytest_rerunfailures", "--force-reruns", "1", "--junitxml=junit.xml"],
+        cwd=tmp_path,
+        env={**environment, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+        capture_output=True,
+        check=False,
+    )
+
+    testcases = ElementTree.parse(tmp_path / "junit.xml").getroot().iter("testcase")
+    assert Counter(testcase.get("name") for testcase in testcases) == {"test_setup_errors": 1, "test_call_fails": 1}
 
 
 def test_retry_junit_removes_stale_file_without_reruns(tmp_path: Path) -> None:

@@ -14,13 +14,10 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { aiBlobRenderHandlers, resolveAiBlobUrl, resolveDataUri } from '../aiBlob'
+import { AIImage } from '../components/AIImage'
 import { getJsonContainerForDisplay, JSONValueDisplay } from '../components/JSONValueDisplay'
-import { MessageSentimentBar } from '../components/SentimentTag'
 import { LLMInputOutput } from '../LLMInputOutput'
-import { isRenderableMediaSource, redactedMediaKind } from '../mediaSource'
-import { SearchHighlight } from '../SearchHighlight'
-import { containsSearchQuery } from '../searchUtils'
-import type { GenerationSentiment } from '../sentimentResults'
+import { isRedactedMediaSentinel, isRenderableMediaSource, redactedMediaKind } from '../mediaSource'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
     aiTokenCount,
@@ -38,41 +35,21 @@ import {
     looksLikeXml,
     parseToolArgumentsForDisplay,
 } from '../utils'
-import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
-import { HighlightedXMLViewer } from './HighlightedXMLViewer'
 import { MessageActionsMenu } from './MessageActionsMenu'
 import { MessageActionsMenuProvider } from './MessageActionsMenuProvider'
 import { RedactedMediaPlaceholder } from './RedactedMediaPlaceholder'
 import { XMLViewer } from './XMLViewer'
 
-export type ConversationDisplayOption =
-    | 'expand_all'
-    | 'expand_user_only'
-    | 'collapse_except_output_and_last_input'
-    | 'text_view'
 type MessageType = 'input' | 'output'
 
 function getInitialMessageShowStates(
     inputMessages: CompatMessage[],
-    outputMessages: CompatMessage[],
-    displayOption: ConversationDisplayOption = 'collapse_except_output_and_last_input'
+    outputMessages: CompatMessage[]
 ): { input: boolean[]; output: boolean[] } {
-    const inputStates = inputMessages.map((message, i) => {
-        if (displayOption === 'expand_all') {
-            return true
-        }
-        if (displayOption === 'expand_user_only') {
-            return message.role === 'user'
-        }
-        return i === inputMessages.length - 1
-    })
-    const outputStates = outputMessages.map((message) => {
-        if (displayOption === 'expand_user_only') {
-            return message.role === 'user'
-        }
-        return true
-    })
-    return { input: inputStates, output: outputStates }
+    return {
+        input: inputMessages.map((_, i) => i === inputMessages.length - 1),
+        output: outputMessages.map(() => true),
+    }
 }
 
 function billedTokenCount(value: unknown): number | null {
@@ -131,7 +108,6 @@ function describeEmptyOutput(
 export function ConversationMessagesDisplay({
     inputNormalized,
     outputNormalized,
-    inputSourceIndices,
     errorData,
     httpStatus,
     raisedError,
@@ -140,17 +116,11 @@ export function ConversationMessagesDisplay({
     textOutputTokens,
     stopReason,
     bordered = false,
-    searchQuery,
-    displayOption,
     traceId,
     eventId,
-    generationSentiment,
-    highlightMessageIndex,
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
-    /** Maps each inputNormalized[i] to its original index in $ai_input. */
-    inputSourceIndices?: number[]
     errorData: any
     httpStatus?: number
     raisedError?: boolean
@@ -163,38 +133,18 @@ export function ConversationMessagesDisplay({
     /** `$ai_stop_reason`. The provider's own account of why it stopped, so it outranks any inference. */
     stopReason?: unknown
     bordered?: boolean
-    searchQuery?: string
-    displayOption?: ConversationDisplayOption
     traceId?: string | null
     eventId?: string
-    generationSentiment?: GenerationSentiment | null
-    /** Original $ai_input index to auto-expand and highlight (e.g. from sentiment tab deep link) */
-    highlightMessageIndex?: number | null
 }): JSX.Element {
     const [messageShowStates, setMessageShowStates] = React.useState(() =>
-        getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption)
+        getInitialMessageShowStates(inputNormalized, outputNormalized)
     )
     const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
     const [isRenderingXml, setIsRenderingXml] = React.useState(false)
-    const previousSearchQueryRef = React.useRef('')
     const inputRolesSignature = inputNormalized.map((message) => message.role).join('|')
     const outputRolesSignature = outputNormalized.map((message) => message.role).join('|')
     const inputMessageShowStates = messageShowStates.input
     const outputMessageShowStates = messageShowStates.output
-
-    // Sentiment is only available for user messages that have a known original
-    // index in $ai_input (sourceIndex). System/assistant messages and messages
-    // without a source mapping get no sentiment.
-    const getMessageSentiment = (
-        role: string,
-        sourceIndex: number | undefined
-    ): { label: string; score: number } | undefined => {
-        if (role !== 'user' || !generationSentiment || sourceIndex === undefined || sourceIndex < 0) {
-            return undefined
-        }
-        const msg = generationSentiment.messages?.[sourceIndex]
-        return msg ? { label: msg.label, score: msg.score } : undefined
-    }
 
     const toggleMessage = (type: MessageType, index: number): void => {
         setMessageShowStates((state) => {
@@ -215,57 +165,17 @@ export function ConversationMessagesDisplay({
         setMessageShowStates((state) => ({ ...state, [type]: state[type].map(() => false) }))
     }
 
-    // Initialize message states when message counts or display option changes.
+    // Initialize message states when the messages change.
     React.useEffect(() => {
-        setMessageShowStates(getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption))
+        setMessageShowStates(getInitialMessageShowStates(inputNormalized, outputNormalized))
     }, [
         inputNormalized.length,
         outputNormalized.length,
         inputRolesSignature,
         outputRolesSignature,
-        displayOption,
         outputNormalized,
         inputNormalized,
     ])
-
-    // Expand only messages matching the current search query.
-    React.useEffect(() => {
-        const trimmedSearchQuery = searchQuery?.trim() ?? ''
-        if (trimmedSearchQuery) {
-            const inputMatches = inputNormalized.map((msg) => {
-                const msgStr = JSON.stringify(msg)
-                return containsSearchQuery(msgStr, trimmedSearchQuery)
-            })
-            const outputMatches = outputNormalized.map((msg) => {
-                const msgStr = JSON.stringify(msg)
-                return containsSearchQuery(msgStr, trimmedSearchQuery)
-            })
-            setMessageShowStates({ input: inputMatches, output: outputMatches })
-        } else if (previousSearchQueryRef.current) {
-            setMessageShowStates(getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption))
-        }
-        previousSearchQueryRef.current = trimmedSearchQuery
-    }, [searchQuery, inputNormalized, outputNormalized, inputNormalized.length, outputNormalized.length, displayOption])
-
-    // Auto-expand the highlighted message (e.g. from sentiment tab deep link)
-    const highlightedMessageRef = React.useRef<HTMLDivElement | null>(null)
-    React.useEffect(() => {
-        if (highlightMessageIndex == null || !inputSourceIndices) {
-            return
-        }
-        const normalizedIndex = inputSourceIndices.indexOf(highlightMessageIndex)
-        if (normalizedIndex >= 0) {
-            setMessageShowStates((state) => {
-                const nextInput = [...state.input]
-                nextInput[normalizedIndex] = true
-                return { ...state, input: nextInput }
-            })
-            // Scroll into view after render
-            requestAnimationFrame(() => {
-                highlightedMessageRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-            })
-        }
-    }, [highlightMessageIndex, inputSourceIndices])
 
     const allInputsExpanded = inputMessageShowStates.every(Boolean)
     const allInputsCollapsed = inputMessageShowStates.every((state: boolean) => !state)
@@ -319,34 +229,24 @@ export function ConversationMessagesDisplay({
 
     const inputDisplay =
         inputNormalized.length > 0 ? (
-            inputNormalized.map((message, i) => {
-                const isHighlighted = highlightMessageIndex != null && inputSourceIndices?.[i] === highlightMessageIndex
-                return (
-                    <React.Fragment key={i}>
-                        <div
-                            ref={isHighlighted ? highlightedMessageRef : undefined}
-                            className={isHighlighted ? 'ring-2 ring-primary/30 rounded' : undefined}
-                        >
-                            <LLMMessageDisplay
-                                actionMenuKey={`input-${i}`}
-                                message={message}
-                                show={inputMessageShowStates[i] || false}
-                                onToggle={() => toggleMessage('input', i)}
-                                searchQuery={searchQuery}
-                                traceId={traceId}
-                                isRenderingMarkdown={isRenderingMarkdown}
-                                isRenderingXml={isRenderingXml}
-                                onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
-                                onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
-                                messageSentiment={getMessageSentiment(message.role, inputSourceIndices?.[i])}
-                            />
-                        </div>
-                        {i < inputNormalized.length - 1 && (
-                            <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
-                        )}
-                    </React.Fragment>
-                )
-            })
+            inputNormalized.map((message, i) => (
+                <React.Fragment key={i}>
+                    <LLMMessageDisplay
+                        actionMenuKey={`input-${i}`}
+                        message={message}
+                        show={inputMessageShowStates[i] || false}
+                        onToggle={() => toggleMessage('input', i)}
+                        traceId={traceId}
+                        isRenderingMarkdown={isRenderingMarkdown}
+                        isRenderingXml={isRenderingXml}
+                        onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
+                        onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
+                    />
+                    {i < inputNormalized.length - 1 && (
+                        <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                    )}
+                </React.Fragment>
+            ))
         ) : (
             <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No input</div>
         )
@@ -378,7 +278,6 @@ export function ConversationMessagesDisplay({
                                     show={outputMessageShowStates[i] || false}
                                     isOutput
                                     onToggle={() => toggleMessage('output', i)}
-                                    searchQuery={searchQuery}
                                     traceId={traceId}
                                     isRenderingMarkdown={isRenderingMarkdown}
                                     isRenderingXml={isRenderingXml}
@@ -419,18 +318,14 @@ export function ConversationMessagesDisplay({
                     </h4>
                     <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
                         {isObject(errorData) ? (
-                            <HighlightedJSONViewer src={errorData} collapsed={4} searchQuery={searchQuery} />
+                            <HighlightedJSONViewer src={errorData} collapsed={4} />
                         ) : (
                             <span className="font-mono">
                                 {(() => {
                                     try {
                                         const parsedJson = JSON.parse(errorData)
                                         return isObject(parsedJson) ? (
-                                            <HighlightedJSONViewer
-                                                src={parsedJson}
-                                                collapsed={5}
-                                                searchQuery={searchQuery}
-                                            />
+                                            <HighlightedJSONViewer src={parsedJson} collapsed={5} />
                                         ) : (
                                             JSON.stringify(errorData ?? null)
                                         )
@@ -481,29 +376,28 @@ export const ImageMessageDisplay = ({ message }: { message: ImageDisplayMessage 
     if (typeof content === 'string') {
         return <span>{content}</span>
     } else if (content?.image) {
-        if (!isRenderableMediaSource(content.image)) {
+        if (isRedactedMediaSentinel(content.image)) {
             return <RedactedMediaPlaceholder kind="image" />
+        }
+        if (!isRenderableMediaSource(content.image)) {
+            return <HighlightedJSONViewer src={content} name={null} collapsed={5} />
         }
         const src = resolveAiBlobUrl(content.image, currentTeamId)
         return (
-            <img src={src} alt="User sent image" data-attr="ai-message-image" {...aiBlobRenderHandlers(src, 'image')} />
+            <AIImage
+                src={src}
+                alt="User sent image"
+                fallback={<HighlightedJSONViewer src={content} name={null} collapsed={5} />}
+            />
         )
     }
 
     return <span>{String(content ?? '')}</span>
 }
 
-function renderContentItem(
-    item: MultiModalContentItem,
-    currentTeamId: number | string | null,
-    searchQuery?: string
-): JSX.Element | null {
+function renderContentItem(item: MultiModalContentItem, currentTeamId: number | string | null): JSX.Element | null {
     if (typeof item === 'string') {
-        return searchQuery?.trim() ? (
-            <SearchHighlight string={item} substring={searchQuery} className="whitespace-pre-wrap" />
-        ) : (
-            <span className="whitespace-pre-wrap">{item}</span>
-        )
+        return <span className="whitespace-pre-wrap">{item}</span>
     }
 
     // File and audio parts carry a filename or transcript alongside the payload, so those kinds are
@@ -514,7 +408,7 @@ function renderContentItem(
     }
 
     if (!item || typeof item !== 'object' || !('type' in item)) {
-        return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
+        return <HighlightedJSONViewer src={item} name={null} collapsed={5} />
     }
 
     if (
@@ -522,11 +416,7 @@ function renderContentItem(
         'text' in item &&
         typeof item.text === 'string'
     ) {
-        return searchQuery?.trim() ? (
-            <SearchHighlight string={item.text} substring={searchQuery} className="whitespace-pre-wrap" />
-        ) : (
-            <span className="whitespace-pre-wrap">{item.text}</span>
-        )
+        return <span className="whitespace-pre-wrap">{item.text}</span>
     }
 
     if (item.type === 'image' && 'image' in item && typeof item.image === 'string') {
@@ -538,14 +428,16 @@ function renderContentItem(
     }
 
     if (isOpenAIImageURLMessage(item)) {
+        if (!isRenderableMediaSource(item.image_url.url)) {
+            return <HighlightedJSONViewer src={item} name={null} collapsed={5} />
+        }
         const src = resolveAiBlobUrl(item.image_url.url, currentTeamId)
         return (
-            <img
+            <AIImage
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
-                data-attr="ai-message-image"
-                {...aiBlobRenderHandlers(src, 'image')}
+                fallback={<HighlightedJSONViewer src={item} name={null} collapsed={5} />}
             />
         )
     }
@@ -553,29 +445,31 @@ function renderContentItem(
     if (isAnthropicImageMessage(item)) {
         const src = resolveDataUri(item.source.data, item.source.media_type, currentTeamId)
         return (
-            <img
+            <AIImage
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
-                data-attr="ai-message-image"
-                {...aiBlobRenderHandlers(src, 'image')}
+                fallback={<HighlightedJSONViewer src={item} name={null} collapsed={5} />}
             />
         )
     }
 
     if (isGeminiImageMessage(item)) {
         const inlineData = getGeminiInlineData(item)
-        if (!inlineData) {
-            return null
+        const src = inlineData
+            ? resolveDataUri(inlineData.data, inlineData.mime_type, currentTeamId)
+            : typeof item.uri === 'string' && isRenderableMediaSource(item.uri)
+              ? resolveAiBlobUrl(item.uri, currentTeamId)
+              : null
+        if (!src) {
+            return <HighlightedJSONViewer src={item} name={null} collapsed={5} />
         }
-        const src = resolveDataUri(inlineData.data, inlineData.mime_type, currentTeamId)
         return (
-            <img
+            <AIImage
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
-                data-attr="ai-message-image"
-                {...aiBlobRenderHandlers(src, 'image')}
+                fallback={<HighlightedJSONViewer src={item} name={null} collapsed={5} />}
             />
         )
     }
@@ -660,39 +554,21 @@ function renderContentItem(
         const callId = 'id' in item && typeof item.id === 'string' ? item.id : undefined
         const args = parseToolArgumentsForDisplay(rawArgs)
         const displayName = name || '(unnamed function)'
-        const hasSearch = !!searchQuery?.trim()
 
         return (
             <div className="space-y-1">
                 <div className="flex items-center gap-1.5 text-xs">
                     <IconWrench className="text-muted shrink-0" />
-                    <span className="font-mono font-semibold">
-                        {hasSearch ? <SearchHighlight string={displayName} substring={searchQuery!} /> : displayName}
-                    </span>
-                    {callId && (
-                        <span className="font-mono text-muted truncate">
-                            {hasSearch ? <SearchHighlight string={callId} substring={searchQuery!} /> : callId}
-                        </span>
-                    )}
+                    <span className="font-mono font-semibold">{displayName}</span>
+                    {callId && <span className="font-mono text-muted truncate">{callId}</span>}
                 </div>
-                {args.kind === 'parsed' && (
-                    <HighlightedJSONViewer src={args.value} name={null} collapsed={5} searchQuery={searchQuery} />
-                )}
-                {args.kind === 'raw' &&
-                    (hasSearch ? (
-                        <SearchHighlight
-                            string={args.value}
-                            substring={searchQuery!}
-                            className="font-mono whitespace-pre-wrap text-xs"
-                        />
-                    ) : (
-                        <pre className="font-mono whitespace-pre-wrap text-xs m-0">{args.value}</pre>
-                    ))}
+                {args.kind === 'parsed' && <HighlightedJSONViewer src={args.value} name={null} collapsed={5} />}
+                {args.kind === 'raw' && <pre className="font-mono whitespace-pre-wrap text-xs m-0">{args.value}</pre>}
             </div>
         )
     }
 
-    return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
+    return <HighlightedJSONViewer src={item} name={null} collapsed={5} />
 }
 
 /** Max characters to render in minimal (table preview) mode. */
@@ -740,13 +616,11 @@ export const LLMMessageDisplay = React.memo(
         show = true,
         minimal = false,
         onToggle,
-        searchQuery,
         traceId,
         isRenderingMarkdown = true,
         isRenderingXml = false,
         onToggleMarkdownRendering,
         onToggleXmlRendering,
-        messageSentiment,
         actionMenuKey,
     }: {
         message: CompatMessage
@@ -756,17 +630,25 @@ export const LLMMessageDisplay = React.memo(
         /** In minimal mode, we don't show the role, toggles, or additional kwargs, and reduce padding. */
         minimal?: boolean
         onToggle?: () => void
-        searchQuery?: string
         traceId?: string | null
         isRenderingMarkdown?: boolean
         isRenderingXml?: boolean
         onToggleMarkdownRendering?: () => void
         onToggleXmlRendering?: () => void
-        messageSentiment?: { label: string; score: number }
         actionMenuKey?: string
     }): JSX.Element => {
         const { currentTeamId } = useValues(teamLogic)
         const { role, content, ...additionalKwargs } = message
+        const parsedJsonContainer =
+            !show || Array.isArray(content)
+                ? null
+                : getJsonContainerForDisplay(content, { allowEmptyContainers: false })
+        const displayContent =
+            Array.isArray(parsedJsonContainer) &&
+            parsedJsonContainer.some((item) => redactedMediaKind(item) === 'image')
+                ? (parsedJsonContainer as MultiModalContentItem[])
+                : content
+        const isRedactedImage = redactedMediaKind(parsedJsonContainer) === 'image'
         let resolvedIsRenderingMarkdown = isRenderingMarkdown
         let resolvedIsRenderingXml = isRenderingXml
 
@@ -800,8 +682,7 @@ export const LLMMessageDisplay = React.memo(
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (
-            content: string | { type: string; content: string } | VercelSDKImageMessage | MultiModalContentItem[],
-            searchQuery?: string
+            content: string | { type: string; content: string } | VercelSDKImageMessage | MultiModalContentItem[]
         ): JSX.Element | null => {
             if (!content) {
                 return null
@@ -813,15 +694,13 @@ export const LLMMessageDisplay = React.memo(
                     <>
                         {content.map((item, index) => (
                             <React.Fragment key={index}>
-                                {renderContentItem(item, currentTeamId, searchQuery)}
+                                {renderContentItem(item, currentTeamId)}
                                 {index < content.length - 1 && <div className="border-t my-2" />}
                             </React.Fragment>
                         ))}
                     </>
                 )
             }
-            const parsedJsonContainer = getJsonContainerForDisplay(content, { allowEmptyContainers: false })
-
             if (parsedJsonContainer) {
                 if (isObject(parsedJsonContainer)) {
                     const imageMessage = getImageDisplayMessage(parsedJsonContainer)
@@ -832,29 +711,15 @@ export const LLMMessageDisplay = React.memo(
                         return <span className="whitespace-pre-wrap">{String(parsedJsonContainer.text)}</span>
                     }
                 }
-                return <JSONValueDisplay value={parsedJsonContainer} collapsed={5} searchQuery={searchQuery} />
+                return <JSONValueDisplay value={parsedJsonContainer} collapsed={5} />
             }
 
             // If the content appears to be XML, render based on the toggle.
             if (isXmlCandidate && typeof content === 'string') {
                 if (resolvedIsRenderingXml) {
-                    return searchQuery?.trim() ? (
-                        <HighlightedXMLViewer collapsed={3} searchQuery={searchQuery}>
-                            {content}
-                        </HighlightedXMLViewer>
-                    ) : (
-                        <XMLViewer collapsed={3}>{content}</XMLViewer>
-                    )
+                    return <XMLViewer collapsed={3}>{content}</XMLViewer>
                 }
-                return searchQuery?.trim() ? (
-                    <SearchHighlight
-                        string={content}
-                        substring={searchQuery}
-                        className="font-mono whitespace-pre-wrap"
-                    />
-                ) : (
-                    <span className="font-mono whitespace-pre-wrap">{content}</span>
-                )
+                return <span className="font-mono whitespace-pre-wrap">{content}</span>
             }
 
             // If the content appears to be Markdown, render based on the toggle.
@@ -869,55 +734,23 @@ export const LLMMessageDisplay = React.memo(
 
                         try {
                             // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
-                            return searchQuery?.trim() ? (
-                                <HighlightedLemonMarkdown className="whitespace-pre-wrap" searchQuery={searchQuery}>
-                                    {escapedContent}
-                                </HighlightedLemonMarkdown>
-                            ) : (
-                                <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
-                            )
+                            return <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
                         } catch {
                             // If markdown still fails, fall back to plain text
-                            return searchQuery?.trim() ? (
-                                <SearchHighlight
-                                    string={content}
-                                    substring={searchQuery}
-                                    className="font-mono whitespace-pre-wrap"
-                                />
-                            ) : (
-                                <span className="font-mono whitespace-pre-wrap">{content}</span>
-                            )
+                            return <span className="font-mono whitespace-pre-wrap">{content}</span>
                         }
                     } else {
                         // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
-                        return searchQuery?.trim() ? (
-                            <HighlightedLemonMarkdown className="whitespace-pre-wrap" searchQuery={searchQuery}>
-                                {content}
-                            </HighlightedLemonMarkdown>
-                        ) : (
-                            <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
-                        )
+                        return <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
                     }
                 } else {
-                    return searchQuery?.trim() ? (
-                        <SearchHighlight
-                            string={content}
-                            substring={searchQuery}
-                            className="font-mono whitespace-pre-wrap"
-                        />
-                    ) : (
-                        <span className="font-mono whitespace-pre-wrap">{content}</span>
-                    )
+                    return <span className="font-mono whitespace-pre-wrap">{content}</span>
                 }
             }
 
             // Fallback: render as plain text.
             const contentStr = typeof content === 'string' ? content : JSON.stringify(content)
-            return searchQuery?.trim() ? (
-                <SearchHighlight string={contentStr} substring={searchQuery} className="whitespace-pre-wrap" />
-            ) : (
-                <span className="whitespace-pre-wrap">{contentStr}</span>
-            )
+            return <span className="whitespace-pre-wrap">{contentStr}</span>
         }
 
         return (
@@ -947,10 +780,7 @@ export const LLMMessageDisplay = React.memo(
                             }
                         }}
                     >
-                        <span className="grow flex items-center gap-1.5">
-                            {role}
-                            {messageSentiment && <MessageSentimentBar sentiment={messageSentiment} />}
-                        </span>
+                        <span className="grow flex items-center gap-1.5">{role}</span>
                         {(content || Object.keys(additionalKwargsEntries).length > 0) && (
                             <>
                                 <LemonButton
@@ -997,23 +827,20 @@ export const LLMMessageDisplay = React.memo(
                 )}
                 {show && !!content && (
                     <div className={!minimal ? 'p-2 border-t' : 'p-1'}>
-                        {minimal ? (
+                        {isRedactedImage ? (
+                            <RedactedMediaPlaceholder kind="image" />
+                        ) : minimal ? (
                             <LemonMarkdown className="whitespace-pre-wrap">
-                                {extractMinimalPreview(content)}
+                                {extractMinimalPreview(displayContent)}
                             </LemonMarkdown>
                         ) : (
-                            renderMessageContent(content, searchQuery)
+                            renderMessageContent(displayContent)
                         )}
                     </div>
                 )}
                 {show && (!minimal || !content) && Object.keys(additionalKwargsEntries).length > 0 && (
                     <div className={clsx(!minimal ? 'p-2 text-xs border-t' : 'p-1 text-xs')}>
-                        <HighlightedJSONViewer
-                            src={additionalKwargsEntries}
-                            name={null}
-                            collapsed={5}
-                            searchQuery={searchQuery}
-                        />
+                        <HighlightedJSONViewer src={additionalKwargsEntries} name={null} collapsed={5} />
                     </div>
                 )}
             </div>

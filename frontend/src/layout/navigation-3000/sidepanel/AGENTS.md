@@ -1,0 +1,18 @@
+# Side panel agent guide (`frontend/src/layout/navigation-3000/sidepanel`)
+
+The side panel is the right-hand panel with tabs for PostHog AI, Info, Notebooks, Discussion, Activity, Access control and Support.
+`sidePanelLogic.tsx` decides which tabs a scene gets.
+
+## Under `today-rail-nav`, several tabs are on their way out
+
+The `today-rail-nav` flag gates a redesign of the whole web app UI.
+Under that flag the side panel shrinks, and its tabs move to other surfaces:
+
+- **Info** renders the scene's `ScenePanel`. It is deprecated and will be removed, and the `SceneMenuBar` takes over its actions. See [`layout/scenes/AGENTS.md`](../../scenes/AGENTS.md) when you change a scene's actions.
+- **Support** opens from the menu bar's Help menu instead of a tab bar button.
+- **Notebooks** is hidden from the tab bar (`visibleTabs`). Its panel still opens from its existing entry points, such as "Add to notebook". It will be removed from the side panel or moved; the new home is not decided yet.
+- **Discussion** stays. It is the first button in the Today top bar, and `panels/discussion/quill/` holds its quill panel. The flag-off panel keeps `SidePanelDiscussion`.
+- **Adding to a notebook from outside a notebook is deprecated.** Under the flag, `NotebookSelectButton` (person pages, person hover card, group pages) and `SceneAddToNotebookDropdownMenu` render nothing, and the replay menu and the insight, feature flag and cohort menu bars leave their entry out. Inside a notebook the button stays. A finished quill picker, `scenes/notebooks/NotebookSelectButton/QuillNotebookSelectButton`, is kept but not rendered. If someone asks to bring it back, remove those gates and render that component instead of building a new one.
+
+Do not build new features on the Info or Notebooks tabs.
+A change to Info, Notebooks or Discussion must keep working with the flag off, because the current UI still ships them.

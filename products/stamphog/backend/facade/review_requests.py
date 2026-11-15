@@ -5,11 +5,24 @@ the GitHub client and the Celery task module, which must stay off the module rev
 serializer imports on every request.
 """
 
+from collections.abc import Collection
+
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.api import _review_run_to_dto
-from products.stamphog.backend.tasks.tasks import request_manual_review
+from products.stamphog.backend.tasks.tasks import (
+    request_manual_review,
+    reviewing_team_ids as _reviewing_team_ids,
+)
 
-__all__ = ["request_review"]
+__all__ = ["request_review", "reviewing_team_ids"]
+
+
+def reviewing_team_ids(repository: str, team_ids: Collection[int]) -> list[int]:
+    """The teams among ``team_ids``, environments included, where stamphog reviews ``repository``, by
+    the rule ``request_review`` applies."""
+    return _reviewing_team_ids(repository, team_ids)
 
 
 def request_review(
@@ -17,8 +30,8 @@ def request_review(
 ) -> contracts.ReviewRequestResultDTO:
     """Queue a stamphog review of a PR, or return the run already covering its current head.
 
-    Raises ``contracts.ReviewRequestRefusedError`` when the request is refused. The review itself
+    ``team_id`` may be an environment: the review runs in its project. Raises ``contracts.ReviewRequestRefusedError`` when the request is refused. The review itself
     runs asynchronously, and whether it approves is stamphog's decision.
     """
-    queued = request_manual_review(team_id, user_id, repository, pr_number)
+    queued = request_manual_review(resolve_effective_team_id(team_id), user_id, repository, pr_number)
     return contracts.ReviewRequestResultDTO(run=_review_run_to_dto(queued.run), created=queued.created)

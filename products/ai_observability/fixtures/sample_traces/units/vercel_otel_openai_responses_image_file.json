@@ -1,0 +1,190 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Listing photo quality check via vision model",
+  "scenario": "A photo-vision tool (Vercel AI SDK over OpenTelemetry) grades a single uploaded listing photo for quality issues, then embeds a caption of the photo for the app's search index; a cache-lookup span checks whether that caption was already embedded before.",
+  "summary": {
+    "events": {
+      "$ai_span": 2,
+      "$ai_generation": 1,
+      "$ai_embedding": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "opentelemetry/vercel-ai"
+    ],
+    "providers": [
+      "openai.responses"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "gpt-5.4-mini-2026-03-17"
+    ],
+    "content_types": [
+      "file",
+      "image"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "c2240e2e2513d99f",
+        "$ai_span_id": "0eb29dca4120637f",
+        "$ai_trace_id": "13c423b5c629956213657d665670c5f4",
+        "$geoip_disable": true,
+        "ai.usage.cachedInputTokens": 0,
+        "ai.usage.inputTokenDetails.cacheReadTokens": 0,
+        "ai.usage.inputTokenDetails.cacheWriteTokens": 0,
+        "ai.usage.inputTokens": 24,
+        "ai.usage.outputTokens": 118,
+        "ai.usage.reasoningTokens": 37,
+        "ai.usage.totalTokens": 142,
+        "service.name": "photo-vision",
+        "$ai_cache_reporting_exclusive": false,
+        "$ai_span_name": "analyze_listing_photo_condition",
+        "$ai_latency": 1.276703094,
+        "functionId": "analyze_listing_photo_condition",
+        "posthog_distinct_id": "u48213",
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_reasoning_tokens": 37,
+        "$ai_input": [
+          {
+            "content": "You are a real-estate photo quality grader.",
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "image": "X87c0HI0+89ytYEj3+ORPcZ3d87wEjHxqXaczlbPEkADpE5YlJkhjtHCqPL2Cp5g5/5Zcroe7KOAcnkJJw/gvKdz7ZiMDixnZhbyEDU2NLpjVpudr4k9GMuJ++W8PDQfT21g2yP82FpZ9J6HwsaQyI13zoRE+mK+jv9zdmS0Ob2Tvd7BwwDX/zDGMLw+Xk/DkvuQ6WrFTmkPbt/wbYJwkOq1bkFdBXH3gNc/IKxsleJuCULO4FlG6unBJggotYZXp4z2odKoPfgPjsD/5hvSrqx5ViP+Cc9o87pGMUmrrqeoxzBZz8T1GTQDlQ0LIDxiz83hQz/4+OrvByXxgDOOEseNweErdPak/ewNxyg3q7zoPQ9j9KzEThkOWwU6KLWRbOVhFWimUWTshPHHzUQIwACXe2ymYQ+WjeYMHcX12gz7GkzzZmPFwUesfyBHIQ4mmk8/2uCSDrwQb9FLBozEzABBZS8blvXqzOO0MwPW9Y9Qw2Nn4WKOYac+r5D6L7+/5Sb+hh4onFsu8nMcpVW1il8qbV1DQgAykOUVoct7QnGGYzlxKE9s/72aaOcyzzJQK94x2KwIKwnvqRRNLq3zJiJ+10cFc68TYinFPF/i6HQwrfaWMoKeF6S4w9rf",
+                "type": "image"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "content": "This photo shows a bright kitchen with white shaker cabinets and a tile backsplash. Lighting is even and the counters are clear of clutter, which reads well for listing photos. One issue: the ceiling light fixture is slightly overexposed and blows out a small area near the window. Overall quality is good for a listing; consider retaking with the blinds partially closed to tame the glare."
+          }
+        ],
+        "$ai_input_state": {
+          "content": [
+            {
+              "image": "X87c0HI0+89ytYEj3+ORPcZ3d87wEjHxqXaczlbPEkADpE5YlJkhjtHCqPL2Cp5g5/5Zcroe7KOAcnkJJw/gvKdz7ZiMDixnZhbyEDU2NLpjVpudr4k9GMuJ++W8PDQfT21g2yP82FpZ9J6HwsaQyI13zoRE+mK+jv9zdmS0Ob2Tvd7BwwDX/zDGMLw+Xk/DkvuQ6WrFTmkPbt/wbYJwkOq1bkFdBXH3gNc/IKxsleJuCULO4FlG6unBJggotYZXp4z2odKoPfgPjsD/5hvSrqx5ViP+Cc9o87pGMUmrrqeoxzBZz8T1GTQDlQ0LIDxiz83hQz/4+OrvByXxgDOOEseNweErdPak/ewNxyg3q7zoPQ9j9KzEThkOWwU6KLWRbOVhFWimUWTshPHHzUQIwACXe2ymYQ+WjeYMHcX12gz7GkzzZmPFwUesfyBHIQ4mmk8/2uCSDrwQb9FLBozEzABBZS8blvXqzOO0MwPW9Y9Qw2Nn4WKOYac+r5D6L7+/5Sb+hh4onFsu8nMcpVW1il8qbV1DQgAykOUVoct7QnGGYzlxKE9s/72aaOcyzzJQK94x2KwIKwnvqRRNLq3zJiJ+10cFc68TYinFPF/i6HQwrfaWMoKeF6S4w9rf",
+              "type": "image"
+            }
+          ],
+          "role": "user"
+        },
+        "$ai_output_state": {
+          "role": "assistant",
+          "content": "This photo shows a bright kitchen with white shaker cabinets and a tile backsplash. Lighting is even and the counters are clear of clutter, which reads well for listing photos. One issue: the ceiling light fixture is slightly overexposed and blows out a small area near the window. Overall quality is good for a listing; consider retaking with the blinds partially closed to tame the glare."
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 1,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "0eb29dca4120637f",
+        "$ai_span_id": "62b014138609c13e",
+        "$ai_trace_id": "13c423b5c629956213657d665670c5f4",
+        "$geoip_disable": true,
+        "ai.usage.cachedInputTokens": 0,
+        "ai.usage.inputTokenDetails.cacheReadTokens": 0,
+        "ai.usage.inputTokenDetails.cacheWriteTokens": 0,
+        "ai.usage.inputTokens": 24,
+        "ai.usage.outputTokens": 118,
+        "ai.usage.reasoningTokens": 37,
+        "ai.usage.totalTokens": 142,
+        "service.name": "photo-vision",
+        "$ai_input_tokens": 24,
+        "$ai_output_tokens": 118,
+        "$ai_model": "gpt-5.4-mini-2026-03-17",
+        "$ai_span_name": "ai.generateText.doGenerate",
+        "$ai_provider": "openai.responses",
+        "$ai_latency": 1.275836876,
+        "functionId": "analyze_listing_photo_condition",
+        "posthog_distinct_id": "u48213",
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_reasoning_tokens": 37,
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "You are a real-estate photo quality grader."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "file",
+                "mediaType": "image/jpeg",
+                "data": "⟦media:vercel_otel_openai_responses_image_file__M7080754.png⟧"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "content": "This photo shows a bright kitchen with white shaker cabinets and a tile backsplash. Lighting is even and the counters are clear of clutter, which reads well for listing photos. One issue: the ceiling light fixture is slightly overexposed and blows out a small area near the window. Overall quality is good for a listing; consider retaking with the blinds partially closed to tame the glare."
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 1277,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "749673a404d88113",
+        "$ai_span_id": "3aef3ea1a589daa9",
+        "$ai_trace_id": "13c423b5c629956213657d665670c5f4",
+        "$geoip_disable": true,
+        "service.name": "photo-vision",
+        "$ai_span_name": "embed_photo_caption",
+        "$ai_latency": 0.193140019,
+        "functionId": "generateListingPhotoCaptionEmbed",
+        "posthog_distinct_id": "u48213",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 1277,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "c2240e2e2513d99f",
+        "$ai_span_id": "749673a404d88113",
+        "$ai_trace_id": "13c423b5c629956213657d665670c5f4",
+        "$geoip_disable": true,
+        "service.name": "photo-vision",
+        "$ai_span_name": "cache_lookup",
+        "$ai_latency": 0.193601589,
+        "functionId": "generateListingPhotoCaptionEmbed",
+        "posthog_distinct_id": "u48213",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel"
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

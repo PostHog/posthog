@@ -1,3 +1,7 @@
+import { findCostFromModel } from '~/ingestion/pipelines/ai/costs/cost-model-matching'
+import { processCost } from '~/ingestion/pipelines/ai/costs/index'
+import { createAIEvent } from '~/ingestion/pipelines/ai/costs/test-helpers'
+
 import { manualCosts } from './manual-providers'
 
 describe('manualCosts', () => {
@@ -81,5 +85,64 @@ describe('manualCosts', () => {
         if (expected.cache_read_token !== undefined) {
             expect(modelEntry?.cost.default.cache_read_token).toBe(expected.cache_read_token)
         }
+    })
+
+    // These TTS models accept text input and emit audio output. They must resolve
+    // their own price rather than fuzzy-matching the ordinary Gemini text model.
+    describe('Gemini TTS pricing through ingestion', () => {
+        it.each([
+            ['gemini-2.5-pro-preview-tts', 0.000001, 0.00002],
+            ['gemini-3.1-flash-tts-preview', 0.000001, 0.00002],
+        ])('prices %s using its dedicated published audio rate', (model, inputRate, audioRate) => {
+            for (const provider of ['google', 'gemini', 'google-ai-studio']) {
+                for (const usage of [
+                    { candidatesTokensDetails: [{ modality: 'AUDIO', tokenCount: 800 }] },
+                    { output_tokens_by_modality: [{ modality: 'audio', tokens: 800 }] },
+                ]) {
+                    const event = createAIEvent({
+                        $ai_provider: provider,
+                        $ai_model: model,
+                        $ai_input_tokens: 100,
+                        $ai_output_tokens: 800,
+                        $ai_usage: usage,
+                    })
+                    const resolved = findCostFromModel(model, event.properties)
+                    expect(resolved?.cost.model).toBe(model)
+                    expect(resolved?.cost.cost.audio_output).toBe(audioRate)
+
+                    const result = processCost(event)
+
+                    expect(result.properties.$ai_audio_output_tokens).toBe(800)
+                    expect(result.properties.$ai_input_cost_usd).toBeCloseTo(100 * inputRate, 8)
+                    expect(result.properties.$ai_output_cost_usd).toBeCloseTo(800 * audioRate, 8)
+                    expect(result.properties.$ai_total_cost_usd).toBeCloseTo(100 * inputRate + 800 * audioRate, 8)
+                    expect(result.properties.$ai_usage).toBeUndefined()
+                }
+            }
+        })
+
+        it.each(['gemini-2.5-pro-preview-tts', 'google/gemini-3.1-flash-tts-preview'])(
+            'prices audio-only %s even without a modality breakdown',
+            (model) => {
+                const result = processCost(createAIEvent({ $ai_model: model, $ai_output_tokens: 800 }))
+
+                expect(result.properties.$ai_output_cost_usd).toBeCloseTo(0.016, 8)
+                expect(result.properties.$ai_input_cost_usd).toBeUndefined()
+                expect(result.properties.$ai_cost_model_provider).toBe('default')
+            }
+        )
+
+        it('labels an unlisted provider as fallback pricing rather than verified Vertex pricing', () => {
+            const result = processCost(
+                createAIEvent({
+                    $ai_provider: 'vertex',
+                    $ai_model: 'gemini-3.1-flash-tts-preview',
+                    $ai_output_tokens: 800,
+                })
+            )
+
+            expect(result.properties.$ai_cost_model_provider).toBe('default')
+            expect(result.properties.$ai_output_cost_usd).toBeCloseTo(0.016, 8)
+        })
     })
 })

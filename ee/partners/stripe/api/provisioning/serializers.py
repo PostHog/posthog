@@ -82,6 +82,16 @@ class AccountRequestSerializer(serializers.Serializer):
         default=dict,
         help_text="Provider-specific configuration: region (US/EU), organization_name, team_id.",
     )
+    kyc = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            'Stripe\'s verification status for the account request fields: {"verified_fields": [...]}, any of '
+            '"name", "email", "phone" and "country". When sent, linking an existing PostHog account requires '
+            '"email" in verified_fields.'
+        ),
+    )
     orchestrator = serializers.JSONField(
         required=False,
         allow_null=True,
@@ -140,6 +150,12 @@ class AccountRequestSerializer(serializers.Serializer):
             attrs["configuration"] = {}
         if not isinstance(attrs.get("orchestrator"), dict):
             attrs["orchestrator"] = {}
+
+        kyc = attrs.pop("kyc", None)
+        verified_fields = kyc.get("verified_fields") if isinstance(kyc, dict) else None
+        attrs["kyc_email_verified"] = (
+            None if kyc is None else isinstance(verified_fields, list) and "email" in verified_fields
+        )
 
         return attrs
 

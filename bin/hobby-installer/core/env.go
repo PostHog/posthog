@@ -9,8 +9,28 @@ import (
 	"time"
 )
 
+// Secrets that each get their own random value. A leak of a service-to-service secret from
+// one container cannot yield POSTHOG_SECRET, which is Django's SECRET_KEY. The object storage
+// keys sign requests that Caddy forwards from the internet to objectstorage, so every install
+// needs keys of its own.
+var dedicatedSecretKeys = []string{
+	"INTERNAL_REQUEST_TOKEN",
+	"BROWSERLESS_SECRET",
+	"RECORDING_API_JWT_SECRET",
+	"OBJECT_STORAGE_ACCESS_KEY_ID",
+	"OBJECT_STORAGE_SECRET_ACCESS_KEY",
+}
+
+// The shared object storage keys from the public compose file. An .env edited by hand can
+// still hold them, so an upgrade replaces them like a missing key.
+var sharedObjectStorageValues = map[string]string{
+	"OBJECT_STORAGE_ACCESS_KEY_ID":     "object_storage_root_user",
+	"OBJECT_STORAGE_SECRET_ACCESS_KEY": "object_storage_root_password",
+}
+
 type EnvConfig struct {
 	PosthogSecret        string
+	DedicatedSecrets     map[string]string
 	EncryptionSaltKeys   string
 	Domain               string
 	TLSBlock             string
@@ -24,6 +44,15 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 	secret, err := GenerateSecret()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate secret: %w", err)
+	}
+
+	dedicatedSecrets := make(map[string]string, len(dedicatedSecretKeys))
+	for _, key := range dedicatedSecretKeys {
+		value, err := GenerateSecret()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate %s: %w", key, err)
+		}
+		dedicatedSecrets[key] = value
 	}
 
 	encryptionKey, err := GenerateEncryptionKey()
@@ -45,6 +74,7 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 
 	return &EnvConfig{
 		PosthogSecret:        secret,
+		DedicatedSecrets:     dedicatedSecrets,
 		EncryptionSaltKeys:   encryptionKey,
 		Domain:               domain,
 		TLSBlock:             tlsBlock,
@@ -78,6 +108,9 @@ SESSION_RECORDING_V2_METADATA_SWITCHOVER=%s
 		c.PosthogNodeTag,
 		c.SessionRecordingDate,
 	)
+	for _, key := range dedicatedSecretKeys {
+		content += fmt.Sprintf("%s=%s\n", key, c.DedicatedSecrets[key])
+	}
 
 	return os.WriteFile(".env", []byte(content), 0600)
 }
@@ -89,6 +122,8 @@ func LoadExistingEnv() map[string]string {
 		"ENCRYPTION_SALT_KEYS",
 		"DOMAIN",
 		"TLS_BLOCK",
+		"CADDY_HOST",
+		"CADDY_TLS_BLOCK",
 		"REGISTRY_URL",
 		"POSTHOG_APP_TAG",
 		"POSTHOG_NODE_TAG",
@@ -96,6 +131,8 @@ func LoadExistingEnv() map[string]string {
 		"SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS",
 		"OBJECT_STORAGE_MINIO_REMOVED",
 	}
+
+	keys = append(keys, dedicatedSecretKeys...)
 
 	for _, key := range keys {
 		if val := ReadEnvValue(key); val != "" {
@@ -118,16 +155,28 @@ func UpdateEnvValue(key, value string) error {
 		if strings.HasPrefix(line, prefix) {
 			lines[i] = prefix + value
 			found = true
-			break
 		}
 	}
 	if !found {
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
 		lines = append(lines, prefix+value)
 	}
-	return os.WriteFile(".env", []byte(strings.Join(lines, "\n")), 0600)
+	updated := strings.Join(lines, "\n")
+	if !strings.HasSuffix(updated, "\n") {
+		updated += "\n"
+	}
+	return os.WriteFile(".env", []byte(updated), 0600)
 }
 
 func UpdateEnvForUpgrade(version string) error {
+	// bin/deploy-hobby wrote .env world-readable before it restricted the file itself, and
+	// os.WriteFile keeps the mode of a file that exists. Restrict it before adding secrets.
+	if err := os.Chmod(".env", 0600); err != nil {
+		return fmt.Errorf("failed to restrict .env to its owner: %w", err)
+	}
+
 	existing := LoadExistingEnv()
 
 	if existing["ENCRYPTION_SALT_KEYS"] == "" {
@@ -140,8 +189,34 @@ func UpdateEnvForUpgrade(version string) error {
 		}
 	}
 
+	for _, key := range dedicatedSecretKeys {
+		if current := existing[key]; current != "" && current != sharedObjectStorageValues[key] {
+			continue
+		}
+		value, err := GenerateSecret()
+		if err != nil {
+			return err
+		}
+		if err := UpdateEnvValue(key, value); err != nil {
+			return err
+		}
+	}
+
 	if existing["SESSION_RECORDING_V2_METADATA_SWITCHOVER"] == "" {
 		if err := AppendToEnv("SESSION_RECORDING_V2_METADATA_SWITCHOVER", time.Now().Format(time.RFC3339)); err != nil {
+			return err
+		}
+	}
+
+	// Compose fills the proxy Caddyfile from .env, so older installs without these keys serve http://localhost:8000.
+	if existing["CADDY_HOST"] == "" && existing["DOMAIN"] != "" {
+		if err := UpdateEnvValue("CADDY_HOST", fmt.Sprintf(`"%s, http://, https://"`, existing["DOMAIN"])); err != nil {
+			return err
+		}
+	}
+
+	if existing["CADDY_TLS_BLOCK"] == "" && existing["TLS_BLOCK"] != "" {
+		if err := UpdateEnvValue("CADDY_TLS_BLOCK", fmt.Sprintf(`"%s"`, existing["TLS_BLOCK"])); err != nil {
 			return err
 		}
 	}

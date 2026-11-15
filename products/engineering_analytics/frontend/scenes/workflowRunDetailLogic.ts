@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -12,10 +11,10 @@ import {
     engineeringAnalyticsWorkflowJobs,
     engineeringAnalyticsWorkflowRun,
 } from '../generated/api'
-import type { RunFailureLogsApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
+import type { CIEngineEnumApi, RunFailureLogsApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
 import { isDecisiveFailure } from '../lib/lifecycle'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { RunCostSummary, summarizeRunCost } from '../lib/runHealth'
-import { withScope } from '../lib/scope'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -23,7 +22,7 @@ export interface WorkflowRunDetailLogicProps {
     repoOwner: string
     repoName: string
     runId: number
-    // Which GitHub source the list was scoped to, threaded from `?source=` via paramsToProps.
+    ciEngine?: CIEngineEnumApi | null
     sourceId: string | null
 }
 
@@ -102,8 +101,6 @@ export interface workflowRunDetailLogicMeta {
         breadcrumbs: (
             repoOwner: string,
             repoName: string,
-            runId: number,
-            run: WorkflowRunDetailApi | null,
             sourceId: string | null,
             searchParams: Record<string, any>
         ) => Breadcrumb[]
@@ -121,7 +118,10 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'workflowRunDetailLogic']),
     props({} as WorkflowRunDetailLogicProps),
     // sourceId is part of the identity: the same run id only exists within one source.
-    key((props) => `${props.repoOwner}/${props.repoName}/runs/${props.runId}@${props.sourceId ?? ''}`),
+    key(
+        (props) =>
+            `${props.repoOwner}/${props.repoName}/runs/${props.ciEngine ?? ''}/${props.runId}@${props.sourceId ?? ''}`
+    ),
 
     loaders(({ props, values }) => ({
         run: [
@@ -130,6 +130,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                 loadRun: async (): Promise<WorkflowRunDetailApi | null> =>
                     await engineeringAnalyticsWorkflowRun(projectId(), {
                         run_id: props.runId,
+                        ci_engine: props.ciEngine ?? undefined,
                         source_id: props.sourceId ?? undefined,
                         repo: `${props.repoOwner}/${props.repoName}`,
                     }),
@@ -143,6 +144,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                 loadJobs: async (): Promise<WorkflowJobApi[]> =>
                     await engineeringAnalyticsWorkflowJobs(projectId(), {
                         run_id: props.runId,
+                        ci_engine: props.ciEngine ?? undefined,
                         run_attempt: values.run?.run_attempt ?? undefined,
                         source_id: props.sourceId ?? undefined,
                         repo: `${props.repoOwner}/${props.repoName}`,
@@ -157,6 +159,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                     try {
                         return await engineeringAnalyticsRunFailureLogs(projectId(), {
                             run_id: props.runId,
+                            ci_engine: props.ciEngine ?? undefined,
                             source_id: props.sourceId ?? undefined,
                             repo: `${props.repoOwner}/${props.repoName}`,
                         })
@@ -192,7 +195,6 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
             () => [(_, p: WorkflowRunDetailLogicProps) => p.sourceId],
             (sourceId: string | null): string | null => sourceId,
         ],
-        // Summed from the already-loaded jobs, so no extra query.
         runCost: [
             (s) => [s.jobs],
             (jobs: WorkflowJobApi[] | null): RunCostSummary | null => (jobs ? summarizeRunCost(jobs) : null),
@@ -203,51 +205,13 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
             (runId: number): boolean => Number.isFinite(runId),
         ],
         breadcrumbs: [
-            (s, p) => [p.repoOwner, p.repoName, p.runId, s.run, s.sourceId, router.selectors.searchParams],
+            (s, p) => [p.repoOwner, p.repoName, s.sourceId, router.selectors.searchParams],
             (
                 repoOwner: string,
                 repoName: string,
-                runId: number,
-                run: WorkflowRunDetailApi | null,
                 sourceId: string | null,
                 searchParams: Record<string, string | undefined>
-            ): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [
-                    {
-                        key: 'EngineeringAnalytics',
-                        name: 'Engineering analytics',
-                        path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
-                        iconType: 'health',
-                    },
-                    {
-                        key: 'EngineeringAnalyticsWorkflows',
-                        name: 'Workflows',
-                        path: withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId),
-                        iconType: 'health',
-                    },
-                ]
-
-                if (run) {
-                    const loadedRepo = `${run.repo.owner}/${run.repo.name}`
-                    breadcrumbs.push({
-                        key: ['EngineeringAnalyticsWorkflowRuns', `${loadedRepo}/${run.workflow_name}`],
-                        name: `${loadedRepo} · ${run.workflow_name}`,
-                        path: withScope(
-                            urls.engineeringAnalyticsWorkflowRuns(run.repo.owner, run.repo.name, run.workflow_name),
-                            searchParams,
-                            sourceId
-                        ),
-                        iconType: 'health',
-                    })
-                }
-
-                breadcrumbs.push({
-                    key: ['EngineeringAnalyticsWorkflowRun', `${repoOwner}/${repoName}/runs/${runId}`],
-                    name: run ? `run #${runId}` : `${repoOwner}/${repoName} · run #${runId}`,
-                    iconType: 'health',
-                })
-                return breadcrumbs
-            },
+            ): Breadcrumb[] => repoBreadcrumbs(`${repoOwner}/${repoName}`, searchParams, sourceId),
         ],
     }),
 
@@ -255,7 +219,6 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
         // Load jobs only once the run is in, so they can be scoped to the run's real attempt.
         loadRunSuccess: () => {
             actions.loadJobs()
-            // Failure logs only exist for failed runs, so skip the query otherwise.
             if (isDecisiveFailure(values.run?.conclusion ?? null)) {
                 actions.loadFailureLogs()
             }
@@ -263,7 +226,6 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
-        // A non-numeric run id would just 400; the scene renders "not found" instead.
         if (Number.isFinite(props.runId)) {
             actions.loadRun()
         }

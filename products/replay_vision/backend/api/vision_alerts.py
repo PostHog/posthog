@@ -22,11 +22,6 @@ from posthog.exceptions import as_drf_validation_error
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.alerts.backend.facade.contracts import (
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-)
 from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
     count_active_alert_destinations,
@@ -37,8 +32,13 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
-from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_restriction
-from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+)
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.replay_vision.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     MATCH_EVENT_KINDS,
@@ -59,6 +59,7 @@ from products.replay_vision.backend.alert_state_machine import (
     apply_user_reset,
 )
 from products.replay_vision.backend.alert_utils import next_allowed_check_at
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_alert import (
     ALERT_WINDOW_DAYS,
@@ -83,11 +84,6 @@ _SENTINEL: Final = object()
 
 def _any_field_changed(instance: VisionAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
     return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
-
-
-@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
-class ScheduleRestrictionField(serializers.JSONField):
-    pass
 
 
 class VisionAlertSelectionSerializer(serializers.Serializer):
@@ -532,6 +528,7 @@ class VisionAlertConfigurationDetailSerializer(VisionAlertConfigurationSerialize
 @extend_schema_view(list=extend_schema(parameters=[VisionAlertListQuerySerializer]))
 class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "vision_alert"
+    permission_classes = [ReplayVisionCloudOnly]
     scope_object_read_actions = ["list", "retrieve", "events"]
     scope_object_write_actions = [
         "create",

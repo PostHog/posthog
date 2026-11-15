@@ -12,8 +12,8 @@ import pytest_asyncio
 import botocore.exceptions
 
 from posthog.models.integration import Integration
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
+from products.batch_exports.backend.tests.temporal.utils.models import acreate_batch_export, adelete_batch_export
 from products.batch_exports.backend.tests.temporal.utils.s3 import aws_role, create_test_client, delete_all_from_s3
 
 if typing.TYPE_CHECKING:
@@ -117,6 +117,21 @@ async def object_storage_client(bucket_name):
         await delete_all_from_s3(object_storage_client, bucket_name, key_prefix="")
 
         await object_storage_client.delete_bucket(Bucket=bucket_name)
+
+
+@pytest.fixture
+def gcs_checksum_compatibility(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip validation of checksums on partial reads.
+
+    The PyArrow AWS SDK we use to read back results eagerly compares checksums
+    on every request that contains them. This causes tests to fail on partial
+    reads as the GCS checksum is for the whole object.
+
+    We set validation to only when required to get around this. This requires
+    mocking the environment as PyArrow does not expose this as a setting.
+    """
+    # GCS returns whole-object checksums for range reads, which PyArrow validates against partial bytes.
+    monkeypatch.setenv("AWS_RESPONSE_CHECKSUM_VALIDATION", "when_required")
 
 
 @pytest_asyncio.fixture

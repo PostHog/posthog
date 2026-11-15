@@ -25,7 +25,7 @@ pub mod common;
 fn documents() -> Vec<(String, Value, bool, bool)> {
     let mut cases = Vec::new();
     let supported: Value = serde_json::from_str(include_str!(
-        "fixtures/rules_v2_parser/2.1.0/fixtures/config/valid/boolean_targeted_and_percentage_rollout.json"
+        "fixtures/rules_v2_contract/fixtures/config/valid/boolean_targeted_and_percentage_rollout.json"
     )).unwrap();
     cases.push((
         "evaluated-valid-v2".to_string(),
@@ -40,10 +40,7 @@ fn documents() -> Vec<(String, Value, bool, bool)> {
     near_one["version"] = json!("__below_one__");
     cases.push(("rejected-below-one".to_string(), near_one, true, false));
     let mut unsupported = supported.clone();
-    unsupported["rules"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"rule_type": "experiment"}));
+    unsupported["aggregation_group_type_index"] = json!(0);
     cases.push((
         "rejected-unsupported-v2".to_string(),
         unsupported,
@@ -227,6 +224,26 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
     } else {
         FeatureFlagList::from_pg(db.non_persons_reader.clone(), team.id).await?
     };
+    let mut loaded = vec![stored.clone()];
+    if !cached {
+        loaded.push(
+            FeatureFlagList::from_pg_keeping_undecodable(db.non_persons_reader.clone(), team.id)
+                .await?
+                .0,
+        );
+    }
+    let v1_keys = [
+        "absent",
+        "one",
+        "one-float",
+        "one-rounded",
+        "inactive",
+        "deleted",
+    ];
+    for flag in loaded.iter().flatten() {
+        let v1 = v1_keys.contains(&flag.key.as_str());
+        assert_eq!(flag.filters.non_v1.is_none(), v1, "{}", flag.key);
+    }
     for (key, valid) in [
         ("evaluated-valid-v2", true),
         ("evaluated-rounded-v2", true),

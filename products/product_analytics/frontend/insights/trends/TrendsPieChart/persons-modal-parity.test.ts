@@ -18,7 +18,7 @@ describe('persons modal parity between ActionsPie and TrendsPieChart', () => {
         dateRange: { date_from: '-7d' },
     } as unknown as InsightActorsQuery['source']
 
-    const action: ActionFilter = { id: 99, math: 'total', order: 2 } as unknown as ActionFilter
+    const action: ActionFilter = { id: '$pageview', type: 'events', order: 0 }
 
     const indexedResults: IndexedTrendResult[] = [
         {
@@ -32,6 +32,7 @@ describe('persons modal parity between ActionsPie and TrendsPieChart', () => {
             labels: [],
             count: 100,
             action,
+            order: 0,
             breakdown_value: 'chrome',
             compare_label: 'current',
         } as IndexedTrendResult,
@@ -46,6 +47,7 @@ describe('persons modal parity between ActionsPie and TrendsPieChart', () => {
             labels: [],
             count: 50,
             action,
+            order: 0,
             breakdown_value: 'safari',
             compare_label: 'current',
         } as IndexedTrendResult,
@@ -54,23 +56,12 @@ describe('persons modal parity between ActionsPie and TrendsPieChart', () => {
     // Build the input ActionsPie passes to datasetToActorsQuery.
     function legacyActionsPieDataset(): Pick<
         GraphDataset,
-        'action' | 'breakdownValues' | 'compareLabels' | 'breakdown_value' | 'compare_label'
+        'order' | 'breakdownValues' | 'compareLabels' | 'breakdown_value' | 'compare_label'
     > {
         return {
-            action,
+            order: 0,
             breakdownValues: indexedResults.map((r) => r.breakdown_value),
             compareLabels: indexedResults.map((r) => r.compare_label),
-        }
-    }
-
-    // Build the input the hog-charts TrendsPieChart passes to datasetToActorsQuery — single slice.
-    function newPieDatasetForSlice(
-        slice: IndexedTrendResult
-    ): Pick<GraphDataset, 'action' | 'breakdown_value' | 'compare_label'> {
-        return {
-            action: slice.action,
-            breakdown_value: slice.breakdown_value,
-            compare_label: slice.compare_label,
         }
     }
 
@@ -81,7 +72,8 @@ describe('persons modal parity between ActionsPie and TrendsPieChart', () => {
             index: 0,
         })
         const newQuery = datasetToActorsQuery({
-            dataset: newPieDatasetForSlice(indexedResults[0]),
+            // The hog-charts TrendsPieChart passes the clicked slice's result itself.
+            dataset: indexedResults[0],
             query: querySource,
         })
         expect(newQuery).toEqual(legacyQuery)

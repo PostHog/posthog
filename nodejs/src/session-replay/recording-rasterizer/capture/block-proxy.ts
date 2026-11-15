@@ -12,7 +12,14 @@ type RecordingBlock = Pick<FullRecordingBlock, 'key' | 'start_byte' | 'end_byte'
 
 export { BLOCK_REQUEST_PREFIX }
 
-export class BlockProxy {
+export interface BlockSource {
+    readonly blockCount: number
+    readonly totalCompressedBytes: number
+    fetchBlocks(input: RasterizeRecordingInput): Promise<number>
+    handleRequest(request: HTTPRequest, path: string): Promise<void>
+}
+
+export class BlockProxy implements BlockSource {
     private blocks: RecordingBlock[] = []
     private teamId = 0
     private sessionId = ''
@@ -21,7 +28,6 @@ export class BlockProxy {
     constructor(
         private cfg: {
             recordingApiBaseUrl: string
-            recordingApiSecret: string
             blockListingTimeoutMs: number
         },
         private log: Logger = createLogger()
@@ -37,17 +43,10 @@ export class BlockProxy {
         return this.blocks.reduce((sum, block) => sum + (block.end_byte - block.start_byte + 1), 0)
     }
 
-    // Send both the legacy shared secret (when configured) and the relayed team-scoped JWT (when one
-    // was minted upstream), so recording-api accepts either and rollout stays order-independent.
+    // The rasterizer holds no recording-api credential of its own. It relays the team-scoped token
+    // that the Temporal activity minted for this render.
     private authHeaders(): Record<string, string> {
-        const headers: Record<string, string> = {}
-        if (this.cfg.recordingApiSecret) {
-            headers['X-Internal-Api-Secret'] = this.cfg.recordingApiSecret
-        }
-        if (this.recordingApiToken) {
-            headers['Authorization'] = `Bearer ${this.recordingApiToken}`
-        }
-        return headers
+        return this.recordingApiToken ? { Authorization: `Bearer ${this.recordingApiToken}` } : {}
     }
 
     async fetchBlocks(input: RasterizeRecordingInput): Promise<number> {

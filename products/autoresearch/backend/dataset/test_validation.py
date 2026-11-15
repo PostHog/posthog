@@ -5,6 +5,12 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
+from posthog.exceptions import (
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
+
 from products.autoresearch.backend.dataset.labeling import LABELER_QUERY_MODIFIERS, PREDICTION_EVENT_NAME
 from products.autoresearch.backend.dataset.validation import (
     ValidationResult,
@@ -13,14 +19,16 @@ from products.autoresearch.backend.dataset.validation import (
 )
 
 
-def _mock_rows(positives: int, total: int, identified: int | None = None) -> list[list[list[int]]]:
+def _mock_rows(
+    positives: int, total: int, identified: int | None = None, inference: int | None = None
+) -> list[list[list[int]]]:
     # Query order: eligible count, sampled labeler, inference count. Sample size
     # equals total so the extrapolated positives line up with the input.
     eligible_identified = total if identified is None else identified
     return [
         [[eligible_identified, total]],
         [[eligible_identified, positives]],
-        [[eligible_identified]],
+        [[eligible_identified if inference is None else inference]],
     ]
 
 
@@ -32,9 +40,10 @@ class TestValidationWarnings(BaseTest):
         horizon_days: int = 7,
         training_lookback_days: int = 180,
         identified: int | None = None,
+        inference: int | None = None,
     ) -> ValidationResult:
         with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:
-            mock_run.side_effect = _mock_rows(positives, total, identified=identified)
+            mock_run.side_effect = _mock_rows(positives, total, identified=identified, inference=inference)
             return _run_validation(
                 team=self.team,
                 target_event="$pageview",
@@ -57,7 +66,6 @@ class TestValidationWarnings(BaseTest):
             ("zero_users", 0, 0, "low_volume"),
             ("low_positives", 5, 1000, "low_positives"),
             ("low_negatives", 995, 1000, "low_negatives"),
-            ("population_too_large", 5_000, 50_000, "population_too_large"),
         ]
     )
     def test_hard_errors_block_proceeding(self, _name: str, positives: int, total: int, code: str) -> None:
@@ -65,6 +73,39 @@ class TestValidationWarnings(BaseTest):
         codes = [w.code for w in result.warnings]
         assert code in codes
         assert result.can_proceed is False
+
+    @parameterized.expand(
+        [
+            ("training_above_the_cap_is_sampled", 5_000, 100_000, 1_000, "info", True),
+            ("positives_alone_over_the_training_budget", 45_000, 100_000, 1_000, "error", False),
+        ]
+    )
+    def test_population_too_large_is_advisory_only_for_a_samplable_training_population(
+        self, _name: str, positives: int, total: int, inference: int, severity: str, can_proceed: bool
+    ) -> None:
+        result = self._run(positives=positives, total=total, inference=inference)
+        [warning] = [w for w in result.warnings if w.code == "population_too_large"]
+        assert warning.severity == severity
+        assert result.can_proceed is can_proceed
+
+    @parameterized.expand(
+        [
+            ("below_the_cap", 49_999, None),
+            ("at_the_cap", 50_000, "every 2 scoring runs"),
+            ("far_above_the_cap", 250_000, "every 6 scoring runs"),
+        ]
+    )
+    def test_a_large_scoring_population_is_advisory(self, _name: str, inference: int, rescore: str | None) -> None:
+        result = self._run(positives=100, total=1000, inference=inference)
+        size_warnings = [w for w in result.warnings if w.code == "population_too_large"]
+        assert result.can_proceed is True
+        assert result.requires_acknowledgement is False
+        if rescore is None:
+            assert size_warnings == []
+        else:
+            [warning] = size_warnings
+            assert warning.severity == "info"
+            assert rescore in warning.message
 
     def test_moderate_volume_is_warning(self) -> None:
         result = self._run(positives=30, total=200)
@@ -102,11 +143,37 @@ class TestValidationWarnings(BaseTest):
                 "infrastructure_detail_stays_in_the_log",
                 RuntimeError("CH is down at 10.0.0.1"),
                 "Validation could not run",
+                "unavailable",
             ),
-            ("query_error_reaches_the_caller", QueryError("Field not found: nope"), "Field not found: nope"),
+            (
+                "query_error_reaches_the_caller",
+                QueryError("Field not found: nope"),
+                "Field not found: nope",
+                "invalid_definition",
+            ),
+            (
+                "timeout_asks_to_narrow_the_definition",
+                ClickHouseQueryTimeOut(),
+                "Narrow the population",
+                "too_expensive",
+            ),
+            (
+                "memory_limit_asks_to_narrow_the_definition",
+                ClickHouseQueryMemoryLimitExceeded(),
+                "Narrow the population",
+                "too_expensive",
+            ),
+            (
+                "cluster_memory_pressure_is_worth_a_retry",
+                ClickHouseClusterMemoryLimitExceeded(),
+                "Validation could not run",
+                "unavailable",
+            ),
         ]
     )
-    def test_error_in_query_returns_error_result(self, _name: str, exc: Exception, expected: str) -> None:
+    def test_error_in_query_returns_error_result(
+        self, _name: str, exc: Exception, expected: str, expected_code: str
+    ) -> None:
         with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:
             mock_run.side_effect = exc
             result = validate_pipeline_definition(
@@ -121,6 +188,7 @@ class TestValidationWarnings(BaseTest):
         assert result.error is not None
         assert expected in result.error
         assert "10.0.0.1" not in result.error
+        assert result.error_code == expected_code
 
     def test_horizon_at_or_past_the_lookback_is_refused_before_any_query(self) -> None:
         with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:

@@ -1,18 +1,17 @@
-from datetime import timedelta
+from urllib.parse import parse_qs, urlsplit
 
-import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.contrib.auth.hashers import check_password
 from django.test import RequestFactory
-from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.admin.console.oauth_tool import RevokeSessionsForm
+from posthog.models.oauth import OAuthApplication
 
 
 class TestOAuthApplicationAdmin(BaseTest):
@@ -46,17 +45,17 @@ class TestOAuthApplicationAdmin(BaseTest):
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
         )
-        assert app.provisioning.can_use_github_grants is False
+        assert app.provisioning.can_issue_deep_links is False
 
-        form = self._provisioning_form(app, provisioning_can_use_github_grants="on")
+        form = self._provisioning_form(app, provisioning_can_issue_deep_links="on")
         assert form.is_valid(), form.errors
         form.save()
 
         app.refresh_from_db()
         granted = app.provisioning
-        assert granted.can_use_github_grants is True
+        assert granted.can_issue_deep_links is True
         # Unticked boxes stay off rather than picking up a default.
-        assert granted.can_start_wizard_runs is False
+        assert granted.skip_existing_user_consent is False
 
     def _rate_limit_app(self) -> OAuthApplication:
         return OAuthApplication.objects.create(
@@ -92,6 +91,92 @@ class TestOAuthApplicationAdmin(BaseTest):
         form.save()
         app.refresh_from_db()
         assert app.provisioning.rate_limits == {"account_requests": -1}
+
+    @parameterized.expand(
+        [
+            ("public_partner_pays", OAuthApplication.CLIENT_PUBLIC, None, True, {}, "pays_for_customers", True),
+            (
+                "client_secret_partner_pays",
+                OAuthApplication.CLIENT_CONFIDENTIAL,
+                None,
+                True,
+                {},
+                "pays_for_customers",
+                True,
+            ),
+            (
+                "public_partner_creates_accounts",
+                OAuthApplication.CLIENT_PUBLIC,
+                None,
+                True,
+                {},
+                "can_create_accounts",
+                True,
+            ),
+            (
+                "private_key_jwt_partner",
+                OAuthApplication.CLIENT_CONFIDENTIAL,
+                "https://example.com/.well-known/jwks.json",
+                True,
+                {},
+                "pays_for_customers",
+                False,
+            ),
+            # Never authenticates through provisioning auth, like the HMAC-signed Stripe Projects app.
+            (
+                "not_a_provisioning_partner",
+                OAuthApplication.CLIENT_CONFIDENTIAL,
+                None,
+                False,
+                {},
+                "pays_for_customers",
+                False,
+            ),
+            # Already refused at runtime, like a CIMD partner whose metadata dropped its key. Staff must
+            # still be able to save it, for example to switch it off.
+            (
+                "already_paying_without_a_key",
+                OAuthApplication.CLIENT_PUBLIC,
+                None,
+                True,
+                {"pays_for_customers": True},
+                "pays_for_customers",
+                False,
+            ),
+        ]
+    )
+    def test_partner_that_must_sign_needs_a_private_key(
+        self,
+        name: str,
+        client_type: str,
+        jwks_uri: str | None,
+        is_partner: bool,
+        stored_config: dict,
+        ticked_capability: str,
+        expects_error: bool,
+    ) -> None:
+        app = OAuthApplication.objects.create(
+            name=f"Signing App {name}",
+            client_id=f"signing_client_id_{name}",
+            client_secret="secret",
+            client_type=client_type,
+            jwks_uri=jwks_uri,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=is_partner,
+            _provisioning_config=stored_config,
+        )
+        fields = {f"provisioning_{ticked_capability}": "on"}
+        if is_partner:
+            fields["is_provisioning_partner"] = "on"
+        if jwks_uri:
+            fields["jwks_uri"] = jwks_uri
+
+        form = self._provisioning_form(app, **fields)
+
+        assert form.is_valid() is not expects_error, form.errors
+        assert (f"provisioning_{ticked_capability}" in form.errors) is expects_error
 
     @parameterized.expand(
         [
@@ -139,58 +224,40 @@ class TestOAuthApplicationAdmin(BaseTest):
         plaintext = message.rsplit(": ", 1)[1]
         assert check_password(plaintext, app.client_secret)
 
-    @time_machine.travel("2026-01-01 00:00:00", tick=False)
-    def test_revoke_all_sessions_action_force_invalidates_tokens(self):
-        app = OAuthApplication.objects.create(
-            name="Revoke Action App",
-            client_id="revoke_action_client_id",
-            client_secret="revoke_action_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        access_token = OAuthAccessToken.objects.create(
-            application=app, user=self.user, token="at_revoke_action", expires=timezone.now() + timedelta(minutes=5)
-        )
-        OAuthRefreshToken.objects.create(
-            application=app, user=self.user, token="rt_revoke_action", access_token=access_token
-        )
+    @parameterized.expand([("within_the_limit", 2, True), ("over_the_limit", 1, False)])
+    def test_revoke_all_sessions_action_sends_the_picked_applications_to_the_console(
+        self, _name: str, max_applications: int, expect_redirect: bool
+    ):
+        apps = [
+            OAuthApplication.objects.create(
+                name=f"Revoke action app {index}",
+                client_id=f"revoke_action_client_id_{index}",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                organization=self.organization,
+                algorithm="RS256",
+            )
+            for index in range(2)
+        ]
 
-        request = RequestFactory().post("/", {"confirm": "yes"})
-        with patch.object(self.admin, "message_user") as message_user:
-            self.admin.revoke_all_sessions(request=request, queryset=OAuthApplication.objects.filter(id=app.id))
+        with (
+            patch.object(RevokeSessionsForm, "MAX_APPLICATIONS", max_applications),
+            patch.object(self.admin, "message_user") as message_user,
+        ):
+            response = self.admin.revoke_all_sessions(
+                request=RequestFactory().post("/"),
+                queryset=OAuthApplication.objects.filter(id__in=[app.id for app in apps]),
+            )
 
-        self.assertEqual(OAuthAccessToken.objects.filter(application=app).count(), 0)
-        self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
-        message_user.assert_called_once()
-
-    @time_machine.travel("2026-01-01 00:00:00", tick=False)
-    def test_revoke_all_sessions_without_confirm_renders_page_and_keeps_tokens(self):
-        app = OAuthApplication.objects.create(
-            name="Revoke Confirm App",
-            client_id="revoke_confirm_client_id",
-            client_secret="revoke_confirm_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        OAuthAccessToken.objects.create(
-            application=app, user=self.user, token="at_revoke_confirm", expires=timezone.now() + timedelta(minutes=5)
-        )
-
-        self.user.is_staff = True
-        request = RequestFactory().post("/")
-        request.user = self.user
-        response = self.admin.revoke_all_sessions(request=request, queryset=OAuthApplication.objects.filter(id=app.id))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("revoke_all_sessions_confirm.html", response.template_name)
-        # Nothing revoked until the operator confirms.
-        self.assertEqual(OAuthAccessToken.objects.filter(application=app).count(), 1)
+        if not expect_redirect:
+            self.assertIsNone(response)
+            self.assertIn("1 applications or fewer", message_user.call_args.args[1])
+            return
+        message_user.assert_not_called()
+        location = urlsplit(response["Location"])
+        self.assertEqual(location.path, "/admin/console/tools/oauth-sessions/revoke/")
+        self.assertEqual(set(parse_qs(location.query)["application"]), {str(app.id) for app in apps})
 
     @parameterized.expand(
         [

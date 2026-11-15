@@ -14,6 +14,8 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { Properties } from '~/plugin-scaffold'
 import { EventHeaders, Person } from '~/types'
 
+const HISTORICAL_MIGRATION_MIN_AGE_MS = 48 * 60 * 60 * 1000
+
 export interface EventUsageBatchContext {
     eventUsageBatch: UsageRecordBatch
 }
@@ -40,7 +42,7 @@ export interface RecordEventUsageInput {
         timestamp: string
         properties: Properties
     }
-    headers: Pick<EventHeaders, 'now'>
+    headers: Pick<EventHeaders, 'now' | 'historical_migration'>
     eventUsageBatch: UsageRecordBatch
     processPerson?: boolean
     person?: Person
@@ -50,7 +52,7 @@ export interface RecordEventUsageInput {
  * Hashed rather than joined: event names and distinct IDs are client-supplied and together
  * exceed the 512-byte identifier the service accepts, and one oversized record makes the
  * service reject the whole request. The timestamp is UTC-normalized upstream, so its first
- * ten characters are the day `toDate` resolves in the billing table's sorting key.
+ * ten characters are the source day used in the events table's sorting key.
  */
 function hashedRecordId(timestamp: string, identity: string[]): string {
     const day = timestamp.slice(0, 10)
@@ -106,15 +108,12 @@ export interface EventUsageRecordContext {
  * separates, and it waits on the same acknowledgement: an event that never lands should not bill
  * for the person work either.
  *
- * TODO: decide how usage records should treat events dated in the past. This step bills every
- * billable event at the moment it is processed, including a historical migration. The nightly
- * report does not: `get_teams_with_billable_event_count_in_period` filters the events table on
- * the event's own `timestamp`, so an event backdated outside the current period lands in a
- * period that has already been billed and is charged for nowhere. The two systems therefore
- * disagree on exactly the imports customers run deliberately, and the choice — bill regardless
- * of event age, or mirror the report and skip old events — is a pricing decision rather than an
- * implementation one. `historicalMigration` is available upstream in the pipeline if we pick
- * the second.
+ * Capture time assigns usage to the period that receives it. The record ID retains the source
+ * date for event identity and comparison with legacy reports.
+ *
+ * Historical analytics migrations are free once the event is at least 48 hours old at capture.
+ * The sender sets the migration flag, so the age check keeps recent flagged events billable.
+ * Separate usage keys retain free import counts. Ordinary late events remain billable.
  */
 export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
@@ -134,7 +133,19 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
                 : analyticsRecordId(input.preparedEvent)
         const captureTimestampMs = input.headers.now?.getTime()
         const timestampMs = Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
-        const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId, timestampMs }]
+        const isHistoricalAnalytics =
+            usageKey === EVENTS_USAGE_KEY &&
+            input.headers.historical_migration === true &&
+            timestampMs !== undefined &&
+            timestampMs - Date.parse(input.preparedEvent.timestamp) >= HISTORICAL_MIGRATION_MIN_AGE_MS
+        const eventUsageRecords: EventUsageRecord[] = [
+            {
+                teamId,
+                usageKey: isHistoricalAnalytics ? 'historical_migration_events' : usageKey,
+                recordId,
+                timestampMs,
+            },
+        ]
         // Mirrors the report's enhanced-persons query: the plain billable count plus a `person_mode`
         // filter, so an event billed under its own key is outside both. Reading the mode stored on
         // the event rather than `processPerson` keeps force upgrades counted.
@@ -142,7 +153,14 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
             usageKey === EVENTS_USAGE_KEY &&
             resolvePersonMode(input.person, input.processPerson ?? false) !== 'propertyless'
         ) {
-            eventUsageRecords.push({ teamId, usageKey: 'enhanced_person_events', recordId, timestampMs })
+            eventUsageRecords.push({
+                teamId,
+                usageKey: isHistoricalAnalytics
+                    ? 'historical_migration_enhanced_person_events'
+                    : 'enhanced_person_events',
+                recordId,
+                timestampMs,
+            })
         }
         return Promise.resolve(ok({ ...input, eventUsageRecords }))
     }

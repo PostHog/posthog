@@ -1,14 +1,20 @@
 import os
 import json
+import base64
+import datetime as dt
 from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
+    CachedLogsQueryResponse,
     DateRange,
     FilterLogicalOperator,
     HogQLFilters,
@@ -31,6 +37,7 @@ from posthog.test.persons import create_person
 
 from products.logs.backend.logs_query_runner import LogsQueryRunner
 from products.logs.backend.models import TeamLogsConfig
+from products.logs.backend.presentation.views.api import LogsViewSet
 
 
 class TestAttributeFilters(APIBaseTest):
@@ -633,6 +640,35 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(queries), 1)
 
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
+    def test_logs_integration_null_limit_uses_the_default(self):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 10:32:36.178572Z", "date_to": None},
+            "limit": None,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+
+        response = self._make_logs_api_request(query_params)
+        self.assertEqual(len(response["results"]), 51)
+        self.assertFalse(response["hasMore"])
+
+    @parameterized.expand(
+        [
+            ("query_string", "query", "abc"),
+            ("query_negative", "query", -1),
+            ("group_by_string", "group-by", "abc"),
+            ("group_by_zero", "group-by", 0),
+        ]
+    )
+    def test_logs_rejects_a_bad_limit(self, _name: str, action: str, limit: str | int) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/{action}",
+            data={"query": {"dateRange": {"date_from": "-1h"}, "limit": limit}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["attr"], "limit")
+
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_slicing(self):
         # should slice the query, only return 100 results first time, then get the rest
         query_params = {
@@ -735,8 +771,16 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 0)
         self.assertEqual(len(queries), 2)
 
+    @parameterized.expand(
+        [
+            ("is_not", "envoy"),
+            # The negative path flips each operator to its positive form and excludes what that form
+            # matches, so an operator without a positive complement returns the opposite of the filter.
+            ("not_icontains_multi", ["envoy"]),
+        ]
+    )
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
-    def test_multiple_negative_resource_attribute_filters(self):
+    def test_multiple_negative_resource_attribute_filters(self, container_operator, container_value):
         # Two negative resource attribute filters on disjoint values (no log has both an envoy
         # container AND the kube-system namespace). The fix exists so a resource is excluded when
         # it matches ANY of the negative filters, not just when it matches every one. Pre-fix this
@@ -752,8 +796,8 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "values": [
                             {
                                 "key": "k8s.container.name",
-                                "value": "envoy",
-                                "operator": "is_not",
+                                "value": container_value,
+                                "operator": container_operator,
                                 "type": "log_resource_attribute",
                             },
                             {
@@ -775,7 +819,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(results), 0)
         # neither excluded value appears anywhere — proves OR semantics
         for result in results:
-            self.assertNotEqual(result["resource_attributes"].get("k8s.container.name"), "envoy")
+            self.assertNotIn("envoy", result["resource_attributes"].get("k8s.container.name", ""))
             self.assertNotEqual(result["resource_attributes"].get("k8s.namespace.name"), "kube-system")
         # both excluded groups exist in the test data, so the result count must be strictly less than
         # the unfiltered count. Pre-fix this would have returned every log in range (since no resource
@@ -788,6 +832,59 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         )
         self.assertLess(len(results), len(unfiltered["results"]))
+
+    @time_machine.travel("2025-11-21T00:00:00Z", tick=False)
+    def test_semver_neq_resource_attribute_filter_excludes_only_the_matching_version(self):
+        # The shared fixture holds no semver-shaped resource attribute, so this test inserts its own
+        # resources. The class shares one team and ClickHouse keeps rows between tests, so the rows
+        # sit on 2025-11-20, which is outside the date range of every other test in this class.
+        versions = {"matching": "1.2.3", "other": "2.0.0", "non_semver": "latest", "absent": None}
+        rows = []
+        for body, version in versions.items():
+            resource_attributes = {"service.name": "semver-neq-test-svc"}
+            if version is not None:
+                resource_attributes["service.version"] = version
+            rows.append(
+                {
+                    "uuid": str(uuid4()),
+                    "team_id": self.team.id,
+                    "timestamp": "2025-11-20 10:00:00.000000",
+                    "observed_timestamp": "2025-11-20 10:00:01.000000",
+                    "body": body,
+                    "severity_text": "info",
+                    "severity_number": 9,
+                    "service_name": "semver-neq-test-svc",
+                    "resource_attributes": resource_attributes,
+                    "attributes_map_str": {},
+                }
+            )
+        payload = "\n".join(json.dumps(row) for row in rows)
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{payload}")
+
+        response = self._make_logs_api_request(
+            {
+                "dateRange": {"date_from": "2025-11-20T00:00:00Z", "date_to": "2025-11-21T00:00:00Z"},
+                "limit": 10,
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "service.version",
+                                    "value": "1.2.3",
+                                    "operator": "semver_neq",
+                                    "type": "log_resource_attribute",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual({result["body"] for result in response["results"]}, {"other", "non_semver", "absent"})
 
     def _run_log_attribute_filter(self, operator: PropertyOperator, mode: PropertyGroupsMode) -> list[dict]:
         query = LogsQuery(
@@ -1513,3 +1610,95 @@ class TestLogsSessionIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, AP
         )
         self.assertEqual(group_by_response.status_code, status.HTTP_200_OK)
         self.assertEqual(group_by_response.json()["total_logs"], 1)
+
+
+class TestLogsQueryCachedResponse(APIBaseTest):
+    def test_cursor_from_cached_string_timestamps(self):
+        rows = [
+            {"uuid": uuid, "timestamp": timestamp}
+            for uuid, timestamp in [
+                ("01", "2026-06-02T08:00:00.300000+00:00"),
+                ("02", "2026-06-02T08:00:00.200000+00:00"),
+                ("03", "2026-06-02T08:00:00.100000+00:00"),
+            ]
+        ]
+        now = dt.datetime.now(dt.UTC)
+        cached = CachedLogsQueryResponse(
+            cache_key="key",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            timezone="UTC",
+            results=rows,
+        )
+        with patch("products.logs.backend.presentation.views.api.LogsQueryRunner.run", return_value=cached):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/query",
+                {"query": {"limit": 2, "dateRange": {"date_from": "-10m"}}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        cursor = json.loads(base64.b64decode(response.json()["nextCursor"]))
+        self.assertEqual(cursor, {"timestamp": "2026-06-02T08:00:00.200000+00:00", "uuid": "02"})
+
+
+_IS_SET_LEAF = {"key": "k", "operator": "is_set", "type": "log_attribute"}
+
+
+class TestFilterAnalyticsProps(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_group", None, False),
+            ("empty_group_from_app", {"type": "AND", "values": []}, False),
+            ("empty_nested_group_from_app", {"type": "AND", "values": [{"type": "AND", "values": []}]}, False),
+            ("valueless_filter", {"type": "AND", "values": [{"type": "AND", "values": [_IS_SET_LEAF]}]}, True),
+            ("empty_flat_list_from_mcp", [], False),
+            ("flat_list_from_mcp", [_IS_SET_LEAF], True),
+        ]
+    )
+    def test_has_filter_group_ignores_empty_groups(self, _name, filter_group, expected):
+        props = LogsViewSet._filter_analytics_props({"filterGroup": filter_group})
+        self.assertEqual(props["has_filter_group"], expected)
+
+
+class TestLogsQueryExecutedEvent(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("plain", {"filterGroup": {"type": "AND", "values": []}}, "none", None, "unknown"),
+            ("session_scoped", {"sessionId": "some-session"}, "session", None, "unknown"),
+            ("person_scoped", {"personId": "some-person"}, "person", "initial_load", "initial_load"),
+            ("unrecognised_trigger", {}, "none", "made_up", "unknown"),
+        ]
+    )
+    def test_event_reports_query_scope_and_trigger(self, _name, query_extra, scope, sent_trigger, trigger):
+        now = dt.datetime.now(dt.UTC)
+        empty = CachedLogsQueryResponse(
+            cache_key="key",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            timezone="UTC",
+            results=[],
+        )
+        with (
+            patch("products.logs.backend.presentation.views.api.LogsQueryRunner.run", return_value=empty),
+            patch("products.logs.backend.presentation.views.api.team_has_logs", return_value=True),
+            patch("products.logs.backend.presentation.views.api.report_user_action") as mock_report,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/query",
+                {
+                    "query": {"dateRange": {"date_from": "-10m"}, **query_extra},
+                    **({"trigger": sent_trigger} if sent_trigger else {}),
+                },
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        event, properties = mock_report.call_args[0][1:3]
+        self.assertEqual(event, "logs query executed")
+        self.assertEqual(
+            {k: properties[k] for k in ("scope", "trigger", "has_filter_group")},
+            {"scope": scope, "trigger": trigger, "has_filter_group": False},
+        )
+        self.assertIsInstance(properties["duration_ms"], int)
+        self.assertGreaterEqual(properties["duration_ms"], 0)

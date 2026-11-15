@@ -24,8 +24,11 @@ from posthog.models import PersonalAPIKey, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
+from posthog.test.authentication_checks import covers_authentication
+from posthog.test.id_jag import id_jag_access_token
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.skills.backend.marketplace.auth import MarketplaceGitBasicAuthentication
 
 from ...api import skill_services
 from ...api.skill_serializers import validate_skill_file_path
@@ -124,7 +127,7 @@ class TestSkillZipExport(APIBaseTest):
         zip_bytes = export.content
 
         # Free the name so the re-import recreates it cleanly.
-        archive_skill(self.team, "round-trip")
+        archive_skill(self.team, "round-trip", acting_user=None)
 
         upload = SimpleUploadedFile("round-trip.zip", zip_bytes, content_type="application/zip")
         imported = self.client.post(
@@ -288,7 +291,7 @@ class TestSkillBundle(APIBaseTest):
         self._create_skill("mine")
         LLMSkillFile.objects.create(skill=self._create_skill("with-file"), path="scripts/run.py", content="print(1)\n")
         self._create_skill("owned", created_by=self.other_user)
-        set_skill_owners(self.team, "owned", [self.user])
+        set_skill_owners(self.team, "owned", [self.user], acting_user=None)
         self._create_skill("someone-elses", created_by=self.other_user)
         self._create_skill("signals-scout-x", category="scout")
         self._create_skill("archived", deleted=True)
@@ -485,8 +488,8 @@ class TestSkillBundle(APIBaseTest):
         AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="none")
         allowed = self._create_skill("allowed")
         self._create_skill("blocked")
-        set_skill_owners(self.team, "allowed", [member])
-        set_skill_owners(self.team, "blocked", [member])
+        set_skill_owners(self.team, "allowed", [member], acting_user=None)
+        set_skill_owners(self.team, "blocked", [member], acting_user=None)
         AccessControl.objects.create(
             team=self.team,
             resource="llm_skill",
@@ -542,7 +545,7 @@ class TestSkillBundle(APIBaseTest):
         assert self._skill_dirs(response) == set()
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch("products.skills.backend.api.skills.SkillBundleBurstThrottle.rate", new="1/minute")
+    @patch("products.skills.backend.api.skill_throttles.SkillBundleBurstThrottle.rate", new="1/minute")
     def test_oauth_and_session_callers_are_throttled(self, *_args):
         # The general Burst/Sustained throttles only count personal-API-key traffic, so an OAuth
         # (or session) caller would otherwise hit this expensive zip endpoint unthrottled. The
@@ -595,6 +598,7 @@ class TestSkillMarketplaceGit(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         assert response.get("WWW-Authenticate", "").startswith("Basic")
 
+    @covers_authentication(MarketplaceGitBasicAuthentication)
     def test_info_refs_with_pak_advertises_refs(self):
         self._create_skill()
         _mint_pak(self.user, scopes=["llm_skill:read"], scoped_teams=[self.team.id])
@@ -793,7 +797,7 @@ class TestMarketplaceVersion(APIBaseTest):
         LLMSkill.objects.filter(pk=newest.pk).update(updated_at=now)
 
         before = self._plugin_version_epoch()
-        archive_skill(self.team, "skill-new")
+        archive_skill(self.team, "skill-new", acting_user=None)
         after = self._plugin_version_epoch()
 
         # Without the archive bumping updated_at, the version would drop back to the older
@@ -852,6 +856,16 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert key.scoped_teams == [self.team.id]  # locked to this team
         assert key.label == self._label()
         assert PersonalAPIKey.objects.filter(user=self.user).count() == 1
+
+    def test_post_refuses_id_jag_tokens(self):
+        token = id_jag_access_token(self.user, self.organization, "llm_skill:write")
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = self.client.post(self._url(), {"rotate": True}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert self._credential() is None
 
     def test_post_again_without_rotate_reuses_and_returns_no_token(self):
         self.client.post(self._url())

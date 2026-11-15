@@ -1,0 +1,155 @@
+{
+    "id": "01a12fb6-3d00-0000-1ba1-55955f61496e",
+    "name": "AI scheduled report",
+    "description": "On a schedule you choose, an AI agent reviews your PostHog data and sends a short report to Slack.",
+    "version": 1,
+    "created_at": "2026-10-12T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-12T00:00:00Z",
+    "trigger": {
+        "type": "schedule"
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "action_function_dd0cc808-3f0f-40e3-83d0-843afb9c9cd6",
+            "type": "continue"
+        },
+        {
+            "from": "action_function_dd0cc808-3f0f-40e3-83d0-843afb9c9cd6",
+            "to": "action_function_7f63a595-f29c-48b2-a824-939c0b61fbeb",
+            "type": "continue"
+        },
+        {
+            "from": "action_function_7f63a595-f29c-48b2-a824-939c0b61fbeb",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "On a schedule",
+            "description": "Set how often the report runs, for example every Monday at 9am.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "output_variable": null,
+            "config": {
+                "type": "schedule"
+            }
+        },
+        {
+            "id": "action_function_dd0cc808-3f0f-40e3-83d0-843afb9c9cd6",
+            "name": "Write the report",
+            "description": "An AI agent reviews your data and writes the report. Edit the instructions to match what your team wants to see.",
+            "on_error": "abort",
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "output_variable": [
+                {
+                    "key": "task_final_message",
+                    "result_path": "final_message"
+                }
+            ],
+            "config": {
+                "template_id": "template-posthog-create-task",
+                "inputs": {
+                    "prompt": {
+                        "value": "Write a short report on this project's PostHog data since the last report.\n\nCover:\n1. The key metrics on the project's most-used dashboard, compared with the previous period.\n2. Any large changes, and what most likely caused them.\n3. New or growing errors.\n\nKeep it under 200 words. Start with the most important change, and link to the insights you used."
+                    },
+                    "title": {
+                        "value": "Scheduled report"
+                    },
+                    "posthog_mcp_scopes": {
+                        "value": "read_only"
+                    },
+                    "reply_in_slack_thread": {
+                        "value": false
+                    },
+                    "non_failure_status_codes": {
+                        "value": [409]
+                    }
+                }
+            }
+        },
+        {
+            "id": "action_function_7f63a595-f29c-48b2-a824-939c0b61fbeb",
+            "name": "Send to Slack",
+            "description": "Connect the Slack channel that gets the report.",
+            "on_error": null,
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "output_variable": null,
+            "config": {
+                "template_id": "template-slack",
+                "inputs": {
+                    "slack_workspace": {
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":hedgehog:",
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "PostHog",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "type": "markdown",
+                                "text": "{variables.task_final_message}"
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "text": {
+                        "value": "{variables.task_final_message}",
+                        "templating": "hog"
+                    }
+                }
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [
+        {
+            "key": "task_final_message",
+            "type": "string",
+            "default": ""
+        }
+    ],
+    "billable_action_types": ["function"],
+    "tags": ["ai", "reports", "slack"],
+    "scope": "global"
+}

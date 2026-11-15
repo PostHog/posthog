@@ -23,10 +23,3 @@ export function readCreatedPrUrl(toolCall: ToolCall): string | null {
     outputText: toolCallOutputText(toolCall),
   });
 }
-
-/** Whether a tool call draws an artifact card, which never folds into a tool group. */
-export function hasInlineArtifact(toolCall: ToolCall): boolean {
-  return (
-    isUploadArtifactCall(toolCall._meta) || readCreatedPrUrl(toolCall) !== null
-  );
-}

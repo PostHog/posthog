@@ -11,6 +11,11 @@ from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsFilter,
     AssistantFunnelsQuery,
+    EventsNode,
+    FunnelAggregateByHogQL,
+    FunnelsDataWarehouseNode,
+    FunnelsFilter,
+    FunnelsQuery,
     FunnelStepReference,
     FunnelVizType,
 )
@@ -219,6 +224,92 @@ class TestFunnelResultsFormatter(BaseTest):
                 'Date range: 2025-01-31 00:00:00 to 2025-02-07 23:59:59 (UTC)\n\n---au\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\n---us\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\nConversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of users from the first step completed the funnel.',
             )
 
+    @parameterized.expand(
+        [
+            ("person_default", None, None, "Total person count", "users"),
+            ("person_id_expression", "person_id", None, "Total person count", "users"),
+            (
+                "session_expression",
+                "properties.$session_id",
+                None,
+                "Total session count (aggregated by properties.$session_id)",
+                "sessions",
+            ),
+            ("group", None, 1, "Total group count (group type index 1)", "groups"),
+            (
+                "group_wins_over_expression",
+                "properties.$session_id",
+                0,
+                "Total group count (group type index 0)",
+                "groups",
+            ),
+            (
+                "custom_expression",
+                "properties.account_id",
+                None,
+                "Total unique value count (aggregated by properties.account_id)",
+                "unique values of properties.account_id",
+            ),
+            (
+                "custom_expression_not_a_property_path",
+                "concat(a,\n'x')||b",
+                None,
+                "Total unique value count (aggregated by a custom HogQL expression)",
+                "unique values of the custom HogQL expression",
+            ),
+        ]
+    )
+    def test_funnel_steps_count_label_follows_aggregation(
+        self, _name: str, hogql: str | None, group_type_index: int | None, count_label: str, unit: str
+    ):
+        query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="signup")],
+            aggregation_group_type_index=group_type_index,
+            funnelsFilter=FunnelsFilter(funnelAggregateByHogQL=hogql),
+        )
+        results = [
+            {"name": "$pageview", "count": 5, "average_conversion_time": None, "median_conversion_time": None},
+            {"name": "signup", "count": 2, "average_conversion_time": 10, "median_conversion_time": 11},
+        ]
+        output = FunnelResultsFormatter(query, results, self.team, datetime.now()).format()
+        self.assertIn(f"\n{count_label}|5|2\n", output)
+        self.assertIn(f"means that 9% of {unit} from the first step completed the funnel.", output)
+
+    def test_funnel_steps_count_label_for_custom_data_warehouse_target(self):
+        warehouse_step = {
+            "table_name": "opportunities",
+            "id_field": "id",
+            "timestamp_field": "created_at",
+            "aggregation_target_field": "account_id",
+        }
+        query = FunnelsQuery(
+            series=[
+                FunnelsDataWarehouseNode(id="opportunities", name="created", **warehouse_step),
+                FunnelsDataWarehouseNode(id="opportunities", name="won", **warehouse_step),
+            ],
+            funnelsFilter=FunnelsFilter(customAggregationTarget=True),
+        )
+        results = [
+            {"name": "created", "count": 5, "average_conversion_time": None, "median_conversion_time": None},
+            {"name": "won", "count": 2, "average_conversion_time": 10, "median_conversion_time": 11},
+        ]
+        output = FunnelResultsFormatter(query, results, self.team, datetime.now()).format()
+        self.assertIn("\nTotal entity count|5|2\n", output)
+        self.assertIn("means that 9% of entities from the first step completed the funnel.", output)
+
+    def test_assistant_funnel_session_aggregation(self):
+        query = AssistantFunnelsQuery(
+            series=[AssistantFunnelsEventsNode(event="$pageview"), AssistantFunnelsEventsNode(event="signup")],
+            funnelsFilter=AssistantFunnelsFilter(
+                funnelAggregateByHogQL=FunnelAggregateByHogQL.PROPERTIES__SESSION_ID,
+                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+            ),
+        )
+        results = {"average_conversion_time": 600, "bins": [[600, 1]]}
+        output = FunnelResultsFormatter(query, results, self.team, datetime.now()).format()
+        self.assertIn("Average time to convert|Session distribution\n10m|100%", output)
+        self.assertIn("The session distribution is the percentage of sessions who completed the funnel", output)
+
     def test_funnels_time_to_convert(self):
         query = AssistantFunnelsQuery(
             series=[
@@ -228,11 +319,20 @@ class TestFunnelResultsFormatter(BaseTest):
             dateRange=AssistantDateRange(date_from="2025-01-20", date_to="2025-01-22"),
             funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
         )
-        results = {"average_conversion_time": 600, "bins": [[600, 1], [601, 0]]}
+        results = {"average_conversion_time": 600, "bins": [[600, 15], [601, 0], [602, 5]]}
         self.assertEqual(
             FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
-            "Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59 (UTC)\n\nEvents: $pageview (custom) -> $ai_trace\nAverage time to convert|User distribution\n10m|100%\n10m 1s|0%\n\nThe user distribution is the percentage of users who completed the funnel in the given period.",
+            "Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59 (UTC)\n\nEvents: $pageview (custom) -> $ai_trace\nAverage time to convert|User distribution\n10m|75%\n10m 1s|0%\n10m 2s|25%\n\nThe user distribution is the percentage of users who completed the funnel in the given period.",
         )
+
+    def test_funnels_time_to_convert_with_only_empty_bins(self):
+        query = AssistantFunnelsQuery(
+            series=[AssistantFunnelsEventsNode(event="$pageview"), AssistantFunnelsEventsNode(event="signup")],
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
+        )
+        results = {"average_conversion_time": None, "bins": [[600, 0], [601, 0]]}
+        output = FunnelResultsFormatter(query, results, self.team, datetime.now()).format()
+        self.assertIn("Average time to convert|User distribution\n10m|0%\n10m 1s|0%", output)
 
     def test_funnel_trends(self):
         results = [

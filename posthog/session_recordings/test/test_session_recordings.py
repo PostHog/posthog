@@ -28,10 +28,14 @@ from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
 from posthog.hogql.errors import QueryError
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
-from posthog.models import Organization, SessionRecording, User
+from posthog.models import ActivityLog, Organization, PersonalAPIKey, SessionRecording, User
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team import Team
-from posthog.models.utils import uuid7
+from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_api import RecordingsListingResult
@@ -894,6 +898,127 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "other_viewers": 0,
         }
 
+    def _insert_console_log(self, session_id: str, timestamp: datetime, level: str, message: str, team_id=None):
+        sync_execute(
+            INSERT_LOG_ENTRY_SQL,
+            {
+                "team_id": team_id or self.team.pk,
+                "log_source": "session_replay",
+                "log_source_id": session_id,
+                "instance_id": "",
+                "timestamp": format_clickhouse_timestamp(timestamp),
+                "level": level,
+                "message": message,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("all_levels", {}, None, ["first", "second", "third", "fourth"], False),
+            ("level_filter", {"level": "error"}, None, ["second", "fourth"], False),
+            ("first_page", {"limit": 2}, None, ["first", "second"], True),
+            ("last_page", {"limit": 2, "offset": 2}, None, ["third", "fourth"], False),
+            ("after_offset", {}, {"after": 15}, ["third", "fourth"], False),
+            ("before_offset", {}, {"before": 15}, ["first", "second"], False),
+            ("after_past_recording_end", {}, {"after": 3600}, [], False),
+        ]
+    )
+    def test_console_logs(
+        self,
+        _name: str,
+        params: dict,
+        offsets_seconds: dict[str, int] | None,
+        expected_messages: list[str],
+        expected_has_more: bool,
+    ):
+        session_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time,
+            last_timestamp=base_time + relativedelta(seconds=30),
+            distinct_id="d1",
+            ensure_analytics_event_in_session=False,
+            retention_period_days=30,
+        )
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=20), "info", "third")
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=1), "info", "first")
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=10), "error", "second")
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=25), "error", "fourth")
+        self._insert_console_log("other-session", base_time + relativedelta(seconds=5), "error", "other session")
+        other_team = Team.objects.create(organization=self.organization)
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=5), "error", "other team", other_team.pk)
+        self._insert_console_log(session_id, base_time - relativedelta(hours=2), "error", "outside recording")
+
+        for key, seconds in (offsets_seconds or {}).items():
+            params = {**params, key: (base_time + relativedelta(seconds=seconds)).isoformat()}
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/console_logs?{urlencode(params)}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [entry["message"] for entry in body["results"]] == expected_messages
+        assert body["has_more"] is expected_has_more
+        assert body["logs_expired"] is False
+
+    def test_console_logs_truncates_long_messages(self):
+        session_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time,
+            last_timestamp=base_time + relativedelta(seconds=30),
+            distinct_id="d1",
+            ensure_analytics_event_in_session=False,
+            retention_period_days=30,
+        )
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=1), "info", "é" * 3000)
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=2), "info", "é" * 3001)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/console_logs")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(entry["message"], entry["truncated"]) for entry in response.json()["results"]] == [
+            ("é" * 3000, False),
+            ("é" * 3000, True),
+        ]
+
+    def test_console_logs_404s_for_missing_recording(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{uuid7()}/console_logs")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_console_logs_accepts_read_scoped_personal_api_key(self):
+        session_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time,
+            last_timestamp=base_time + relativedelta(seconds=30),
+            distinct_id="d1",
+            ensure_analytics_event_in_session=False,
+            retention_period_days=30,
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["session_recording:read"],
+            scoped_teams=[self.team.pk],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/console_logs",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     def test_capture_diagnostics_degrades_gracefully_on_clickhouse_error(self):
         session_recording_id = "session_1"
         produce_replay_summary(session_id=session_recording_id, team_id=self.team.pk, distinct_id="d1")
@@ -1085,17 +1210,34 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
             assert len(response_data["results"]) == 0
 
+    @parameterized.expand(
+        [
+            ["from_the_app", {}, "web"],
+            ["from_mcp", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, "mcp"],
+        ]
+    )
+    @patch("posthoganalytics.capture")
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
-    def test_delete_session_recording(self, _mock_delete_via_recording_api):
+    def test_delete_session_recording(
+        self, _name, headers, expected_source, _mock_delete_via_recording_api, mock_capture
+    ):
         self.produce_replay_summary("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
-        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1", **headers)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        deleted = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "recording deleted"]
+        assert len(deleted) == 1
+        assert deleted[0].kwargs["properties"]["recording_id"] == "1"
+        assert deleted[0].kwargs["properties"]["source"] == expected_source
+        activity = ActivityLog.objects.get(team_id=self.team.id, scope="Replay", activity="deleted")
+        assert activity.detail is not None
+        assert (activity.user_id, activity.item_id, activity.detail["name"]) == (self.user.id, "1", "1")
         # Deleting again is idempotent (recording-api returns already_deleted)
-        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1", **headers)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert ActivityLog.objects.filter(team_id=self.team.id, scope="Replay", activity="deleted").count() == 2
 
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [
@@ -1161,6 +1303,30 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": []}
+
+    @parameterized.expand(
+        [
+            ("aborted", 236, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("query_was_cancelled", 394, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("timeout_exceeded", 159, status.HTTP_504_GATEWAY_TIMEOUT),
+            ("cluster_memory_limit", 241, 513),
+        ]
+    )
+    def test_get_matching_events_clickhouse_failure_status(self, _name: str, code: int, expected_status: int) -> None:
+        query_params = [
+            f'session_ids=["{str(uuid7())}"]',
+            'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
+        ]
+        with patch(
+            "posthog.session_recordings.session_recording_api.ReplayFiltersEventsSubQuery.get_event_ids_for_session",
+            side_effect=wrap_clickhouse_query_error(ServerException("ClickHouse failed", code=code)),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+            )
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+            assert response.headers["Retry-After"].isdigit()
 
     def test_get_matching_events_with_query(self) -> None:
         """both sessions have a pageview, but only the specified session returns a single UUID for the pageview events"""
@@ -1372,16 +1538,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "at_capacity",
                 ClickHouseAtCapacity(),
                 "ClickHouse is at capacity. Try again later.",
+                "37",
             ),
             (
                 "timeout_exceeded",
                 ServerException("CHQueryErrorTimeoutExceeded"),
                 "Query timeout exceeded. Try again later.",
+                None,
             ),
         ]
     )
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
-    def test_session_recordings_query_errors(self, _name, exception, expected_message, mock_run):
+    def test_session_recordings_query_errors(self, _name, exception, expected_message, expected_retry_after, mock_run):
+        if isinstance(exception, ClickHouseAtCapacity):
+            exception.wait = 37
         mock_run.side_effect = exception
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
@@ -1391,6 +1561,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "detail": expected_message,
             "type": "throttled_error",
         }
+        assert response.get("Retry-After") == expected_retry_after
 
     @parameterized.expand(
         [
@@ -1418,19 +1589,35 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # the real reason must reach the client, not a generic "internal server error"
         assert expected_detail_substring in response.json()["detail"]
 
-    def test_sync_execute_ch_at_capacity_retry_then_503(self):
-        """Test that list_blocks throws ClickHouseAtCapacity multiple times and eventually returns 503"""
-        call_count = 0
+    @parameterized.expand(
+        [
+            (
+                "at_capacity",
+                ClickHouseAtCapacity(),
+                6,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "ClickHouse over capacity. Please retry",
+                "37",
+            ),
+            (
+                "unexpected_error",
+                RuntimeError("Unexpected failure"),
+                1,
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "An unexpected error has occurred. Please try again later.",
+                None,
+            ),
+        ]
+    )
+    def test_snapshot_query_errors(self, _name, exception, expected_attempts, expected_status, message, retry_after):
+        if isinstance(exception, ClickHouseAtCapacity):
+            exception.wait = 37
 
-        def mock_list_blocks(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            raise ClickHouseAtCapacity()
-
-        # Patch list_blocks where it's imported and used in session_recording_v2_service
-        with patch(
-            "posthog.session_recordings.session_recording_api.list_blocks",
-            side_effect=mock_list_blocks,
+        with (
+            patch("posthog.session_recordings.session_recording_api.list_blocks", side_effect=exception) as list_blocks,
+            patch(
+                "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._gather_session_recording_sources.retry.sleep"
+            ),
         ):
             session_id = str(uuid7())
             self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
@@ -1439,15 +1626,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
             )
 
-            # Verify the error was called multiple times and we get 503
-            assert call_count > 2, f"Expected multiple calls, got {call_count}"
-            assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+            assert list_blocks.call_count == expected_attempts
+            assert response.status_code == expected_status
+            assert response.json() == {"error": message}
+            assert response.get("Retry-After") == retry_after
 
+    @patch("posthoganalytics.capture")
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
-    def test_bulk_delete_session_recordings(self, _mock_delete_via_recording_api):
+    def test_bulk_delete_session_recordings(self, _mock_delete_via_recording_api, mock_capture):
         create_person(
             team=self.team,
             distinct_ids=["user1", "user2"],
@@ -1473,6 +1662,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["success"]
         assert response_data["deleted_count"] == 3
         assert response_data["total_requested"] == 3
+        bulk_deleted = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "recordings bulk deleted"]
+        assert len(bulk_deleted) == 1
+        assert bulk_deleted[0].kwargs["properties"]["deleted_count"] == 3
+        assert bulk_deleted[0].kwargs["properties"]["total_requested"] == 3
+        assert bulk_deleted[0].kwargs["properties"]["source"] == "web"
 
     @parameterized.expand(
         [
@@ -2354,6 +2548,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         mock_delete_via_recording_api.assert_called_once()
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="Replay", activity="deleted").exists()
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",

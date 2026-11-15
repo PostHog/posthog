@@ -19,6 +19,7 @@ from owners_yaml import BatchOwnershipSource
 from requests.adapters import HTTPAdapter
 
 from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration.github import _is_safe_github_repo_path
 
 logger = structlog.get_logger(__name__)
@@ -258,6 +259,7 @@ class GitHubRepoFiles(CachedRepoFiles):
                 endpoint=_EGRESS_ENDPOINT,
                 timeout=_TIMEOUT_SECONDS,
                 session=self._session,
+                priority=Priority.CRITICAL,
                 **kwargs,
             )
         except Exception as e:

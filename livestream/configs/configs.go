@@ -3,6 +3,7 @@ package configs
 import (
 	"errors"
 	"log"
+	"net"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -13,7 +14,9 @@ type MMDBConfig struct {
 }
 
 type JWTConfig struct {
-	Secret string
+	AuthorizationSigningKeys []string `mapstructure:"authorization_signing_keys"`
+	Secret                   string
+	AuthorizationURL         string `mapstructure:"authorization_url"`
 	// Previous secrets still accepted for verification (never used for signing),
 	// so tokens signed before a key rotation keep working until they expire.
 	SecretFallbacks []string `mapstructure:"secret_fallbacks"`
@@ -24,13 +27,15 @@ type SessionRecordingConfig struct {
 }
 
 type RedisConfig struct {
-	Address            string `mapstructure:"address"`
-	Port               string `mapstructure:"port"`
-	TLS                bool   `mapstructure:"tls"`
-	FlushIntervalMs    int    `mapstructure:"flush_interval_ms"`
-	UsePubSub          bool   `mapstructure:"use_pub_sub"`
-	PublishBufferSize  int    `mapstructure:"publish_buffer_size"`
-	PublishWorkers     int    `mapstructure:"publish_workers"`
+	Address           string `mapstructure:"address"`
+	Port              string `mapstructure:"port"`
+	TLS               bool   `mapstructure:"tls"`
+	FlushIntervalMs   int    `mapstructure:"flush_interval_ms"`
+	UsePubSub         bool   `mapstructure:"use_pub_sub"`
+	PublishBufferSize int    `mapstructure:"publish_buffer_size"`
+	PublishWorkers    int    `mapstructure:"publish_workers"`
+	// Skip publishing events for tokens that have no registered subscriber. Off by default.
+	SubscriberAware bool `mapstructure:"subscriber_aware"`
 }
 
 // ConsumerConfig holds connection and tuning parameters for a single Kafka consumer.
@@ -41,6 +46,11 @@ type ConsumerConfig struct {
 	SecurityProtocol string `mapstructure:"security_protocol"`
 	GroupID          string `mapstructure:"group_id"`
 	ClientID         string `mapstructure:"client_id"`
+
+	// ClientRack sets librdkafka client.rack (KIP-392) so the consumer prefers a
+	// same-AZ replica when one is available (falling back to the leader otherwise),
+	// which cuts cross-AZ transfer. The broker's replica selector decides assignment.
+	ClientRack string `mapstructure:"client_rack"`
 
 	// Timeout overrides — zero means use librdkafka defaults.
 	SessionTimeoutMs    int `mapstructure:"session_timeout_ms"`
@@ -56,7 +66,10 @@ type ConsumersConfig struct {
 }
 
 type Config struct {
-	Debug            bool `mapstructure:"debug"`
+	IsBehindProxy    bool     `mapstructure:"is_behind_proxy"`
+	TrustAllProxies  bool     `mapstructure:"trust_all_proxies"`
+	TrustedProxies   []string `mapstructure:"trusted_proxies"`
+	Debug            bool     `mapstructure:"debug"`
 	MMDB             MMDBConfig
 	Consumers        ConsumersConfig `mapstructure:"consumers"`
 	Parallelism      int             `mapstructure:"parallelism"`
@@ -89,6 +102,10 @@ func InitConfigs(filename, configPath string) {
 	viper.SetEnvKeyReplacer(replacer)
 
 	// Core settings
+	_ = viper.BindEnv("is_behind_proxy")
+	_ = viper.BindEnv("trust_all_proxies")
+	_ = viper.BindEnv("trusted_proxies")
+	_ = viper.BindEnv("jwt.authorization_signing_keys", "LIVESTREAM_AUTHORIZATION_SIGNING_KEYS")
 	_ = viper.BindEnv("debug")              // LIVESTREAM_DEBUG
 	_ = viper.BindEnv("parallelism")        // LIVESTREAM_PARALLELISM
 	_ = viper.BindEnv("cors_allow_origins") // LIVESTREAM_CORS_ALLOW_ORIGINS
@@ -103,6 +120,7 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("consumers.event.security_protocol")     // LIVESTREAM_CONSUMERS_EVENT_SECURITY_PROTOCOL
 	_ = viper.BindEnv("consumers.event.group_id")              // LIVESTREAM_CONSUMERS_EVENT_GROUP_ID
 	_ = viper.BindEnv("consumers.event.client_id")             // LIVESTREAM_CONSUMERS_EVENT_CLIENT_ID
+	_ = viper.BindEnv("consumers.event.client_rack")           // LIVESTREAM_CONSUMERS_EVENT_CLIENT_RACK
 	_ = viper.BindEnv("consumers.event.session_timeout_ms")    // LIVESTREAM_CONSUMERS_EVENT_SESSION_TIMEOUT_MS
 	_ = viper.BindEnv("consumers.event.heartbeat_interval_ms") // LIVESTREAM_CONSUMERS_EVENT_HEARTBEAT_INTERVAL_MS
 	_ = viper.BindEnv("consumers.event.max_poll_interval_ms")  // LIVESTREAM_CONSUMERS_EVENT_MAX_POLL_INTERVAL_MS
@@ -130,6 +148,7 @@ func InitConfigs(filename, configPath string) {
 	// JWT settings
 	_ = viper.BindEnv("jwt.secret")           // LIVESTREAM_JWT_SECRET
 	_ = viper.BindEnv("jwt.secret_fallbacks") // LIVESTREAM_JWT_SECRET_FALLBACKS (comma-separated)
+	_ = viper.BindEnv("jwt.authorization_url")
 
 	// Session recording settings
 	_ = viper.BindEnv("session_recording.max_lru_entries") // LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
@@ -142,6 +161,7 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("redis.use_pub_sub")         // LIVESTREAM_REDIS_USE_PUB_SUB
 	_ = viper.BindEnv("redis.publish_buffer_size") // LIVESTREAM_REDIS_PUBLISH_BUFFER_SIZE
 	_ = viper.BindEnv("redis.publish_workers")     // LIVESTREAM_REDIS_PUBLISH_WORKERS
+	_ = viper.BindEnv("redis.subscriber_aware")    // LIVESTREAM_REDIS_SUBSCRIBER_AWARE
 }
 
 func LoadConfig() (*Config, error) {
@@ -149,6 +169,12 @@ func LoadConfig() (*Config, error) {
 
 	if err := viper.Unmarshal(&config); err != nil {
 		return nil, err
+	}
+
+	for _, cidr := range config.TrustedProxies {
+		if _, _, err := net.ParseCIDR(strings.TrimSpace(cidr)); err != nil {
+			return nil, errors.New("trusted_proxies must contain valid proxy CIDRs")
+		}
 	}
 
 	// Set default values

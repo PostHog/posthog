@@ -25,9 +25,15 @@ export function getCategoricalConfig(config: ScoreDefinitionConfig): Categorical
 }
 
 export function getNumericConfig(config: ScoreDefinitionConfig): NumericScoreDefinitionConfig {
-    return isRecord(config) && ('min' in config || 'max' in config || 'step' in config) ? config : {}
+    return isRecord(config) &&
+        !isCategoricalConfig(config) &&
+        ('min' in config || 'max' in config || 'step' in config || 'passing_rule' in config)
+        ? config
+        : {}
 }
 
 export function getBooleanConfig(config: ScoreDefinitionConfig): BooleanScoreDefinitionConfig {
-    return isRecord(config) && ('true_label' in config || 'false_label' in config) ? config : {}
+    return isRecord(config) && ('true_label' in config || 'false_label' in config || 'true_is_failure' in config)
+        ? config
+        : {}
 }

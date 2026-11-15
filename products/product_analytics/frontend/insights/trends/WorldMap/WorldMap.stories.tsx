@@ -1,8 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory'
-
 import __trendsWorldMap from '~/mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+
+import { InsightVizStory } from 'products/product_analytics/frontend/insights/shared/__mocks__/createInsightVizStory'
 
 import { WorldMap } from './WorldMap'
 

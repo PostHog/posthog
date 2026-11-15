@@ -132,6 +132,7 @@ def _run_detector_simulation(
             # columns fails with "more than one of them is numeric", so the investigation gets no
             # series and no baseline.
             config=alert.config,
+            evaluation_delay_intervals=alert.evaluation_delay_intervals,
             date_from=date_from,
             user=alert.created_by,
             score=score and not is_llm_detector_config(alert.detector_config),

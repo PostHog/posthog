@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -16,9 +15,9 @@ from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -137,15 +136,15 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, rollout flag enabled, experiment start offset from the cutoff, expected event)
-            ("after_cutoff", True, 7, EXPERIMENT_EXPOSURE_EVENT),
-            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
-            ("before_cutoff", True, -7, "$feature_flag_called"),
+            # (name, rollout flag enabled, experiment start offset from the cutoff, events read)
+            ("after_cutoff", True, 7, {EXPERIMENT_EXPOSURE_EVENT}),
+            ("after_cutoff_flag_disabled", False, 7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
+            ("before_cutoff", True, -7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
         ]
     )
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_fetch_exposed_person_uuids_reads_the_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_events: set[str]
     ) -> None:
         experiment = self._create_running_experiment(
             "freeze-rollout-flag", start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days)
@@ -157,19 +156,21 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
         legacy_event_person = self._expose_person("legacy-event-user", "freeze-rollout-flag", exposed_at)
         flush_persons_and_events()
 
-        # Only answer for the exposure-event flag; returning True for every flag would flip
-        # unrelated flag-gated behavior on and change what's under test.
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+        with patch_exposure_event_flag(enabled=flag_enabled):
             uuids = self._service()._fetch_exposed_person_uuids(experiment)
 
         # The snapshot decides who keeps being served a variant, so it must count exposures on
-        # the event the analysis resolves to: read off the other event, a post-cutoff experiment
-        # would freeze an empty set once the two events stop being emitted together.
-        expected_person = new_event_person if expected_event == EXPERIMENT_EXPOSURE_EVENT else legacy_event_person
-        assert uuids == [str(expected_person.uuid)]
+        # the events the analysis reads. Otherwise an experiment would freeze an empty set once
+        # the two events stop being emitted together.
+        expected_uuids = [
+            str(person.uuid)
+            for event, person in (
+                (EXPERIMENT_EXPOSURE_EVENT, new_event_person),
+                ("$feature_flag_called", legacy_event_person),
+            )
+            if event in expected_events
+        ]
+        assert sorted(uuids) == sorted(expected_uuids)
 
     def test_fetch_exposed_person_uuids_ignores_test_account_filters(self) -> None:
         # filterTestAccounts shapes which exposures are *analyzed*; the snapshot decides who keeps

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from fakeredis import FakeRedis
 from parameterized import parameterized
 from redis.exceptions import ConnectionError as RedisConnectionError
 
@@ -50,6 +51,19 @@ class TestTokenBucket(SimpleTestCase):
             decision = consume("bucket:refill", ONE_PER_SECOND)
             assert isinstance(decision, BucketDecision)
             assert decision.remaining == ONE_PER_SECOND.burst - 1
+
+    def test_explicit_client_overrides_cached_scripts(self) -> None:
+        budget = Budget(burst=1, per_hour=3600)
+        with time_machine.travel("2026-01-01", tick=False):
+            consume("bucket:client", budget)
+            client = FakeRedis()
+            first = consume("bucket:client", budget, client=client)
+            second = consume("bucket:client", budget, client=client)
+            default = consume("bucket:client", budget)
+
+        assert isinstance(first, BucketDecision) and first.allowed
+        assert isinstance(second, BucketDecision) and not second.allowed
+        assert isinstance(default, BucketDecision) and not default.allowed
 
     def test_refund_returns_tokens_capped_at_capacity(self) -> None:
         with time_machine.travel("2026-01-01 00:00:00", tick=False):

@@ -13,6 +13,8 @@ Budget steer callbacks preserve the original event timestamp and queue analytics
 Django returns 503 if dispatch fails, and the proxy retries the callback once.
 The capture worker retries analytics upload failures independently of event streaming.
 
+Permission requests and agent questions also trigger a Django callback so interactive runs can notify their creator before the turn completes. Deploy the Django callback support before this proxy change. Older Django versions reject the new `permission_requested` callback, and the proxy drops that notification after logging the rejection.
+
 ## Routes
 
 | Method    | Path                   | Description                                        |

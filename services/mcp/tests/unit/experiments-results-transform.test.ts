@@ -11,7 +11,7 @@
  *  - inline and shared metrics are merged into one ordered result stream,
  *    with `source` tagged so callers can tell them apart
  *  - row order follows `*_metrics_ordered_uuids` (the canonical UI ordering)
- *  - UI-only bulk fields (`clickhouse_sql`, `hogql`, `insight`, and
+ *  - UI-only bulk fields (`clickhouse_sql`, `hogql`, and
  *    `step_sessions` — including the copies inside each `breakdown_results`
  *    entry) are stripped from each row's `data`, while statistical fields
  *    (including per-breakdown stats) are preserved
@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest'
 import type { Experiment } from '@/schema/experiments'
 import {
     buildMetricEntries,
+    collectHealth,
     ExperimentExposureQuerySchema,
     ExperimentSchema,
     transformExperimentResults,
@@ -90,6 +91,7 @@ describe('transformExperimentResults', () => {
 
     it('reads variants from the linked flag', () => {
         const experiment = makeExperiment({
+            parameters: { variant_screenshot_media_ids: { control: 'legacy-media' } },
             feature_flag: {
                 id: 9,
                 key: 'k',
@@ -112,6 +114,7 @@ describe('transformExperimentResults', () => {
     })
 
     it('treats inline and shared metrics as one ordered surface and tags the source on each', () => {
+        const sharedQuery = { uuid: 'shared-1', name: 'Shared query', metric_type: 'funnel', goal: 'increase' }
         const experiment = makeExperiment({
             metrics: [],
             metrics_secondary: [{ uuid: 'inline-1', name: 'Inline secondary', metric_type: 'mean' }],
@@ -120,7 +123,8 @@ describe('transformExperimentResults', () => {
                     saved_metric: 42,
                     name: 'Shared secondary',
                     metadata: { type: 'secondary' },
-                    query: { uuid: 'shared-1', name: 'Shared query', metric_type: 'funnel', goal: 'increase' },
+                    query: sharedQuery,
+                    effective_query: sharedQuery,
                 },
             ],
             secondary_metrics_ordered_uuids: ['inline-1', 'shared-1'],
@@ -154,6 +158,10 @@ describe('transformExperimentResults', () => {
                 saved_metric_name: 'Shared secondary',
             })
         )
+        // The link keeps its query and metadata, without the effective_query that repeats them.
+        expect(result.experiment.saved_metrics).toEqual([
+            { saved_metric: 42, name: 'Shared secondary', metadata: { type: 'secondary' }, query: sharedQuery },
+        ])
     })
 
     it("uses the saved metric's UI label as `name` on shared rows (not the inner query.name)", () => {
@@ -174,6 +182,57 @@ describe('transformExperimentResults', () => {
         const [entry] = buildMetricEntries(experiment, 'primary')
         expect(entry?.summary.name).toBe('Activation funnel (revenue impact)')
         expect(entry?.summary.saved_metric_name).toBe('Activation funnel (revenue impact)')
+    })
+
+    const savedFunnel = {
+        uuid: 'shared-funnel',
+        metric_type: 'funnel',
+        breakdownAttributionType: 'step',
+        breakdownAttributionValue: 2,
+        breakdownFilter: { breakdown_limit: 5, breakdowns: [{ property: '$os', type: 'event' }] },
+    }
+    const linkWithBreakdowns = {
+        type: 'primary',
+        breakdowns: [{ property: '$browser', type: 'event' }],
+        breakdown_limit: 20,
+        breakdownAttributionType: 'last_touch',
+    }
+    const effectiveFunnel = {
+        uuid: 'shared-funnel',
+        metric_type: 'funnel',
+        breakdownAttributionType: 'last_touch',
+        breakdownFilter: { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
+    }
+
+    it.each([
+        [
+            'the effective query the API resolved',
+            { metadata: linkWithBreakdowns, effective_query: { ...effectiveFunnel, fingerprint: 'served' } },
+            { ...effectiveFunnel, fingerprint: 'served' },
+        ],
+        [
+            'the saved query of a legacy shared metric',
+            { metadata: linkWithBreakdowns, effective_query: null },
+            savedFunnel,
+        ],
+        [
+            'the link breakdowns, limit and attribution when the API predates effective_query',
+            { metadata: linkWithBreakdowns },
+            effectiveFunnel,
+        ],
+        [
+            'no link limit or attribution without link breakdowns when the API predates effective_query',
+            { metadata: { type: 'primary', breakdown_limit: 20, breakdownAttributionType: 'last_touch' } },
+            { ...savedFunnel, breakdownFilter: { breakdown_limit: 5, breakdowns: [] } },
+        ],
+    ])('queries a shared metric with %s', (_name, link, expectedMetric) => {
+        const experiment = makeExperiment({
+            saved_metrics: [{ saved_metric: 1, name: 'Shared funnel', query: savedFunnel, ...link }],
+        })
+
+        const [entry] = buildMetricEntries(experiment, 'primary')
+
+        expect(entry?.metric).toEqual(expectedMetric)
     })
 
     it('orders result rows by *_metrics_ordered_uuids (the canonical UI ordering)', () => {
@@ -250,6 +309,89 @@ describe('transformExperimentResults', () => {
         expect(result.experiment.metrics).toEqual([inlineMetric])
         expect(result.experiment.metrics_secondary).toEqual([inlineSecondary])
         expect(result.experiment.saved_metrics).toEqual([savedMetric])
+    })
+
+    it('opens with a short health overview of both sources, most severe first, and keeps the full findings out', () => {
+        const findingText = {
+            actions: [],
+            detail: 'detail',
+            diagnostic_ref: null,
+            evidence: {},
+            reason: null,
+            subcode: null,
+            title: 'title',
+        }
+        const exposureFindings = [
+            {
+                ...findingText,
+                code: 'multiple_variants_share' as const,
+                check: 'multiple_variants_share' as const,
+                severity: 'info' as const,
+            },
+            { ...findingText, code: 'srm' as const, check: 'srm' as const, severity: 'critical' as const },
+        ]
+        const exposureChecks = [
+            {
+                key: 'srm' as const,
+                name: 'Sample ratio mismatch',
+                description: 'Compares the split with the configured one.',
+                reason: null,
+                status: 'finding' as const,
+                values: { p_value: 0.0001 },
+            },
+            {
+                key: 'zero_exposures' as const,
+                name: 'No exposures',
+                reason: 'Runs after launch',
+                status: 'not_applicable' as const,
+            },
+        ]
+        const configHealth = {
+            findings: [
+                {
+                    ...findingText,
+                    code: 'split_changed_mid_run' as const,
+                    check: 'split_changed_mid_run' as const,
+                    severity: 'warning' as const,
+                },
+            ],
+            checks: [
+                {
+                    key: 'split_changed_mid_run' as const,
+                    name: 'Split changed after launch',
+                    description: 'Compares the variant split with the one at launch.',
+                    reason: null,
+                    status: 'finding' as const,
+                    values: {},
+                    rule: null,
+                    rows: [],
+                },
+            ],
+        }
+        const experiment = makeExperiment({ metrics: [], primary_metrics_ordered_uuids: [] })
+
+        const result = transformExperimentResults({
+            experiment,
+            exposures: { ...baseExposures, health_findings: exposureFindings, health_checks: exposureChecks },
+            primaryMetricEntries: [],
+            secondaryMetricEntries: [],
+            primaryMetricsResults: [],
+            secondaryMetricsResults: [],
+            health: collectHealth([configHealth, { findings: exposureFindings, checks: exposureChecks }]),
+        })
+
+        expect(Object.keys(result)[0]).toBe('health')
+        expect(result.health.summary).toBe(
+            'Findings: 1 critical, 1 warning, 1 info. Checks: 2 finding, 1 not_applicable.'
+        )
+        expect(result.health.findings).toEqual([
+            { severity: 'critical', code: 'srm', title: 'title' },
+            { severity: 'warning', code: 'split_changed_mid_run', title: 'title' },
+            { severity: 'info', code: 'multiple_variants_share', title: 'title' },
+        ])
+        expect(result.health.details).toContain('experiment-health-get')
+        expect(result.exposures).not.toHaveProperty('health_findings')
+        expect(result.exposures).not.toHaveProperty('health_checks')
     })
 
     it('keeps a row with `data: null` when the underlying metric query fails, so positions stay aligned', () => {
@@ -337,33 +479,6 @@ describe('transformExperimentResults', () => {
         const variants = data.variant_results as Array<Record<string, unknown>>
         expect(variants[0]?.step_sessions).toBeUndefined()
         expect(variants[0]?.sum).toBe(95)
-    })
-
-    it('strips the legacy `insight` visualization payload from each row', () => {
-        // `insight` is a rendered visualization payload (list[dict[str, Any]]) used by
-        // legacy trends/funnels charts
-        const experiment = makeExperiment({
-            metrics: [{ uuid: 'p-1', name: 'Primary', metric_type: 'mean' }],
-            primary_metrics_ordered_uuids: ['p-1'],
-        })
-
-        const result = transformExperimentResults({
-            experiment,
-            exposures: baseExposures,
-            primaryMetricEntries: buildMetricEntries(experiment, 'primary'),
-            secondaryMetricEntries: [],
-            primaryMetricsResults: [
-                {
-                    baseline: { key: 'control', sum: 100, sum_squares: 100 },
-                    insight: [{ breakdown_value: 'control', data: [1, 2, 3] }],
-                },
-            ],
-            secondaryMetricsResults: [],
-        })
-
-        const data = result.metrics.primary.results[0]?.data as Record<string, unknown>
-        expect(data.insight).toBeUndefined()
-        expect((data.baseline as Record<string, unknown>).sum).toBe(100)
     })
 
     it('strips step_sessions from inside breakdown_results entries while preserving per-breakdown stats', () => {

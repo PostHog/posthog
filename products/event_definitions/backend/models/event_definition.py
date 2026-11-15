@@ -23,7 +23,10 @@ class EventDefinition(Taggable, UUIDTModel):
         related_name="event_definitions",
         related_query_name="team",
     )
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
+    # No automatic index: the named Meta index on `project` covers project_id.
+    project = models.ForeignKey(
+        "posthog.Project", on_delete=models.CASCADE, null=True, related_name="+", db_index=False
+    )
     name = models.CharField(max_length=400)
     created_at = models.DateTimeField(default=timezone.now, null=True)
     last_seen_at = models.DateTimeField(default=None, null=True)
@@ -45,6 +48,11 @@ class EventDefinition(Taggable, UUIDTModel):
     # DB column kept as `promoted_property` to avoid a Postgres column rename.
     primary_property = models.CharField(max_length=400, null=True, blank=True, db_column="promoted_property")
 
+    # Set when the event's ingestion is stopped. A periodic task deletes the definition after this time.
+    scheduled_deletion_at = models.DateTimeField(null=True, blank=True)
+    # When the event's ingestion was stopped. The periodic task gives up 7 days after this.
+    ingestion_stopped_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = "posthog_eventdefinition"
         indexes = [
@@ -61,6 +69,11 @@ class EventDefinition(Taggable, UUIDTModel):
                 condition=models.Q(enforcement_mode="reject"),
             ),
             models.Index(fields=["team_id", "name"], name="posthog_eventdef_team_name_idx"),
+            models.Index(
+                fields=["scheduled_deletion_at"],
+                name="posthog_eventdef_sched_del_idx",
+                condition=models.Q(scheduled_deletion_at__isnull=False),
+            ),
         ]
         constraints = [
             UniqueConstraintByExpression(

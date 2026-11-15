@@ -14,7 +14,7 @@
     {
       "label": "start-agent-watch",
       "type": "shell",
-      "command": "pnpm --filter agent dev",
+      "command": "pnpm --dir ../../packages/agent --filter agent dev",
       "isBackground": true,
       "problemMatcher": {
         "pattern": {

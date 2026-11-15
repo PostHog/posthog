@@ -177,16 +177,14 @@ class TestFeatureRequestGitHubIngress(SimpleTestCase):
 
     @patch("posthog.models.integration.github.GitHubIntegration.api_request")
     @patch("products.workflows.backend.facade.api.accept_github_event")
-    @patch("products.tasks.backend.facade.api.accept_github_event_for_loops")
     @patch("products.conversations.backend.facade.api.accept_github_event")
     @patch("products.customer_analytics.backend.facade.api.process_feature_request_github_delivery")
-    @patch("posthog.ingress.github.provider.get_instance_setting", return_value="test-webhook-secret")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="test-webhook-secret")
     def test_signed_issue_delivery_enqueues_only_feature_request_work(
         self,
         _get_secret: Mock,
         process_delivery: Mock,
         conversations: Mock,
-        loops: Mock,
         workflows: Mock,
         api_request: Mock,
     ) -> None:
@@ -230,7 +228,6 @@ class TestFeatureRequestGitHubIngress(SimpleTestCase):
         )
         self.assertIsNotNone(datetime.fromisoformat(process_delivery.call_args.kwargs["github_received_at"]))
         conversations.assert_called_once()
-        loops.assert_called_once()
         workflows.assert_called_once()
         api_request.assert_not_called()
 

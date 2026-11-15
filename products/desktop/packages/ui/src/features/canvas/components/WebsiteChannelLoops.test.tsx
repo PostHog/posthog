@@ -1,4 +1,4 @@
-import type { LoopSchemas } from "@posthog/api-client/loops";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -32,9 +32,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
     isLoading: mocks.channelsLoading,
   }),
 }));
-vi.mock("@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled", () => ({
-  useLoopsHogFlowsEnabled: () => false,
-}));
 vi.mock("@posthog/ui/features/canvas/components/ChannelHeader", () => ({
   ChannelHeader: () => <div>Personal space header</div>,
 }));
@@ -46,8 +43,6 @@ vi.mock("@posthog/ui/features/loops/loopWizardDialogStore", () => ({
 }));
 vi.mock("@posthog/ui/features/loops/hooks/useLoops", () => ({
   useLoops: mocks.useLoops,
-  useLoopLimits: () => null,
-  useLoopLimitReason: () => null,
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopBuilderComposer", () => ({
   LoopBuilderComposer: () => null,
@@ -83,9 +78,7 @@ function loop(
     id,
     name,
     description: "",
-    visibility: "team",
     enabled: true,
-    disabled_reason: null,
     context_target: folderId ? { channel_id: folderId, name: folderId } : null,
   } as LoopSchemas.Loop;
 }

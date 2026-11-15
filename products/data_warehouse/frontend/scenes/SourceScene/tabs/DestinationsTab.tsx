@@ -17,8 +17,13 @@ export interface DestinationsTabProps {
 
 export function DestinationsTab({ id }: DestinationsTabProps): JSX.Element {
     const logic = destinationsLogic({ sourceId: id })
-    const { destinations, destinationsLoading, attachedDestinationIds, savedDestinationIdsLoading, canSave } =
-        useValues(logic)
+    const {
+        destinations,
+        destinationsLoading,
+        attachedDestinationIds,
+        savedDestinationIdsLoading,
+        saveDisabledReason,
+    } = useValues(logic)
     const { toggleDestination, save, loadDestinations, setAttached } = useActions(logic)
 
     const modalProps = {
@@ -72,7 +77,7 @@ export function DestinationsTab({ id }: DestinationsTabProps): JSX.Element {
                 type="primary"
                 onClick={save}
                 loading={savedDestinationIdsLoading}
-                disabledReason={canSave ? undefined : 'No changes to save'}
+                disabledReason={saveDisabledReason ?? undefined}
                 data-attr="warehouse-destinations-save"
             >
                 Save destinations

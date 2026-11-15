@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -15,6 +16,8 @@ import type {
     WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { EmailMetricsIncidentBanner } from '../../EmailMetricsIncidentBanner'
+import { RATE_LEVEL_TAG, RATE_THRESHOLDS, classifyRate, minimumVolumeToClassify } from './emailRateLevels'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
 function formatRate(rate: number): string {
@@ -26,47 +29,6 @@ const HEALTH_TAG: Record<AwsTenantReputationHealthEnumApi, { label: string; type
     warning: { label: 'Warning', type: 'warning' },
     critical: { label: 'Critical', type: 'danger' },
     suspended: { label: 'Suspended', type: 'danger' },
-}
-
-// Per-workflow rate classification. Reserved words like "Warning" / "Critical" belong to the
-// tenant-level AWS verdict (HEALTH_TAG above) — these coarser buckets are just a triage aid for
-// spotting which workflows are pulling the project's numbers in the wrong direction.
-//
-// Thresholds mirror SES's account-level reputation dashboard warning lines (bounce: 5% review /
-// 10% pause; complaint: 0.1% review / 0.5% pause), deliberately conservative early warnings.
-// Actual tenant enforcement (the Standard reputation policy) pauses much higher — high-severity
-// findings at >15% bounce / >1% complaint — so a "high" rate here means "fix this now", not
-// "sending is about to stop". Sources:
-// https://docs.aws.amazon.com/ses/latest/dg/reputationdashboardmessages.html (dashboard lines)
-// https://aws.amazon.com/blogs/messaging-and-targeting/implement-tenants-in-your-amazon-ses-environment-part-3-implementation-guide/ (tenant policy lines)
-const RATE_THRESHOLDS = {
-    bounce: { elevated: 0.03, high: 0.05 },
-    complaint: { elevated: 0.001, high: 0.005 },
-} as const
-
-type RateLevel = 'healthy' | 'elevated' | 'high'
-
-// Below this much volume one event on its own clears the elevated line, so a tag would be
-// reporting noise: one bounce in 20 sends reads as 5%.
-function minimumVolumeToClassify(kind: 'bounce' | 'complaint'): number {
-    return Math.ceil(1 / RATE_THRESHOLDS[kind].elevated)
-}
-
-function classifyRate(rate: number, kind: 'bounce' | 'complaint'): RateLevel {
-    const thresholds = RATE_THRESHOLDS[kind]
-    if (rate >= thresholds.high) {
-        return 'high'
-    }
-    if (rate >= thresholds.elevated) {
-        return 'elevated'
-    }
-    return 'healthy'
-}
-
-const RATE_LEVEL_TAG: Record<RateLevel, { label: string; type: LemonTagType }> = {
-    healthy: { label: 'Healthy', type: 'success' },
-    elevated: { label: 'Elevated', type: 'warning' },
-    high: { label: 'High', type: 'danger' },
 }
 
 // AWS returning nothing for a metric is not the same as the metric being zero, and a 0.00% spam
@@ -345,6 +307,38 @@ function IspCoverage({
     )
 }
 
+function HighBounceRateNotice({
+    bounceRate,
+    emailsSent,
+}: {
+    bounceRate: number
+    emailsSent: number
+}): JSX.Element | null {
+    if (emailsSent < minimumVolumeToClassify('bounce')) {
+        return null
+    }
+    const level = classifyRate(bounceRate, 'bounce')
+    if (level === 'healthy') {
+        return null
+    }
+    return (
+        <LemonBanner
+            type={level === 'high' ? 'warning' : 'info'}
+            className="mt-3"
+            action={{
+                children: 'View suppression list',
+                to: urls.workflows('suppression'),
+                'data-attr': 'workflows-reputation-high-bounce-suppression-list',
+            }}
+        >
+            Your bounce rate is above {formatRate(RATE_THRESHOLDS.bounce[level])}. This usually means an older list,
+            such as addresses of people who have left a company. Mailbox providers count every bounce against your
+            sending reputation, even when the email isn't spam. Addresses that hard-bounce are added to your suppression
+            list and aren't emailed again. To bring the rate down, send to people who were active recently.
+        </LemonBanner>
+    )
+}
+
 function TeamRatesCard({
     reputation,
     aws,
@@ -371,26 +365,29 @@ function TeamRatesCard({
                 )}
             </div>
             {reputation ? (
-                <div className="flex flex-wrap gap-8 mt-3">
-                    <div>
-                        <MetricLabel
-                            label="Bounce rate"
-                            tooltip={`Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted. ${WINDOW_TOOLTIP}`}
-                        />
-                        <div className="text-lg font-semibold">{formatRate(reputation.bounce_rate)}</div>
+                <>
+                    <div className="flex flex-wrap gap-8 mt-3">
+                        <div>
+                            <MetricLabel
+                                label="Bounce rate"
+                                tooltip={`Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted. An address that hard-bounces is added to your suppression list and isn't emailed again. ${WINDOW_TOOLTIP}`}
+                            />
+                            <div className="text-lg font-semibold">{formatRate(reputation.bounce_rate)}</div>
+                        </div>
+                        <div>
+                            <MetricLabel
+                                label="Spam complaint rate"
+                                tooltip={`Spam complaints divided by emails sent. ${WINDOW_TOOLTIP}`}
+                            />
+                            <div className="text-lg font-semibold">{formatRate(reputation.complaint_rate)}</div>
+                        </div>
+                        <div>
+                            <MetricLabel label="Emails sent (last 30 days)" tooltip={WINDOW_TOOLTIP} />
+                            <div className="text-lg font-semibold">{humanFriendlyNumber(reputation.emails_sent)}</div>
+                        </div>
                     </div>
-                    <div>
-                        <MetricLabel
-                            label="Spam complaint rate"
-                            tooltip={`Spam complaints divided by emails sent. ${WINDOW_TOOLTIP}`}
-                        />
-                        <div className="text-lg font-semibold">{formatRate(reputation.complaint_rate)}</div>
-                    </div>
-                    <div>
-                        <MetricLabel label="Emails sent (last 30 days)" tooltip={WINDOW_TOOLTIP} />
-                        <div className="text-lg font-semibold">{humanFriendlyNumber(reputation.emails_sent)}</div>
-                    </div>
-                </div>
+                    <HighBounceRateNotice bounceRate={reputation.bounce_rate} emailsSent={reputation.emails_sent} />
+                </>
             ) : isps.length > 0 ? (
                 <div className="text-secondary mt-3">
                     No workflow email in the last 30 days. The breakdown below covers all email sent from your verified
@@ -415,7 +412,8 @@ function TeamRatesCard({
 }
 
 function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
-    const hourlyPercent = Math.min(100, (allowance.emails_sent_last_hour / allowance.emails_per_hour) * 100)
+    const { canRequestSendingTierIncrease } = useValues(workflowsReputationLogic)
+    const { requestSendingTierIncrease } = useActions(workflowsReputationLogic)
     const dailyPercent = Math.min(100, (allowance.emails_sent_last_day / allowance.emails_per_day) * 100)
     return (
         <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
@@ -430,19 +428,20 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
             <p className="text-secondary mt-2 mb-0">
                 Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails
                 above the allowance are not dropped, they are sent later.
+                {canRequestSendingTierIncrease && (
+                    <>
+                        {' '}
+                        Need more sooner?{' '}
+                        <Link
+                            onClick={() => requestSendingTierIncrease(allowance)}
+                            data-attr="workflows-request-sending-tier-increase"
+                        >
+                            Request a higher allowance
+                        </Link>
+                    </>
+                )}
             </p>
             <div className="flex flex-wrap gap-8 mt-3">
-                <div className="min-w-48">
-                    <MetricLabel
-                        label="Emails this hour"
-                        tooltip="Emails your workflows sent in the last hour, against what this tier allows per hour."
-                    />
-                    <div className="text-lg font-semibold">
-                        {humanFriendlyNumber(allowance.emails_sent_last_hour)} of{' '}
-                        {humanFriendlyNumber(allowance.emails_per_hour)}
-                    </div>
-                    <LemonProgress percent={hourlyPercent} className="mt-1" />
-                </div>
                 <div className="min-w-48">
                     <MetricLabel
                         label="Emails today"
@@ -460,6 +459,12 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                         tooltip="The biggest audience this tier allows for a single batch send."
                     />
                     <div className="text-lg font-semibold">{humanFriendlyNumber(allowance.max_batch_audience)}</div>
+                    {allowance.rate_limited_max_batch_audience ? (
+                        <div className="text-xs text-secondary" data-attr="workflows-rate-limited-batch-audience">
+                            Up to {humanFriendlyNumber(allowance.rate_limited_max_batch_audience)} with a sending rate
+                            limit
+                        </div>
+                    ) : null}
                 </div>
             </div>
         </div>
@@ -493,6 +498,8 @@ export function WorkflowsReputation(): JSX.Element {
                 Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
                 We judge and enforce reputation per project.
             </LemonBanner>
+            {/* Rates cover a rolling 30 days that ends now. */}
+            <EmailMetricsIncidentBanner dateFrom={dayjs().subtract(30, 'day')} />
             {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard

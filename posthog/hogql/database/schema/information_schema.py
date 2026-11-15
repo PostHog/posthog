@@ -56,6 +56,8 @@ from posthog.hogql.errors import BaseHogQLError
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnSensitivity
+
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.database.database import Database
@@ -74,6 +76,7 @@ _INTEGER = "integer"
 _NULLABLE_INTEGER = "nullable_integer"
 _NULLABLE_FLOAT = "nullable_float"
 _BOOLEAN = "boolean"
+_NULLABLE_DATETIME = "nullable_datetime"
 
 
 def _cell(value: Any) -> ast.Constant:
@@ -100,6 +103,10 @@ def _column_expr(kind: str, index: int) -> ast.Expr:
         return ast.Call(name="accurateCastOrNull", args=[source, ast.Constant(value="Float64")])
     if kind == _BOOLEAN:
         return ast.Call(name="equals", args=[source, ast.Constant(value="true")])
+    if kind == _NULLABLE_DATETIME:
+        return ast.Call(
+            name="parseDateTimeBestEffort", args=[ast.Call(name="nullIf", args=[source, ast.Constant(value="")])]
+        )
     raise ValueError(f"Unknown information_schema column kind: {kind}")
 
 
@@ -360,6 +367,51 @@ def _pushdown_table_filter(node: Any, column: str) -> Optional[frozenset[str]]:
     return frozenset(bound) if bound is not None else None
 
 
+def _schema_split_aliases(
+    node: Any, allowed: Optional[frozenset[str]], database: Optional["Database"]
+) -> dict[str, str]:
+    """Map a qualified table name to its bare name for a SQL-standard `table_schema = … AND table_name = …` query.
+
+    The catalog names each table by its fully-qualified name (`system.insights`), so the split form
+    matches no row and silently returns nothing. When a bare name is not itself a visible table, the
+    caller reports the visible table with that last name segment in the filtered schema under the
+    bare name. The schema is the classified bucket (`posthog.ai_events` is in `public`), not the name
+    prefix. A bare name that matches more than one table in a schema stays unmatched.
+    """
+    if allowed is None or database is None:
+        return {}
+    schemas = _pushdown_table_filter(node, "table_schema")
+    if not schemas:
+        return {}
+    visible = _visible_table_names(database)
+    bare_names = allowed.difference(visible)
+    candidates = [name for name in visible if "." in name and name.rsplit(".", 1)[1] in bare_names]
+    if not candidates:
+        return {}
+    warehouse = set(database.get_warehouse_table_names())
+    views = set(database.get_view_names())
+    matches: defaultdict[tuple[str, str], list[str]] = defaultdict(list)
+    for name in candidates:
+        try:
+            table = database.get_table(name)
+        except Exception:
+            continue
+        _, table_schema = _classify_table(name, table, warehouse, views)
+        if table_schema in schemas:
+            matches[(table_schema, name.rsplit(".", 1)[1])].append(name)
+    return {names[0]: bare for (_, bare), names in matches.items() if len(names) == 1}
+
+
+def _relabel_table_names(rows: list[list[Any]], aliases: dict[str, str], indexes: tuple[int, ...]) -> list[list[Any]]:
+    relabeled = []
+    for row in rows:
+        row = list(row)
+        for index in indexes:
+            row[index] = aliases.get(row[index], row[index])
+        relabeled.append(row)
+    return relabeled
+
+
 # ClickHouse column types for the external data table, keyed by the same kinds as `_constant_rows_select`.
 _KIND_TO_CLICKHOUSE: dict[str, str] = {
     _STRING: "String",
@@ -476,6 +528,7 @@ class _Introspection:
         self.saved_query_ids_by_name = warehouse_metadata.saved_query_ids_by_name
         self.column_stats = warehouse_metadata.column_stats
         self.table_descriptions = TableDescriptions.load(context.team_id)
+        self._sensitivity_enabled: Optional[bool] = None
         self._collected: Optional[_CollectedCatalog] = None
         self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
         self._data_catalog_enriched_relationship_rows: Optional[list[list[Any]]] = None
@@ -530,6 +583,33 @@ class _Introspection:
             _capture_unexpected("information_schema: failed to resolve expression column type", e)
             return "Expression"
 
+    def _traverser_target(self, table_name: str, column_name: str) -> Optional[DatabaseField]:
+        """The plain field a traverser column resolves to, or None when it lands on a table, an
+        expression, or nothing resolvable."""
+        scope = self._table_scope(table_name)
+        if scope is None:
+            return None
+        # Deferred: see `_table_scope`.
+        from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+
+        chain: list[str | int] = [*column_name.split(".")]
+        try:
+            resolved_type = resolve_types(ast.Field(chain=chain), self.context, "hogql", [scope]).type
+            # The table scope is a `SELECT *`, so a column comes back wrapped in its select alias.
+            while isinstance(resolved_type, ast.FieldAliasType):
+                resolved_type = resolved_type.type
+            if not isinstance(resolved_type, ast.FieldType):
+                return None
+            target = resolved_type.resolve_database_field(self.context)
+        except BaseHogQLError:
+            return None  # genuinely unresolvable chain — expected
+        except Exception as e:
+            _capture_unexpected("information_schema: failed to resolve field traverser target", e)
+            return None
+        if not isinstance(target, DatabaseField) or isinstance(target, ExpressionField):
+            return None
+        return target
+
     def _row_count(self, name: str, table: Table, table_type: str) -> Optional[int]:
         if table_type == "data_warehouse" and table.name:
             return self.row_counts.get(table.name)
@@ -543,6 +623,18 @@ class _Introspection:
 
     def _column_description(self, table: Table, column_name: str, field: FieldOrTable) -> Optional[str]:
         return self.table_descriptions.for_column(table, column_name, field)
+
+    def _column_sensitivity(self, table_type: str, column_name: str, data_type: str) -> Optional[str]:
+        if table_type != "data_warehouse" or self.context.team_id is None:
+            return None
+        from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415
+            column_sensitivity,
+            column_sensitivity_enabled,
+        )
+
+        if self._sensitivity_enabled is None:
+            self._sensitivity_enabled = column_sensitivity_enabled(self.context.team_id)
+        return column_sensitivity(column_name, data_type) if self._sensitivity_enabled else None
 
     def _column_stats(self, table: Table, table_type: str, column_name: str) -> _ColumnStats:
         """`(null_fraction, min_value, max_value)` for a warehouse column, or all-None otherwise."""
@@ -656,13 +748,14 @@ class _Introspection:
             if isinstance(field, DatabaseField):
                 kind = "expression" if isinstance(field, ExpressionField) else "column"
                 null_fraction, min_value, max_value = self._column_stats(table, table_type, qualified)
+                data_type = self._data_type(table_name, field)
                 column_rows.append(
                     [
                         table_schema,
                         table_name,
                         qualified,
                         ordinal,
-                        self._data_type(table_name, field),
+                        data_type,
                         bool(field.is_nullable()),
                         bool(field.array),
                         kind,
@@ -670,6 +763,7 @@ class _Introspection:
                         null_fraction,
                         min_value,
                         max_value,
+                        self._column_sensitivity(table_type, qualified, data_type),
                     ]
                 )
                 ordinal += 1
@@ -702,6 +796,26 @@ class _Introspection:
                         provenance_key=None,
                     )
                 )
+                target_field = self._traverser_target(table_name, qualified)
+                if target_field is not None:
+                    column_rows.append(
+                        [
+                            table_schema,
+                            table_name,
+                            qualified,
+                            ordinal,
+                            _field_type_name(target_field),
+                            bool(target_field.is_nullable()),
+                            bool(target_field.array),
+                            "field_traverser",
+                            self._column_description(table, qualified, field),
+                            None,
+                            None,
+                            None,
+                            None,
+                        ]
+                    )
+                    ordinal += 1
             elif isinstance(field, VirtualTable):
                 # Surface nested virtual-table columns as `parent.child` columns.
                 column_rows.append(
@@ -714,6 +828,7 @@ class _Introspection:
                         False,
                         False,
                         "virtual_table",
+                        None,
                         None,
                         None,
                         None,
@@ -800,6 +915,7 @@ _COLUMNS_COLUMNS: list[tuple[str, str]] = [
     ("null_fraction", _NULLABLE_FLOAT),
     ("min_value", _NULLABLE_STRING),
     ("max_value", _NULLABLE_STRING),
+    ("sensitivity", _NULLABLE_STRING),
 ]
 
 _RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
@@ -855,7 +971,6 @@ _METRICS_COLUMNS: list[tuple[str, str]] = [
     ("definition", _NULLABLE_STRING),
     ("definition_kind", _NULLABLE_STRING),
     ("owner", _NULLABLE_STRING),
-    ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
     ("source_insight_short_id", _NULLABLE_STRING),
     ("last_run_at", _NULLABLE_STRING),
@@ -1041,7 +1156,6 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
                     json.dumps(metric.definition) if metric.definition else None,
                     metric.definition_kind,
                     metric.owner.email if metric.owner else None,
-                    metric.confidence,
                     metric.reasoning,
                     metric.source_insight_short_id,
                     metric.last_run_at.isoformat() if metric.last_run_at else None,
@@ -1611,6 +1725,9 @@ class InformationSchemaTablesTable(InformationSchemaTable):
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
+        aliases = _schema_split_aliases(node, allowed, context.database)
+        if aliases and allowed is not None:
+            allowed = allowed.union(aliases)
         introspection = _introspection(context, allowed)
         data_catalog_enrichment_requested = "certification" in self.fields and _accesses_any_field(
             table_to_add, _DATA_CATALOG_TABLE_FIELDS
@@ -1623,6 +1740,10 @@ class InformationSchemaTablesTable(InformationSchemaTable):
             table_rows = introspection.table_rows()
         columns = _DATA_CATALOG_ENRICHED_TABLES_COLUMNS if data_catalog_enrichment_requested else _TABLES_COLUMNS
         table_label = "data_catalog_enriched_tables" if data_catalog_enrichment_requested else "tables"
+        if aliases:
+            # table_catalog and table_name both carry the table's name.
+            table_rows = _relabel_table_names(table_rows, aliases, (0, 2))
+            table_label = f"{table_label}_schema_split"
         return _rows_select(context, table_label, columns, table_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -1636,7 +1757,8 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
     description: str = (
         "SQL-standard catalog of every column on every visible table; one row per column. Filter by "
         "table_name to inspect a table's columns, their types, descriptions, and (for data warehouse "
-        "tables) profiling statistics: null_fraction, min_value, max_value."
+        "tables) profiling statistics (null_fraction, min_value, max_value) and a sensitivity flag for "
+        "columns that likely hold personal or secret data."
     )
     fields: dict[str, FieldOrTable] = {
         "table_schema": _string_field(
@@ -1667,7 +1789,10 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
         "field_kind": _string_field(
             "field_kind",
             nullable=False,
-            description="How the column is backed: 'column', 'expression' (computed), or 'virtual_table'.",
+            description=(
+                "How the column is backed: 'column', 'expression' (computed), 'field_traverser' (read "
+                "through a join, typed by the field it reaches), or 'virtual_table'."
+            ),
         ),
         "description": _string_field(
             "description", nullable=True, description="Human/agent-facing description of what the column holds."
@@ -1697,12 +1822,33 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
                 "Use it to bound range and time-window filters. NULL when unprofiled or not applicable."
             ),
         ),
+        "sensitivity": _string_field(
+            "sensitivity",
+            nullable=True,
+            description=(
+                "Kind of personal or secret data a data warehouse column likely holds, from its name and type: "
+                + ", ".join(f"'{kind.value}'" for kind in WarehouseColumnSensitivity)
+                + ". Avoid selecting or exposing these columns unless the task needs them. "
+                "NULL when the column is not flagged or is not a synced warehouse column."
+            ),
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
+        aliases = _schema_split_aliases(node, allowed, context.database)
+        if aliases and allowed is not None:
+            allowed = allowed.union(aliases)
         introspection = _introspection(context, allowed)
         column_rows = introspection.column_rows() if introspection is not None else []
+        if aliases:
+            return _rows_select(
+                context,
+                "columns_schema_split",
+                _COLUMNS_COLUMNS,
+                _relabel_table_names(column_rows, aliases, (1,)),
+                allowed,
+            )
         return _rows_select(context, "columns", _COLUMNS_COLUMNS, column_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -1834,10 +1980,11 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
             description="Query kind: HogQLQuery, TrendsQuery, FunnelsQuery, or an event node.",
         ),
         "owner": _string_field("owner", nullable=True, description="Email of the human accountable for this metric."),
-        "confidence": FloatDatabaseField(
-            name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
+        "reasoning": _string_field(
+            "reasoning",
+            nullable=True,
+            description="AI author's design decisions and trade-offs behind the definition, as review context.",
         ),
-        "reasoning": _string_field("reasoning", nullable=True, description="AI author's reasoning, review context."),
         "source_insight_short_id": _string_field(
             "source_insight_short_id",
             nullable=True,
@@ -2199,7 +2346,7 @@ def static_column_rows() -> list[list[Any]]:
 
     Row layout matches `_Introspection.column_rows()`:
     `[table_schema, table_name, column_name, ordinal, data_type, is_nullable, is_array, field_kind,
-    description, null_fraction, min_value, max_value]`.
+    description, null_fraction, min_value, max_value, sensitivity]`.
     """
     # Deferred: `Database` imports the schema package, so a module-level import would cycle.
     from posthog.hogql.context import HogQLContext  # noqa: PLC0415
@@ -2226,9 +2373,3 @@ def disable_data_catalog(info_schema: TableNode) -> None:
         relationships.table.fields.pop("confidence", None)
         relationships.table.fields.pop("reasoning", None)
         relationships.table.description = _RELATIONSHIPS_DESCRIPTION
-
-
-def disable_data_quality(info_schema: TableNode) -> None:
-    info_schema.children.pop("data_quality_checks", None)
-    info_schema.children.pop("data_quality_check_runs", None)
-    info_schema.children.pop("data_quality_health", None)

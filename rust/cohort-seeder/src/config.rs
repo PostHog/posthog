@@ -3,7 +3,7 @@
 //! never away.
 
 use std::fmt;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -192,19 +192,44 @@ pub struct Config {
     #[envconfig(default = "1800")]
     pub seeder_retry_backoff_cap_secs: u64,
 
+    /// ClickHouse resource errors in a row on one run before the seeder stops claiming its chunks.
+    #[envconfig(default = "3")]
+    pub seeder_ch_breaker_threshold: u32,
+
+    /// The first opening's length. Each later opening doubles it, up to the cap.
+    #[envconfig(default = "300")]
+    pub seeder_ch_breaker_cooldown_base_secs: u64,
+
+    #[envconfig(default = "1800")]
+    pub seeder_ch_breaker_cooldown_cap_secs: u64,
+
+    /// The opening, counted since the last confirmed chunk, that fails the run instead.
+    #[envconfig(default = "4")]
+    pub seeder_ch_breaker_max_trips: u32,
+
     #[envconfig(default = "3000")]
     pub seeder_tiles_per_sec: u32,
 
     #[envconfig(default = "4000")]
     pub seeder_max_inflight_tiles: usize,
 
+    /// Entries all newest-day indexes may hold together. A run skips a person's tile for a day
+    /// older than one it already scanned, on conditions where every leaf keeps only the newest day,
+    /// and its index holds one entry per (person, condition) pair, about 30-55 bytes, so the default
+    /// takes up to about 550 MB. Runs take entries first come, first served, and free them when they
+    /// end. Past the cap new pairs are not recorded, so their tiles are sent for every day.
+    #[envconfig(default = "10000000")]
+    pub seeder_newest_day_index_max_entries: usize,
+
     #[envconfig(default = "400")]
     pub seeder_max_lookback_days: u32,
 
     /// Person-hash bands each planned day is split into, bounding one chunk's in-memory aggregate
-    /// to roughly `uniq(person, condition) / bands`. Safe to raise mid-run: planning is idempotent
-    /// per (run, day, band) and tile application is max-merge idempotent, so a re-planned day only
-    /// adds narrower re-scans.
+    /// to roughly `uniq(person, condition) / bands`.
+    ///
+    /// Never change it while a behavioral run is seeding. A claim takes its divisor from the day's
+    /// band count at claim time and confirmed bands are not rescanned, so some persons fall in no
+    /// scanned band while the run still stamps readiness.
     #[envconfig(default = "1")]
     pub seeder_bands_per_day: u16,
 
@@ -302,15 +327,26 @@ pub struct Config {
     #[envconfig(default = "20000000000")]
     pub seeder_ch_max_bytes_before_external_sort: u64,
 
-    /// Runaway guard on sets built from `IN (SELECT …)` subqueries, which nothing else bounds — the
-    /// person boundary scan's horizon prefilter builds one id set covering a whole team, unchunked.
-    /// Exceeding it throws a set-size error naming the limit rather than pushing the server toward
-    /// an OOM that takes unrelated queries down with it.
+    /// Runaway guard on sets built from `IN (SELECT …)` subqueries. Exceeding it throws a set-size
+    /// error rather than pushing the server toward an OOM that takes unrelated queries down.
     #[envconfig(default = "20000000000")]
     pub seeder_ch_max_bytes_in_set: u64,
 
     #[envconfig(default = "grace_hash")]
     pub seeder_ch_join_algorithm: String,
+
+    /// This and the next two settings are sent only when set. The `cohort_seeder` profile constrains
+    /// them, and ClickHouse rejects a query that sends a value above a constraint, so a default could
+    /// fail every scan. Not 0, which ClickHouse reads as one thread per core.
+    pub seeder_ch_max_threads: Option<NonZeroU64>,
+
+    /// Not 0, which ClickHouse reads as unlimited.
+    pub seeder_ch_max_memory_usage: Option<NonZeroU64>,
+
+    /// ClickHouse ranks a shard's replicas by recent error count before `<priority>`. A high value
+    /// treats a replica with up to that many recent errors as healthy, so a shard's read stays on its
+    /// offline replica instead of moving to an online one.
+    pub seeder_ch_distributed_replica_max_ignored_errors: Option<u64>,
 
     #[envconfig(default = "100")]
     pub seeder_queue_full_backoff_ms: u64,

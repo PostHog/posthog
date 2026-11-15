@@ -28,11 +28,10 @@ import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/com
 import type { NotebookBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
 import { NotebookBtwLayout } from 'products/notebooks/frontend/NotebookBtwLayout'
@@ -47,10 +46,7 @@ import {
     MarkdownNotebookEntityPickerSelection,
 } from './MarkdownNotebookEntityPicker'
 import { InlineAIAssistantMessage, InlineAICompletion, InlineNotebookAIRunner } from './MarkdownNotebookInlineAI'
-import {
-    getHiddenInsertCommandKeysForFeatureFlags,
-    getMarkdownRegistryForFeatureFlags,
-} from './markdownNotebookRegistry'
+import { NOTEBOOK_HIDDEN_INSERT_COMMAND_KEYS, NOTEBOOK_MARKDOWN_REGISTRY } from './markdownNotebookRegistry'
 import { useNotebookComponentRunStatusResolver } from './markdownNotebookRunStatus'
 import {
     InlineNotebookAIRequest,
@@ -68,6 +64,9 @@ import {
     notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
 import { buildNotebookInlineAIFinishedEvent, buildNotebookInlineAIRequestedEvent } from './notebookAnalytics'
+import { notebookJupyterLogic } from './notebookJupyterLogic'
+import { getNotebookJupyterModeConfig } from './notebookJupyterMode'
+import { NotebookJupyterToolbar } from './NotebookJupyterToolbar'
 import { notebookLogic } from './notebookLogic'
 import {
     NOTEBOOK_AI_PRESENCE_COLOR,
@@ -82,11 +81,16 @@ const NOTEBOOK_AI_PRESENCE_DEPARTURE_IDLE_MS = 5_000
 const NOTEBOOK_AI_PRESENCE_FADE_OUT_MS = 300
 
 type MarkdownNotebookV2Props = {
+    collapsedToolbarContainer?: HTMLElement | null
     debugOpen?: boolean
     onDebugOpenChange?: (isOpen: boolean) => void
 }
 
-export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNotebookV2Props): JSX.Element {
+export function MarkdownNotebookV2({
+    collapsedToolbarContainer,
+    debugOpen,
+    onDebugOpenChange,
+}: MarkdownNotebookV2Props): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const {
         isEditable,
@@ -97,12 +101,11 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         markdownEditorInteractionActive,
         markdownRemoteCarets,
     } = useValues(notebookLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { session: btwSession } = useValues(notebookBtwLogic({ shortId }))
     const { openBtw, closeBtw } = useActions(notebookBtwLogic({ shortId }))
-    const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
+    const markdownRegistry = NOTEBOOK_MARKDOWN_REGISTRY
     const enabledAIComponentTags = useMemo(
         () => [
             'Query',
@@ -112,10 +115,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         ],
         [markdownRegistry]
     )
-    const hiddenInsertCommandKeys = useMemo(
-        () => getHiddenInsertCommandKeysForFeatureFlags(featureFlags),
-        [featureFlags]
-    )
+    const hiddenInsertCommandKeys = NOTEBOOK_HIDDEN_INSERT_COMMAND_KEYS
     const resolveComponentRunStatus = useNotebookComponentRunStatusResolver(mountedNotebookLogic.props.shortId)
     const {
         handleMarkdownEditorChange,
@@ -127,6 +127,22 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         saveNotebookNow,
     } = useActions(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
+    const { isJupyterMode } = useValues(notebookSettingsLogic)
+    const { requestKernelRestart, trackCommand, setIsActive } = useActions(notebookJupyterLogic({ shortId }))
+    // Canvases (customer profiles and the like) are not notebooks of cells, so they keep their layout.
+    const jupyterMode = useMemo(
+        () =>
+            isJupyterMode && mountedNotebookLogic.props.mode !== 'canvas'
+                ? getNotebookJupyterModeConfig(shortId, {
+                      onRestartKernel: () => requestKernelRestart(),
+                      onCommand: trackCommand,
+                  })
+                : null,
+        [isJupyterMode, mountedNotebookLogic.props.mode, requestKernelRestart, trackCommand, shortId]
+    )
+    useEffect(() => {
+        setIsActive(!!jupyterMode)
+    }, [jupyterMode, setIsActive])
     const remoteMarkdown = useMemo(() => getMarkdownNotebookMarkdown(notebook?.content), [notebook?.content])
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
@@ -779,7 +795,19 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                         deferRemoteValue={markdownEditorInteractionActive}
                         onInteractionStateChange={setMarkdownEditorInteractionActive}
                         allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
-                        canvasHeader={<NotebookVariablesBar />}
+                        jupyterMode={jupyterMode}
+                        canvasHeader={
+                            jupyterMode ? (
+                                <>
+                                    {isEditable ? (
+                                        <NotebookJupyterToolbar collapsedContainer={collapsedToolbarContainer} />
+                                    ) : null}
+                                    <NotebookVariablesBar />
+                                </>
+                            ) : (
+                                <NotebookVariablesBar />
+                            )
+                        }
                         className="Notebook__markdown-v2"
                         data-attr="notebook-markdown-v2"
                         autoFocus={isEditable}

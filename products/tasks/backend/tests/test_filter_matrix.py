@@ -1,6 +1,8 @@
 import json
 from typing import ClassVar
 
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -211,15 +213,15 @@ class TestTaskListFilterMatrix(TestCase):
         desktop_task = self.tasks["peter_plain"]
         desktop_task.client_provenance = "posthog_desktop"
         desktop_task.save(update_fields=["client_provenance"])
+        mobile_task = self.tasks["mine_peter_commented"]
+        mobile_task.client_provenance = "posthog_mobile"
+        mobile_task.save(update_fields=["client_provenance"])
 
         assert self._list(client_provenance="posthog_desktop") == self._ids("peter_plain")
+        assert self._list(client_provenance="posthog_mobile") == self._ids("mine_peter_commented")
         assert self._list(client_provenance="posthog_desktop", created_by=self.me.id) == set()
         assert self._list(client_provenance="posthog_desktop", search="billing") == self._ids("peter_plain")
         assert self._list(client_provenance="posthog_desktop", search="missing") == set()
-
-    def test_client_provenance_rejects_unknown_values(self) -> None:
-        response = self.client.get("/api/projects/@current/tasks/", {"client_provenance": "unknown"})
-        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
 
     def test_exclude_origin_product(self):
         assert self._list(exclude_origin_product="signals_scout") == self.all_except("scout_in_channel")
@@ -227,11 +229,106 @@ class TestTaskListFilterMatrix(TestCase):
             "peter_mention_me", "peter_plain", "peter_i_commented", "peter_legacy_mention"
         )
 
-    def test_exclude_origin_product_rejects_unknown_values(self):
-        # A typo must not fail open: matching nothing would return the full list including the
-        # very tasks the caller asked to drop.
-        response = self.client.get("/api/projects/@current/tasks/", {"exclude_origin_product": "signal_scout"})
+    @parameterized.expand(
+        [
+            ("client_provenance", "unknown"),
+            # A typo must not fail open: matching nothing would return the full list including the
+            # very tasks the caller asked to drop.
+            ("exclude_origin_product", "signal_scout"),
+            ("sources", "signal_scout"),
+            ("sources", "user_created"),
+            ("sources", "business_knowledge"),
+        ]
+    )
+    def test_rejects_unknown_values(self, param: str, value: str) -> None:
+        response = self.client.get("/api/projects/@current/tasks/", {param: value})
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            (
+                "first_party_clients",
+                ["posthog_desktop", "posthog_mobile", "posthog_web"],
+                [
+                    "peter_mention_me",
+                    "peter_plain",
+                    "adam_mention_peter",
+                    "mine_peter_commented",
+                    "peter_i_commented",
+                    "adam_pinned_by_me",
+                    "peter_legacy_mention",
+                ],
+            ),
+            (
+                "desktop_includes_unknown_client",
+                ["posthog_desktop"],
+                ["peter_mention_me", "peter_plain", "peter_i_commented", "adam_pinned_by_me"],
+            ),
+            ("mobile", ["posthog_mobile"], ["mine_peter_commented"]),
+            (
+                "web_includes_posthog_ai",
+                ["posthog_web", "slack"],
+                ["adam_mention_peter", "peter_legacy_mention", "peter_slack_mention_me"],
+            ),
+            ("origin_product", ["signals_scout"], ["scout_in_channel"]),
+            ("json_encoded", '["posthog_mobile", "signals_scout"]', ["mine_peter_commented", "scout_in_channel"]),
+            ("comma_joined", "posthog_mobile,signals_scout", ["mine_peter_commented", "scout_in_channel"]),
+            (
+                "empty_value_applies_no_filter",
+                "",
+                [
+                    "peter_mention_me",
+                    "peter_plain",
+                    "peter_slack_mention_me",
+                    "adam_mention_peter",
+                    "mine_peter_commented",
+                    "scout_in_channel",
+                    "peter_i_commented",
+                    "adam_pinned_by_me",
+                    "peter_legacy_mention",
+                ],
+            ),
+        ]
+    )
+    def test_sources(self, _name: str, sources: list[str] | str, expected: list[str]) -> None:
+        for key, provenance in (
+            ("peter_plain", "posthog_desktop"),
+            ("mine_peter_commented", "posthog_mobile"),
+            ("adam_mention_peter", "posthog_web"),
+        ):
+            Task.objects.filter(id=self.tasks[key].id).update(client_provenance=provenance)
+        Task.objects.filter(id=self.tasks["peter_legacy_mention"].id).update(
+            origin_product=Task.OriginProduct.POSTHOG_AI
+        )
+
+        assert self._list(sources=sources) == self._ids(*expected)
+
+    @parameterized.expand(
+        [
+            ("own_tasks_without_archived", "me", [], ["posthog_mobile"]),
+            ("posthog_ai_counts_as_web", "adam", [], ["posthog_desktop", "posthog_web", "signals_scout"]),
+            ("tasks_another_product_hides", "adam", ["adam_mention_peter"], ["posthog_desktop", "signals_scout"]),
+        ]
+    )
+    def test_sources_endpoint_lists_the_users_task_sources(
+        self, _name: str, user: str, hidden: list[str], expected: list[str]
+    ) -> None:
+        Task.objects.filter(id=self.tasks["mine_peter_commented"].id).update(client_provenance="posthog_mobile")
+        Task.objects.filter(id=self.tasks["adam_mention_peter"].id).update(origin_product=Task.OriginProduct.POSTHOG_AI)
+        hidden_ids = [self.tasks[key].id for key in hidden]
+        requester = getattr(self, user)
+        self.client.force_login(requester)
+
+        with patch.dict(
+            "products.tasks.backend.facade.task_run_signals._task_read_exclusions",
+            {"test": lambda _team_id, _user_id: hidden_ids},
+        ):
+            response = self.client.get("/api/projects/@current/tasks/sources/")
+
+        assert response.status_code == http_status.HTTP_200_OK, response.content
+        assert response.json() == {"sources": expected}
+        for source in expected:
+            assert self._list(sources=source, created_by=requester.id), source
 
     @parameterized.expand(
         [

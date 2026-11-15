@@ -1,8 +1,10 @@
 import { Message } from 'node-rdkafka'
+import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
 import { KAFKA_COHORT_RECONCILE_MARKERS } from '~/common/config/kafka-topics'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
 import { resetBehavioralCohortsDatabase } from '../../../../tests/helpers/sql'
@@ -166,6 +168,27 @@ describe('CohortMembershipSweeper', () => {
         const markers = sweeper.parseMarkers(messages)
 
         expect(markers.map((marker) => marker.partition)).toEqual([0])
+    })
+
+    it('should count a withheld marker without warning, since it is an outcome and not a bad message', async () => {
+        const withheldCount = async (): Promise<number> =>
+            (await register.getSingleMetric('cdp_cohort_membership_markers_consumed')?.get())?.values.find(
+                (value) => value.labels.outcome === 'withheld'
+            )?.value ?? 0
+        const before = await withheldCount()
+        const warn = jest.spyOn(logger, 'warn')
+        try {
+            const markers = sweeper.parseMarkers([
+                markerMessage(0),
+                markerMessage(1, { type: 'reconcile_withheld', reason: 'partial_coverage', covered_since_ms: 1 }),
+            ])
+
+            expect(markers.map((marker) => marker.partition)).toEqual([0])
+            expect(warn).not.toHaveBeenCalled()
+            expect((await withheldCount()) - before).toBe(1)
+        } finally {
+            warn.mockRestore()
+        }
     })
 
     it('should union marker bits and turn the run claimable only once the set is complete', async () => {

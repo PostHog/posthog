@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode
 
@@ -7,7 +7,7 @@ from posthog.hogql import ast
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 
-class TestMetricSourceInfo(BaseTest):
+class TestMetricSourceInfo(SimpleTestCase):
     def test_from_events_node(self):
         """EventsNode creates correct MetricSourceInfo."""
         source = EventsNode(event="purchase")

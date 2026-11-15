@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Experiment UUID.",
+            "type": "string"
+        },
+        "result_id": {
+            "description": "Result UUID within the experiment.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "result_id"],
+    "type": "object"
+}

@@ -1,0 +1,134 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Personal assistant checks a listing task board",
+  "scenario": "A Poke-style personal assistant (posthog-elixir backend) helps a real-estate agent track open tasks on a listing's task board over SMS-like chat: an earlier turn summarized what was open, the agent asks it to check again, it calls a board-lookup tool, and reports back with an update.",
+  "summary": {
+    "events": {
+      "$ai_generation": 2,
+      "$ai_span": 1,
+      "$ai_trace": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "posthog-elixir"
+    ],
+    "providers": [],
+    "frameworks": [],
+    "models": [
+      "gemini-3.1-flash-lite",
+      "google:gemini-3.1-flash-lite"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$is_server": true,
+        "$ai_model_source": "live",
+        "$ai_session_id": "a4940c0d-fefe-73ec-5562-53fdfd452861",
+        "$ai_input_tokens": 43766,
+        "environment": "prod",
+        "$ai_span_id": "31699bd3-52ba-7396-5b37-17496b362b0e",
+        "$ai_is_error": false,
+        "$ai_latency": 3.566,
+        "$ai_provider": null,
+        "$ai_output_tokens": 334,
+        "$ai_trace_id": "7b8ed8b9-a80d-7ee3-f9d2-676262a7a268",
+        "$ai_tools_called": "fetch_CRFIR5XxpC8",
+        "$lib_version": "2.15.0",
+        "user": "user_9f2e6b1c4d8a02f7e5c3b1",
+        "$ai_model": "gemini-3.1-flash-lite",
+        "$ai_reasoning_tokens": 283,
+        "round": 1,
+        "surface": "mobile",
+        "$ai_cache_creation_input_tokens": 0,
+        "$lib": "posthog-elixir",
+        "$ai_cache_read_input_tokens": 40534,
+        "$ai_tool_call_count": 1,
+        "$ai_input": "[{\"content\": \"Hey can you check my open tasks on the Riverside Ave listing board?\", \"role\": \"user\"}, {\"content\": \"Sure! Here's what's currently open on the Riverside Ave board:\\n\\n- Confirm docs - the seller still hasn't sent back the signed\\n  disclosure packet, first flagged three days ago and now the\\n  longest-open item on the board by a wide margin\\n- Call back - the buyer's lender left a voicemail about the\\n  appraisal scheduling and hasn't heard back from anyone yet,\\n  worth a callback before end of day tomorrow\\n- Photos re-shoot - the listing photos from last month look a\\n  little dark in a few rooms, marked as a maybe rather than a\\n  must, since the current set is still usable if this slips\\n\\nNothing here looks urgent enough to need you tonight, but the\\ndisclosure packet has been sitting the longest and is the one\\nmost likely to hold up the closing timeline if it drags on much\\nfurther. Want me to draft a nudge message to the seller's side,\\nor just keep watching it for now?\", \"role\": \"assistant\"}, {\"content\": \"sure!\", \"role\": \"user\"}, {\"content\": \"Got it, I'll draft a short nudge to the seller's agent about the disclosure packet.\", \"role\": \"assistant\"}, {\"content\": \"Can you check again?\", \"role\": \"user\"}]",
+        "$ai_output": ""
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 105,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_id": "f4d6ecc1-42d5-731a-526d-1d2ba2a9122f",
+        "surface": "mobile",
+        "environment": "prod",
+        "$ai_session_id": "a4940c0d-fefe-73ec-5562-53fdfd452861",
+        "user": "user_9f2e6b1c4d8a02f7e5c3b1",
+        "$is_server": true,
+        "$ai_trace_id": "7b8ed8b9-a80d-7ee3-f9d2-676262a7a268",
+        "$lib": "posthog-elixir",
+        "$ai_is_error": false,
+        "$ai_latency": 0.101,
+        "$lib_version": "2.15.0",
+        "$ai_span_name": "fetch_CRFIR5XxpC8"
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 2480,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib": "posthog-elixir",
+        "$ai_session_id": "a4940c0d-fefe-73ec-5562-53fdfd452861",
+        "$ai_cache_creation_input_tokens": 0,
+        "$ai_is_error": false,
+        "$ai_input_tokens": 44227,
+        "environment": "prod",
+        "$is_server": true,
+        "$lib_version": "2.15.0",
+        "$ai_model": "gemini-3.1-flash-lite",
+        "$ai_span_id": "fd4c3dec-ea42-7040-1223-9496ad1d5fa3",
+        "surface": "mobile",
+        "round": 2,
+        "$ai_trace_id": "7b8ed8b9-a80d-7ee3-f9d2-676262a7a268",
+        "$ai_latency": 2.373,
+        "$ai_provider": null,
+        "$ai_model_source": "live",
+        "user": "user_9f2e6b1c4d8a02f7e5c3b1",
+        "$ai_cache_read_input_tokens": 40533,
+        "$ai_output_tokens": 138,
+        "$ai_reasoning_tokens": 91,
+        "$ai_input": "[{\"content\": \"Hey can you check my open tasks on the Riverside Ave listing board?\", \"role\": \"user\"}, {\"content\": \"Sure! Here's what's currently open on the Riverside Ave board:\\n\\n- Confirm docs - the seller still hasn't sent back the signed\\n  disclosure packet, first flagged three days ago and now the\\n  longest-open item on the board by a wide margin\\n- Call back - the buyer's lender left a voicemail about the\\n  appraisal scheduling and hasn't heard back from anyone yet,\\n  worth a callback before end of day tomorrow\\n- Photos re-shoot - the listing photos from last month look a\\n  little dark in a few rooms, marked as a maybe rather than a\\n  must, since the current set is still usable if this slips\\n\\nNothing here looks urgent enough to need you tonight, but the\\ndisclosure packet has been sitting the longest and is the one\\nmost likely to hold up the closing timeline if it drags on much\\nfurther. Want me to draft a nudge message to the seller's side,\\nor just keep watching it for now?\", \"role\": \"assistant\"}, {\"content\": \"sure!\", \"role\": \"user\"}, {\"content\": \"Got it, I'll draft a short nudge to the seller's agent about the disclosure packet.\", \"role\": \"assistant\"}, {\"content\": \"Can you check again?\", \"role\": \"user\"}, {\"name\": null, \"metadata\": {}, \"role\": \"assistant\", \"content\": [], \"tool_calls\": [{\"function\": {\"arguments\": \"{\\\"board_id\\\": \\\"cd7b4948-b568-7a38-3a43-fbfc10f1a29f\\\"}\", \"name\": \"fetch_CRFIR5XxpC8\"}, \"id\": \"toolu_9k2fx7Qs4LmB1n\", \"type\": \"function\"}], \"tool_call_id\": null, \"reasoning_details\": null}, {\"name\": null, \"metadata\": {}, \"role\": \"tool\", \"content\": [{\"data\": null, \"type\": \"text\", \"filename\": null, \"metadata\": {}, \"text\": \"{\\\"items\\\": [{\\\"assignee_ids\\\": [\\\"agent_priya\\\", \\\"coord1\\\"], \\\"task_name\\\": \\\"Confirm docs\\\", \\\"due_date_override\\\": null, \\\"id\\\": \\\"45d5ad64-ecad-7c01-2b9a-3a2d7546022f\\\", \\\"created_at_iso8601\\\": \\\"2026-08-07T07:39:24Z\\\", \\\"last_updated_time\\\": \\\"2026-08-07T13:39:17Z\\\", \\\"synced\\\": false, \\\"requires_follow_up\\\": false, \\\"status\\\": \\\"blocked\\\", \\\"record_type\\\": \\\"task_item\\\"}, {\\\"assignee_ids\\\": [\\\"coord1\\\", \\\"agent_priya\\\"], \\\"task_name\\\": \\\"Call back\\\", \\\"due_date_override\\\": null, \\\"id\\\": \\\"eb6b48d6-735d-7a31-568d-dab8a314be09\\\", \\\"created_at_iso8601\\\": \\\"2026-08-07T07:50:31Z\\\", \\\"last_updated_time\\\": \\\"2026-08-07T13:50:26Z\\\", \\\"synced\\\": false, \\\"requires_follow_up\\\": false, \\\"status\\\": \\\"blocked\\\", \\\"record_type\\\": \\\"task_item\\\"}], \\\"instructions\\\": \\\"These are the raw board records for the Riverside Ave listing, sorted by last update time, newest first. status of UPDATED means a field changed since the last time this board was fetched, not that the task itself is finished; check the completed flag on each item for that. The assignee list can be empty if a task was created but never assigned, and due_date_override only appears when someone manually moved it off the default schedule.\\\", \\\"count\\\": 2}\", \"url\": null, \"media_type\": null, \"format\": null}], \"tool_calls\": null, \"tool_call_id\": \"toolu_9k2fx7Qs4LmB1n\", \"reasoning_details\": null}]",
+        "$ai_output": "You have two open tasks on the Riverside Ave board: confirm docs is still pending and call back hasn't been marked done yet."
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 2480,
+      "distinct_id": "user-1",
+      "properties": {
+        "$is_server": true,
+        "$ai_trace_id": "7b8ed8b9-a80d-7ee3-f9d2-676262a7a268",
+        "$ai_is_error": false,
+        "$ai_model": "google:gemini-3.1-flash-lite",
+        "model_alias": "default",
+        "$ai_span_id": "220d6a51-e4d9-7979-2f28-000889d6f83d",
+        "region": "us-west",
+        "surface": "mobile",
+        "$lib": "posthog-elixir",
+        "$ai_trace_name": "task_board_check",
+        "$ai_model_source": "live",
+        "environment": "prod",
+        "$lib_version": "2.15.0",
+        "$ai_latency": 6.078,
+        "tool_call_count": 1,
+        "user": "user_9f2e6b1c4d8a02f7e5c3b1",
+        "$ai_session_id": "a4940c0d-fefe-73ec-5562-53fdfd452861",
+        "$ai_input_state": "Can you check again?",
+        "$ai_output_state": "You have two open tasks on the Riverside Ave board: confirm docs is still pending and call back hasn't been marked done yet."
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

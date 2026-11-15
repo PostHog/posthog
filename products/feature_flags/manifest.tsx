@@ -1,11 +1,18 @@
+import { combineUrl } from 'kea-router'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, AnyPropertyFilter, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Feature Flags',
+    activityDescribers: {
+        [ActivityScope.FEATURE_FLAG]: () =>
+            import('scenes/feature-flags/activityDescriptions').then((module) => module.flagActivityDescriber),
+    },
     scenes: {
         FeatureFlagTemplates: {
             import: () => import('./frontend/FeatureFlagTemplatesScene'),
@@ -19,27 +26,43 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
+        '/feature-flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+        '/feature-flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
+    },
+    // The product shipped under /feature_flags. Emails, Slack messages, comments and bookmarks link there,
+    // so every old path forwards and keeps its search and hash params.
+    redirects: {
+        '/feature_flags': (_params, searchParams, hashParams): string =>
+            combineUrl(urls.featureFlags(), searchParams, hashParams).url,
+        '/feature_flags/*': ({ _ }, searchParams, hashParams): string =>
+            combineUrl(`/feature-flags/${_}`, searchParams, hashParams).url,
     },
     urls: {
-        featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-        featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
-        featureFlagTemplates: (): string => '/feature_flags/templates',
+        featureFlag: (id: string | number): string => `/feature-flags/${id}`,
+        featureFlags: (tab?: string): string => `/feature-flags${tab ? `?tab=${tab}` : ''}`,
+        featureFlagTemplates: (): string => '/feature-flags/templates',
         featureFlagsStaffTools: (teamId?: number): string =>
-            `/feature_flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
+            `/feature-flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
         featureFlagNew: ({
             type,
             sourceId,
             template,
             intent,
+            format,
+            properties,
+            key,
+            variants,
         }: {
             type?: 'boolean' | 'multivariate' | 'remote_config'
             sourceId?: number | string | null
             template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
             intent?: 'local-eval' | 'first-page-load'
+            format?: 'rules_v2'
+            /** Release condition properties for a single condition set rolled out to 100%. */
+            properties?: AnyPropertyFilter[]
+            key?: string
+            /** Variant keys for a multivariate flag, split evenly. Only used with `type: 'multivariate'`. */
+            variants?: string[]
         }): string => {
             const params = new URLSearchParams()
             if (type) {
@@ -54,7 +77,19 @@ export const manifest: ProductManifest = {
             if (intent) {
                 params.set('intent', intent)
             }
-            return `/feature_flags/new?${params.toString()}`
+            if (format) {
+                params.set('format', format)
+            }
+            if (properties?.length) {
+                params.set('properties', JSON.stringify(properties))
+            }
+            if (key) {
+                params.set('key', key)
+            }
+            if (variants?.length) {
+                params.set('variants', variants.join(','))
+            }
+            return `/feature-flags/new?${params.toString()}`
         },
     },
     fileSystemTypes: {
@@ -62,7 +97,9 @@ export const manifest: ProductManifest = {
             name: 'Feature flag',
             iconType: 'feature_flag',
             href: (ref: string) => urls.featureFlag(ref),
-            iconColor: ['var(--color-product-feature-flags-light)'],
+            listHref: () => urls.featureFlags(),
+            listSearchParam: 'search',
+            iconColor: ['var(--color-product-feature-flags-light)', 'var(--color-product-feature-flags-dark)'],
             filterKey: 'feature_flag',
         },
     },
@@ -72,7 +109,10 @@ export const manifest: ProductManifest = {
             type: 'feature_flag',
             href: urls.featureFlag('new'),
             iconType: 'feature_flag',
-            iconColor: ['var(--color-product-feature-flags-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-feature-flags-light)',
+                'var(--color-product-feature-flags-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [
@@ -82,6 +122,20 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'feature_flag',
             href: urls.featureFlags(),
+            searchKeywords: ['toggles', 'rollouts', 'remote config', 'kill switch'],
+            searchTabs: [
+                {
+                    name: 'Request usage',
+                    href: urls.featureFlags('usage'),
+                    flag: FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE,
+                },
+                { name: 'Projects', href: urls.featureFlags('projects') },
+                {
+                    name: 'Notifications',
+                    href: urls.featureFlags('notifications'),
+                    flag: FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS,
+                },
+            ],
             sceneKey: 'FeatureFlags',
             sceneKeys: ['FeatureFlags', 'FeatureFlag'],
         },

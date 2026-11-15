@@ -13,7 +13,13 @@ export default meta
 
 type Story = StoryObj<typeof NumericEvaluationConfig>
 
-function Template({ narrow = false }: { narrow?: boolean }): JSX.Element {
+function Template({
+    narrow = false,
+    requiresBounds = false,
+}: {
+    narrow?: boolean
+    requiresBounds?: boolean
+}): JSX.Element {
     const [config, setConfig] = useState<EvaluationOutputConfig>({
         min: 0,
         max: 10,
@@ -25,6 +31,7 @@ function Template({ narrow = false }: { narrow?: boolean }): JSX.Element {
         <div className={narrow ? 'max-w-lg' : 'max-w-4xl'}>
             <NumericEvaluationConfig
                 config={config}
+                requiresBounds={requiresBounds}
                 onChange={(patch) => setConfig((current) => ({ ...current, ...patch }))}
             />
         </div>
@@ -33,3 +40,5 @@ function Template({ narrow = false }: { narrow?: boolean }): JSX.Element {
 
 export const Default: Story = { render: () => <Template /> }
 export const Narrow: Story = { render: () => <Template narrow /> }
+export const SystemOne: Story = { render: () => <Template requiresBounds /> }
+export const SystemOneNarrow: Story = { render: () => <Template narrow requiresBounds /> }

@@ -15,64 +15,69 @@ type CollapsibleProps = CollapsiblePrimitive.Root.Props & {
     variant?: CollapsibleVariant
 }
 
-function Collapsible({ variant = 'default', className, ...props }: CollapsibleProps): React.ReactElement {
-    return (
-        <CollapsibleVariantContext.Provider value={variant}>
-            <CollapsiblePrimitive.Root
-                data-quill
-                data-slot="collapsible"
-                data-variant={variant}
-                className={cn(
-                    'group/collapsible',
-                    variant === 'default' && 'quill-collapsible--variant-default',
-                    className
-                )}
-                {...props}
-            />
-        </CollapsibleVariantContext.Provider>
-    )
-}
+const Collapsible = React.forwardRef<React.ComponentRef<typeof CollapsiblePrimitive.Root>, CollapsibleProps>(
+    function Collapsible({ variant = 'default', className, ...props }, ref) {
+        return (
+            <CollapsibleVariantContext.Provider value={variant}>
+                <CollapsiblePrimitive.Root
+                    ref={ref}
+                    data-quill
+                    data-slot="collapsible"
+                    data-variant={variant}
+                    className={cn(
+                        'group/collapsible',
+                        variant === 'default' && 'quill-collapsible--variant-default',
+                        className
+                    )}
+                    {...props}
+                />
+            </CollapsibleVariantContext.Provider>
+        )
+    }
+)
 
 /**
  * Row container for the icon-only trigger pattern: the trigger toggles, while
  * siblings (a link, trailing count, actions) stay independently interactive.
  * Use `ms-auto` on trailing content so it stays end-aligned in RTL.
  */
-function CollapsibleHeader({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+const CollapsibleHeader = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function CollapsibleHeader(
+    { className, ...props },
+    ref
+) {
     return (
         <div
+            ref={ref}
             data-slot="collapsible-header"
             className={cn('quill-collapsible__header flex w-full items-center gap-1.5', className)}
             {...props}
         />
     )
-}
+})
 
-function CollapsibleTrigger({
-    children,
-    className,
-    iconOnly = false,
-    icon,
-    ...props
-}: CollapsiblePrimitive.Trigger.Props & {
-    /**
-     * Renders the trigger as a compact icon button (just the chevron) instead
-     * of a full-width row — pair with `CollapsibleHeader` so the rest of the
-     * row can hold independently clickable content. `children` become the
-     * trigger's screen-reader-only label.
-     */
-    iconOnly?: boolean
-    /**
-     * Optional rest icon for `iconOnly` mode: shown instead of the chevron
-     * until the surrounding `CollapsibleHeader` row is hovered or the trigger
-     * is focused, then swaps to the chevron (Finder/VS Code tree pattern).
-     */
-    icon?: React.ReactNode
-}): React.ReactElement {
+const CollapsibleTrigger = React.forwardRef<
+    React.ComponentRef<typeof CollapsiblePrimitive.Trigger>,
+    CollapsiblePrimitive.Trigger.Props & {
+        /**
+         * Renders the trigger as a compact icon button (just the chevron) instead
+         * of a full-width row — pair with `CollapsibleHeader` so the rest of the
+         * row can hold independently clickable content. `children` become the
+         * trigger's screen-reader-only label.
+         */
+        iconOnly?: boolean
+        /**
+         * Optional rest icon for `iconOnly` mode: shown instead of the chevron
+         * until the surrounding `CollapsibleHeader` row is hovered or the trigger
+         * is focused, then swaps to the chevron (Finder/VS Code tree pattern).
+         */
+        icon?: React.ReactNode
+    }
+>(function CollapsibleTrigger({ children, className, iconOnly = false, icon, ...props }, ref) {
     const variant = React.useContext(CollapsibleVariantContext)
     if (iconOnly) {
         return (
             <CollapsiblePrimitive.Trigger
+                ref={ref}
                 data-slot="collapsible-trigger"
                 data-variant={variant}
                 className={cn(
@@ -118,6 +123,7 @@ function CollapsibleTrigger({
     )
     return (
         <CollapsiblePrimitive.Trigger
+            ref={ref}
             data-slot="collapsible-trigger"
             data-variant={variant}
             className={cn(
@@ -133,13 +139,21 @@ function CollapsibleTrigger({
             {variant === 'default' && chevrons}
         </CollapsiblePrimitive.Trigger>
     )
-}
+})
 
-function CollapsibleContent({ children, className, ...props }: CollapsiblePrimitive.Panel.Props): React.ReactElement {
+const CollapsibleContent = React.forwardRef<
+    React.ComponentRef<typeof CollapsiblePrimitive.Panel>,
+    CollapsiblePrimitive.Panel.Props
+>(function CollapsibleContent({ children, className, ...props }, ref) {
     const variant = React.useContext(CollapsibleVariantContext)
 
     return (
-        <CollapsiblePrimitive.Panel data-slot="collapsible-content" className="quill-collapsible__panel" {...props}>
+        <CollapsiblePrimitive.Panel
+            ref={ref}
+            data-slot="collapsible-content"
+            className="quill-collapsible__panel"
+            {...props}
+        >
             <div
                 className={cn(
                     'quill-collapsible__panel-content',
@@ -151,6 +165,6 @@ function CollapsibleContent({ children, className, ...props }: CollapsiblePrimit
             </div>
         </CollapsiblePrimitive.Panel>
     )
-}
+})
 
 export { Collapsible, CollapsibleHeader, CollapsibleTrigger, CollapsibleContent }

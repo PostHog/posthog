@@ -1,10 +1,12 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -16,12 +18,11 @@ import { DEFAULT_USAGE_DATE_RANGE, FlagUsageQuery } from './featureFlagUsageQuer
 
 const FLAG_ID = 1
 
-const BOTH_EVALUATION_FLAGS = {
-    [FEATURE_FLAGS.FLAG_EVALUATIONS_USAGE_TAB]: true,
-    [FEATURE_FLAGS.FLAG_EVALUATIONS_HOGQL_TABLE]: true,
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
 }
 
-// Every chart reads the events table unless a test enables both evaluation flags.
+// Every chart reads the events table unless a test moves the team off the Events mode.
 function trendsSource(query: FlagUsageQuery): TrendsQuery {
     if (query.kind !== NodeKind.InsightVizNode) {
         throw new Error(`Expected an events-table trend, got ${query.kind}`)
@@ -54,18 +55,12 @@ describe('featureFlagUsageLogic', () => {
         logic.mount()
     })
 
-    afterEach(() => {
-        // The flag set persists across tests, so a test that enables one must not leak it.
-        enabledFeaturesLogic.actions.setFeatureFlags([], {})
-    })
-
     it.each([
-        ['neither flag', {}, false],
-        ['the usage-tab flag alone', { [FEATURE_FLAGS.FLAG_EVALUATIONS_USAGE_TAB]: true }, false],
-        ['the HogQL-table flag alone', { [FEATURE_FLAGS.FLAG_EVALUATIONS_HOGQL_TABLE]: true }, false],
-        ['both flags', BOTH_EVALUATION_FLAGS, true],
-    ])('reads flag_evaluations with %s', (_name, variants, readsEvaluations) => {
-        enabledFeaturesLogic.actions.setFeatureFlags([], variants)
+        ['events', FlagEvaluationsModeEnumApi.Number0, false],
+        ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, true],
+        ['flag evaluations only', FlagEvaluationsModeEnumApi.Number2, true],
+    ])('reads flag_evaluations for the %s mode: %s', (_name, mode, readsEvaluations) => {
+        setFlagEvaluationsMode(mode)
 
         expect(logic.values.readsFlagEvaluationsTable).toEqual(readsEvaluations)
         expect(logic.values.usageCharts.map((chart) => chart.query.kind)).toEqual(
@@ -76,7 +71,7 @@ describe('featureFlagUsageLogic', () => {
     })
 
     it('holds the date range inside the retention window when reading flag_evaluations', async () => {
-        enabledFeaturesLogic.actions.setFeatureFlags([], BOTH_EVALUATION_FLAGS)
+        setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
 
         await expectLogic(logic, () => {
             logic.actions.setDates('-180d', null)

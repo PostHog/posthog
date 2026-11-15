@@ -58,6 +58,8 @@ export const manifest: ProductManifest = {
             intents: [],
             category: ProductItemCategory.SCHEMA,
             href: urls.mcpGateway(),
+            searchKeywords: ['mcp gateway', 'tool policies'],
+            searchTabs: [{ name: 'Audit log', href: urls.mcpGatewayTab('audit') }],
             iconType: 'mcp_server',
             iconColor: ['var(--color-product-mcp-servers-light)', 'var(--color-product-mcp-servers-dark)'],
             flag: FEATURE_FLAGS.MCP_GATEWAY,

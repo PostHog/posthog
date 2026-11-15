@@ -1,7 +1,5 @@
 from typing import Optional
 
-import posthoganalytics
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -9,7 +7,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.filters import Filter
+from posthog.models.property import PropertyGroup
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.person_sampling import (
@@ -29,20 +27,9 @@ from products.workflows.backend.services.batch_audience import (
     SUPPORTED_DEDUPE_KEYS,
     email_dedupe_group_expr,
 )
-
-AUDIENCE_QUERY_V2_FLAG = "workflows-audience-query-v2"
+from products.workflows.backend.services.batch_audience_cohorts import reject_excluded_cohort_without_members
 
 QUERY_TYPE = "workflows_audience_count_v2"
-
-
-def use_audience_query_v2(team: Team) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            AUDIENCE_QUERY_V2_FLAG,
-            str(team.uuid),
-            send_feature_flag_events=False,
-        )
-    )
 
 
 def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult:
@@ -54,6 +41,7 @@ def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult
     """
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
+        reject_excluded_cohort_without_members(team.project_id, cleaned_filter)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE)
@@ -68,13 +56,14 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
     times more likely to land in the sample, and the estimate would drift back toward a
     person count. Hashing the group gives every group the same chance.
     """
-    # Defence-in-depth mirror of get_batch_audience_count: a new supported key must be
-    # taught to this function too, instead of silently getting the email grouping.
+    # Defence-in-depth against a new dedupe key slipping past the endpoint's allowlist: a new
+    # supported key must be taught to this function too, instead of silently getting the email grouping.
     if dedupe_key != EMAIL_DEDUPE_KEY:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
+        reject_excluded_cohort_without_members(team.project_id, cleaned_filter)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         database = Database.create_for(team=team)
@@ -86,8 +75,8 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
         return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
-def _run_dedupe_count(team: Team, filter: Filter, database: Database, sample_modulus: Optional[int]) -> int:
-    query = build_dedupe_count_query(team, filter, sample_modulus=sample_modulus)
+def _run_dedupe_count(team: Team, prop_group: PropertyGroup, database: Database, sample_modulus: Optional[int]) -> int:
+    query = build_dedupe_count_query(team, prop_group, sample_modulus=sample_modulus)
     response = execute_hogql_query(
         query=query,
         team=team,
@@ -95,10 +84,11 @@ def _run_dedupe_count(team: Team, filter: Filter, database: Database, sample_mod
         context=HogQLContext(team_id=team.pk, database=database),
         settings=count_settings(sample_modulus),
     )
-    return response.results[0][0] if response.results else 0
+    # uniqCombined over a nullable expression returns NULL rather than 0 when no person matches.
+    return (response.results[0][0] if response.results else None) or 0
 
 
-def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optional[int]) -> ast.SelectQuery:
+def build_dedupe_count_query(team: Team, prop_group: PropertyGroup, sample_modulus: Optional[int]) -> ast.SelectQuery:
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -110,8 +100,8 @@ def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optiona
         # A fresh group expr per use: the resolver annotates AST nodes in place, so the
         # WHERE and SELECT must not share one instance.
         where_exprs.append(sample_predicate(email_dedupe_group_expr(), sample_modulus))
-    if len(filter.property_groups.flat) > 0:
-        where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
+    if len(prop_group.flat) > 0:
+        where_exprs.append(property_to_expr(prop_group, team, scope="person"))
 
     return ast.SelectQuery(
         select=[ast.Call(name="count", distinct=True, args=[email_dedupe_group_expr()])],

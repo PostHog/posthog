@@ -23,14 +23,30 @@ describe('webAnalyticsLoadTimeLogic', () => {
     })
 
     afterEach(() => {
-        logic.unmount()
+        if (logic.isMounted()) {
+            logic.unmount()
+        }
         collection.unmount()
     })
 
     it('captures dashboard_mounted on mount', () => {
         expect(posthog.capture).toHaveBeenCalledWith(
             'web_analytics_dashboard_mounted',
-            expect.objectContaining({ tile_skeletons_enabled: expect.any(Boolean) })
+            expect.objectContaining({ tile_skeletons_enabled: expect.any(Boolean), visit_id: expect.any(String) })
+        )
+    })
+
+    it('reports a dashboard left before any query as no_load under the mounted visit_id', () => {
+        const [, mounted] = (posthog.capture as jest.Mock).mock.calls.find(
+            ([event]) => event === 'web_analytics_dashboard_mounted'
+        )
+
+        logic.unmount()
+
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'time to see data',
+            expect.objectContaining({ status: 'no_load', visit_id: mounted.visit_id }),
+            undefined
         )
     })
 

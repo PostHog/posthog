@@ -1,20 +1,21 @@
 from posthog.ingress.contracts import WebhookConsumer, WebhookDelivery
 
 
-def _enqueue_authored_review(delivery: WebhookDelivery) -> None:
+def _accept_pull_request_event(delivery: WebhookDelivery) -> None:
     from products.review_hog.backend.facade.github import (  # noqa: PLC0415 - keeps product models off the registry import path
-        enqueue_authored_pr_review,
+        accept_pull_request_event,
     )
 
-    enqueue_authored_pr_review(delivery.payload)
+    accept_pull_request_event(delivery.payload)
 
 
 WEBHOOK_CONSUMERS = (
     WebhookConsumer(
+        # The name is the dedup cache key, so it keeps the name of its first job, automatic reviews.
         name="review_hog_authored_prs",
         provider="github",
         app="posthog",
         event_types=frozenset({"pull_request"}),
-        handler=_enqueue_authored_review,
+        handler=_accept_pull_request_event,
     ),
 )

@@ -476,7 +476,7 @@ describe('ValueLabels', () => {
         ).toEqual(['20%', '40%', '60%', '80%'])
     })
 
-    it('centers labels inside horizontal percent segments, including the final segment', () => {
+    it.each([true, false])('centers horizontal percent labels with background=%s', (background) => {
         const series: ResolvedSeries[] = [
             { key: 'a', label: 'A', color: '#f00', data: [20] },
             { key: 'b', label: 'B', color: '#ff0', data: [30] },
@@ -490,8 +490,12 @@ describe('ValueLabels', () => {
             scales: { x: xScale, y: (value) => 48 + value * 720, yTicks: () => [] },
             resolvePositionValue: (s) => tops[s.key],
         })
-        const { container } = renderInChart(ctx, <ValueLabels position="center" />)
+        const { container } = renderInChart(ctx, <ValueLabels position="center" background={background} fontSize={16} rotation={-45} />)
         expect(labelDivs(container).map((label) => label.style.left)).toEqual(['120px', '300px', '588px'])
+        const text = labelDivs(container)[0].querySelector('span')!
+        expect(text.style.fontSize).toBe('16px')
+        expect(text.style.transform).toBe('rotate(-45deg)')
+        expect(text.style.backgroundColor).toBe(background ? 'rgb(255, 0, 0)' : 'transparent')
     })
 
     describe('offset', () => {

@@ -27,7 +27,7 @@ def list_reusable_widget_versions(
     *, team_id: int, widget_id: UUID, offset: int = 0, limit: int = 25
 ) -> ReusableWidgetVersionPage:
     # Keep Canvas build dependencies off notebook startup.
-    from products.canvas.backend import notebook_integration as canvas_facade  # noqa: PLC0415
+    from products.canvas.backend.facade import notebooks as canvas_facade  # noqa: PLC0415
 
     widget = _published_widgets(team_id).filter(id=widget_id).first()
     if widget is None:
@@ -84,7 +84,7 @@ def restore_reusable_widget_version(
     origin: str = "server",
 ) -> ReusableWidgetDetail:
     # Keep Canvas build dependencies off notebook startup.
-    from products.canvas.backend import notebook_integration as canvas_facade  # noqa: PLC0415
+    from products.canvas.backend.facade import notebooks as canvas_facade  # noqa: PLC0415
 
     widget = _published_widgets(team_id).select_related("current_version").filter(id=widget_id).first()
     if widget is None or widget.current_version is None:

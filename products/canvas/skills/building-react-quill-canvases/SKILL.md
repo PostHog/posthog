@@ -85,6 +85,12 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
   `platform_token_redeclared`.
 - recharts strokes/fills use token CSS variables (`stroke="var(--primary)"`, grid/axes in
   `var(--border)`/`var(--muted-foreground)`).
+- Some recharts defaults are hardcoded for a light theme and go wrong on a dark canvas. The
+  platform stylesheet corrects them, so do not work around one in canvas code. Pie slice outlines
+  are one: recharts strokes every sector white, and the stylesheet removes the outline. The
+  antialiasing seam between stacked bar segments is another, and so is the default tooltip, which
+  the stylesheet inverts against the page so its text always meets contrast. A bare `<Tooltip />`
+  is the right thing to write.
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —
   `\uXXXX` escapes render verbatim in JSX text.
 
@@ -168,8 +174,9 @@ when the window changes — see the `querying-canvas-data` skill for feeding it 
 ## State and actions
 
 Persisting values across reloads (`ph.state`, with user/shared scopes) and writing into PostHog
-from a button (`ph.actions.invoke`, e.g. filing a task or an annotation) have their own API
-contracts, capability declarations, and gesture rules — read the "Runtime memory" and "PostHog
-writes" sections of the `querying-canvas-data` skill before using either. Wire actions to a
+from a button (`ph.actions.invoke`, e.g. filing a task or an annotation, or `ph.tools.call`, e.g.
+changing a feature flag rollout) have their own API contracts, capability declarations, and
+gesture rules — read the "Runtime memory", "PostHog writes" and "PostHog MCP tools" sections of
+the `querying-canvas-data` skill before using them. Wire actions to a
 `Button` `onClick` that disables itself while the call is in flight, and render the returned
 error (they are real PostHog writes, throttled server-side).

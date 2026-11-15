@@ -8,6 +8,8 @@ import type {
     NumericScoreDefinitionConfigApi as NumericScoreDefinitionConfig,
     ScoreDefinitionApi as ScoreDefinition,
     ScoreDefinitionConfigApi as ScoreDefinitionConfig,
+    CompositeInputReadApi,
+    CompositeConfigApi,
 } from '../generated/api.schemas'
 import { getBooleanConfig, getCategoricalConfig, getNumericConfig } from './scoreDefinitionConfigUtils'
 
@@ -15,18 +17,29 @@ export type ScoreDefinitionModalMode = 'create' | 'duplicate' | 'metadata' | 'co
 export type CategoricalSelectionMode = 'single' | 'multiple'
 
 export interface ScoreDefinitionDraft {
+    calculation: 'reported' | 'composite'
+    expression: string
+    expressionIsCustom: boolean
+    inputs: CompositeInputReadApi[]
     name: string
+    shortName: string
     description: string
     kind: ScoreDefinitionKind
     options: ScoreDefinitionOption[]
     selectionMode: CategoricalSelectionMode
     categoricalMinSelections: string
     categoricalMaxSelections: string
+    categoricalPassingEnabled: boolean
+    categoricalPassingCategories: string[]
     numericMin: string
     numericMax: string
     numericStep: string
+    numericPassingEnabled: boolean
+    numericPassingOperator: 'gte' | 'lte'
+    numericPassingThreshold: string
     trueLabel: string
     falseLabel: string
+    booleanPassing: 'true' | 'false'
 }
 
 export const CATEGORICAL_SELECTION_MODE_OPTIONS: { label: string; value: CategoricalSelectionMode }[] = [
@@ -34,8 +47,8 @@ export const CATEGORICAL_SELECTION_MODE_OPTIONS: { label: string; value: Categor
     { label: 'Multi-select', value: 'multiple' },
 ]
 
-const DEFAULT_BOOLEAN_TRUE_LABEL = 'Good'
-const DEFAULT_BOOLEAN_FALSE_LABEL = 'Bad'
+const DEFAULT_BOOLEAN_TRUE_LABEL = 'True'
+const DEFAULT_BOOLEAN_FALSE_LABEL = 'False'
 
 export function formatKindLabel(kind: ScoreDefinitionKind): string {
     if (kind === 'categorical') {
@@ -63,6 +76,10 @@ function suggestKey(value: string): string {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '_')
         .replace(/^_+|_+$/g, '')
+}
+
+export function getScoreDefinitionOptionKey(option: ScoreDefinitionOption): string {
+    return option.key.trim() || suggestKey(option.label)
 }
 
 export function getCurrentProjectId(): string {
@@ -127,7 +144,7 @@ export function createDraft(
     scoreDefinition?: ScoreDefinition | null
 ): ScoreDefinitionDraft {
     const baseDefinition = scoreDefinition || null
-    const kind = baseDefinition?.kind || 'categorical'
+    const kind = baseDefinition?.kind || 'boolean'
     const categoricalConfig: CategoricalScoreDefinitionConfig = baseDefinition
         ? getCategoricalConfig(baseDefinition.config)
         : { options: [], selection_mode: 'single' }
@@ -145,11 +162,18 @@ export function createDraft(
     const duplicatedName = baseDefinition ? `${baseDefinition.name} copy` : ''
 
     return {
+        calculation: baseDefinition?.calculation || 'reported',
+        expression: baseDefinition?.composition?.expression || '',
+        expressionIsCustom: !!baseDefinition?.composition,
+        inputs: baseDefinition?.input_scorers?.map((input) => ({ ...input })) || [],
         name: mode === 'duplicate' ? duplicatedName : baseDefinition?.name || '',
+        shortName: baseDefinition?.short_name || '',
         description: baseDefinition?.description || '',
         kind,
         options: defaultOptions,
         selectionMode: categoricalConfig.selection_mode || 'single',
+        categoricalPassingEnabled: categoricalConfig.passing_rule != null,
+        categoricalPassingCategories: categoricalConfig.passing_rule?.categories ?? [],
         categoricalMinSelections:
             categoricalConfig.min_selections === undefined || categoricalConfig.min_selections === null
                 ? ''
@@ -161,8 +185,12 @@ export function createDraft(
         numericMin: numericConfig.min === undefined || numericConfig.min === null ? '' : String(numericConfig.min),
         numericMax: numericConfig.max === undefined || numericConfig.max === null ? '' : String(numericConfig.max),
         numericStep: numericConfig.step === undefined || numericConfig.step === null ? '' : String(numericConfig.step),
-        trueLabel: booleanConfig.true_label || DEFAULT_BOOLEAN_TRUE_LABEL,
-        falseLabel: booleanConfig.false_label || DEFAULT_BOOLEAN_FALSE_LABEL,
+        numericPassingEnabled: numericConfig.passing_rule != null,
+        numericPassingOperator: numericConfig.passing_rule?.operator ?? 'gte',
+        numericPassingThreshold: numericConfig.passing_rule == null ? '' : String(numericConfig.passing_rule.threshold),
+        trueLabel: booleanConfig.true_label ?? (baseDefinition ? '' : DEFAULT_BOOLEAN_TRUE_LABEL),
+        falseLabel: booleanConfig.false_label ?? (baseDefinition ? '' : DEFAULT_BOOLEAN_FALSE_LABEL),
+        booleanPassing: booleanConfig.true_is_failure ? 'false' : 'true',
     }
 }
 
@@ -170,7 +198,7 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
     if (draft.kind === 'categorical') {
         const categoricalConfig: CategoricalScoreDefinitionConfig = {
             options: draft.options.map((option) => ({
-                key: option.key.trim() || suggestKey(option.label),
+                key: getScoreDefinitionOptionKey(option),
                 label: option.label.trim(),
             })),
         }
@@ -190,6 +218,9 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
             }
         }
 
+        if (draft.categoricalPassingEnabled) {
+            categoricalConfig.passing_rule = { categories: [...draft.categoricalPassingCategories].sort() }
+        }
         return categoricalConfig
     }
 
@@ -205,8 +236,14 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
         if (maximum !== null) {
             numericConfig.max = maximum
         }
-        if (step !== null) {
+        if (step !== null && draft.calculation === 'reported') {
             numericConfig.step = step
+        }
+        if (draft.numericPassingEnabled) {
+            numericConfig.passing_rule = {
+                operator: draft.numericPassingOperator,
+                threshold: parseOptionalNumber(draft.numericPassingThreshold) ?? NaN,
+            }
         }
 
         return numericConfig
@@ -219,10 +256,25 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
     if (draft.falseLabel.trim()) {
         booleanConfig.false_label = draft.falseLabel.trim()
     }
+    booleanConfig.true_is_failure = draft.booleanPassing === 'false'
     return booleanConfig
 }
 
 export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefinitionDraft): string | undefined {
+    if (draft.calculation === 'composite') {
+        if (!draft.expression.trim() || !draft.inputs.length) {
+            return 'Select input scorers and enter a formula.'
+        }
+        if (
+            draft.inputs.length > 16 ||
+            new Set(draft.inputs.map((input) => input.alias)).size !== draft.inputs.length
+        ) {
+            return 'Use at most 16 inputs, each with a unique name.'
+        }
+        if (draft.inputs.some((input) => !/^[a-z][a-z0-9_]{0,31}$/.test(input.alias))) {
+            return 'Input names must start with a lowercase letter and contain only lowercase letters, digits, or underscores.'
+        }
+    }
     if (mode !== 'config' && !draft.name.trim()) {
         return 'Name is required.'
     }
@@ -255,6 +307,15 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
             optionKeys.add(normalizedKey)
         }
 
+        if (draft.categoricalPassingEnabled) {
+            if (draft.selectionMode === 'single' && draft.categoricalPassingCategories.length === 0) {
+                return 'Choose at least one passing category.'
+            }
+            if (draft.categoricalPassingCategories.some((key) => !optionKeys.has(key))) {
+                return 'Choose passing categories from the configured options.'
+            }
+        }
+
         if (draft.selectionMode === 'multiple') {
             const selectionValues = [draft.categoricalMinSelections, draft.categoricalMaxSelections]
             if (selectionValues.some((value) => value.trim() && Number.isNaN(parseOptionalInteger(value)))) {
@@ -263,6 +324,14 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
 
             const minimum = parseOptionalInteger(draft.categoricalMinSelections)
             const maximum = parseOptionalInteger(draft.categoricalMaxSelections)
+
+            if (minimum !== null && minimum < 1) {
+                return 'Minimum selections must be at least 1.'
+            }
+
+            if (maximum !== null && maximum < 1) {
+                return 'Maximum selections must be at least 1.'
+            }
 
             if (minimum !== null && minimum > draft.options.length) {
                 return 'Minimum selections cannot exceed the number of options.'
@@ -279,7 +348,10 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
     }
 
     if (draft.kind === 'numeric') {
-        const numericValues = [draft.numericMin, draft.numericMax, draft.numericStep]
+        const numericValues = [draft.numericMin, draft.numericMax]
+        if (draft.calculation === 'reported') {
+            numericValues.push(draft.numericStep)
+        }
         if (numericValues.some((value) => value.trim() && Number.isNaN(parseOptionalNumber(value)))) {
             return 'Numeric bounds must be valid numbers.'
         }
@@ -289,7 +361,31 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
         if (minimum !== null && maximum !== null && minimum > maximum) {
             return 'Numeric max must be greater than or equal to min.'
         }
+        const step = parseOptionalNumber(draft.numericStep)
+        if (draft.calculation === 'reported' && step !== null && step <= 0) {
+            return 'Set the increment to a number greater than zero.'
+        }
+        if (draft.numericPassingEnabled) {
+            const threshold = parseOptionalNumber(draft.numericPassingThreshold)
+            if (threshold === null || !Number.isFinite(threshold)) {
+                return 'Enter a valid number for the passing threshold.'
+            }
+            if ((minimum !== null && threshold < minimum) || (maximum !== null && threshold > maximum)) {
+                return 'Set the passing threshold within the score bounds.'
+            }
+        }
     }
 
     return undefined
+}
+
+export function buildCompositionFromDraft(draft: ScoreDefinitionDraft): CompositeConfigApi | null {
+    return draft.calculation === 'composite'
+        ? {
+              expression: draft.expression.trim(),
+              inputs: draft.inputs
+                  .map(({ alias, scorer_version_id }) => ({ alias, scorer_version_id }))
+                  .sort((a, b) => a.alias.localeCompare(b.alias)),
+          }
+        : null
 }

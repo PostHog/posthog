@@ -125,7 +125,35 @@ async function reportMintFailures({ context, core }, { mints, now: _now, fetch: 
     return failed.map(({ source }) => source)
 }
 
-module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, source: _source } = {}) => {
+// Depot CI's ambient installation token reads zero usage from /rate_limit, while the
+// x-ratelimit-* headers on any real response carry the bucket's true count. This probe
+// costs one request. Depot hands out tokens from more than one installation, so the
+// installation's repositories tell its buckets apart downstream.
+async function readCoreFromHeaders(github) {
+    let response
+    try {
+        response = await github.request('GET /installation/repositories', { per_page: 100 })
+    } catch (err) {
+        // A spent bucket answers 403 and still sends the headers, which is the reading that matters most.
+        if (!err.response?.headers) {
+            throw err
+        }
+        response = err.response
+    }
+    const header = (name) => Number(response.headers[name])
+    const repositories = (response.data?.repositories || []).map((repository) => repository.full_name).sort()
+    return {
+        snapshot: {
+            limit: header('x-ratelimit-limit'),
+            remaining: header('x-ratelimit-remaining'),
+            used: header('x-ratelimit-used'),
+            reset: header('x-ratelimit-reset'),
+        },
+        installationRepositories: repositories.length ? repositories.join(',') : null,
+    }
+}
+
+module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, source: _source, probe } = {}) => {
     const source = _source || DEFAULT_SOURCE
     const fetchImpl = _fetch || fetch
     const observedAtDate = _now ? _now() : new Date()
@@ -143,14 +171,25 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, s
         return
     }
 
-    const { data } = await github.rest.rateLimit.get()
-    const resources = data?.resources || {}
+    let resources
+    let extra = {}
+    if (probe === 'headers') {
+        const { snapshot, installationRepositories } = await readCoreFromHeaders(github)
+        resources = { core: snapshot }
+        extra = { installation_repositories: installationRepositories }
+    } else {
+        const { data } = await github.rest.rateLimit.get()
+        resources = data?.resources || {}
+    }
 
     let emitted = 0
     let failures = 0
     for (const [resource, snapshot] of Object.entries(resources)) {
-        if (!snapshot || typeof snapshot.limit !== 'number' || typeof snapshot.remaining !== 'number') {continue}
-        const properties = buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source })
+        if (!snapshot || !Number.isFinite(snapshot.limit) || !Number.isFinite(snapshot.remaining)) {continue}
+        const properties = {
+            ...buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source }),
+            ...extra,
+        }
         core.info(`[${source}] ${resource}: ${properties.remaining}/${properties.limit} remaining (resets ${properties.reset_at})`)
         try {
             await captureEvent({

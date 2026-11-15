@@ -48,7 +48,10 @@ export function ChangeValueCell({
               : getColorVar('danger')
 
     const body = (
-        <span className="inline-flex max-w-full flex-wrap items-center justify-end gap-1.5 tabular-nums">
+        <span
+            className="inline-flex max-w-full flex-wrap items-center justify-end gap-1.5 tabular-nums"
+            tabIndex={previous !== null || tooltipContent ? 0 : undefined}
+        >
             <span>{current}</span>
             {difference !== null && (
                 // eslint-disable-next-line react/forbid-dom-props

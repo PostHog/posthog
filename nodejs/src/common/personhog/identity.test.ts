@@ -7,13 +7,19 @@ import {
     PersonHogIdentity,
 } from '~/common/generated/personhog/personhog/identity/v1/identity_pb'
 
-import { PersonhogIdentityOperations } from './identity'
+import { DistinctIdKey, PersonhogIdentityOperations } from './identity'
 import { createIdentityClients } from './identity-clients'
 
 describe('PersonhogIdentityOperations', () => {
-    it('refuses a merge timeout that would kill every merge client-side', () => {
-        expect(() => createIdentityClients({} as never, { mergeTimeoutMs: 0 })).toThrow('PERSONHOG_MERGE_TIMEOUT_MS')
-    })
+    it.each([
+        ['merge', {}, { mergeTimeoutMs: 0 }, 'PERSONHOG_MERGE_TIMEOUT_MS'],
+        ['request', { timeoutMs: 0 }, {}, 'PERSONHOG_IDENTITY_TIMEOUT_MS'],
+    ])(
+        'refuses a zero %s timeout, which would kill or unbound every call client-side',
+        (_name, config, options, key) => {
+            expect(() => createIdentityClients(config as never, options)).toThrow(key)
+        }
+    )
 
     function makeOps(handlers: {
         getPersonsByDistinctIds?: jest.Mock
@@ -130,19 +136,39 @@ describe('PersonhogIdentityOperations', () => {
     // The identity service rejects batches above 250, so the wrappers must
     // chunk — without this, a large-batch prefetch degrades to a silent
     // no-op on exactly the batches it exists for.
-    it('chunks resolve requests to the service batch cap', async () => {
+    it.each([
+        [
+            'getPersonsByDistinctIds',
+            false,
+            async (ops: PersonhogIdentityOperations, keys: DistinctIdKey[]): Promise<(string | null)[]> =>
+                (await ops.getPersonsByDistinctIds(keys)).map((result) => result.person?.id ?? null),
+        ],
+        [
+            'getPersonIdsByDistinctIds',
+            true,
+            async (ops: PersonhogIdentityOperations, keys: DistinctIdKey[]): Promise<(string | null)[]> =>
+                (await ops.getPersonIdsByDistinctIds(keys)).map((result) => result.personId),
+        ],
+    ])('%s chunks resolve requests to the service batch cap', async (_method, idsOnly, resolveIds) => {
         const handler = jest.fn((req: GetPersonsByDistinctIdsRequest) => ({
-            results: req.keys.map((key) => ({ teamId: key.teamId, distinctId: key.distinctId, person: undefined })),
+            results: req.keys.map((key) => ({
+                teamId: key.teamId,
+                distinctId: key.distinctId,
+                person: key.distinctId === 'd0' ? { id: 9007199254740993n, teamId: key.teamId } : undefined,
+            })),
         }))
         const ops = makeOps({ getPersonsByDistinctIds: handler })
 
         const keys = Array.from({ length: 251 }, (_, i) => ({ teamId: 1, distinctId: `d${i}` }))
-        const results = await ops.getPersonsByDistinctIds(keys)
+        const ids = await resolveIds(ops, keys)
 
         expect(handler).toHaveBeenCalledTimes(2)
-        expect(handler.mock.calls[0][0].keys).toHaveLength(250)
-        expect(handler.mock.calls[1][0].keys).toHaveLength(1)
-        expect(results).toHaveLength(251)
+        expect(handler.mock.calls.map(([req]) => [req.keys.length, req.idsOnly])).toEqual([
+            [250, idsOnly],
+            [1, idsOnly],
+        ])
+        expect(ids).toHaveLength(251)
+        expect(ids.slice(0, 2)).toEqual(['9007199254740993', null])
     })
 
     it('chunks expansion requests to the service batch cap', async () => {

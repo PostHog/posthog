@@ -11,12 +11,17 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.user import User
 from posthog.storage import object_storage
 
 from products.streamlit_apps.backend.facade import contracts
-from products.streamlit_apps.backend.facade.contracts import AppRuntimeConcurrencyError, AppRuntimeError
+from products.streamlit_apps.backend.facade.contracts import (
+    AppRuntimeConcurrencyError,
+    AppRuntimeError,
+    SourceEditError,
+)
 from products.streamlit_apps.backend.logic.app_runtime import AppRuntimeService, sync_sandbox_status
 from products.streamlit_apps.backend.logic.bridge import execute_bridge_query
 from products.streamlit_apps.backend.logic.oauth import (
@@ -24,6 +29,7 @@ from products.streamlit_apps.backend.logic.oauth import (
     find_reusable_streamlit_access_token,
     get_streamlit_oauth_app,
 )
+from products.streamlit_apps.backend.logic.version_source import apply_source_edits, read_source_files
 from products.streamlit_apps.backend.logic.zip_validator import (
     MAX_FILE_COUNT,
     MAX_ZIP_SIZE,
@@ -62,6 +68,8 @@ __all__ = [
     "InvalidZipError",
     "ConcurrentUploadError",
     "VersionNotFoundError",
+    "VersionConflictError",
+    "SourceEditError",
     "NoActiveVersionError",
     "AppNotRunningError",
     "ConnectUnavailableError",
@@ -80,6 +88,8 @@ __all__ = [
     "list_versions",
     "upload_version",
     "create_version_from_source",
+    "get_version_source",
+    "edit_version_source",
     "activate_version",
     "get_status",
     "start_app",
@@ -121,6 +131,15 @@ class ConcurrentUploadError(Exception):
 class VersionNotFoundError(Exception):
     def __init__(self) -> None:
         super().__init__("Version not found.")
+
+
+class VersionConflictError(Exception):
+    def __init__(self, current_version: int) -> None:
+        self.current_version = current_version
+        super().__init__(
+            f"The base version is not the active version. The active version is {current_version}. "
+            "Read its source and apply your changes again."
+        )
 
 
 class NoActiveVersionError(Exception):
@@ -280,9 +299,7 @@ def get_app(team_id: int, short_id: str) -> contracts.AppContract:
     return _app_to_contract(_get_app(team_id, short_id))
 
 
-def create_app(
-    team_id: int, user: User, data: contracts.CreateAppInput, was_impersonated: bool
-) -> contracts.AppContract:
+def create_app(team_id: int, user: User, data: contracts.CreateAppInput) -> contracts.AppContract:
     _validate_resource_bounds(data.cpu_cores, data.memory_gb)
 
     app = StreamlitApp.objects.for_team(team_id).create(
@@ -294,25 +311,11 @@ def create_app(
         memory_gb=data.memory_gb,
     )
 
-    log_activity(
-        organization_id=user.current_organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=str(app.id),
-        scope="StreamlitApp",
-        activity="created",
-        detail=Detail(name=app.name),
-    )
-
     return _app_to_contract(app)
 
 
-def update_app(
-    team_id: int, short_id: str, user: User, data: contracts.UpdateAppInput, was_impersonated: bool
-) -> contracts.AppContract:
+def update_app(team_id: int, short_id: str, data: contracts.UpdateAppInput) -> contracts.AppContract:
     app = _get_app(team_id, short_id)
-    before_update = StreamlitApp.objects.for_team(team_id).get(pk=app.pk)
 
     _validate_resource_bounds(data.cpu_cores, data.memory_gb)
 
@@ -326,23 +329,10 @@ def update_app(
         app.memory_gb = data.memory_gb
     app.save()
 
-    changes = changes_between("StreamlitApp", previous=before_update, current=app)
-    if changes:
-        log_activity(
-            organization_id=user.current_organization_id,
-            team_id=team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=str(app.id),
-            scope="StreamlitApp",
-            activity="updated",
-            detail=Detail(changes=changes, name=app.name),
-        )
-
     return _app_to_contract(app)
 
 
-def delete_app(team_id: int, short_id: str, user: User, was_impersonated: bool) -> None:
+def delete_app(team_id: int, short_id: str) -> None:
     app = _get_app(team_id, short_id)
 
     try:
@@ -353,17 +343,6 @@ def delete_app(team_id: int, short_id: str, user: User, was_impersonated: bool) 
     app.deleted = True
     app.deleted_at = timezone.now()
     app.save(update_fields=["deleted", "deleted_at", "updated_at"])
-
-    log_activity(
-        organization_id=user.current_organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=str(app.id),
-        scope="StreamlitApp",
-        activity="deleted",
-        detail=Detail(name=app.name),
-    )
 
 
 # --- Version API ---
@@ -381,12 +360,48 @@ def upload_version(
     user: User,
     file_content: bytes,
     declared_size: int | None,
-    was_impersonated: bool,
 ) -> contracts.AppVersionContract:
     app = _get_app(team_id, short_id)
-
     check_zip_size(declared_size)
+    return _store_version(app, user, file_content)
 
+
+def _log_version_activity(app: StreamlitApp, user: User, activity: str, version_number: int) -> None:
+    # The model signal skips saves that only move the active version (see `signal_exclusions`):
+    # the field change cannot tell an upload from a rollback, so this site names the activity.
+    log_activity(
+        organization_id=app.team.organization_id,
+        team_id=app.team_id,
+        user=user,
+        was_impersonated=get_was_impersonated(),
+        item_id=str(app.id),
+        scope="StreamlitApp",
+        activity=activity,
+        detail=Detail(name=f"{app.name} v{version_number}"),
+    )
+
+
+def _active_version_number(app: StreamlitApp) -> int:
+    number = (
+        StreamlitApp.objects.for_team(app.team_id)
+        .filter(id=app.id)
+        .values_list("active_version__version_number", flat=True)
+        .first()
+    )
+    return number or 0
+
+
+def _store_version(
+    app: StreamlitApp,
+    user: User,
+    file_content: bytes,
+    expected_active_version_id: uuid.UUID | None = None,
+) -> contracts.AppVersionContract:
+    """Validate, store, and activate a version zip.
+
+    When ``expected_active_version_id`` is set, the new version becomes active only if that version is
+    still active, so a concurrent edit or a rollback to an older version is never overwritten.
+    """
     validation = validate_zip(io.BytesIO(file_content))
     if not validation.valid:
         raise InvalidZipError(validation.errors)
@@ -417,27 +432,31 @@ def upload_version(
                 created_by=user,
             )
 
-            app.active_version = version
-            app.save(update_fields=["active_version", "updated_at"])
+            if expected_active_version_id is None:
+                app.active_version = version
+                app.save(update_fields=["active_version", "updated_at"])
+            else:
+                # Compare-and-set, so an activation that commits after the caller's check is not overwritten.
+                swapped = (
+                    StreamlitApp.objects.for_team(app.team_id)
+                    .filter(id=app.id, active_version_id=expected_active_version_id)
+                    .update(active_version=version, updated_at=timezone.now())
+                )
+                if not swapped:
+                    raise VersionConflictError(_active_version_number(app))
+                app.active_version = version
     except IntegrityError:
         _cleanup_orphan()
+        if expected_active_version_id is not None:
+            # A concurrent edit from the same base passed the same check and took the next number first.
+            raise VersionConflictError(_active_version_number(app)) from None
         raise ConcurrentUploadError() from None
     except Exception:
         _cleanup_orphan()
         raise
 
     _get_sandbox_and_stop_if_live(app)
-
-    log_activity(
-        organization_id=user.current_organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=str(app.id),
-        scope="StreamlitApp",
-        activity="uploaded_version",
-        detail=Detail(name=f"{app.name} v{next_version_number}"),
-    )
+    _log_version_activity(app, user, "uploaded_version", next_version_number)
 
     return _version_to_contract(version)
 
@@ -447,7 +466,6 @@ def create_version_from_source(
     short_id: str,
     user: User,
     data: contracts.CreateVersionFromSourceInput,
-    was_impersonated: bool,
 ) -> contracts.AppVersionContract:
     """Create and activate a version from free-text source plus optional extra files.
 
@@ -463,13 +481,66 @@ def create_version_from_source(
         user=user,
         file_content=file_content,
         declared_size=len(file_content),
-        was_impersonated=was_impersonated,
     )
 
 
-def activate_version(
-    team_id: int, short_id: str, user: User, version_number: int, was_impersonated: bool
+def _read_version_zip(version: StreamlitAppVersion) -> bytes:
+    zip_bytes = object_storage.read_bytes(version.zip_file, missing_ok=True)
+    if zip_bytes is None:
+        raise VersionNotFoundError()
+    return zip_bytes
+
+
+def get_version_source(
+    team_id: int, short_id: str, version_number: int | None, paths: list[str] | None
+) -> contracts.AppVersionSourceContract:
+    """Return the file manifest and text content of a version. Defaults to the active version."""
+    app = _get_app(team_id, short_id)
+    if version_number is None:
+        if app.active_version is None:
+            raise NoActiveVersionError()
+        version = app.active_version
+    else:
+        try:
+            version = app.versions.get(version_number=version_number)
+        except StreamlitAppVersion.DoesNotExist:
+            raise VersionNotFoundError() from None
+
+    files = read_source_files(_read_version_zip(version), paths)
+    return contracts.AppVersionSourceContract(version_number=version.version_number, files=files)
+
+
+def edit_version_source(
+    team_id: int,
+    short_id: str,
+    user: User,
+    data: contracts.EditVersionSourceInput,
 ) -> contracts.AppVersionContract:
+    """Create and activate a version from exact edits against ``data.base_version``.
+
+    Files the edits do not touch keep their bytes. A base that is not the active version raises
+    ``VersionConflictError``, so a stale copy cannot overwrite newer work or a rollback.
+    """
+    app = _get_app(team_id, short_id)
+    try:
+        base = app.versions.get(version_number=data.base_version)
+    except StreamlitAppVersion.DoesNotExist:
+        raise VersionNotFoundError() from None
+
+    if app.active_version_id != base.id:
+        raise VersionConflictError(_active_version_number(app))
+
+    file_content = apply_source_edits(
+        _read_version_zip(base),
+        file_edits=data.file_edits,
+        create_files=data.create_files,
+        delete_files=data.delete_files,
+    )
+    check_zip_size(len(file_content))
+    return _store_version(app, user, file_content, expected_active_version_id=base.id)
+
+
+def activate_version(team_id: int, short_id: str, user: User, version_number: int) -> contracts.AppVersionContract:
     app = _get_app(team_id, short_id)
     try:
         version = app.versions.get(version_number=version_number)
@@ -480,17 +551,7 @@ def activate_version(
     app.save(update_fields=["active_version", "updated_at"])
 
     _get_sandbox_and_stop_if_live(app)
-
-    log_activity(
-        organization_id=user.current_organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=str(app.id),
-        scope="StreamlitApp",
-        activity="activated_version",
-        detail=Detail(name=f"{app.name} v{version_number}"),
-    )
+    _log_version_activity(app, user, "activated_version", version_number)
 
     return _version_to_contract(version)
 

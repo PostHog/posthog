@@ -23,6 +23,7 @@ from posthog.llm.system_one_client import (
     TypeSafeFallback,
     TypeSafeSystemOneClient,
     build_system_one_client,
+    system_one_configured,
 )
 
 GATEWAY_MODEL = "posthog/hogference/jevk5-fp8-0.2"
@@ -49,12 +50,17 @@ ANSWERS = {
 }
 
 
-def _build(typesafe_fallback: TypeSafeFallback | None = FALLBACK) -> SystemOneClient:
+def _build(typesafe_fallback: TypeSafeFallback | None = FALLBACK, privacy_mode: bool = False) -> SystemOneClient:
     return build_system_one_client(
-        model=GATEWAY_MODEL, ai_product="test_product", typesafe_fallback=typesafe_fallback, distinct_id="team-7"
+        model=GATEWAY_MODEL,
+        ai_product="test_product",
+        typesafe_fallback=typesafe_fallback,
+        distinct_id="team-7",
+        privacy_mode=privacy_mode,
     )
 
 
+@override_settings(CLOUD_DEPLOYMENT="LOCAL")
 class TestBuildSystemOneClient(SimpleTestCase):
     @parameterized.expand(
         [
@@ -99,9 +105,21 @@ class TestBuildSystemOneClient(SimpleTestCase):
         with override_settings(**configured), self.assertRaises(SystemOneNotConfigured):
             _build(typesafe_fallback)
 
-    def test_gateway_request_reaches_the_system_one_route_with_its_labels(self) -> None:
+    @parameterized.expand(["US", "EU", "DEV", "E2E"])
+    def test_cloud_ignores_typesafe_fallback_even_with_a_key(self, deployment: str) -> None:
+        with override_settings(**{**NOTHING, "TYPESAFE_API_KEY": "ts-key", "CLOUD_DEPLOYMENT": deployment}):
+            assert not system_one_configured(FALLBACK)
+            with self.assertRaisesRegex(SystemOneNotConfigured, "AI_GATEWAY_URL"):
+                _build()
+
+        with override_settings(**{**GATEWAY, "CLOUD_DEPLOYMENT": deployment}):
+            assert system_one_configured(FALLBACK)
+            assert isinstance(_build(), GatewaySystemOneClient)
+
+    @parameterized.expand([("labelled", False), ("private", True)])
+    def test_gateway_request_reaches_the_system_one_route_with_its_labels(self, _name: str, private: bool) -> None:
         with override_settings(**{**NOTHING, **GATEWAY}):
-            client = _build()
+            client = _build(privacy_mode=private)
         with patch.object(httpx.Client, "send", return_value=httpx.Response(200, json=ANSWERS)) as send:
             result = client.decide(state={"ticket": "Payouts fail"}, questions=QUESTIONS)
 
@@ -110,12 +128,45 @@ class TestBuildSystemOneClient(SimpleTestCase):
         assert request.headers["Authorization"] == "Bearer phs_test"
         assert request.headers["X-PostHog-Product"] == "test_product"
         assert request.headers["X-PostHog-Distinct-Id"] == "team-7"
+        assert request.headers.get("X-PostHog-Privacy-Mode") == ("true" if private else None)
         assert json.loads(request.content)["model"] == GATEWAY_MODEL
         assert result.model == GATEWAY_MODEL
         assert result.answers == {
             "urgent": NoulAnswer(probability=0.8),
             "team": ChoiceAnswer(choice="billing", confidence=0.7, probabilities={"billing": 0.7, "support": 0.3}),
         }
+
+    @parameterized.expand(
+        [
+            ("user_distinct_id", "user-abc", "user-abc"),
+            ("team_fallback", None, "team-42"),
+        ]
+    )
+    def test_gateway_request_names_the_customer_team(
+        self, _name: str, distinct_id: str | None, expected_distinct_id: str
+    ) -> None:
+        with override_settings(**{**NOTHING, **GATEWAY}):
+            client = build_system_one_client(
+                model=GATEWAY_MODEL,
+                ai_product="test_product",
+                team_id=42,
+                distinct_id=distinct_id,
+                properties={"source": "cmdk", "team_id": "2"},
+            )
+        assert isinstance(client, GatewaySystemOneClient)
+
+        assert client.headers["X-PostHog-Product"] == "test_product"
+        assert client.headers["X-PostHog-Distinct-Id"] == expected_distinct_id
+        assert json.loads(client.headers["X-PostHog-Properties"]) == {
+            "source": "cmdk",
+            "team_id": "42",
+            "ai_product": "test_product",
+        }
+
+    @parameterized.expand([("no_product", "", 42, "ai_product"), ("zero_team", "test_product", 0, "team_id")])
+    def test_refuses_an_unlabelled_call(self, _name: str, ai_product: str, team_id: int, arg: str) -> None:
+        with override_settings(**{**NOTHING, **GATEWAY}), self.assertRaisesRegex(ValueError, arg):
+            build_system_one_client(model=GATEWAY_MODEL, ai_product=ai_product, team_id=team_id)
 
     @parameterized.expand(
         [

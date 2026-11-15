@@ -14,9 +14,20 @@ import { cn } from '../lib/utils'
  * restyle per product. Assistant turns use `variant="ghost"` (transparent, full-width); user turns
  * use a filled variant.
  */
-function ChatBubbleGroup({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-quill data-slot="bubble-group" className={cn('quill-chat-bubble-group', className)} {...props} />
-}
+const ChatBubbleGroup = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function ChatBubbleGroup(
+    { className, ...props },
+    ref
+) {
+    return (
+        <div
+            ref={ref}
+            data-quill
+            data-slot="bubble-group"
+            className={cn('quill-chat-bubble-group', className)}
+            {...props}
+        />
+    )
+})
 
 const bubbleVariants = cva('quill-chat-bubble', {
     variants: {
@@ -35,14 +46,13 @@ const bubbleVariants = cva('quill-chat-bubble', {
     },
 })
 
-function ChatBubble({
-    variant = 'default',
-    align = 'start',
-    className,
-    ...props
-}: React.ComponentProps<'div'> & VariantProps<typeof bubbleVariants> & { align?: 'start' | 'end' }): React.ReactElement {
+const ChatBubble = React.forwardRef<
+    HTMLDivElement,
+    React.ComponentProps<'div'> & VariantProps<typeof bubbleVariants> & { align?: 'start' | 'end' }
+>(function ChatBubble({ variant = 'default', align = 'start', className, ...props }, ref) {
     return (
         <div
+            ref={ref}
             data-quill
             data-slot="bubble"
             data-variant={variant}
@@ -51,10 +61,14 @@ function ChatBubble({
             {...props}
         />
     )
-}
+})
 
-function ChatBubbleContent({ className, render, ...props }: useRender.ComponentProps<'div'>): React.ReactElement {
+const ChatBubbleContent = React.forwardRef<HTMLDivElement, useRender.ComponentProps<'div'>>(function ChatBubbleContent(
+    { className, render, ...props },
+    ref
+) {
     return useRender({
+        ref,
         defaultTagName: 'div',
         props: mergeProps<'div'>(
             {
@@ -68,16 +82,18 @@ function ChatBubbleContent({ className, render, ...props }: useRender.ComponentP
             slot: 'bubble-content',
         },
     })
-}
+})
 
-function ChatBubbleReactions({
-    side = 'bottom',
-    align = 'end',
-    className,
-    ...props
-}: React.ComponentProps<'div'> & { align?: 'start' | 'end'; side?: 'top' | 'bottom' }): React.ReactElement {
+const ChatBubbleReactions = React.forwardRef<
+    HTMLDivElement,
+    React.ComponentProps<'div'> & {
+        align?: 'start' | 'end'
+        side?: 'top' | 'bottom'
+    }
+>(function ChatBubbleReactions({ side = 'bottom', align = 'end', className, ...props }, ref) {
     return (
         <div
+            ref={ref}
             data-slot="bubble-reactions"
             data-align={align}
             data-side={side}
@@ -85,6 +101,6 @@ function ChatBubbleReactions({
             {...props}
         />
     )
-}
+})
 
 export { ChatBubbleGroup, ChatBubble, ChatBubbleContent, ChatBubbleReactions, bubbleVariants }

@@ -42,7 +42,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.persons import create_person, update_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.product_analytics.backend.hogql_queries.retention.retention_base_query_fixed import (
@@ -1133,7 +1133,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             steps_json=[
                 {
@@ -1614,7 +1614,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "totalIntervals": 7,
                     "targetEntity": {
-                        "id": action.pk,
+                        "id": action.id,
                         "name": action.name,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                     },
@@ -2113,7 +2113,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["values"][1]["count"], 1)
 
     def test_retention_with_properties_on_action_target_entity(self):
-        action = Action.objects.create(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
 
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -2135,7 +2135,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     "period": "Day",
                     "totalIntervals": 7,
                     "targetEntity": {
-                        "id": action.pk,
+                        "id": action.id,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                         "properties": [
                             {
@@ -2154,7 +2154,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["values"][0]["count"], 1)
 
     def test_retention_with_properties_on_action_returning_entity(self):
-        action = Action.objects.create(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
 
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -2177,7 +2177,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     "totalIntervals": 7,
                     "targetEntity": {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS},
                     "returningEntity": {
-                        "id": action.pk,
+                        "id": action.id,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                         "properties": [
                             {
@@ -2430,7 +2430,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_retention_with_user_properties_via_action(self):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             steps_json=[
                 {
@@ -2473,7 +2473,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "dateRange": {"date_to": _date(6, hour=0)},
                 "retentionFilter": {
                     "totalIntervals": 7,
-                    "targetEntity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "targetEntity": {"id": action.id, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
                     "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
                 },
             }
@@ -2526,8 +2526,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Day",
                     "totalIntervals": 7,
-                    "targetEntity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
-                    "returningEntity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "targetEntity": {"id": action.id, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returningEntity": {"id": action.id, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
                 },
             }
         )
@@ -5228,7 +5228,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="act_a on dash",
             steps_json=[{"event": "act_a", "url": "/dash", "url_matching": "contains"}],
@@ -7607,15 +7607,21 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         )
 
         _person1 = create_person(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
+        # Not in the cohort. Starts with person1 and returns in the next 24h window,
+        # so the cohort row only stays at [1, 0] if non-members are left out.
+        create_person(team=self.team, distinct_ids=["person2"], properties={"country": "Canada"})
 
         _create_events(
             self.team,
             [
                 ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),  # 2 PM
                 ("person1", datetime(2020, 6, 11, 13, 0).isoformat()),  # 23h later
+                ("person2", datetime(2020, 6, 10, 14, 0).isoformat()),
+                ("person2", datetime(2020, 6, 11, 20, 0).isoformat()),  # 30h later
             ],
             event="$pageview",
         )
+        cohort1.calculate_people_ch(pending_version=0)
 
         result = self.run_query(
             query={
@@ -7626,13 +7632,60 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                     "totalIntervals": 3,
                     "timeWindowMode": "24_hour_windows",
                 },
-                "breakdownFilter": {"breakdown": str(cohort1.pk), "breakdown_type": "cohort"},
+                "breakdownFilter": {"breakdown": [cohort1.pk, "all"], "breakdown_type": "cohort"},
             }
         )
 
         cohort_row = next(row for row in result if row.get("breakdown_value") == str(cohort1.pk))
         self.assertEqual(cohort_row["values"][0]["count"], 1)  # Interval 0
         self.assertEqual(cohort_row["values"][1]["count"], 0)  # Interval 1
+
+        all_users_row = next(row for row in result if row.get("breakdown_value") == str(ALL_USERS_COHORT_ID))
+        self.assertEqual(all_users_row["values"][0]["count"], 2)
+        self.assertEqual(all_users_row["values"][1]["count"], 1)  # person2 came back
+
+    def test_retention_24h_window_with_cohort_breakdown_group_aggregation(self):
+        # Counting organizations: person1 (in the cohort) starts org:5 and only person2 (not in
+        # the cohort) comes back. The cohort row must not count that return, same as calendar mode.
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={})
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "country", "value": "USA", "type": "person"}]}],
+            name="USA Cohort",
+        )
+        create_person(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
+        create_person(team=self.team, distinct_ids=["person2"], properties={"country": "Canada"})
+
+        _create_events(
+            self.team,
+            [
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat(), {"$group_0": "org:5"}),
+                ("person2", datetime(2020, 6, 11, 20, 0).isoformat(), {"$group_0": "org:5"}),  # 30h later
+            ],
+            event="$pageview",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "aggregation_group_type_index": 0,
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                },
+                "breakdownFilter": {"breakdown": [cohort1.pk], "breakdown_type": "cohort"},
+            }
+        )
+
+        cohort_row = next(row for row in result if row.get("breakdown_value") == str(cohort1.pk))
+        self.assertEqual(cohort_row["values"][0]["count"], 1)  # org:5 started
+        self.assertEqual(cohort_row["values"][1]["count"], 0)  # only a non-member came back
 
     def test_retention_24h_window_rejects_cumulative(self):
         with self.assertRaisesMessage(

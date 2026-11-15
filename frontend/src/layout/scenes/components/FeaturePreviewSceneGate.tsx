@@ -101,19 +101,21 @@ function FeaturePreviewGateContent({
     const sceneIdForHeader = config.sceneId ?? activeSceneId
     const sceneConfig = sceneIdForHeader ? sceneConfigurations[sceneIdForHeader] : undefined
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
+    const sceneTitle = sceneConfig?.name ? (
+        <SceneTitleSection
+            name={sceneConfig.name}
+            description={sceneConfig.description}
+            resourceType={{ type: sceneConfig.iconType || 'default' }}
+            sceneId={sceneIdForHeader}
+        />
+    ) : null
 
     // The user just opted in: the flag is on locally but the API still 403s until ingestion
     // catches up. Hold here instead of mounting a scene whose every request fails.
     if (justEnrolled) {
         return (
             <SceneContent>
-                {sceneConfig?.name && (
-                    <SceneTitleSection
-                        name={sceneConfig.name}
-                        description={sceneConfig.description}
-                        resourceType={{ type: sceneConfig.iconType || 'default' }}
-                    />
-                )}
+                {sceneTitle}
                 <div
                     className="flex items-center gap-2 text-secondary"
                     data-attr="feature-preview-enabling"
@@ -133,13 +135,7 @@ function FeaturePreviewGateContent({
     if (feature?.stage === 'concept' && feature.payload?.survey_id) {
         return (
             <SceneContent>
-                {sceneConfig?.name && (
-                    <SceneTitleSection
-                        name={sceneConfig.name}
-                        description={sceneConfig.description}
-                        resourceType={{ type: sceneConfig.iconType || 'default' }}
-                    />
-                )}
+                {sceneTitle}
                 <ProductIntroduction
                     thingName="feature"
                     titleOverride={config.title}
@@ -168,13 +164,7 @@ function FeaturePreviewGateContent({
 
     return (
         <SceneContent>
-            {sceneConfig?.name && (
-                <SceneTitleSection
-                    name={sceneConfig.name}
-                    description={sceneConfig.description}
-                    resourceType={{ type: sceneConfig.iconType || 'default' }}
-                />
-            )}
+            {sceneTitle}
             <ProductIntroduction
                 thingName="feature"
                 titleOverride={config.title}

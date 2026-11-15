@@ -1,12 +1,18 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import TestCase
 
+from parameterized import parameterized
+
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Channel, Task
+from products.slack_app.backend.analytics import slack_session_id
+from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 
 class TestTaskCaptureEvent(TestCase):
@@ -48,3 +54,81 @@ class TestTaskCaptureEvent(TestCase):
         task.capture_event("task_created", capture_fn=capture)
 
         self.assertEqual(capture.call_args.kwargs["properties"]["channel_id"], str(channel.id))
+
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.SIGNALS_SCOUT, "scout-trial:00000000-0000-4000-8000-000000000001", None),
+            (Task.OriginProduct.USER_CREATED, None, None),
+            ("context_layer", None, "context_layer.dream"),
+        ]
+    )
+    def test_task_and_run_lifecycle_events_are_captured(
+        self, origin_product: str, origin_key: str | None, profile: str | None
+    ) -> None:
+        with (
+            patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            task = Task.objects.create(
+                team=self.team,
+                title="Test scout",
+                description="Test prompt",
+                origin_product=origin_product,
+                origin_key=origin_key,
+                profile=profile,
+                created_by=self.user,
+            )
+            run = task.create_run(environment=TaskRun.Environment.LOCAL, extra_state={"use_dedicated_stream": False})
+            task.capture_event("task_updated")
+            captured = run.capture_event("task_run_completed")
+
+        self.assertTrue(captured)
+        events = {call.kwargs["event"] for call in capture.call_args_list}
+        self.assertEqual(events, {"task_created", "task_run_created", "task_updated", "task_run_completed"})
+        for call in capture.call_args_list:
+            if profile == "context_layer.dream" and call.kwargs["event"] != "task_updated":
+                self.assertIs(call.kwargs["properties"]["$update_person_last_seen_at"], False)
+            else:
+                self.assertNotIn("$update_person_last_seen_at", call.kwargs["properties"])
+
+    @parameterized.expand(
+        [
+            ("slack_task_reports_its_thread", Task.OriginProduct.SLACK, "T1:C1:1700000000.000100", False),
+            ("other_origin_reports_none", Task.OriginProduct.USER_CREATED, None, False),
+            ("failed_lookup_reports_none_without_failing_the_run", Task.OriginProduct.SLACK, None, True),
+        ]
+    )
+    def test_run_events_carry_the_slack_thread_they_answer(
+        self, _name: str, origin_product: str, expected: str | None, lookup_fails: bool
+    ) -> None:
+        task = self._task()
+        task.origin_product = origin_product
+        task.save(update_fields=["origin_product"])
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T1", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T1",
+            channel="C1",
+            thread_ts="1700000000.000100",
+            task=task,
+            task_run=TaskRun.objects.create(task=task, team=self.team),
+            mentioning_slack_user_id="U1",
+        )
+
+        with (
+            patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
+            patch(
+                "products.slack_app.backend.analytics.slack_session_id",
+                side_effect=OperationalError("connection lost") if lookup_fails else slack_session_id,
+            ),
+        ):
+            run = task.create_run(environment=TaskRun.Environment.LOCAL, extra_state={"use_dedicated_stream": False})
+            run.capture_event("task_run_completed")
+
+        session_ids = {
+            call.kwargs["event"]: call.kwargs["properties"]["slack_session_id"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] in {"task_run_created", "task_run_completed"}
+        }
+        self.assertEqual(session_ids, {"task_run_created": expected, "task_run_completed": expected})

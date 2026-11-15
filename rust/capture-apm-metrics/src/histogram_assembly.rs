@@ -19,6 +19,7 @@
 use std::collections::HashMap;
 use std::hash::Hasher;
 
+use capture_logs::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE;
 use capture_logs::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use chrono::{DateTime, Utc};
 use metrics::counter;
@@ -29,7 +30,7 @@ use uuid::Uuid;
 
 const LE_LABEL: &str = "le";
 const QUANTILE_LABEL: &str = "quantile";
-const ORIGINAL_TIMESTAMP_LABEL: &str = "$originalTimestamp";
+const ORIGINAL_TIMESTAMP_LABELS: [&str; 2] = [ORIGINAL_TIMESTAMP_ATTRIBUTE, "$originalTimestamp"];
 const BUCKET_SUFFIX: &str = "_bucket";
 const COUNT_SUFFIX: &str = "_count";
 const SUM_SUFFIX: &str = "_sum";
@@ -133,6 +134,7 @@ pub fn fold_classic_histograms(
             series_fingerprint,
             has_labels: true,
             retention_days: sum_row.retention_days,
+            start_timestamp: None,
         });
     }
 
@@ -185,7 +187,9 @@ fn normalize_float_labels(rows: &mut [KafkaMetricRow]) {
         }
         if changed {
             let mut attributes = row.attributes.clone();
-            attributes.remove(ORIGINAL_TIMESTAMP_LABEL);
+            for label in ORIGINAL_TIMESTAMP_LABELS {
+                attributes.remove(label);
+            }
             row.series_fingerprint = compute_series_fingerprint(
                 &row.metric_name,
                 &row.metric_type,
@@ -239,7 +243,11 @@ fn histogram_component(
     row: &KafkaMetricRow,
     declared: &HashMap<&str, MetricType>,
 ) -> Option<(String, HistogramComponent)> {
-    if row.metric_type != SUM_TYPE || row.attributes.contains_key(ORIGINAL_TIMESTAMP_LABEL) {
+    if row.metric_type != SUM_TYPE
+        || ORIGINAL_TIMESTAMP_LABELS
+            .iter()
+            .any(|label| row.attributes.contains_key(*label))
+    {
         return None;
     }
     let name = row.metric_name.as_str();

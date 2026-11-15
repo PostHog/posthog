@@ -58,11 +58,13 @@
         font-weight: 600;
     }
 
+    // Decorative only: the list below drives the selection.
     &__scatter {
         display: block;
         width: 100%;
         height: 120px;
         padding: 0.25rem 0.5rem;
+        cursor: default;
     }
 
     // Unselected clusters fade back; the selected one is painted at full strength below.
@@ -197,30 +199,38 @@
 
 // Selected cluster, driven purely by the hidden radios.
 
-#clusters-preview-billing:checked ~ * .ClustersPreview__when-billing,
-#clusters-preview-bugs:checked ~ * .ClustersPreview__when-bugs,
-#clusters-preview-howto:checked ~ * .ClustersPreview__when-howto {
+.ClustersPreview__radio--billing:checked ~ * .ClustersPreview__when-billing,
+.ClustersPreview__radio--bugs:checked ~ * .ClustersPreview__when-bugs,
+.ClustersPreview__radio--howto:checked ~ * .ClustersPreview__when-howto {
     @include preview-swap-visible;
 }
 
-#clusters-preview-billing:checked ~ .ClustersPreview__list .ClustersPreview__row--billing,
-#clusters-preview-bugs:checked ~ .ClustersPreview__list .ClustersPreview__row--bugs,
-#clusters-preview-howto:checked ~ .ClustersPreview__list .ClustersPreview__row--howto {
-    background: color-mix(in oklab, var(--clusters-preview-accent) 8%, transparent);
-    border-color: color-mix(in oklab, var(--clusters-preview-accent) 40%, transparent);
+.ClustersPreview__radio--billing:checked ~ .ClustersPreview__list .ClustersPreview__row--billing,
+.ClustersPreview__radio--bugs:checked ~ .ClustersPreview__list .ClustersPreview__row--bugs,
+.ClustersPreview__radio--howto:checked ~ .ClustersPreview__list .ClustersPreview__row--howto {
+    background: color-mix(in oklab, var(--clusters-preview-accent) 14%, transparent);
+    border-color: var(--clusters-preview-accent);
+    box-shadow: inset 3px 0 0 var(--clusters-preview-accent);
+
+    .ClustersPreview__name {
+        @include preview-accent-text(var(--clusters-preview-accent));
+    }
 }
 
-#clusters-preview-billing:checked ~ .ClustersPreview__plot .ClustersPreview__group--billing .ClustersPreview__point,
-#clusters-preview-bugs:checked ~ .ClustersPreview__plot .ClustersPreview__group--bugs .ClustersPreview__point,
-#clusters-preview-howto:checked ~ .ClustersPreview__plot .ClustersPreview__group--howto .ClustersPreview__point {
+.ClustersPreview__radio--billing:checked
+    ~ .ClustersPreview__plot
+    .ClustersPreview__group--billing
+    .ClustersPreview__point,
+.ClustersPreview__radio--bugs:checked ~ .ClustersPreview__plot .ClustersPreview__group--bugs .ClustersPreview__point,
+.ClustersPreview__radio--howto:checked ~ .ClustersPreview__plot .ClustersPreview__group--howto .ClustersPreview__point {
     opacity: 1;
 }
 
 // The ambient bit: one trace in the selected cluster keeps arriving.
 .ClustersPreview:not(.ClustersPreview--static) {
-    #clusters-preview-billing:checked ~ .ClustersPreview__plot .ClustersPreview__group--billing,
-    #clusters-preview-bugs:checked ~ .ClustersPreview__plot .ClustersPreview__group--bugs,
-    #clusters-preview-howto:checked ~ .ClustersPreview__plot .ClustersPreview__group--howto {
+    .ClustersPreview__radio--billing:checked ~ .ClustersPreview__plot .ClustersPreview__group--billing,
+    .ClustersPreview__radio--bugs:checked ~ .ClustersPreview__plot .ClustersPreview__group--bugs,
+    .ClustersPreview__radio--howto:checked ~ .ClustersPreview__plot .ClustersPreview__group--howto {
         .ClustersPreview__point:first-child {
             transform-box: fill-box;
             transform-origin: center;
@@ -231,9 +241,9 @@
 
 // The radios stay keyboard-focusable while visually hidden, so the row they label
 // needs a visible focus indicator (WCAG 2.4.7).
-#clusters-preview-billing:focus-visible ~ .ClustersPreview__list .ClustersPreview__row--billing,
-#clusters-preview-bugs:focus-visible ~ .ClustersPreview__list .ClustersPreview__row--bugs,
-#clusters-preview-howto:focus-visible ~ .ClustersPreview__list .ClustersPreview__row--howto {
+.ClustersPreview__radio--billing:focus-visible ~ .ClustersPreview__list .ClustersPreview__row--billing,
+.ClustersPreview__radio--bugs:focus-visible ~ .ClustersPreview__list .ClustersPreview__row--bugs,
+.ClustersPreview__radio--howto:focus-visible ~ .ClustersPreview__list .ClustersPreview__row--howto {
     outline: 2px solid var(--clusters-preview-accent);
     outline-offset: 1px;
 }

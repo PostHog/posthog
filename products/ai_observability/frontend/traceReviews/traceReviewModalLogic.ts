@@ -40,6 +40,7 @@ function loadActiveScoreDefinitionsPage(
 ): ReturnType<typeof aiObservabilityScoreDefinitionsList> {
     return aiObservabilityScoreDefinitionsList(String(teamId), {
         archived: false,
+        calculation: 'reported',
         order_by: 'name',
         search: search.trim() || undefined,
         offset,
@@ -91,18 +92,25 @@ function isCategoricalSelectionValid(
 
 function buildScoreDefinitionFromReviewScore(score: TraceReviewScore, teamId: number): ScoreDefinitionApi {
     return {
+        tags: [],
         id: score.definition_id,
         name: score.definition_name,
+        short_name: '',
         description: score.definition_archived
             ? 'Archived scorer from this review.'
             : 'Saved scorer version from this review.',
         kind: score.definition_kind,
         archived: score.definition_archived,
         current_version: score.definition_version,
+        calculation: 'reported',
+        composition: null,
+        input_scorers: [],
+        dependent_composite_count: 0,
         current_version_id: score.definition_version_id,
         config: score.definition_config,
         created_by: null,
         created_at: score.created_at,
+        updated_by: null,
         updated_at: score.updated_at,
         team: teamId,
     }

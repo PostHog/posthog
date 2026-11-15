@@ -64,10 +64,11 @@ class Dictionary(abc.ABC):
     def credentials(self) -> ClickHouseCredentials:
         """Credentials the dictionary source reads as.
 
-        Defaults to the default user. Override only when the role's SELECT grants on the source
-        tables are known to exist in every environment; grants live in infra, not this repo.
+        The dictionary stores this password, so create passes the static password and never a
+        token, which would expire. dagster_dict_reader can only SELECT the source tables that infra
+        grants it, so a new source table needs a grant there first or the dictionary fails to load.
         """
-        return get_clickhouse_creds(ClickHouseUser.DEFAULT)
+        return get_clickhouse_creds(ClickHouseUser.DAGSTER_DICT_READER)
 
     @property
     def qualified_name(self) -> str:

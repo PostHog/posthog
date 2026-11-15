@@ -154,5 +154,6 @@ def _unknown_command_help(command_name: str) -> str:
         f"• `{command_name} rules list`\n"
         f'• `{command_name} rules add "description" org/repo`\n'
         f"• `{command_name} rules remove <number(s)>`\n"
-        f"• `{command_name} project [<id>]`"
+        f"• `{command_name} project [<id>]`\n"
+        f"• `{command_name} welcome [channel|private|off]`"
     )

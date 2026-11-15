@@ -18,6 +18,8 @@ export interface AnalyticsMetadata {
     distinctId: string
     /** The name of the tool that generated this result */
     toolName?: string
+    /** Same value as `$mcp_client_name` on server-side MCP events */
+    mcpClientName?: string
 }
 
 /**
@@ -47,12 +49,6 @@ export const APP_DATA_META_KEY = 'com.posthog.mcp/app_data' as const
 export type WithAnalytics<T> = T & {
     _analytics?: AnalyticsMetadata
 }
-
-/**
- * Extract the data type from a tool result, excluding analytics metadata.
- * Useful when you want to work with just the payload data without analytics.
- */
-export type ExtractData<T> = Omit<T, '_analytics'>
 
 /**
  * Type guard to check if a value has analytics metadata.

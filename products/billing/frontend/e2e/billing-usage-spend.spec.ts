@@ -1,3 +1,4 @@
+import { mockFeatureFlags } from '@playwright-utils/mockApi'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
 import { Locator, Page } from '@playwright/test'
 
@@ -6,7 +7,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 /**
  * The usage and spend pages, with billing's answers mocked in the browser.
  *
- * CI has no billing behind the dev stack, so every /api/billing route the pages read is fulfilled
+ * CI has no billing behind the dev stack, so every billing route the pages read is fulfilled
  * here. What this covers is the pages' side of the contract with billing: the one request a page
  * makes and the filters it carries, the project filter while its list loads, which export the menu
  * names, the sentence shown when billing refuses a read, and the date presets on offer.
@@ -64,7 +65,7 @@ const CREDIT_OVERVIEW = {
 }
 
 function timeseries(results: Series[]): Answer {
-    return { json: { status: 'ok', type: 'timeseries', customer_id: billingJson.customer_id, results } }
+    return { json: { count: results.length, next: null, previous: null, results } }
 }
 
 function byProduct(): Series[] {
@@ -124,7 +125,7 @@ function answerByBreakdown(workspace: PlaywrightWorkspaceSetupResult): Answering
 async function mockBilling(
     page: Page,
     workspace: PlaywrightWorkspaceSetupResult,
-    answers: { usage?: Answering; spend?: Answering; teamOptionsDelayMs?: number } = {}
+    answers: { usage?: Answering; spend?: Answering; projectsDelayMs?: number } = {}
 ): Promise<BillingReads> {
     const reads: BillingReads = { usage: [], spend: [] }
     const answering: Record<Kind, Answering> = {
@@ -134,21 +135,32 @@ async function mockBilling(
 
     await page.route(/\/api\/billing\/?(\?.*)?$/, (route) => route.fulfill({ json: billingJson }))
     await page.route(/\/api\/billing\/credits\/overview/, (route) => route.fulfill({ json: CREDIT_OVERVIEW }))
-    await page.route(/\/api\/billing\/usage\/team_options\//, async (route) => {
-        if (answers.teamOptionsDelayMs) {
-            await new Promise((resolve) => setTimeout(resolve, answers.teamOptionsDelayMs))
+    // The projects with usage: the live one and one deleted since its usage was reported.
+    await page.route(/\/api\/organizations\/[^/]+\/billing\/projects\//, async (route) => {
+        if (answers.projectsDelayMs) {
+            await new Promise((resolve) => setTimeout(resolve, answers.projectsDelayMs))
         }
-        await route.fulfill({ json: { team_id_options: [Number(workspace.team_id), DELETED_TEAM_ID] } })
+        await route.fulfill({
+            json: {
+                count: 2,
+                next: null,
+                previous: null,
+                results: [
+                    { id: Number(workspace.team_id), name: workspace.team_name, deleted: false },
+                    { id: DELETED_TEAM_ID, name: null, deleted: true },
+                ],
+            },
+        })
     })
     for (const kind of ['usage', 'spend'] as Kind[]) {
-        await page.route(new RegExp(`/api/billing/${kind}/(\\?.*)?$`), (route) => {
+        await page.route(new RegExp(`/api/organizations/[^/]+/billing/${kind}/timeseries/(\\?.*)?$`), (route) => {
             const params = new URL(route.request().url()).searchParams
             reads[kind].push(params)
             const answer = answering[kind](params)
             return route.fulfill({ status: answer.status ?? 200, json: answer.json })
         })
     }
-    await page.route(/\/api\/billing\/(usage|spend)\/export\//, (route) =>
+    await page.route(/\/api\/organizations\/[^/]+\/billing\/(usage|spend)\/export\//, (route) =>
         route.fulfill({
             status: 200,
             headers: {
@@ -189,6 +201,9 @@ test.describe('Billing usage and spend', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
+        // The pages read the organization billing API only where its flag is on. These cases mock
+        // that API, so they turn the flag on rather than take it from the environment.
+        await mockFeatureFlags(page, { 'organization-billing-api': true })
         await playwrightSetup.login(page, workspace)
     })
 
@@ -210,10 +225,10 @@ test.describe('Billing usage and spend', () => {
             expect(params.get('top_projects')).toBeNull()
         })
 
-        test('holds the project filter while its list loads, then offers every project billing has seen', async ({
+        test('holds the project filter while its list loads, then offers every project with usage', async ({
             page,
         }) => {
-            await mockBilling(page, workspace, { teamOptionsDelayMs: 1500 })
+            await mockBilling(page, workspace, { projectsDelayMs: 1500 })
             await openPage(page, 'usage')
 
             await expect(page.getByPlaceholder('Loading projects…')).toBeDisabled()
@@ -286,7 +301,7 @@ test.describe('Billing usage and spend', () => {
             ])
 
             const params = new URL(download.url()).searchParams
-            expect(download.url()).toContain('/api/billing/usage/export/')
+            expect(download.url()).toContain('/api/organizations/@current/billing/usage/export/')
             expect(params.get('breakdowns')).toBe('["type"]')
             expect(params.get('start_date')).toMatch(DATE)
             expect(params.get('end_date')).toMatch(DATE)

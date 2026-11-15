@@ -174,12 +174,12 @@ class TestTraceReviewsApi(APIBaseTest):
         resolved = self._create_definition(
             name="Resolved",
             kind="boolean",
-            config={"true_label": "Yes", "false_label": "No"},
+            config={"true_label": "Yes", "false_label": "No", "true_is_failure": True},
         )
         confidence = self._create_definition(
             name="Confidence",
             kind="numeric",
-            config={"min": 0, "max": 5, "step": 0.5},
+            config={"min": 0, "max": 5, "step": 0.5, "passing_rule": {"operator": "gte", "threshold": 5}},
         )
 
         response = self.client.post(
@@ -213,6 +213,8 @@ class TestTraceReviewsApi(APIBaseTest):
         self.assertEqual(themes_score.definition_config, themes_version.config)
         self.assertEqual(themes_score.categorical_values, ["helpful", "accurate"])
         self.assertEqual(resolved_score.boolean_value, True)
+        self.assertEqual(resolved_score.definition_config, self._current_version(resolved).config)
+        self.assertEqual(confidence_score.definition_config, self._current_version(confidence).config)
         self.assertEqual(str(confidence_score.numeric_value), "4.500000")
 
     def test_can_create_review_with_an_explicit_definition_version(self):

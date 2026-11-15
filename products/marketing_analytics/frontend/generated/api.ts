@@ -14,6 +14,10 @@ import type {
     ConversionGoalWriteApi,
     ConversionGoalWriteResponseApi,
     ConversionGoalsListResponseApi,
+    ConversionRecommendationStartApi,
+    ConversionRecommendationStateApi,
+    ConversionRecordingsRequestApi,
+    ConversionRecordingsResponseApi,
     DataSourceHealthResponseApi,
     EventSuggestionsResponseApi,
     GoalExplanationApi,
@@ -26,7 +30,10 @@ import type {
     MarketingAnalyticsUtmAuditRetrieveParams,
     MarketingDiagnosticResponseApi,
     PatchedConversionGoalUpdateApi,
+    RecommendationResolutionApi,
+    RecommendationResolutionRequestApi,
     SetupPlanResponseApi,
+    SourceValidationApi,
     UtmAuditResponseApi,
     UtmMappingSuggestionsResponseApi,
 } from './api.schemas'
@@ -138,6 +145,66 @@ export const marketingAnalyticsConversionGoalsCreateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversionGoalWriteApi),
+    })
+}
+
+export const getMarketingAnalyticsConversionRecommendationsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_recommendations/`
+}
+
+/**
+ * @summary Read persisted conversion recommendations
+ */
+export const marketingAnalyticsConversionRecommendationsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ConversionRecommendationStateApi> => {
+    return apiMutator<ConversionRecommendationStateApi>(
+        getMarketingAnalyticsConversionRecommendationsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getMarketingAnalyticsConversionRecommendationsStartCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_recommendations/start/`
+}
+
+/**
+ * @summary Start a conversion recommendation analysis
+ */
+export const marketingAnalyticsConversionRecommendationsStartCreate = async (
+    projectId: string,
+    conversionRecommendationStartApi?: ConversionRecommendationStartApi,
+    options?: RequestInit
+): Promise<ConversionRecommendationStateApi> => {
+    return apiMutator<ConversionRecommendationStateApi>(
+        getMarketingAnalyticsConversionRecommendationsStartCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(conversionRecommendationStartApi),
+        }
+    )
+}
+
+export const getMarketingAnalyticsConversionRecordingsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_recordings/`
+}
+
+export const marketingAnalyticsConversionRecordingsList = async (
+    projectId: string,
+    conversionRecordingsRequestApi: ConversionRecordingsRequestApi,
+    options?: RequestInit
+): Promise<ConversionRecordingsResponseApi> => {
+    return apiMutator<ConversionRecordingsResponseApi>(getMarketingAnalyticsConversionRecordingsListUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(conversionRecordingsRequestApi),
     })
 }
 
@@ -277,6 +344,24 @@ export const marketingAnalyticsSetupPlanRetrieve = async (
     })
 }
 
+export const getMarketingAnalyticsSourceValidationRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/source_validation/`
+}
+
+/**
+ * Check connected marketing sources using the same validators as campaign queries. Read-only.
+ * @summary Validate marketing sources
+ */
+export const marketingAnalyticsSourceValidationRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SourceValidationApi> => {
+    return apiMutator<SourceValidationApi>(getMarketingAnalyticsSourceValidationRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMarketingAnalyticsSuggestConversionGoalsRetrieveUrl = (
     projectId: string,
     params?: MarketingAnalyticsSuggestConversionGoalsRetrieveParams
@@ -393,5 +478,45 @@ export const marketingAnalyticsUtmAuditRetrieve = async (
     return apiMutator<UtmAuditResponseApi>(getMarketingAnalyticsUtmAuditRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMarketingAnalyticsRecommendationResolutionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics_recommendation_resolutions/`
+}
+
+/**
+ * Dismisses a recommendation or marks it as applied. Resolving it again replaces the earlier resolution. Returns 400 when the identity's rule never produces that combination of ids, and 403 without access to every Google Ads and Search Console source of the project.
+ * @summary Resolve a recommendation
+ */
+export const marketingAnalyticsRecommendationResolutionsCreate = async (
+    projectId: string,
+    recommendationResolutionRequestApi: RecommendationResolutionRequestApi,
+    options?: RequestInit
+): Promise<RecommendationResolutionApi> => {
+    return apiMutator<RecommendationResolutionApi>(getMarketingAnalyticsRecommendationResolutionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recommendationResolutionRequestApi),
+    })
+}
+
+export const getMarketingAnalyticsRecommendationResolutionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/marketing_analytics_recommendation_resolutions/${id}/`
+}
+
+/**
+ * Deletes a resolution, so its recommendation shows again. Returns 403 without access to every Google Ads and Search Console source of the project.
+ * @summary Restore a recommendation
+ */
+export const marketingAnalyticsRecommendationResolutionsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMarketingAnalyticsRecommendationResolutionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }

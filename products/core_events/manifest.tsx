@@ -12,6 +12,7 @@ export const manifest: ProductManifest = {
             iconType: 'core_event',
             iconColor: ['var(--color-product-core-events-light)', 'var(--color-product-core-events-dark)'],
             href: urls.coreEvents(),
+            searchKeywords: ['key events', 'conversion events'],
             flag: FEATURE_FLAGS.NEW_TEAM_CORE_EVENTS,
         },
     ],

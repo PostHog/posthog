@@ -21,6 +21,7 @@ function statsWithTotal(total: number): Awaited<ReturnType<typeof visionScanners
             classifier: { enabled: 0, total: 0 },
             scorer: { enabled: 0, total: 0 },
             summarizer: { enabled: total, total },
+            experiment: { enabled: 0, total: 0 },
         },
     }
 }

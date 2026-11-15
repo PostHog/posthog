@@ -1,6 +1,7 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import {
+    FeatureFlagConfig,
     FeatureFlagGroupType,
     FeatureFlagType,
     RecurrenceInterval,
@@ -9,10 +10,12 @@ import {
     ScheduledChangeType,
 } from '~/types'
 
+import { resolveAggregationGroupTypeIndex } from './aggregation'
+
 /** Flag state as projected after a scheduled change occurrence has applied. */
 export interface ScheduleProjectedState {
     active: boolean
-    /** Max rollout percentage across release condition sets. Null when no condition sets exist. */
+    /** What the flag reaches on its own aggregation target. See maxUntargetedRolloutPercentage. */
     rolloutPercentage: number | null
     /** Null for flags with no variants. */
     variantCount: number | null
@@ -26,6 +29,12 @@ export interface ScheduleOccurrence {
     projected: ScheduleProjectedState
     /** Max rollout of the condition this occurrence adds; null for other operations. */
     addedRolloutPercentage: number | null
+    /**
+     * True when this occurrence adds a condition on the flag-level target at or below the projected
+     * rollout on that target. The flag does not have to be active. Such a condition reaches nobody new,
+     * so the projected rollout holds its level. False for every other operation.
+     */
+    rolloutUnchanged: boolean
     /** The occurrence will be skipped at fire time unless its approval request is approved first. */
     needsApproval: boolean
 }
@@ -64,6 +73,63 @@ export function maxRolloutPercentage(groups: FeatureFlagGroupType[] | undefined)
         return null
     }
     return Math.max(...groups.map((group) => group.rollout_percentage ?? 100))
+}
+
+/**
+ * The aggregation target every one of these condition sets buckets on, or undefined when they do
+ * not share one.
+ */
+export function sharedAggregationTarget(
+    groups: FeatureFlagGroupType[] | undefined,
+    flagAggregationGroupTypeIndex: number | null | undefined
+): number | null | undefined {
+    const targets = new Set(
+        (groups ?? []).map((group) =>
+            resolveAggregationGroupTypeIndex(group.aggregation_group_type_index, flagAggregationGroupTypeIndex)
+        )
+    )
+    return targets.size === 1 ? [...targets][0] : undefined
+}
+
+/**
+ * Max rollout across the condition sets that no property filter narrows and that bucket on
+ * `targetAggregationGroupTypeIndex`. The result is a share of everyone that a condition on that
+ * target reaches, not a share of a segment.
+ */
+export function maxUntargetedRolloutPercentage(
+    groups: FeatureFlagGroupType[] | undefined,
+    flagAggregationGroupTypeIndex: number | null | undefined,
+    targetAggregationGroupTypeIndex: number | null | undefined
+): number | null {
+    if (targetAggregationGroupTypeIndex === undefined) {
+        return null
+    }
+    return maxRolloutPercentage(
+        groups?.filter(
+            (group) =>
+                !group.properties?.length &&
+                resolveAggregationGroupTypeIndex(group.aggregation_group_type_index, flagAggregationGroupTypeIndex) ===
+                    targetAggregationGroupTypeIndex
+        )
+    )
+}
+
+/**
+ * What the flag reaches on its own aggregation target.
+ *
+ * FeatureFlagSchedule passes this value to ScheduleTimeline as the step line's starting level.
+ * expandScheduleOccurrences starts its projected steps from the same value. Both must call this
+ * function. If one of them counted every condition set, a property-filtered set would lift only that
+ * side. The chart would then draw a gain or a loss of reach that the flag never makes.
+ */
+export function projectedRolloutPercentage(
+    filters: Pick<FeatureFlagConfig, 'groups' | 'aggregation_group_type_index'>
+): number | null {
+    return maxUntargetedRolloutPercentage(
+        filters.groups,
+        filters.aggregation_group_type_index,
+        resolveAggregationGroupTypeIndex(undefined, filters.aggregation_group_type_index)
+    )
 }
 
 /** A paused recurring schedule keeps its recurrence config but has is_recurring=false. */
@@ -171,21 +237,32 @@ export function expandScheduleOccurrences(
     raw.sort((a, b) => a.at.valueOf() - b.at.valueOf() || a.schedule.id - b.schedule.id)
 
     let active = flag.active
-    let rolloutPercentage = maxRolloutPercentage(flag.filters.groups)
+    const flagAggregation = flag.filters.aggregation_group_type_index
+    const flagTarget = resolveAggregationGroupTypeIndex(undefined, flagAggregation)
+    let rolloutPercentage = projectedRolloutPercentage(flag.filters)
     let variantCount = flag.filters.multivariate?.variants.length ?? null
 
     return raw.slice(0, OCCURRENCE_CAP).map(({ at, schedule, isFirst }) => {
         const { payload } = schedule
         let addedRolloutPercentage: number | null = null
+        let rolloutUnchanged = false
         if (payload.operation === ScheduledChangeOperationType.UpdateStatus) {
             active = payload.value
         } else if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
-            addedRolloutPercentage = maxRolloutPercentage(payload.value.groups)
-            if (addedRolloutPercentage !== null) {
-                rolloutPercentage =
-                    rolloutPercentage === null
-                        ? addedRolloutPercentage
-                        : Math.max(rolloutPercentage, addedRolloutPercentage)
+            const addedGroups = payload.value.groups
+            addedRolloutPercentage = maxRolloutPercentage(addedGroups)
+            // Only sets on the added condition's own target can cover it. The backend appends only the
+            // payload's groups. Each group keeps its own target. A payload-level target never applies.
+            // The no-change copy quotes the projected level, which counts only sets on the flag-level
+            // target. A condition on another target is therefore not judged here.
+            rolloutUnchanged =
+                addedRolloutPercentage !== null &&
+                rolloutPercentage !== null &&
+                sharedAggregationTarget(addedGroups, flagAggregation) === flagTarget &&
+                addedRolloutPercentage <= rolloutPercentage
+            const addedLevel = maxUntargetedRolloutPercentage(addedGroups, flagAggregation, flagTarget)
+            if (addedLevel !== null) {
+                rolloutPercentage = rolloutPercentage === null ? addedLevel : Math.max(rolloutPercentage, addedLevel)
             }
         } else if (payload.operation === ScheduledChangeOperationType.UpdateVariants) {
             variantCount = payload.value.variants.length
@@ -196,6 +273,7 @@ export function expandScheduleOccurrences(
             schedule,
             projected: { active, rolloutPercentage, variantCount },
             addedRolloutPercentage,
+            rolloutUnchanged,
             // A bound change request covers one occurrence only. The first occurrence needs approval
             // when its own request is still pending. Every later occurrence of a gated schedule
             // needs one too: regate_recurring_scheduled_change binds a fresh pending request after

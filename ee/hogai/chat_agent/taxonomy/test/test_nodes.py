@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -35,7 +37,7 @@ class ConcreteTaxonomyAgentToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, 
     pass
 
 
-class TestPropertyTypesPrompt(BaseTest):
+class TestPropertyTypesPrompt(SimpleTestCase):
     @parameterized.expand(
         [
             ("survey_dismissed", "$survey_dismissed/{survey_id}"),

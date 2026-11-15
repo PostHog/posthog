@@ -24,6 +24,8 @@ from posthog.hogql.database.schema.test.base import RevenueAnalyticsManagedViews
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.ph_client import feature_enabled_or_false
+
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
@@ -573,7 +575,18 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
         self.create_and_materialize_viewsets()
 
         # Breaking down by revenue doesnt make any sense, but this is just proving it works
-        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
+        with (
+            time_machine.travel(self.QUERY_TIMESTAMP, tick=False),
+            self.snapshot_select_queries(),
+            patch(
+                "products.product_analytics.backend.hogql_queries.trends.trends_query_builder.feature_enabled_or_false",
+                side_effect=lambda flag, *args, **kwargs: (
+                    False
+                    if flag == "trends-breakdown-rank-before-arrays"
+                    else feature_enabled_or_false(flag, *args, **kwargs)
+                ),
+            ),
+        ):
             query = TrendsQuery(
                 **{
                     "kind": "TrendsQuery",

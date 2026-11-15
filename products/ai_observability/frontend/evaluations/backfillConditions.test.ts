@@ -4,6 +4,7 @@ import type { EvaluationBackfillApi } from '../generated/api.schemas'
 import {
     backfillCoveredCount,
     backfillLateArrivalCount,
+    backfillLiveCoveredCount,
     backfillRangeDateFormat,
     backfillSamplingLabel,
     backfillTotalCount,
@@ -21,6 +22,24 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
 }
 
 describe('backfillConditions', () => {
+    it.each([
+        ['running', null, 4, 0],
+        ['completed', 2, 6, 2],
+    ] as const)(
+        'counts finished outcomes without treating failed executions as covered while %s',
+        (status, remaining, covered, liveCovered) => {
+            const run = backfill({
+                status,
+                completed_count: 2,
+                evaluation_skipped_count: 1,
+                skipped_count: 1,
+                dispatched_count: 5,
+                failed_count: 2,
+                remaining_count: remaining,
+            })
+            expect([backfillCoveredCount(run), backfillLiveCoveredCount(run)]).toEqual([covered, liveCovered])
+        }
+    )
     it.each([
         [undefined, '100% sampled'],
         [100, '100% sampled'],
@@ -65,5 +84,31 @@ describe('backfillCoveredCount', () => {
     ])('%s', (_case, overrides, total, late) => {
         expect(backfillTotalCount(backfill(overrides))).toEqual(total)
         expect(backfillLateArrivalCount(backfill(overrides))).toEqual(late)
+    })
+
+    it.each([
+        [
+            'the live path graded what the walk never reached',
+            { total_count: 4, dispatched_count: 0, skipped_count: 3 },
+            1,
+        ],
+        ['a finished run the walk fully handled', { total_count: 3, dispatched_count: 2, skipped_count: 1 }, 0],
+        [
+            'units still owed are not counted as covered',
+            { total_count: 4, dispatched_count: 0, skipped_count: 3, remaining_count: 1 },
+            0,
+        ],
+        [
+            'a rerun dispatches every unit',
+            { total_count: 4, dispatched_count: 0, skipped_count: 3, rerun_existing: true },
+            0,
+        ],
+        [
+            'an unmeasured run has no answer yet',
+            { total_count: 4, dispatched_count: 0, skipped_count: 3, remaining_count: null },
+            0,
+        ],
+    ])('%s', (_case, overrides, expected) => {
+        expect(backfillLiveCoveredCount(backfill(overrides))).toEqual(expected)
     })
 })

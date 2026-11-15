@@ -1,5 +1,7 @@
 """Signals' GitHub identity and report-assignment integration."""
 
+from datetime import datetime
+
 from django.utils.dateparse import parse_datetime
 
 import structlog
@@ -10,6 +12,14 @@ from products.signals.backend.report_assignments import update_assignments_for_p
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
 logger = structlog.get_logger(__name__)
+
+
+def reconcile_pull_request_state(
+    *, team_id: int, repository: str, pr_number: int, pr_state: str, merged_at: datetime | None
+) -> None:
+    update_assignments_for_pull_request(
+        team_ids=[team_id], repository=repository, pr_number=pr_number, pr_state=pr_state, merged_at=merged_at
+    )
 
 
 def resolve_github_login_distinct_id(login: str, team_id: int) -> str | None:

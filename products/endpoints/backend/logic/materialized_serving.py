@@ -46,6 +46,10 @@ class MaterializedServingState:
             return False
         if data.refresh == EndpointRefreshMode.DIRECT:
             return False
+        if data.filters_override is not None and data.filters_override.model_dump(
+            exclude={"properties"}, exclude_none=True
+        ):
+            return False
         if data.variables:
             requested = set(data.variables.keys())
             if not self.servable_variables or not requested.issubset(self.servable_variables):
@@ -104,6 +108,9 @@ def serving_state_for_version(
     ready: bool,
     materialized_at: datetime | None,
 ) -> MaterializedServingState:
+    # A version materialized before an eligibility rule tightened keeps its table, but the table
+    # can no longer answer the query correctly, so it serves inline until the query changes.
+    ready = ready and version.can_materialize()[0]
     return MaterializedServingState(
         ready=ready,
         materialized_at=materialized_at,

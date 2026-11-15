@@ -134,6 +134,13 @@ describe('useChartMargins', () => {
         expect(render({ series: big }).left).toBeGreaterThan(render({ series: small }).left)
     })
 
+    it('sizes percent-layout y-ticks from the [0, 1] domain, not the raw values', () => {
+        const big: Series[] = [{ key: 'a', label: 'A', data: [50_000, 80_000] }]
+        const percentFormatter = (v: number): string => `${Math.round(v * 100)}%`
+        const percent = render({ series: big, yTickFormatter: percentFormatter, isPercent: true })
+        expect(percent.left).toBe(render({ series: [], yTickFormatter: percentFormatter }).left)
+    })
+
     it('moves rotated category-label space from the horizontal margins to the bottom margin', () => {
         const longLabels = ['a-very-long-category-label', 'another-long-category-label']
         const horizontal = render({ labels: longLabels })

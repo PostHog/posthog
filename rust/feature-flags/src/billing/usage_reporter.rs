@@ -280,15 +280,18 @@ fn dedup(teams: impl Iterator<Item = i64>) -> Vec<i64> {
     teams
 }
 
-/// Full local evaluation responses are priced apart — the nightly report weighs one as ten
-/// decide requests — so they cannot share a key with decide, while a 304 is priced like a
-/// decide request. The weighting itself stays out of here: pricing is applied downstream.
+/// Each billable request type has its own key because the nightly report prices them apart:
+/// one local evaluation costs ten decide requests, and one 304 costs one. A 304 does not use
+/// the decide key even at the same price, because each key feeds its own usage counter and a
+/// shared key would count the 304 twice. The weighting itself stays out of here: a producer
+/// reports what happened, and pricing is applied downstream.
 fn usage_key(request_type: FlagRequestType) -> &'static str {
     match request_type {
-        FlagRequestType::Decide | FlagRequestType::FlagDefinitionsNotModified => {
-            "feature_flag_requests"
-        }
+        FlagRequestType::Decide => "feature_flag_requests",
         FlagRequestType::FlagDefinitions => "feature_flag_local_evaluation_requests",
+        FlagRequestType::FlagDefinitionsNotModified => {
+            "feature_flag_local_evaluation_not_modified_requests"
+        }
     }
 }
 
@@ -331,7 +334,7 @@ mod tests {
     #[test]
     fn build_records_keys_the_two_billable_request_types_apart() {
         // The report weighs one local evaluation as ten decide requests, so a shared key
-        // would price them the same. A 304 costs the same as a decide request.
+        // would price them the same.
         let entries = vec![
             (key(1, None), 3),
             (
@@ -359,7 +362,7 @@ mod tests {
             vec![
                 ("feature_flag_requests", 3),
                 ("feature_flag_local_evaluation_requests", 4),
-                ("feature_flag_requests", 5)
+                ("feature_flag_local_evaluation_not_modified_requests", 5)
             ]
         );
     }

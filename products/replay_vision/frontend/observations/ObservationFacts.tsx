@@ -4,21 +4,24 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
-import { ObservationConfidence, ObservationStatusTag, readResult } from '../components/ObservationCard'
+import { ObservationStatusTag } from '../components/ObservationCard'
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { OBSERVATION_TRIGGER_TAG } from '../replay_scanners/types'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { Fact, FactList } from './FactList'
 
 export function ObservationFacts({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    const result = readResult(observation)
     const person = observation.recording_subject_email ?? observation.distinct_id
 
     return (
         <FactList>
             <Fact label="Person">
                 {observation.distinct_id ? (
-                    <Link to={urls.personByDistinctId(observation.distinct_id)} className="block truncate">
+                    <Link
+                        data-attr="vision-observation-open-person"
+                        to={urls.personByDistinctId(observation.distinct_id)}
+                        className="block truncate"
+                    >
                         {person}
                     </Link>
                 ) : observation.recording_subject_email ? (
@@ -48,11 +51,6 @@ export function ObservationFacts({ observation }: { observation: ReplayObservati
                     OBSERVATION_TRIGGER_TAG[observation.triggered_by].label
                 )}
             </Fact>
-            {result && typeof result.confidence === 'number' && (
-                <Fact label="Confidence">
-                    <ObservationConfidence result={result} />
-                </Fact>
-            )}
             <Fact label="Scanner">
                 {hasScannerPage(observation) ? (
                     <Link

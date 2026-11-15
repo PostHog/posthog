@@ -62,9 +62,6 @@ export interface playlistPopoverLogicActions {
     reportRecordingPinnedToList: (pinned: boolean) => {
         pinned: boolean
     } // sessionRecordingEventUsageLogic
-    reportRecordingPlaylistCreated: (source: 'duplicate' | 'filters' | 'new' | 'pin') => {
-        source: 'duplicate' | 'filters' | 'new' | 'pin'
-    } // sessionRecordingEventUsageLogic
     setPause: () => {
         value: true
     } // sessionRecordingPlayerLogic
@@ -242,7 +239,7 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             sessionRecordingPlayerLogic(props),
             ['setPause'],
             sessionRecordingEventUsageLogic,
-            ['reportRecordingPinnedToList', 'reportRecordingPlaylistCreated'],
+            ['reportRecordingPinnedToList'],
         ],
     })),
     actions(() => ({
@@ -280,13 +277,13 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             },
 
             addToPlaylist: async ({ playlist }) => {
-                await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId, true)
+                await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId)
                 actions.reportRecordingPinnedToList(true)
                 return [playlist, ...values.currentPlaylists]
             },
 
             removeFromPlaylist: async ({ playlist }) => {
-                await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId, true)
+                await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId)
                 actions.reportRecordingPinnedToList(false)
                 return values.currentPlaylists.filter((x) => x.short_id !== playlist.short_id)
             },
@@ -326,9 +323,8 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 const newPlaylist = await createPlaylist({
                     name,
                     type: 'collection',
+                    creation_method: 'pin',
                 })
-
-                actions.reportRecordingPlaylistCreated('pin')
 
                 if (!newPlaylist) {
                     // This indicates the billing popover has been shown, so we should close the modal

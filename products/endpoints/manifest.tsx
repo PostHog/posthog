@@ -4,10 +4,16 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Endpoints',
+    activityDescribers: {
+        [ActivityScope.ENDPOINT]: () =>
+            import('./frontend/activityDescriber').then((module) => module.endpointActivityDescriber),
+        [ActivityScope.ENDPOINT_VERSION]: () =>
+            import('./frontend/activityDescriber').then((module) => module.endpointActivityDescriber),
+    },
     scenes: {
         EndpointsScene: {
             import: () => import('./frontend/EndpointsScene'),
@@ -87,6 +93,8 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.ENDPOINTS],
             category: ProductItemCategory.DATA,
             href: urls.endpoints(),
+            searchKeywords: ['rest api', 'query api'],
+            searchTabs: [{ name: 'Usage', href: urls.endpointsUsage() }],
             type: 'endpoints',
             iconType: 'endpoints',
             iconColor: [

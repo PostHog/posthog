@@ -3,7 +3,7 @@ import { Fragment, ReactNode, useCallback, useMemo } from 'react'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { ChartPlacements } from '../../utils/chartPlacement'
-import { parseReportSummary } from '../../utils/reportSummary'
+import { isGeneratedPlanSection, parseReportSummary } from '../../utils/reportSummary'
 import { ReportChart } from './ReportChart'
 
 const PROSE_CLASS =
@@ -49,6 +49,8 @@ interface ReportSummaryBodyProps {
      * gets an Impact section for them ahead of Solution, so the storyboard order holds.
      */
     impactMetrics?: ReactNode
+    expectedImpact?: ReactNode
+    planBlock?: ReactNode
 }
 
 /**
@@ -61,11 +63,15 @@ export function ReportSummaryBody({
     implementButton,
     pullRequestNote,
     impactMetrics,
+    expectedImpact,
+    planBlock,
 }: ReportSummaryBodyProps): JSX.Element {
     const parsed = useMemo(() => parseReportSummary(summary), [summary])
-    const hasSolutionSection = parsed.sections.some((section) => section.kind === 'solution')
-    const hasImpactSection = parsed.sections.some((section) => section.kind === 'impact')
-    const solutionIndex = parsed.sections.findIndex((section) => section.kind === 'solution')
+    const sections = planBlock ? parsed.sections.filter((section) => !isGeneratedPlanSection(section)) : parsed.sections
+    const hasSolutionSection = sections.some((section) => section.kind === 'solution')
+    const hasImpactSection = sections.some((section) => section.kind === 'impact')
+    const hasExpectedImpactSection = sections.some((section) => section.kind === 'expected-impact')
+    const solutionIndex = sections.findIndex((section) => section.kind === 'solution')
     const impactFallback =
         impactMetrics && !hasImpactSection ? (
             <section className="flex flex-col gap-2">
@@ -73,6 +79,12 @@ export function ReportSummaryBody({
                 {impactMetrics}
             </section>
         ) : null
+    const expectedImpactFallback = expectedImpact && !hasExpectedImpactSection && (
+        <section className="flex flex-col gap-2">
+            <h2 className="m-0 text-lg font-semibold">Expected impact</h2>
+            {expectedImpact}
+        </section>
+    )
 
     if (parsed.sections.length === 0) {
         return (
@@ -83,6 +95,8 @@ export function ReportSummaryBody({
                     chartPlacements={chartPlacements}
                 />
                 {impactFallback}
+                {expectedImpactFallback}
+                {planBlock}
                 {pullRequestNote}
             </div>
         )
@@ -98,9 +112,10 @@ export function ReportSummaryBody({
                     className="text-base text-primary leading-relaxed break-words [&>*+*]:mt-3.5"
                 />
             )}
-            {parsed.sections.map((section, index) => (
+            {sections.map((section, index) => (
                 <Fragment key={`${section.kind}-${section.bodyOffset}`}>
                     {index === solutionIndex && impactFallback}
+                    {index === solutionIndex && expectedImpactFallback}
                     <section className="flex flex-col gap-2">
                         <h2 className="m-0 text-lg font-semibold">{section.heading}</h2>
                         {section.kind === 'impact' && impactMetrics && <div className="mb-1">{impactMetrics}</div>}
@@ -109,6 +124,7 @@ export function ReportSummaryBody({
                             sourceOffset={section.bodyOffset}
                             chartPlacements={chartPlacements}
                         />
+                        {section.kind === 'expected-impact' && expectedImpact}
                         {section.kind === 'solution' && pullRequestNote && (
                             <div className="mt-2">{pullRequestNote}</div>
                         )}
@@ -116,9 +132,12 @@ export function ReportSummaryBody({
                             <div className="mt-2">{implementButton}</div>
                         )}
                     </section>
+                    {index === solutionIndex && planBlock}
                 </Fragment>
             ))}
             {!hasSolutionSection && impactFallback}
+            {!hasSolutionSection && expectedImpactFallback}
+            {!hasSolutionSection && planBlock}
             {!hasSolutionSection && pullRequestNote}
         </div>
     )

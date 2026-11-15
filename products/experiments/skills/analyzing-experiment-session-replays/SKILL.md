@@ -162,7 +162,7 @@ worth checking with the people who produced it. Once per conversation at most; d
 Default to asking every exposed user rather than one variant: a popover shown to only one arm is itself a
 difference between the arms, and the response event carries the variant anyway, so the split survives.
 
-→ See [`references/qualitative-feedback.md`](../diagnosing-experiment-results/references/qualitative-feedback.md) in [[diagnosing-experiment-results]]
+→ See [`references/qualitative-feedback.md`](../diagnosing-experiment-health/references/qualitative-feedback.md) in [[diagnosing-experiment-health]]
 
 ## Example interaction
 
@@ -216,6 +216,6 @@ Agent steps:
 
 ## Related skills
 
-- **`diagnosing-experiment-results`** — the quantitative side: bias checks and significance on the same experiment
+- **`diagnosing-experiment-health`** — the quantitative side: bias checks and significance on the same experiment
 - **`investigating-replay`** — deep-dive a single session from either variant
 - **`finding-sessions-to-watch`** — general session shortlisting outside the experiment context

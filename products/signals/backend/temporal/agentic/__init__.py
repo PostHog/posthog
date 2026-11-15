@@ -5,10 +5,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration
-from posthog.user_permissions import UserPermissions
+from posthog.user_permissions import user_can_access_team
 
 from products.signals.backend.report_generation.select_repo import resolve_team_github_integration
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import TaskProfile
 
 logger = structlog.get_logger(__name__)
 
@@ -16,26 +17,21 @@ SIGNALS_REPO_DISCOVERY_ENV_NAME = "SIGNALS_REPO_DISCOVERY"
 SIGNALS_REPORT_RESEARCH_ENV_NAME = "SIGNALS_REPORT_RESEARCH"
 
 
-def get_or_create_signals_sandbox_env(
-    team_id: int,
-    name: str,
-    network_access_level: "tasks_facade.SandboxNetworkAccessLevel",
-    *,
-    allowed_domains: list[str] | None = None,
-    include_default_domains: bool = False,
-) -> str:
+def get_or_create_signals_sandbox_env(team_id: int, name: str, profile: TaskProfile) -> str:
     """Get or create a SandboxEnvironment for a Signals agent. Returns the env ID as a string.
 
-    Reasserts the expected policy on every call, so manual edits via the API are corrected on
-    next run.
+    The network policy comes from the task profile, so the environment and the profile cannot
+    disagree. Reasserts the expected policy on every call, so manual edits via the API are
+    corrected on next run.
     """
+    network = profile.network
     return str(
         tasks_facade.upsert_internal_sandbox_env(
             team_id,
             name,
-            network_access_level,
-            allowed_domains=allowed_domains,
-            include_default_domains=include_default_domains,
+            tasks_facade.SandboxNetworkAccessLevel(network.levels[0]),
+            allowed_domains=list(network.allowed_domains),
+            include_default_domains=network.include_default_domains,
         )
     )
 
@@ -86,9 +82,7 @@ def _can_act_on_team(user_id: int, team: Team) -> bool:
     resolved as a user this returns False for is killed at dispatch and booked as failed.
     """
     user = User.objects.filter(id=user_id, is_active=True).first()
-    if user is None:
-        return False
-    return UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
+    return user is not None and user_can_access_team(user, team)
 
 
 def resolve_acting_user_id_for_team(team_id: int) -> int | None:

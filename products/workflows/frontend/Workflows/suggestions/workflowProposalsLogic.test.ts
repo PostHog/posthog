@@ -8,7 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { workflowLogic } from '../workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
-jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn() } }))
+jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn(), openForm: jest.fn() } }))
 
 const confirmTheDialog = (): void => {
     const call = (LemonDialog.open as jest.Mock).mock.calls.at(-1)
@@ -22,12 +22,16 @@ const DRAFT_STAMP = '2026-05-02T00:00:00.000Z'
 describe('workflowProposalsLogic', () => {
     let logic: ReturnType<typeof workflowProposalsLogic.build>
     let approveBodies: Record<string, any>[]
+    let rejectedList: Record<string, any>[]
+    let rejectBodies: Record<string, any>[]
     let approveStatus: number
     let proposalsListStatus: number
     let workflowVersion: number
     let workflowStatus: string
     let workflowDraft: Record<string, any> | null
     let workflowDraftStamp: string | null
+    let workflowActions: Record<string, any>[]
+    let optimizationEnabled: boolean
 
     const proposal = {
         id: PROPOSAL_ID,
@@ -47,12 +51,16 @@ describe('workflowProposalsLogic', () => {
 
     beforeEach(() => {
         approveBodies = []
+        rejectedList = []
+        rejectBodies = []
         approveStatus = 200
         proposalsListStatus = 200
         workflowVersion = 3
         workflowStatus = 'active'
         workflowDraft = { actions: [] }
         workflowDraftStamp = DRAFT_STAMP
+        workflowActions = []
+        optimizationEnabled = false
         ;(LemonDialog.open as jest.Mock).mockClear()
         useMocks({
             get: {
@@ -63,27 +71,38 @@ describe('workflowProposalsLogic', () => {
                         name: 'Test',
                         version: workflowVersion,
                         status: workflowStatus,
-                        actions: [],
+                        actions: workflowActions,
                         edges: [],
                         draft: workflowDraft,
                         draft_updated_at: workflowDraftStamp,
                         updated_at: '2026-05-01T00:00:00.000Z',
                     },
                 ],
-                '/api/projects/:team_id/hog_flows/:id/proposals/': () =>
-                    proposalsListStatus === 200
+                '/api/projects/:team_id/hog_flows/:id/proposals/': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('status') === 'rejected') {
+                        return [200, { count: rejectedList.length, results: rejectedList }]
+                    }
+                    return proposalsListStatus === 200
                         ? [200, { count: 1, results: [proposal] }]
-                        : [proposalsListStatus, { detail: 'nope' }],
+                        : [proposalsListStatus, { detail: 'nope' }]
+                },
+                '/api/projects/:team_id/hog_flows/:id/optimization/': () => [200, { enabled: optimizationEnabled }],
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             post: {
+                '/api/projects/:team_id/hog_flows/:id/optimization/': () => [
+                    409,
+                    { code: 'workflow_has_no_email_step', detail: 'Add an email step.' },
+                ],
                 '/api/projects/:team_id/hog_flows/:id/proposals/:proposal_id/approve/': async ({ request }) => {
                     approveBodies.push((await request.json()) as Record<string, any>)
                     return [approveStatus, approveStatus === 200 ? proposal : { code: 'stale_update' }]
                 },
-                '/api/projects/:team_id/hog_flows/:id/proposals/:proposal_id/reject/': {
-                    ...proposal,
-                    status: 'rejected',
+                '/api/projects/:team_id/hog_flows/:id/proposals/:proposal_id/reject/': async ({ request }) => {
+                    rejectBodies.push((await request.json()) as Record<string, any>)
+                    const rejected = { ...proposal, status: 'rejected', resolved_at: '2026-05-03T00:00:00.000Z' }
+                    rejectedList.push(rejected)
+                    return [200, rejected]
                 },
             },
         })
@@ -107,6 +126,15 @@ describe('workflowProposalsLogic', () => {
         }).toDispatchActions(['loadProposalsFailure'])
 
         expect(logic.values.pendingProposals.map((p) => p.id)).toEqual([PROPOSAL_ID])
+        // Without this the panel cannot tell a failed list from one nobody asked for, and spins forever.
+        expect(logic.values.listsUnreadable).toBe(true)
+
+        proposalsListStatus = 200
+        await expectLogic(logic, () => {
+            logic.actions.reloadLists()
+        }).toDispatchActions(['loadProposalsSuccess'])
+
+        expect(logic.values.listsUnreadable).toBe(false)
     })
 
     it('treats the flag-off 404 as an empty queue with no failure', async () => {
@@ -121,17 +149,87 @@ describe('workflowProposalsLogic', () => {
         expect(logic.values.pendingProposals).toEqual([])
     })
 
+    it.each([
+        {
+            case: 'a live workflow with no email step',
+            status: 'active',
+            actions: [{ id: 'hook', type: 'function' }],
+            enabled: false,
+            reason: 'Self-driving only works on workflows that send email for now. Add an email step and publish the workflow to turn it on.',
+        },
+        {
+            case: 'a workflow that is not live',
+            status: 'draft',
+            actions: [{ id: 'hook', type: 'function' }],
+            enabled: false,
+            reason: 'Suggestions need a live workflow. Enable it first.',
+        },
+        {
+            case: 'a live workflow with an email step',
+            status: 'active',
+            actions: [{ id: 'mail', type: 'function_email' }],
+            enabled: false,
+            reason: undefined,
+        },
+        {
+            case: 'a workflow already on with no email step',
+            status: 'active',
+            actions: [{ id: 'hook', type: 'function' }],
+            enabled: true,
+            reason: undefined,
+        },
+    ])('turning suggestions on for $case', async ({ status, actions, enabled, reason }) => {
+        workflowStatus = status
+        workflowActions = actions
+        optimizationEnabled = enabled
+        await expectLogic(logic, () => {
+            logic.actions.loadOptimization()
+            workflowLogic({ id: WORKFLOW_ID }).actions.loadWorkflow()
+        }).toFinishAllListeners()
+
+        expect(logic.values.turnOnDisabledReason).toBe(reason)
+    })
+
+    it('a 409 on turning suggestions on shows the reason and keeps unsaved edits until the workflow reloads', async () => {
+        const flowLogic = workflowLogic({ id: WORKFLOW_ID })
+        workflowActions = [{ id: 'mail', type: 'function_email' }]
+        await expectLogic(logic, () => {
+            flowLogic.actions.loadWorkflow()
+        }).toFinishAllListeners()
+        expect(logic.values.turnOnDisabledReason).toBeUndefined()
+
+        flowLogic.actions.setAutoSaveEnabled(false)
+        flowLogic.actions.setWorkflowValue('name', 'Unsaved edit')
+        workflowActions = [{ id: 'hook', type: 'function' }]
+        await expectLogic(logic, () => {
+            logic.actions.setOptimizationEnabled(true)
+        }).toFinishAllListeners()
+
+        expect(flowLogic.values.workflow.name).toBe('Unsaved edit')
+        expect(logic.values.optimizationEnabled).toBe(false)
+        expect(logic.values.turnOnDisabledReason).toBe('Add an email step.')
+
+        await expectLogic(logic, () => {
+            flowLogic.actions.loadWorkflow()
+        }).toFinishAllListeners()
+        expect(logic.values.turnOnDisabledReason).toContain('Self-driving only works on workflows that send email')
+    })
+
     it('reloads the queue when the workflow version moves', async () => {
         const flowLogic = workflowLogic({ id: WORKFLOW_ID })
         flowLogic.mount()
         await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
         await expectLogic(logic).toDispatchActions(['loadProposalsSuccess'])
 
+        logic.actions.setOutcome(PROPOSAL_ID, { versions: [] } as any)
+        expect(logic.values.outcomes[PROPOSAL_ID]).not.toBeUndefined()
+
         workflowVersion = 4
         await expectLogic(logic, () => {
             flowLogic.actions.loadWorkflow()
-        }).toDispatchActions(['loadProposals', 'loadApplied'])
+        }).toDispatchActions(['clearOutcomes', 'loadProposals', 'loadApplied'])
         expect(logic.values.lastSeenVersion).toBe(4)
+        expect(logic.values.outcomes).toEqual({})
     })
 
     it('reloads the queue when a discard rewrites the draft stamp without moving the version', async () => {
@@ -225,9 +323,56 @@ describe('workflowProposalsLogic', () => {
         logic.actions.setResolvingId(PROPOSAL_ID)
 
         logic.actions.confirmApproveProposal(PROPOSAL_ID, DRAFT_STAMP)
-        logic.actions.confirmRejectProposal(PROPOSAL_ID)
+        logic.actions.confirmRejectProposal(PROPOSAL_ID, '')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(approveBodies).toEqual([])
+        expect(rejectBodies).toEqual([])
+    })
+
+    it('rejecting sends the reason the person gave', async () => {
+        await expectLogic(logic).toDispatchActions(['loadProposalsSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.confirmRejectProposal(PROPOSAL_ID, '  It is the sign-off email.  ')
+        }).toDispatchActions(['removeResolvedProposal'])
+
+        expect(rejectBodies).toEqual([{ reason: 'It is the sign-off email.' }])
+    })
+
+    it('rejecting moves the suggestion into the rejected list, most recently rejected first', async () => {
+        await expectLogic(logic).toDispatchActions(['loadProposalsSuccess', 'loadRejectedSuccess'])
+        // Filed after the one about to be rejected, but rejected before it.
+        rejectedList.push({
+            ...proposal,
+            id: 'rejected-earlier',
+            status: 'rejected',
+            resolved_at: '2026-05-01T00:00:00.000Z',
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadRejected()
+        }).toDispatchActions(['loadRejectedSuccess'])
+        expect(logic.values.rejectedProposals.map((p) => p.id)).toEqual(['rejected-earlier'])
+
+        await expectLogic(logic, () => {
+            logic.actions.confirmRejectProposal(PROPOSAL_ID, '')
+        }).toDispatchActions(['removeResolvedProposal', 'loadRejected', 'loadRejectedSuccess'])
+
+        expect(logic.values.rejectedProposals.map((p) => p.id)).toEqual([PROPOSAL_ID, 'rejected-earlier'])
+    })
+
+    it('reopens the reject dialog with the reason when the request fails', async () => {
+        useMocks({
+            post: { '/api/projects/:team_id/hog_flows/:id/proposals/:proposal_id/reject/': () => [500, {}] },
+        })
+        await expectLogic(logic).toDispatchActions(['loadProposalsSuccess'])
+        ;(LemonDialog.openForm as jest.Mock).mockClear()
+
+        logic.actions.confirmRejectProposal(PROPOSAL_ID, 'It is the sign-off email.')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((LemonDialog.openForm as jest.Mock).mock.calls.at(-1)[0].initialValues).toEqual({
+            reason: 'It is the sign-off email.',
+        })
     })
 })

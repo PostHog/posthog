@@ -11,7 +11,7 @@ from unittest.mock import patch
 import click
 from click.testing import CliRunner
 from hogli import telemetry
-from hogli.cli import _fire_telemetry, _outcome, _should_track, cli
+from hogli.cli import _fire_telemetry, _outcome, _should_track, cli, send_completion_before_exec
 
 _TELEMETRY_ENV_VARS = (
     # Every CI marker the gate checks must be cleared, otherwise the suite
@@ -280,6 +280,25 @@ class TestCommandProperties:
 
         props = mock_track.call_args.args[1]
         assert props["failure_cause"] == "unreachable"
+
+    def test_completion_before_exec_sends_once(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("hogli.cli.get_category_for_command", lambda command: "core")
+        monkeypatch.setattr("hogli.cli._env_properties", lambda command: {})
+        ctx = click.Context(cli)
+        ctx.invoked_subcommand = "quickstart"
+        ctx.meta["hogli.telemetry_active"] = True
+
+        with patch.object(telemetry._client, "track") as mock_track, patch.object(telemetry._client, "flush"):
+            with click.Context(click.Command("quickstart"), parent=ctx):
+                telemetry.add_command_properties(target="cursor")
+                send_completion_before_exec()
+            _fire_telemetry(ctx, 1)
+
+        assert mock_track.call_count == 1
+        event, props = mock_track.call_args.args
+        assert event == "command_completed"
+        assert props["exit_code"] == 0
+        assert props["target"] == "cursor"
 
 
 def _patch_cli_manifest(monkeypatch: pytest.MonkeyPatch, command_config: dict | None) -> None:

@@ -14,6 +14,17 @@
             "description": "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.",
             "type": "boolean"
         },
+        "has_errors": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both."
+        },
         "limit": {
             "default": 100,
             "description": "Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.",

@@ -1,4 +1,4 @@
-from django.db import connection, transaction
+from django.db import transaction
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, viewsets
@@ -8,6 +8,9 @@ from posthog.schema import QuickFilterContext as QuickFilterContextEnum
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.quick_filter import QuickFilter, QuickFilterContext
+from posthog.schema_enums import QuickFilterType
+
+from products.dashboards.backend.facade.api import remove_quick_filter_from_dashboards
 
 
 class QuickFilterSerializer(serializers.ModelSerializer):
@@ -32,17 +35,37 @@ class QuickFilterSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "type": {
+                "help_text": "'manual-options' shows the options you define. "
+                "'auto-discovery' shows property values found in recent events, and ignores 'options'.",
+            },
+            "options": {
+                "help_text": "Options to show in the dropdown. Each option is an object with 'id', 'value', "
+                "'label', and 'operator'. Required for 'manual-options', stored as an empty list for 'auto-discovery'.",
+            },
+        }
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_contexts(self, obj):
         return list(obj.context_memberships.values_list("context", flat=True))
 
+    def validate(self, attrs):
+        filter_type = attrs.get("type", self.instance.type if self.instance else QuickFilterType.MANUAL_OPTIONS)
+
+        if filter_type == QuickFilterType.AUTO_DISCOVERY:
+            attrs["options"] = []
+            return attrs
+
+        options = attrs.get("options", self.instance.options if self.instance else None)
+        if not options:
+            raise ValidationError({"options": "Options must contain at least one item"})
+
+        return attrs
+
     def validate_options(self, value):
         if not isinstance(value, list):
             raise ValidationError("Options must be a list")
-
-        if len(value) == 0:
-            raise ValidationError("Options must contain at least one item")
 
         for option in value:
             if not isinstance(option, dict):
@@ -126,37 +149,6 @@ class QuickFilterSerializer(serializers.ModelSerializer):
         return instance
 
 
-def remove_quick_filter_from_dashboards(team_id: int, quick_filter_id: str) -> int:
-    """
-    Remove a quick filter ID from all dashboards that reference it.
-    Uses raw SQL for efficient JSONB array manipulation.
-    Returns the number of dashboards updated.
-    """
-    with connection.cursor() as cursor:
-        # This query:
-        # 1. Finds dashboards where quick_filter_ids contains the target ID (@> operator)
-        # 2. Rebuilds the array excluding the target ID (jsonb_array_elements + jsonb_agg)
-        # 3. Uses COALESCE to return empty array if all elements are removed (jsonb_agg returns NULL for empty)
-        cursor.execute(
-            """
-            UPDATE posthog_dashboard
-            SET quick_filter_ids = COALESCE(
-                (
-                    SELECT jsonb_agg(elem)
-                    FROM jsonb_array_elements(quick_filter_ids) AS elem
-                    WHERE elem::text != %s
-                ),
-                '[]'::jsonb
-            )
-            WHERE team_id = %s
-              AND quick_filter_ids IS NOT NULL
-              AND quick_filter_ids @> %s::jsonb
-            """,
-            [f'"{quick_filter_id}"', team_id, f'["{quick_filter_id}"]'],
-        )
-        return cursor.rowcount
-
-
 class QuickFilterViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = QuickFilter.objects.all()
@@ -175,5 +167,5 @@ class QuickFilterViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             quick_filter_id = str(instance.id)
             team_id = instance.team_id
 
-            remove_quick_filter_from_dashboards(team_id, quick_filter_id)
+            remove_quick_filter_from_dashboards(team_id=team_id, quick_filter_id=quick_filter_id)
             instance.delete()

@@ -943,8 +943,9 @@ Use RunSQL wrapped in SeparateDatabaseAndState:
 class _SafeConcurrentIndexAnalyzer(OperationAnalyzer):
     """Base for the PostHog concurrent-index helpers.
 
-    All four (the raw-SQL CreateIndexConcurrently / DropIndexConcurrently and
-    the state-aware SafeAddIndexConcurrently / SafeRemoveIndexConcurrently)
+    All of them (the raw-SQL CreateIndexConcurrently / DropIndexConcurrently and
+    the state-aware SafeAddIndexConcurrently / SafeRemoveIndexConcurrently /
+    DropFieldIndexesConcurrently)
     encode the guarantees ConcurrentIndexIdempotencyPolicy enforces - timeout
     disabling, invalid-leftover recovery, and skip-if-already-applied - so they
     are safe by construction. Scoring them SAFE (vs the default "unknown
@@ -975,6 +976,19 @@ class CreateIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
 
 class DropIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "DropIndexConcurrently"
+
+
+class DropFieldIndexesConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "DropFieldIndexesConcurrently"
+
+    def analyze(self, op) -> OperationRisk:
+        # The op takes a field, and derives the index names from it only when the migration applies.
+        return OperationRisk(
+            type=self.operation_type,
+            score=self.default_score,
+            reason=self.safe_reason,
+            details={"model": op.model_name, "field": op.name},
+        )
 
 
 class SafeAddIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):

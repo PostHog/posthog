@@ -1,9 +1,8 @@
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { StatsMethodSelector } from 'scenes/experiments/components/StatsMethodSelector'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import {
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
@@ -17,15 +16,16 @@ import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsC
 
 import { ExperimentStatsMethod } from '~/types'
 
+import { StatsMethodSelector } from 'products/experiments/frontend/components/StatsMethodSelector'
 import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
 
 export function StatsMethodModal(): JSX.Element {
     const { experiment, statsMethod, experimentUpdateLoading } = useValues(experimentLogic)
-    const { setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
-    const { updateExperimentSettings } = useAsyncActions(experimentLogic)
+    const { setExperiment, restoreUnmodifiedExperiment, updateExperimentSettings } = useActions(experimentLogic)
     const { closeStatsEngineModal } = useActions(modalsLogic)
     const { isStatsEngineModalOpen } = useValues(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
+    const savingReason = experimentUpdateLoading ? 'Saving in progress' : undefined
 
     const onClose = (): void => {
         restoreUnmodifiedExperiment()
@@ -118,24 +118,20 @@ export function StatsMethodModal(): JSX.Element {
             maxWidth={600}
             isOpen={isStatsEngineModalOpen}
             onClose={onClose}
+            // Cancel does not stop a running save. The save still applies, and its response replaces any new edit.
+            closable={!experimentUpdateLoading}
             title="Statistics configuration"
             footer={
                 <div className="flex items-center gap-2 justify-end">
-                    <LemonButton type="secondary" onClick={onClose}>
+                    <LemonButton type="secondary" onClick={onClose} disabledReason={savingReason}>
                         Cancel
                     </LemonButton>
                     <LemonButton
                         type="primary"
                         loading={experimentUpdateLoading}
-                        onClick={async () => {
-                            try {
-                                await updateExperimentSettings({ stats_config: experiment.stats_config })
-                            } catch {
-                                // Keep the modal open so the user can retry
-                                return
-                            }
-                            closeStatsEngineModal()
-                        }}
+                        onClick={() =>
+                            updateExperimentSettings({ stats_config: experiment.stats_config }, 'statsMethod')
+                        }
                     >
                         Save
                     </LemonButton>
@@ -145,6 +141,8 @@ export function StatsMethodModal(): JSX.Element {
             <div className="mb-4">
                 <StatsMethodSelector
                     value={statsMethod}
+                    disabled={experimentUpdateLoading}
+                    disabledReason={savingReason}
                     onChange={(newStatsMethod) => {
                         setExperiment({
                             stats_config: {
@@ -160,6 +158,7 @@ export function StatsMethodModal(): JSX.Element {
                 <LemonSelect
                     value={currentConfidenceLevel}
                     onChange={handleConfidenceLevelChange}
+                    disabledReason={savingReason}
                     options={CONFIDENCE_LEVEL_OPTIONS}
                     className="w-24"
                 />
@@ -175,6 +174,7 @@ export function StatsMethodModal(): JSX.Element {
                     <LemonSelect<SequentialSelection>
                         value={sequentialSelection}
                         onChange={updateSequentialSelection}
+                        disabledReason={savingReason}
                         options={[
                             {
                                 value: 'default',
@@ -198,6 +198,7 @@ export function StatsMethodModal(): JSX.Element {
                                 min={1}
                                 max={MAX_SEQUENTIAL_TUNING_PARAMETER}
                                 value={sequentialTuningParameter}
+                                disabledReason={savingReason}
                                 onChange={(value) => {
                                     if (
                                         typeof value !== 'number' ||

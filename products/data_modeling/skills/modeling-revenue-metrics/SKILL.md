@@ -5,7 +5,7 @@ description: >
   per-customer/per-account revenue — on either PostHog data-warehouse views (HogQL) or an external dbt
   project. Use when the user wants to model, define, or compute recurring revenue, monthly/annual recurring
   revenue, churn or retention of revenue, lifetime value, average revenue per user, or revenue by customer,
-  cohort, product, or currency. On PostHog, build on the managed revenue_analytics_* views (revenue_item,
+  cohort, product, or currency. On PostHog, build on the managed *_revenue_view views (revenue_item,
   mrr, customer, subscription, charge, product) fed by Stripe or custom revenue events — not raw Stripe
   tables — and normalize money with convertCurrency(). In dbt, stage the payment source and compute
   fct_mrr / fct_revenue_item / dim_customer marts with tests. Covers picking the right source, the
@@ -23,7 +23,7 @@ layer on top. Metric definitions live in
 
 ## Step 1 — find where revenue lives
 
-Revenue reaches PostHog two ways; both feed the same **managed `revenue_analytics_*` views**:
+Revenue reaches PostHog two ways; both feed the same **managed revenue views**:
 
 - **A payment platform as a warehouse source** — Stripe today (Chargebee/Polar/RevenueCat coming). Best when
   the business runs on a billing platform. Connect via `setting-up-a-data-warehouse-source`.
@@ -38,12 +38,24 @@ staging whichever billing tables landed in the warehouse.
 PostHog auto-generates a curated set of views per source. **Do not re-derive revenue from raw Stripe
 tables** — the managed views already handle deferred-revenue recognition, currency, and a stable schema.
 
-Discover the exact names (they're prefixed by source, e.g. `stripe.<prefix>.…`, plus a cross-source
-`revenue_analytics.all.…`):
+Each source gets its own views. There is no cross-source view. Names depend on the source type:
+
+- Warehouse source: `<source>.<prefix>.<kind>_revenue_view`, for example `stripe.prod.mrr_revenue_view`. The
+  `<prefix>.` part is absent when the source has no prefix.
+- Custom revenue events: `revenue_analytics.events.<event_name>.<kind>_events_revenue_view`, where every
+  non-alphanumeric character in the event name becomes `_`.
+
+`<kind>` is one of the managed views in the table below. Discover the exact names. Do not search for
+`revenue_analytics`, because it does not match warehouse source views:
 
 ```sql
-SELECT table_name FROM system.information_schema.tables WHERE table_name ILIKE '%revenue_analytics%'
+SELECT table_name FROM system.information_schema.tables
+WHERE position(table_name, 'revenue_view') > 0 ORDER BY table_name
 ```
+
+If this returns nothing, the project has no revenue source configured yet. Check the governed `mrr` metric
+(`metric-list`) or discover warehouse billing tables, and read their columns before modeling. Do not guess
+view names.
 
 | Managed view                    | Grain                        | Use for                                                                                                               |
 | ------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -73,7 +85,7 @@ base currency), `original_amount` / `original_currency` (as charged), `is_recurr
    `posthog_person_distinct_id` metadata on the Stripe customer (or the person join). Without it, revenue is
    customer-level only.
 5. **Don't build on the Revenue dashboard** — it's being retired (~2026-06-30). Model against the
-   `revenue_analytics_*` views and the person/group revenue properties.
+   managed revenue views and the person/group revenue properties.
 6. **Exclude test accounts.** Confirm `filter_test_accounts` behaviour so QA/internal charges don't inflate
    revenue.
 

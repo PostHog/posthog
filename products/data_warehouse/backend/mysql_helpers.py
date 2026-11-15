@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.facade.models import (
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
@@ -46,7 +47,7 @@ type MySQLSourceLocation = tuple[str, str]
 
 def get_default_mysql_schema(source: ExternalDataSource) -> str | None:
     """The configured MySQL namespace, preserving old rows that predate the explicit `schema` key."""
-    job_inputs = source.job_inputs or {}
+    job_inputs = SourceInputsStore.load(source)
     if "schema" in job_inputs:
         return normalize_namespace(job_inputs.get("schema"))
     return normalize_namespace(job_inputs.get("database"))
@@ -155,6 +156,7 @@ def reconcile_mysql_schemas(
         )
         schema_models_by_location.setdefault(location, schema_model)
 
+    matched_ids: set[Any] = set()
     for source_schema in source_schemas:
         matched: ExternalDataSchema | None = schema_models.get(source_schema.name)
         if matched is None:
@@ -169,6 +171,7 @@ def reconcile_mysql_schemas(
             matched = schema_models_by_location.get(location)
         if matched is None:
             continue
+        matched_ids.add(matched.id)
 
         resolved_schema, resolved_table = get_mysql_source_location(
             schema_name=source_schema.name,
@@ -239,10 +242,16 @@ def reconcile_mysql_schemas(
         return []
 
     stale_names: list[str] = []
-    stale = ExternalDataSchema.objects.filter(
-        Q(team_id=team_id, source_id=source.id),
-        Q(deleted=False) | Q(table__deleted=False),
-    ).exclude(name__in=source_schema_names)
+    # A row matched by location keeps its old name (e.g. bare `users` for discovered `db.users`),
+    # so a name-only check would hide a table that this refresh just updated.
+    stale = (
+        ExternalDataSchema.objects.filter(
+            Q(team_id=team_id, source_id=source.id),
+            Q(deleted=False) | Q(table__deleted=False),
+        )
+        .exclude(name__in=source_schema_names)
+        .exclude(id__in=matched_ids)
+    )
     for s in stale:
         hide_direct_mysql_table(s.table)
         if not s.deleted:

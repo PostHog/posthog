@@ -207,55 +207,55 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
 
     @parameterized.expand(
         [
-            ("count_default_math", EventsNode(event="purchase"), True),
+            ("count_default_math", EventsNode(event="purchase"), None),
             (
                 "sum",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
-                True,
+                None,
             ),
             (
                 "avg",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.AVG, math_property="amount"),
-                True,
+                None,
             ),
             (
                 "min",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.MIN, math_property="amount"),
-                True,
+                None,
             ),
             (
                 "max",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.MAX, math_property="amount"),
-                True,
+                None,
             ),
             (
                 "unique_session",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.UNIQUE_SESSION),
-                True,
+                None,
             ),
             (
                 "dau",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.DAU),
-                True,
+                None,
             ),
             (
                 "unique_group",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.UNIQUE_GROUP, math_group_type_index=1),
-                False,
+                "unsupported_math",
             ),
             (
                 "hogql_user_expression",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.HOGQL, math_hogql="sum(properties.amount)"),
-                False,
+                "unsupported_math",
             ),
             (
                 "session_property",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="$session_duration"),
-                False,
+                "session_property_math",
             ),
         ]
     )
-    def test_mean_metric_events_precompute_gate(self, _name, source, applicable):
+    def test_mean_metric_events_precompute_gate(self, _name, source, skip_reason):
         feature_flag = self.create_feature_flag(key="mean-metric-events-gate")
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -266,4 +266,5 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
 
         runner = self._build_runner(experiment, metric)
 
-        assert runner._metric_events_precompute_applicable() is applicable
+        assert runner._metric_events_ineligibility_reason() == skip_reason
+        assert runner._metric_events_precompute_applicable() is (skip_reason is None)

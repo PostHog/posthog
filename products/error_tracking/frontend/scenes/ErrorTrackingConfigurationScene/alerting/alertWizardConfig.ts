@@ -69,4 +69,11 @@ export const ERROR_TRACKING_DESTINATIONS: WizardDestination[] = [
         icon: '/static/services/linear.png',
         templateId: 'template-linear',
     },
+    {
+        key: 'pagerduty',
+        name: 'PagerDuty',
+        description: 'Page the on-call responder',
+        icon: '/static/services/pagerduty.png',
+        templateId: 'template-pagerduty',
+    },
 ]

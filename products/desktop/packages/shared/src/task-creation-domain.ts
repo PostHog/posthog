@@ -1,12 +1,12 @@
-import type { Adapter, ModelAccess } from "./adapter";
-import type { AgentRuntime } from "./agent-runtime";
-import type { CloudRunSource, PrAuthorshipMode } from "./cloud";
-import type { Task } from "./domain-types";
-import type { ExecutionMode } from "./exec-types";
+import type { Adapter, ModelAccess } from "@posthog/agent-contracts/adapter";
+import type { AgentRuntime } from "@posthog/agent-contracts/agent-runtime";
+import type { Task } from "@posthog/agent-contracts/domain-types";
+import type { ExecutionMode } from "@posthog/agent-contracts/exec-types";
 import type {
   CloudMcpServerRelayDesignation,
   McpServerConnection,
-} from "./local-mcp-domain";
+} from "@posthog/agent-contracts/local-mcp-domain";
+import type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 import type { WorkspaceMode } from "./workspace";
 import type { Workspace } from "./workspace-domain";
 
@@ -35,6 +35,11 @@ export interface TaskCreationInput {
   reuseExistingWorktree?: boolean;
   githubIntegrationId?: number;
   githubUserIntegrationId?: string;
+  /**
+   * GitLab integration for a cloud task in a GitLab project. `repository` is
+   * then the full project path, and the GitHub integration ids stay unset.
+   */
+  repositoryIntegrationId?: number;
   executionMode?: ExecutionMode;
   adapter?: Adapter;
   codexModelAccess?: ModelAccess;

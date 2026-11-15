@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render } from '@testing-library/react'
 
-import { ensureJsdom, getHogChart, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
+import { ensureJsdom, getChart, waitForChartTooltip } from '@posthog/quill-charts/testing'
 
 import { StackedBar, type StackedBarSegment } from './StackedBar'
 
@@ -22,10 +22,10 @@ describe('StackedBar', () => {
         [[{ ...segments[0], tooltip: '20 unique users (20.0%)' }, ...segments.slice(1)], '20 unique users (20.0%)'],
     ])('preserves counts and units in percent-chart tooltips', async (data, expected) => {
         const { container } = render(<StackedBar segments={data} size="sm" />)
-        const chart = getHogChart(container)
+        const chart = getChart(container)
         const rect = chart.element.getBoundingClientRect()
         fireEvent.mouseMove(chart.element, { clientX: rect.width * 0.1, clientY: rect.height / 2 })
-        expect(await waitForHogChartTooltip()).toHaveTextContent(expected)
+        expect(await waitForChartTooltip()).toHaveTextContent(expected)
     })
 
     it('passes raw counts to the NPS value formatter', () => {
@@ -33,7 +33,7 @@ describe('StackedBar', () => {
             <StackedBar segments={segments} showTooltips={false} barValueFormatter={(count) => `${count} answers`} />
         )
         expect(
-            getHogChart(container)
+            getChart(container)
                 .valueLabels()
                 .map((label) => label.text)
         ).toEqual(['20 answers', '60 answers', '20 answers'])

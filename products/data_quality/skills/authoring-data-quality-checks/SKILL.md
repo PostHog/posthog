@@ -164,7 +164,7 @@ assertion is wrong. Take the `compiled_query` off the run, execute it with `post
 look at what it actually matched before reporting anything. That `compiled_query` comes from
 `posthog:data-quality-check-results`; the information_schema poll in step 3 does not return it. An `errored` result is never a data
 problem — the query could not run at all, usually a column name typo or a subject that no longer
-exists.
+exists. To dig further into a failed or errored run, use `debugging-failed-data-quality-checks`.
 
 ## Judging a source before you use it
 
@@ -190,3 +190,4 @@ Tests tab to inspect the current rows that violate the check.
 
 - `setting-up-data-catalog` — what the data _means_: metrics, trust marks, relationships.
 - `querying-posthog-data` — the schema-discovery and HogQL rules these queries follow.
+- `debugging-failed-data-quality-checks` — why a check failed or errored, and a refresh the gate did not publish.

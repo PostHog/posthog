@@ -9,7 +9,7 @@ from django.db import close_old_connections, connection, transaction
 
 from parameterized import parameterized
 
-from posthog.api.team import TeamMarketingAnalyticsConfigSerializer
+from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -301,6 +301,26 @@ class TestConversionGoalWrites(APIBaseTest):
         assert "event" not in stored
         assert stored["conversion_goal_id"] == goal["conversion_goal_id"]
 
+    @parameterized.expand([("ActionsNode", {"id": "7"}), ("DataWarehouseNode", {"table_name": "example_orders"})])
+    def test_update_kind_requires_a_complete_replacement(self, kind: str, target: dict) -> None:
+        goal = self.create_goal("Sign ups").json()["goal"]
+
+        response = self.client.patch(
+            f"{self.base_url}/{goal['conversion_goal_id']}/update",
+            {"goal": {"kind": kind, **target}},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        body = response.json()
+        assert body["code"] == "conversion_goal_kind_change_invalid"
+        assert body["attr"] == "goal"
+        assert "Changing kind replaces the conversion goal" in body["detail"]
+        assert "conversion_goal_name: Field required" in body["detail"]
+        assert "schema_map: Field required" in body["detail"]
+        assert "'EventsNode'" not in body["detail"]
+        assert self.stored_goals() == [goal]
+
     def test_error_message_describes_the_shape_that_was_sent(self):
         response = self.client.post(
             f"{self.base_url}/create",
@@ -348,9 +368,6 @@ class TestConversionGoalWrites(APIBaseTest):
     def test_another_teams_goals_are_not_reachable(self):
         goal = self.create_goal("Sign ups").json()["goal"]
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        # Without an existing row, the 404 rolls back the row that the first request creates.
-        # Team.marketing_analytics_config then returns the rolled-back row from its process-wide cache.
-        get_or_create_team_extension(other_team, TeamMarketingAnalyticsConfig)
 
         other_url = f"/api/projects/{other_team.pk}/marketing_analytics/conversion_goals"
         update = self.client.patch(

@@ -19,7 +19,9 @@ import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupK
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
+import { QuillPropertyValueSelect } from 'lib/components/PropertyFilters/components/QuillPropertyValueSelect'
 import { isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -72,6 +74,19 @@ export interface PropertyValueProps {
     propertyTypeOverride?: PropertyType
 }
 
+// A flag dependency matches a boolean result only when its value is the boolean itself. Evaluation compares
+// the string "false" with variant keys, so it never matches a boolean flag. The input returns the typed text
+// as a string when the user presses Enter before the true/false options load.
+function toFlagDependencyValue<T>(value: T): T | boolean {
+    if (value === 'true') {
+        return true
+    }
+    if (value === 'false') {
+        return false
+    }
+    return value
+}
+
 export function PropertyValue({
     propertyKey,
     type,
@@ -99,6 +114,7 @@ export function PropertyValue({
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
     const propertyOptions = options[propertyKey]
     const isFlagDependencyProperty = type === PropertyFilterType.Flag
+    const quillSurface = useQuillSurface()
 
     const isMultiSelect = forceSingleSelect ? false : operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
@@ -140,10 +156,17 @@ export function PropertyValue({
     // options jumping around as the user types, we keep the initially loaded options
     // in state and show those first, then any new options based on user input after
     const [initialSuggestedValues, setInitialSuggestedValues] = useState<{
+        // The property these values were loaded for. The reset effect below runs after the render
+        // that changes `propertyKey`, so a reader must compare the key to know they are stale.
+        propertyKey: string
         set: Set<string>
         orderedKeys: string[]
-    }>({ set: new Set(), orderedKeys: [] })
+    }>({ propertyKey, set: new Set(), orderedKeys: [] })
     const currentSearchInput = useRef<string>('')
+    // Every value the suggestion list has offered for this property. A search replaces the
+    // loaded values, but the dropdown can still show the older list, so a value the user
+    // clicks is not always among the ones loaded now.
+    const offeredValues = useRef<Set<string>>(new Set())
 
     const hasStaticValues = !!staticValues
     const load = useCallback(
@@ -217,22 +240,27 @@ export function PropertyValue({
             setInitialSuggestedValues((prev) => {
                 // Merge new keys into existing ones so that values already shown are never removed
                 // from under the user's cursor when a background refresh arrives with a different list.
-                const merged = [...prev.orderedKeys]
-                const existingSet = new Set(prev.orderedKeys)
+                // Values held for a different property are dropped instead of merged.
+                const isSameProperty = prev.propertyKey === propertyKey
+                const merged = isSameProperty ? [...prev.orderedKeys] : []
+                const existingSet = new Set(merged)
                 for (const key of newKeys) {
                     if (!existingSet.has(key)) {
                         merged.push(key)
                         existingSet.add(key)
                     }
                 }
-                return { set: existingSet, orderedKeys: merged }
+                return { propertyKey, set: existingSet, orderedKeys: merged }
             })
         }
-    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput])
+    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput, propertyKey])
 
-    // reset initial suggested values when propertyKey changes
+    // reset the suggested and offered values when propertyKey changes
     useEffect(() => {
-        setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
+        setInitialSuggestedValues((prev) =>
+            prev.propertyKey === propertyKey ? prev : { propertyKey, set: new Set(), orderedKeys: [] }
+        )
+        offeredValues.current = new Set()
     }, [propertyKey])
 
     // show suggested values first, then any other available options that aren't in the suggested list
@@ -241,7 +269,9 @@ export function PropertyValue({
             return staticValues
         }
         const options = propertyOptions?.values || []
-        if (initialSuggestedValues.set.size === 0) {
+        // Stale values must not become options, because the offered set below would then keep
+        // them and count them as suggestions of the new property.
+        if (initialSuggestedValues.propertyKey !== propertyKey || initialSuggestedValues.set.size === 0) {
             return options
         }
 
@@ -271,7 +301,13 @@ export function PropertyValue({
         }
 
         return [...suggestedOptions, ...otherOptions]
-    }, [propertyOptions?.values, initialSuggestedValues, staticValues])
+    }, [propertyOptions?.values, initialSuggestedValues, staticValues, propertyKey])
+
+    useEffect(() => {
+        for (const option of displayOptions) {
+            offeredValues.current.add(toString(option.name))
+        }
+    }, [displayOptions, propertyKey])
 
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()
@@ -435,6 +471,16 @@ export function PropertyValue({
           : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
             ? 'Suggested values'
             : null
+    const refreshValues = (): void =>
+        loadPropertyValues({
+            endpoint,
+            type: propertyDefinitionType,
+            newInput: currentSearchInput.current || undefined,
+            propertyKey,
+            eventNames,
+            properties: [],
+            refresh: 'force_blocking',
+        })
     const refreshDisabledReason =
         propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
     const titleNode = suggestionsLabel ? (
@@ -446,64 +492,117 @@ export function PropertyValue({
                     icon={<IconRefresh />}
                     tooltip="Refresh values"
                     disabledReason={refreshDisabledReason}
-                    onClick={() =>
-                        loadPropertyValues({
-                            endpoint,
-                            type: propertyDefinitionType,
-                            newInput: currentSearchInput.current || undefined,
-                            propertyKey,
-                            eventNames,
-                            properties: [],
-                            refresh: 'force_blocking',
-                        })
-                    }
+                    onClick={refreshValues}
                     noPadding
                 />
             )}
         </span>
     ) : undefined
 
+    const handleValuesChange = (nextVal: any[]): void => {
+        // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
+        // doesn't silently break the filter — the snack display hides the space. Only
+        // what the user just typed or pasted is trimmed: a suggested value, and one
+        // already committed, can end in a space, and flag evaluation matches exactly.
+        // Skip regex operators, where leading/trailing whitespace can be a meaningful
+        // part of the pattern (e.g. `^ foo`, `bar $`).
+        const trimmedVal = isOperatorRegex(operator)
+            ? nextVal
+            : nextVal.map((v) =>
+                  typeof v === 'string' && !offeredValues.current.has(v) && !formattedValues.includes(v) ? v.trim() : v
+              )
+        const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
+        if (newValues.length > 0) {
+            const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
+            const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
+
+            posthog.capture('property_value_selected', {
+                property_key: propertyKey,
+                property_type: type,
+                from_suggestion: fromSuggestion,
+                options_count: displayOptions.length,
+                had_search_input: currentSearchInput.current !== '',
+            })
+        }
+        // A loaded option keeps its own type, so a variant named "true" or "false" stays a string.
+        const typedVal = isFlagDependencyProperty
+            ? trimmedVal.map((v) => (displayOptions.some((o) => o.name === v) ? v : toFlagDependencyValue(v)))
+            : trimmedVal
+        isMultiSelect ? setValue(typedVal) : setValue(typedVal[0])
+    }
+
+    const allowCustomValues = staticValues ? true : (propertyOptions?.allowCustomValues ?? true)
+    const valuesLoading = !staticValues && (propertyOptions?.status === 'loading' || isRefreshing)
+    const restrictToNumbers = shouldRestrictToNumericInput
+        ? (input: string) => {
+              // Only allow numeric characters, decimal point, and +/- signs
+              return input.replace(/[^0-9+\-.]/g, '')
+          }
+        : undefined
+    const inlineValidationError = showInlineValidationErrors && validationError && (
+        <div className="text-danger flex items-center gap-1 text-sm mt-1">
+            <IconErrorOutline className="text-xl shrink-0" /> {validationError}
+        </div>
+    )
+
+    if (quillSurface) {
+        const optionValueByKey = new Map(displayOptions.map(({ name }) => [toString(name), name]))
+        return (
+            <div>
+                <QuillPropertyValueSelect
+                    className={inputClassName}
+                    values={formattedValues}
+                    multiple={!!isMultiSelect}
+                    allowCustomValues={allowCustomValues}
+                    loading={valuesLoading}
+                    onChange={(keys) =>
+                        handleValuesChange(
+                            keys.map((key) => (optionValueByKey.has(key) ? optionValueByKey.get(key) : key))
+                        )
+                    }
+                    onInputChange={onSearchTextChange}
+                    inputTransform={restrictToNumbers}
+                    splitOnComma={allowCustomValues && !!isMultiSelect && !isUserAgentProperty}
+                    placeholder={placeholder}
+                    invalid={!!validationError}
+                    suggestionsLabel={suggestionsLabel}
+                    onRefresh={staticValues ? undefined : refreshValues}
+                    refreshDisabledReason={refreshDisabledReason}
+                    valueTooltip={showGroupCardOnValue ? groupCardTooltip : undefined}
+                    autoFocus={autoFocus}
+                    options={displayOptions.map(({ name: _name }, index) => {
+                        const name = toString(_name)
+                        return {
+                            key: name,
+                            tooltip: showGroupCardOnValue ? groupCardTooltip(name) : undefined,
+                            content: (
+                                <span
+                                    data-attr={'prop-val-' + index}
+                                    className="ph-no-capture flex items-center gap-1.5"
+                                >
+                                    {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                </span>
+                            ),
+                        }
+                    })}
+                />
+                {inlineValidationError}
+            </div>
+        )
+    }
+
     return (
         <div>
             <LemonInputSelect
                 className={inputClassName}
                 data-attr="prop-val"
-                loading={!staticValues && (propertyOptions?.status === 'loading' || isRefreshing)}
+                loading={valuesLoading}
                 value={formattedValues}
                 mode={isMultiSelect ? 'multiple' : 'single'}
                 singleValueAsSnack
-                allowCustomValues={staticValues ? true : (propertyOptions?.allowCustomValues ?? true)}
-                inputTransform={
-                    shouldRestrictToNumericInput
-                        ? (input: string) => {
-                              // Only allow numeric characters, decimal point, and +/- signs
-                              return input.replace(/[^0-9+\-.]/g, '')
-                          }
-                        : undefined
-                }
-                onChange={(nextVal) => {
-                    // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
-                    // doesn't silently break the filter — the snack display hides the space.
-                    // Skip regex operators, where leading/trailing whitespace can be a meaningful
-                    // part of the pattern (e.g. `^ foo`, `bar $`).
-                    const trimmedVal = isOperatorRegex(operator)
-                        ? nextVal
-                        : nextVal.map((v) => (typeof v === 'string' ? v.trim() : v))
-                    const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
-                    if (newValues.length > 0) {
-                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
-                        const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
-
-                        posthog.capture('property_value_selected', {
-                            property_key: propertyKey,
-                            property_type: type,
-                            from_suggestion: fromSuggestion,
-                            options_count: displayOptions.length,
-                            had_search_input: currentSearchInput.current !== '',
-                        })
-                    }
-                    isMultiSelect ? setValue(trimmedVal) : setValue(trimmedVal[0])
-                }}
+                allowCustomValues={allowCustomValues}
+                inputTransform={restrictToNumbers}
+                onChange={handleValuesChange}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}
                 size={size}
@@ -540,11 +639,7 @@ export function PropertyValue({
                         : []),
                 ]}
             />
-            {showInlineValidationErrors && validationError && (
-                <div className="text-danger flex items-center gap-1 text-sm mt-1">
-                    <IconErrorOutline className="text-xl shrink-0" /> {validationError}
-                </div>
-            )}
+            {inlineValidationError}
         </div>
     )
 }

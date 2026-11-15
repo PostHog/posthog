@@ -9,6 +9,7 @@ const AGENT_HELP_HEADER = `# PostHog API guide for agents
 
 On top of the reference below, the CLI adds:
 
+- Add \`--project-id <id>\` and optionally \`--organization-id <id>\` to \`posthog-cli api call\` to select the target for that invocation. Explicit target flags replace both inherited project and organization defaults. Repeat the flags on every call, or set \`POSTHOG_CLI_PROJECT_ID\` and \`POSTHOG_CLI_ORGANIZATION_ID\` in each agent's environment. Project-only targets derive their organization from the project. Organization-only targets never fall back to a project in another organization; pass a project ID for project-scoped tools. Switch tools do not persist a selection across CLI invocations.
 - \`posthog-cli api call --dry-run <tool> '<json>'\` — validate input against the tool schema without executing. Use it before any mutation.
 - Destructive tools refuse to run without \`--confirm\`; add it only after verifying the exact target IDs.
 - \`posthog-cli api skill list\` and \`posthog-cli api skill install <skill-id>\` — install PostHog agent skills into \`.agents/skills/\`. Before starting a PostHog task, check the skill list for a match; if one exists, install it, read its \`SKILL.md\`, and follow it — skills contain task-specific workflows that individual tools do not.

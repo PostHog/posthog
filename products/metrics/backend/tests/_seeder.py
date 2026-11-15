@@ -1,11 +1,10 @@
-"""Test-only metric row seeder for the metrics2 chain.
+"""Test-only metric row seeder for the metrics4 chain.
 
-Inserts rows into `metrics2_input` via `sync_execute` rather than driving the
+Inserts rows into `metrics4_input` via `sync_execute` rather than driving the
 OTLP pipe, so tests don't depend on capture-logs + metrics-ingestion-consumer
-running. `metrics2_input` is the Null-engine table the Kafka MV writes to, so one
-insert fans out through the same MVs production uses: `metrics2` (data points),
-`metric_series2` (labels, one row per series) and `metric_attributes2` (the
-attribute rollups).
+running. `metrics4_input` is the Null-engine table the Kafka MV writes to, so one
+insert fans out through the same MVs production uses into the metrics4 tables
+that HogQL reads.
 
 The shape mirrors what `rust/capture-logs/src/metric_record.rs` emits — every
 query-runner test (filters, group-by, rate, histogram_quantile) leans on this
@@ -15,7 +14,9 @@ to plant deterministic fixtures with specific labels and timestamps.
 from __future__ import annotations
 
 import json
+import math
 import uuid
+import struct
 import hashlib
 import datetime as dt
 from collections.abc import Iterable, Mapping
@@ -23,10 +24,11 @@ from typing import Any
 
 from posthog.clickhouse.client import sync_execute
 
-# `metrics2` and `metric_series2` hardcode `TTL original_expiry_timestamp`
+# The metrics4 tables hardcode their TTL on the original expiry columns
 # instead of going through `ttl_period()`, so the seeder has to keep its rows
 # alive itself. A far-future expiry pins that independent of the wall clock.
 _EXPIRY = dt.datetime(2200, 1, 1, tzinfo=dt.UTC)
+_DEFAULT_NAN_BITS = struct.unpack("<Q", struct.pack("<d", math.nan))[0]
 
 
 def _fingerprint(*parts: Any) -> int:
@@ -45,12 +47,12 @@ def _series_fingerprint(
 
     Same inputs as `compute_series_fingerprint` in capture-logs, so two seeded
     series collide exactly when the real ingest would merge them. Ingest
-    fingerprints before it stamps the synthetic `$originalTimestamp` attribute
+    fingerprints before it stamps the synthetic `posthog.original_timestamp` attribute
     on a skewed point, so that key is left out here too. It does NOT have to
     equal the Rust hash: the seeder owns both the series and its samples, so it
     only has to be stable per label-set.
     """
-    identity_attributes = sorted((k, v) for k, v in attributes.items() if k != "$originalTimestamp")
+    identity_attributes = sorted((k, v) for k, v in attributes.items() if k != "posthog.original_timestamp")
     return _fingerprint(
         metric_name, metric_type, service_name, sorted(resource_attributes.items()), identity_attributes
     )
@@ -59,7 +61,12 @@ def _series_fingerprint(
 def truncate_metrics_tables() -> None:
     """Clear every table the seeder's inserts fan out into, so leftovers can't
     leak between tests."""
-    for table in ("metrics2", "metric_series2", "metric_attributes2"):
+    for table in (
+        "metrics4_samples",
+        "metrics4_series",
+        "metrics4_names",
+        "metrics4_attributes",
+    ):
         sync_execute(f"TRUNCATE TABLE IF EXISTS {table}")
 
 
@@ -84,10 +91,11 @@ def seed_metric(
     trace_id: str = "",
     span_id: str = "",
     count: int = 1,
+    has_labels: bool = True,
 ) -> None:
-    """Insert one `metrics2_input` row per `(timestamp, value)` point; the
-    ingest MVs write the `metrics2` rows, the `metric_series2` row and the
-    `metric_attributes2` rollups from it.
+    """Insert one `metrics4_input` row per `(timestamp, value)` point; the
+    ingest MVs write the metrics4 samples, series, names and attribute rollups
+    from it.
 
     Every point in one call is a sample of the *same* series, since the series
     identity (`service_name`, `metric_type`, both attribute maps) is fixed per
@@ -100,6 +108,9 @@ def seed_metric(
 
     Histogram inputs (`histogram_bounds`, `histogram_counts`) are passed
     through verbatim; only relevant when `metric_type='histogram'`.
+
+    `has_labels=False` seeds samples the way capture sends them after the first
+    labelled sample of a window: they write no `metric_series` row.
     """
     attributes = dict(labels or {})
     resource_attributes = dict(resource_labels or {})
@@ -131,7 +142,7 @@ def seed_metric(
                 "trace_id": trace_id,
                 "span_id": span_id,
                 "trace_flags": 0,
-                "has_labels": True,
+                "has_labels": has_labels,
                 "unit": unit,
                 "aggregation_temporality": aggregation_temporality,
                 "is_monotonic": is_monotonic,
@@ -141,8 +152,38 @@ def seed_metric(
             }
         )
 
-    payload = "\n".join(json.dumps(row) for row in rows)
-    sync_execute(f"INSERT INTO metrics2_input FORMAT JSONEachRow {payload}")
+    _insert_input_rows(rows)
+
+
+def _nan_bits(value: Any) -> int:
+    """The bits of a NaN that JSON would turn into the default NaN, or 0 for any other value."""
+    if not isinstance(value, float) or not math.isnan(value):
+        return 0
+    bits = struct.unpack("<Q", struct.pack("<d", value))[0]
+    return 0 if bits == _DEFAULT_NAN_BITS else bits
+
+
+def _insert_input_rows(rows: list[dict[str, Any]]) -> None:
+    if not any(_nan_bits(row["value"]) for row in rows):
+        payload = "\n".join(json.dumps(row) for row in rows)
+        sync_execute(f"INSERT INTO metrics4_input FORMAT JSONEachRow {payload}")
+        return
+    # JSON has no way to write the bits of a NaN, such as a Prometheus stale marker,
+    # so they travel as an integer and become the value again in ClickHouse.
+    columns = sync_execute(
+        "SELECT name, type FROM system.columns WHERE database = currentDatabase() AND table = 'metrics4_input'"
+    )
+    structure = ", ".join(f"{name} {column_type}" for name, column_type in columns)
+    payload = "\n".join(
+        json.dumps({**row, "value": 0.0, "value_bits": bits} if (bits := _nan_bits(row["value"])) else row)
+        for row in rows
+    )
+    sync_execute(
+        "INSERT INTO metrics4_input SELECT * EXCEPT value_bits REPLACE "
+        "(if(value_bits = 0, value, reinterpretAsFloat64(value_bits)) AS value) "
+        "FROM format(JSONEachRow, %(structure)s, %(payload)s)",
+        {"structure": f"{structure}, value_bits UInt64", "payload": payload},
+    )
 
 
 def seed_metric_event(

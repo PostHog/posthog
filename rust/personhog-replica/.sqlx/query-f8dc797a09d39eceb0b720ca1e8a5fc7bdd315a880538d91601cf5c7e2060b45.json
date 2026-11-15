@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT distinct_id as \"distinct_id!\", person_id as \"person_id!\",\n               COALESCE(version, 0)::bigint as \"version!\", is_deleted as \"is_deleted!\"\n        FROM posthog_persondistinctid\n        WHERE team_id = $1 AND distinct_id = ANY($2)\n        ORDER BY id FOR UPDATE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "person_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "version!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_deleted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "f8dc797a09d39eceb0b720ca1e8a5fc7bdd315a880538d91601cf5c7e2060b45"
+}

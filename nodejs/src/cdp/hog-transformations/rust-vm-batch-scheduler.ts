@@ -1,7 +1,6 @@
-import { createHash } from 'crypto'
 import { Histogram } from 'prom-client'
 
-import { RustExecResult } from './rust-vm'
+import { RustExecResult, programKey } from './rust-vm'
 
 export const hogvmRustBatchFlushSize = new Histogram({
     name: 'hogvm_rust_batch_flush_size',
@@ -46,9 +45,6 @@ export const DEFAULT_MAX_BATCH_SIZE = 500
  */
 export class RustVmBatchScheduler {
     private queues = new Map<string, ProgramQueue>()
-    // Content hash per array instance. The hog function manager hands out one cached array per
-    // function, so this is computed once per function, not once per invocation.
-    private programKeys = new WeakMap<unknown[], string>()
     private flushScheduled = false
 
     constructor(
@@ -58,7 +54,7 @@ export class RustVmBatchScheduler {
 
     public execute(bytecode: unknown[], globals: unknown): Promise<RustExecResult> {
         return new Promise((resolve, reject) => {
-            const key = this.programKey(bytecode)
+            const key = programKey(bytecode)
             let queue = this.queues.get(key)
             if (!queue) {
                 queue = { bytecode, entries: [] }
@@ -77,15 +73,6 @@ export class RustVmBatchScheduler {
                 setImmediate(() => this.flush())
             }
         })
-    }
-
-    private programKey(bytecode: unknown[]): string {
-        let key = this.programKeys.get(bytecode)
-        if (key === undefined) {
-            key = createHash('sha256').update(JSON.stringify(bytecode)).digest('base64')
-            this.programKeys.set(bytecode, key)
-        }
-        return key
     }
 
     private flush(): void {

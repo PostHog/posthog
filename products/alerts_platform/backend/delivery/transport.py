@@ -1,0 +1,136 @@
+"""The contract between the platform and one provider.
+
+A transport knows a provider's wire format and nothing about alerts beyond the message it is
+handed. What to say is decided before this, and where to send is resolved before this, so a
+transport that gains a provider needs no change anywhere else.
+"""
+
+from typing import Any, Protocol, runtime_checkable
+
+from posthog.dataclasses import frozen
+
+from products.alerts_platform.backend.delivery.message import AlertMessage
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageImage
+
+
+@frozen
+class MessageHandle:
+    """Where a provider put a message, so a later send can reply to it or edit it.
+
+    `external_ref` is the provider's own handle, for example `{"channel": ..., "ts": ...}` for
+    Slack. Only the transport that issued one reads it.
+
+    `root_content` is what a transport that can edit its posts sent to open a conversation, so a
+    later edit keeps it. It is set only on the handle of that opening message.
+    """
+
+    external_ref: dict[str, str]
+    root_content: dict[str, Any] | None = None
+
+
+class DeliveryError(Exception):
+    """A send the provider refused. The caller decides whether to retry."""
+
+
+class DeliveryAmbiguous(DeliveryError):
+    """The whole request was sent and no answer came back, so the provider may have posted it.
+
+    A refused connection or a DNS failure sent nothing, so it stays a plain `DeliveryError` and a
+    retry is safe. A provider without an idempotency key posts a second copy on a retry, so
+    dispatch records this send as delivered rather than repeating it.
+    """
+
+
+class DestinationMisconfigured(DeliveryError):
+    """A refusal that only the destination's owner can fix, such as a channel the bot is not in.
+
+    The platform did its part, so its own reliability metrics count this apart from a failure.
+    """
+
+
+# What an HTTP destination's owner checks. A provider whose fix lies elsewhere names its own.
+CHECK_THE_URL = "Check the destination's URL and the format it accepts, then update the destination on the alert."
+
+
+class DestinationRefused(DestinationMisconfigured):
+    """A destination rejected the request itself, so every retry and every later message fails the same way.
+
+    The alert's creator is told, with `remedy` saying what to change. For an HTTP destination only a
+    4xx answer the owner can fix counts, and never 408 or 429, which a later attempt can get past. A
+    4xx that rejects the body PostHog built is PostHog's fix, not the owner's. Slack names its own
+    refusals, such as a channel the app is not in.
+    """
+
+    def __init__(self, refusal: str, *, remedy: str = CHECK_THE_URL) -> None:
+        super().__init__(refusal)
+        self.remedy = remedy
+
+
+class RefusedEverywhere(DeliveryError):
+    """A delivery whose every failed send was a refusal only the destination's owner can fix.
+
+    Running the delivery again sends to the same refusing destinations and is refused the same way,
+    so the caller does not retry it.
+    """
+
+
+class DeliveryTransport(Protocol):
+    provider: str
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        """Which conversation this destination is, as the provider names it.
+
+        A repointed destination gives a different answer, which is what stops a reply going
+        into the thread the previous channel held.
+        """
+        ...
+
+    def deliver(
+        self,
+        *,
+        team_id: int,
+        target: AlertDestinationData,
+        message: AlertMessage,
+        in_reply_to: MessageHandle | None = None,
+    ) -> MessageHandle | None:
+        """Sends one message, and says where it landed.
+
+        Returns None when the provider gives nothing back to reply to, which a webhook does.
+        A transport that cannot thread ignores `in_reply_to`, so a caller never branches on the
+        provider. That optional argument is the whole mechanism: a declared capability set would
+        be a second statement of the same fact, free to disagree with it.
+        """
+        ...
+
+
+@runtime_checkable
+class RootEditor(Protocol):
+    """A transport that can update the message that opened a conversation.
+
+    The opening content stays as it was posted, because it is the only record of what fired that
+    the thread does not repeat. Only the current-state line changes.
+    """
+
+    def edit_root(self, *, team_id: int, target: AlertDestinationData, root: MessageHandle, state_line: str) -> None:
+        """Rewrites the opening message with `state_line` under its original content."""
+        ...
+
+
+@runtime_checkable
+class RootImageEditor(Protocol):
+    """A transport that can put an image into the message that opened a conversation, after it went out."""
+
+    def add_root_image(
+        self,
+        *,
+        team_id: int,
+        target: AlertDestinationData,
+        root: MessageHandle,
+        image: MessageImage,
+        state_line: str | None,
+    ) -> dict[str, Any] | None:
+        """Rewrites the opening message with `image` in its image slot, and `state_line` when there is one.
+
+        Returns the content to keep as the opening message, or None when it has no image slot.
+        """
+        ...

@@ -38,6 +38,7 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.MARKETING_ANALYTICS],
             category: ProductItemCategory.UNRELEASED,
             href: urls.identityMatching(),
+            searchKeywords: ['identity resolution', 'deanonymization'],
             flag: FEATURE_FLAGS.IDENTITY_MATCHING,
             tags: ['alpha'],
             iconType: 'persons',

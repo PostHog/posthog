@@ -4,6 +4,7 @@ import pytest
 
 from django.utils import timezone
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, Team, User
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
@@ -11,14 +12,13 @@ from posthog.models.user_integration import UserGitHubIntegration, UserIntegrati
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.report_generation.select_repo import resolve_team_github_integration, select_repository
-from products.tasks.backend.facade import api as tasks_facade
+from products.signals.backend.task_profiles import REPO_SELECTION_WITHOUT_REPORT
 
 
 @pytest.fixture
 def organization():
     org = Organization.objects.create(name="test-cascade-org")
-    yield org
-    org.delete()
+    return org
 
 
 @pytest.fixture
@@ -354,7 +354,8 @@ async def test_select_repository_requests_reconnect_for_unavailable_owner_integr
         team_id=team.id,
         user_id=owner.id,
         context="Investigate this signal",
-        origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+        profile=REPO_SELECTION_WITHOUT_REPORT,
+        priority=Priority.BATCH,
     )
 
     assert result.repository is None

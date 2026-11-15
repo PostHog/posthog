@@ -15,6 +15,7 @@ EXPECTED_TASK_NAMES = {
     "products.conversations.backend.tasks.post_reply_to_slack",
     "products.conversations.backend.tasks.send_email_reply",
     "products.conversations.backend.tasks.flush_pending_email_replies",
+    "products.conversations.backend.tasks.cleanup_mailgun_domains",
     "products.conversations.backend.tasks.send_teams_help",
     "products.conversations.backend.tasks.process_teams_event",
     "products.conversations.backend.tasks.post_reply_to_teams",
@@ -22,9 +23,11 @@ EXPECTED_TASK_NAMES = {
     "products.conversations.backend.tasks.poll_team_shared_channels",
     "products.conversations.backend.tasks.poll_teams_shared_channels",
     "products.conversations.backend.tasks.wake_snoozed_tickets",
+    "products.conversations.backend.tasks.purge_deleted_tickets",
     "products.conversations.backend.tasks.process_github_event",
     "products.conversations.backend.tasks.post_reply_to_github",
     "products.conversations.backend.tasks.create_github_issue",
+    "products.conversations.backend.tasks.emit_ticket_tag_added",
 }
 
 

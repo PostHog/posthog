@@ -23,29 +23,27 @@ const dotVariants = cva('quill-dot relative inline-flex p-0.5 shrink-0 items-cen
     },
 })
 
-function Dot({
-    className,
-    variant = 'default',
-    pulse = false,
-    ...props
-}: React.ComponentProps<'span'> & VariantProps<typeof dotVariants>): React.ReactElement {
-    return (
-        <span
-            data-quill
-            data-slot="dot"
-            className={cn(dotVariants({ variant, pulse }), className)}
-            {...props}
-        >
-            {pulse && (
-                <span
-                    aria-hidden
-                    data-slot="dot-pulse"
-                    className="quill-dot__pulse pointer-events-none absolute inset-px"
-                />
-            )}
-            <span data-slot="dot-inner" className="quill-dot__inner" />
-        </span>
-    )
-}
+const Dot = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'> & VariantProps<typeof dotVariants>>(
+    function Dot({ className, variant = 'default', pulse = false, ...props }, ref) {
+        return (
+            <span
+                ref={ref}
+                data-quill
+                data-slot="dot"
+                className={cn(dotVariants({ variant, pulse }), className)}
+                {...props}
+            >
+                {pulse && (
+                    <span
+                        aria-hidden
+                        data-slot="dot-pulse"
+                        className="quill-dot__pulse pointer-events-none absolute inset-px"
+                    />
+                )}
+                <span data-slot="dot-inner" className="quill-dot__inner" />
+            </span>
+        )
+    }
+)
 
 export { Dot, dotVariants }

@@ -17,7 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, group_property_chain, property_to_expr
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -39,12 +39,7 @@ def get_properties_chain(
         return ["session", breakdown_field]
 
     if breakdown_type == "group" and group_type_index is not None:
-        group_type_index_int = int(group_type_index)
-        if breakdown_field.startswith("$virt_"):
-            # Virtual properties exist as expression fields on the groups table
-            return [f"group_{group_type_index_int}", breakdown_field]
-        else:
-            return [f"group_{group_type_index_int}", "properties", breakdown_field]
+        return [*group_property_chain(int(group_type_index), breakdown_field)]
     elif breakdown_type == "group" and group_type_index is None:
         raise Exception("group_type_index missing from params")
 
@@ -71,7 +66,8 @@ def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode | Gr
 
 
 def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
-    from products.actions.backend.models.action import Action
+    from products.actions.backend.facade.api import get_action
+    from products.actions.backend.facade.contracts import ActionNotFound
 
     # AND grouping isn't supported yet. Validate up front so it fails loudly regardless of how
     # many nodes resolve, rather than silently dropping the event filter and matching every event.
@@ -93,12 +89,12 @@ def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
             group_filters.append(node_expr)
         elif isinstance(node, ActionsNode):
             try:
-                action = Action.objects.get(pk=int(node.id), team__project_id=team.project_id)
+                action = get_action(action_id=int(node.id), project_id=team.project_id)
                 node_expr = action_to_expr(action)
                 if node.properties is not None and node.properties != []:
                     node_expr = ast.And(exprs=[node_expr, property_to_expr(node.properties, team)])
                 group_filters.append(node_expr)
-            except Action.DoesNotExist:
+            except ActionNotFound:
                 pass
         elif isinstance(node, DataWarehouseNode):
             # TODO: Support DWH nodes in groups

@@ -2,30 +2,41 @@ import './AnnotationsOverlay.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { pluralize } from 'lib/utils/strings'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { fullName, pluralize } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
 
-import { AnnotationModal } from 'products/annotations/frontend/components/AnnotationModal'
 import { annotationModalLogic, annotationScopeToName } from 'products/annotations/frontend/logics/annotationModalLogic'
 
 import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
+import { QuillAnnotationCard } from './QuillAnnotationCard'
+import { QuillAnnotationsPopover } from './QuillAnnotationsPopover'
+import { useAnnotationPopoverHover } from './useAnnotationPopoverHover'
 import { AnnotationsChartGeometry, useAnnotationsPositioning } from './useAnnotationsPositioning'
+
+// The modal carries a markdown editor, which a chart needs only once someone adds or edits an annotation.
+const AnnotationModal = lazyWithRetry(() =>
+    import('products/annotations/frontend/components/AnnotationModal').then((m) => ({ default: m.AnnotationModal }))
+)
 
 const MIN_BADGE_SPACING_PX = 24
 /** Clusters anchor on their starting badge (leftPx) so a chain of near-adjacent badges
@@ -74,6 +85,7 @@ export interface AnnotationsOverlayProps {
     /** Forwarded to the kea logic key so multiple overlays on the same insight don't
      *  collide. Used by compare-against-previous bar charts to show one overlay per period. */
     kind?: string
+    annotationsScope?: AnnotationsOverlayLogicProps['annotationsScope']
 }
 
 interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
@@ -88,6 +100,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     dates,
     insightNumericId,
     kind,
+    annotationsScope,
 }: AnnotationsOverlayProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(geometry)
@@ -113,11 +126,16 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
         dates,
         ticks: prevTicksRef.current,
         kind,
+        annotationsScope,
     }
     const logic = annotationsOverlayLogic(annotationsOverlayLogicProps)
-    const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations } = useValues(logic)
-    const { closePopover } = useActions(logic)
+    const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations, readOnly } = useValues(logic)
+    const { closePopover, deactivateDate } = useActions(logic)
     const { closeModal } = useActions(annotationModalLogic)
+    const { isModalOpen } = useValues(annotationModalLogic)
+    // Grace-extended so the modal's exit animation finishes before its lazy subtree unmounts.
+    const shouldRenderAnnotationModal = useKeepMountedWhileOpen(isModalOpen)
+    const hover = useAnnotationPopoverHover(deactivateDate)
 
     useEffect(() => {
         return () => {
@@ -191,7 +209,8 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                 }
                 ref={overlayRef}
             >
-                {tickDates.map((date, index) => {
+                {/* Tick badges are only targets for adding an annotation. */}
+                {(readOnly ? [] : tickDates).map((date, index) => {
                     const leftPx = index * tickIntervalPx + firstTickLeftPx - chartAreaLeft
                     // Strict `<` on both sides mirrors the cluster merge criterion so the
                     // suppression zone matches the merge zone exactly (no boundary gap).
@@ -209,6 +228,8 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                             widthPx={tickIntervalPx}
                             annotations={EMPTY_ANNOTATIONS}
                             badgeRefs={badgeRefs}
+                            onMouseEnter={hover.cancel}
+                            onMouseLeave={hover.start}
                         />
                     )
                 })}
@@ -220,6 +241,8 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                         widthPx={MIN_BADGE_SPACING_PX}
                         annotations={cluster.annotations}
                         badgeRefs={badgeRefs}
+                        onMouseEnter={hover.cancel}
+                        onMouseLeave={hover.start}
                     />
                 ))}
                 {activeBadgeElement && (
@@ -227,12 +250,17 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                         overlayRefs={[overlayRef, modalContentRef, modalOverlayRef]}
                         badgeElement={activeBadgeElement}
                         cluster={activeCluster}
+                        hover={hover}
                     />
                 )}
-                <AnnotationModal
-                    contentRef={(el) => (modalContentRef.current = el)}
-                    overlayRef={(el) => (modalOverlayRef.current = el)}
-                />
+                {shouldRenderAnnotationModal ? (
+                    <Suspense fallback={null}>
+                        <AnnotationModal
+                            contentRef={(el) => (modalContentRef.current = el)}
+                            overlayRef={(el) => (modalOverlayRef.current = el)}
+                        />
+                    </Suspense>
+                ) : null}
             </div>
         </BindLogic>
     )
@@ -246,6 +274,8 @@ interface AnnotationsBadgeProps {
     widthPx: number
     annotations: DatedAnnotationType[]
     badgeRefs: React.MutableRefObject<Map<string, HTMLButtonElement>>
+    onMouseEnter: () => void
+    onMouseLeave: (point: { x: number; y: number }) => void
 }
 
 interface AnnotationsBadgeCSSProperties extends React.CSSProperties {
@@ -260,9 +290,11 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
     widthPx,
     annotations,
     badgeRefs,
+    onMouseEnter,
+    onMouseLeave,
 }: AnnotationsBadgeProps): JSX.Element {
     const { isDateLocked, activeDate, isPopoverShown } = useValues(annotationsOverlayLogic)
-    const { activateDate, deactivateDate, lockDate, unlockDate } = useActions(annotationsOverlayLogic)
+    const { activateDate, lockDate, unlockDate } = useActions(annotationsOverlayLogic)
 
     const [hovered, setHovered] = useState(false)
     const buttonRef = useRef<HTMLButtonElement>(null)
@@ -303,14 +335,15 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
             }
             onMouseEnter={() => {
                 setHovered(true)
+                onMouseEnter()
                 if (!isDateLocked) {
                     activateDate(date)
                 }
             }}
-            onMouseLeave={() => {
+            onMouseLeave={(event) => {
                 setHovered(false)
                 if (!isDateLocked) {
-                    deactivateDate()
+                    onMouseLeave({ x: event.clientX, y: event.clientY })
                 }
             }}
             onClick={!isDateLocked ? lockDate : active ? unlockDate : () => activateDate(date)}
@@ -343,15 +376,22 @@ function AnnotationsPopover({
     overlayRefs,
     badgeElement,
     cluster,
+    hover,
 }: {
     overlayRefs: React.MutableRefObject<HTMLDivElement | null>[]
     badgeElement: HTMLButtonElement | null
     cluster: AnnotationBadgeCluster | undefined
+    hover: ReturnType<typeof useAnnotationPopoverHover>
 }): JSX.Element {
-    const { activeDate, groupingUnit, isDateLocked, insightId, isPopoverShown, annotationsOverlayProps } =
+    const { activeDate, groupingUnit, isDateLocked, insightId, isPopoverShown, annotationsOverlayProps, readOnly } =
         useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const handleClose = (): void => {
+        hover.cancel()
+        closePopover()
+    }
 
     const popoverAnnotations = cluster?.annotations ?? []
 
@@ -379,6 +419,31 @@ function AnnotationsPopover({
         }
         return `${from.format(format)} – ${to.format(format)}`
     })()
+    const title = `${pluralize(popoverAnnotations.length, 'annotation')} • ${titleDate}`
+    const handleAddAnnotation = (): void =>
+        openModalToCreateAnnotation(activeDate, insightId, annotationsOverlayProps.dashboardId)
+
+    if (todayRailNav) {
+        return (
+            <QuillAnnotationsPopover
+                open={isPopoverShown}
+                anchor={badgeElement}
+                popupRef={hover.popupRef}
+                insideRefs={overlayRefs}
+                title={title}
+                locked={isDateLocked}
+                annotationCount={popoverAnnotations.length}
+                onClose={handleClose}
+                onMouseEnter={hover.cancel}
+                onMouseLeave={isDateLocked ? undefined : hover.leavePopup}
+                onAddAnnotation={readOnly ? undefined : handleAddAnnotation}
+            >
+                {popoverAnnotations.map((annotation) => (
+                    <AnnotationCard key={annotation.id} annotation={annotation} />
+                ))}
+            </QuillAnnotationsPopover>
+        )
+    }
 
     return (
         <Popover
@@ -387,31 +452,31 @@ function AnnotationsPopover({
             placement="top"
             fallbackPlacements={['top-end', 'top-start']}
             referenceElement={badgeElement}
+            floatingRef={hover.popupRef}
             visible={isPopoverShown}
-            onClickOutside={closePopover}
+            onClickOutside={handleClose}
+            onMouseEnterInside={hover.cancel}
+            onMouseLeaveInside={isDateLocked ? undefined : hover.leavePopup}
             showArrow
             padded={false}
+            overflowHidden
             overlay={
                 <LemonModal
                     inline
-                    title={`${pluralize(popoverAnnotations.length, 'annotation')} • ${titleDate}`}
+                    title={title}
                     footer={
-                        <LemonButton
-                            type="primary"
-                            onClick={() =>
-                                openModalToCreateAnnotation(activeDate, insightId, annotationsOverlayProps.dashboardId)
-                            }
-                            disabled={!isDateLocked}
-                        >
-                            Add annotation
-                        </LemonButton>
+                        readOnly ? undefined : (
+                            <LemonButton type="primary" onClick={handleAddAnnotation} disabled={!isDateLocked}>
+                                Add annotation
+                            </LemonButton>
+                        )
                     }
                     closable={isDateLocked}
-                    onClose={closePopover}
+                    onClose={handleClose}
                     width="var(--annotations-popover-width)"
                 >
                     {popoverAnnotations.length > 0 ? (
-                        <ul className="flex flex-col gap-2 w-full overflow-y-auto">
+                        <ul className="flex flex-col gap-2 w-full">
                             {popoverAnnotations.map((annotation) => (
                                 <AnnotationCard key={annotation.id} annotation={annotation} />
                             ))}
@@ -426,11 +491,41 @@ function AnnotationsPopover({
 }
 
 function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
-    const { insightId, timezone, annotationsOverlayProps } = useValues(annotationsOverlayLogic)
+    const { insightId, timezone, annotationsOverlayProps, readOnly } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { user: currentUser } = useValues(userLogic)
 
     const isSystemAnnotation = annotation.id === -1 || annotation.id === -2
+    const heading = `${annotation.date_marker?.format('MMM DD, YYYY h:mm A')} (${shortTimeZone(timezone)}) – ${
+        annotationScopeToName[annotation.scope]
+    }-level`
+    const author =
+        annotation.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : (annotation.created_by ?? undefined)
+    const authorName = fullName(author)
+    const authorEmail = author && 'email' in author ? author.email : undefined
+    const authorLabel =
+        authorEmail && currentUser?.email === authorEmail ? 'you' : authorName || authorEmail || 'an unknown user'
+    const createdAt = humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')
+    const editable = !isSystemAnnotation && !readOnly
+    const handleEdit = (): void => openModalToEditAnnotation(annotation, insightId, annotationsOverlayProps.dashboardId)
+    const handleDelete = (): void => deleteAnnotation(annotation)
+
+    if (todayRailNav) {
+        return (
+            <QuillAnnotationCard
+                heading={heading}
+                emoji={annotation.emoji}
+                content={annotation.content ?? ''}
+                isSystemAnnotation={isSystemAnnotation}
+                author={{ name: authorName, email: authorEmail, label: authorLabel }}
+                createdAt={createdAt}
+                onEdit={editable ? handleEdit : undefined}
+                onDelete={editable ? handleDelete : undefined}
+            />
+        )
+    }
 
     return (
         <li
@@ -440,27 +535,21 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
         >
             <div className="flex items-center gap-2">
                 {annotation.emoji && <span className="text-lg leading-none shrink-0">{annotation.emoji}</span>}
-                <h5 className="grow m-0 text-secondary">
-                    {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
-                    {annotationScopeToName[annotation.scope]}
-                    -level
-                </h5>
-                {!isSystemAnnotation && (
+                <h5 className="grow m-0 text-secondary">{heading}</h5>
+                {editable && (
                     <>
                         <LemonButton
                             size="small"
                             icon={<IconPencil />}
                             tooltip="Edit this annotation"
-                            onClick={() =>
-                                openModalToEditAnnotation(annotation, insightId, annotationsOverlayProps.dashboardId)
-                            }
+                            onClick={handleEdit}
                             noPadding
                         />
                         <LemonButton
                             size="small"
                             icon={<IconTrash />}
                             tooltip="Delete this annotation"
-                            onClick={() => deleteAnnotation(annotation)}
+                            onClick={handleDelete}
                             noPadding
                         />
                     </>
@@ -470,22 +559,18 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 {isSystemAnnotation && (
                     <LemonBadge status="primary" size="small" className="flex-shrink-0" content="PostHog" />
                 )}
-                <TextContent text={annotation.content ?? ''} data-attr="annotation-overlay-rendered-content" />
+                <LazyTextContent text={annotation.content ?? ''} data-attr="annotation-overlay-rendered-content" />
             </div>
             {!isSystemAnnotation && (
                 <div className="leading-6 mt-2 flex flex-row items-center justify-between">
                     <div>
                         <ProfilePicture
-                            user={
-                                annotation.creation_type === 'GIT'
-                                    ? { first_name: 'GitHub automation' }
-                                    : annotation.created_by
-                            }
+                            user={author}
                             showName
                             size="md"
                             type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}
                         />{' '}
-                        • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
+                        • {createdAt}
                     </div>
                 </div>
             )}

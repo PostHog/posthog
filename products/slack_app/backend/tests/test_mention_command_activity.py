@@ -7,8 +7,9 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.slack_app.activities.rules import handle_posthog_code_slack_mention_command_activity
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionCommandWorkflowInputs
+
+from products.slack_app.backend.temporal.activities.rules import handle_posthog_code_slack_mention_command_activity
+from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionCommandWorkflowInputs
 
 
 class TestMentionCommandActivity:

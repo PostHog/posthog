@@ -32,7 +32,7 @@ def _record_unaudited_batch(
     """Error every check in the batch, leaving ``failed_blocking`` at zero so a gate publishes."""
     errored = 0
     for check in checks:
-        record_unrunnable_check(check, suite_run, team, STAGED_FILES_UNREADABLE)
+        record_unrunnable_check(check, suite_run, team, STAGED_FILES_UNREADABLE, audited_staged_refresh=True)
         errored += 1
     LOGGER.warning("Could not audit staged files", suite_run_id=str(suite_run.id), checks=errored)
     return BatchOutcome(errored=errored)

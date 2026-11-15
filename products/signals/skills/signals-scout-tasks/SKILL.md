@@ -18,6 +18,13 @@ compatibility: >
 metadata:
   owner_team: signals
   scope: tasks
+scout-precheck-query: |
+  SELECT t.origin_product AS origin_product, count() AS runs, max(r.created_at) AS last_run
+  FROM system.task_runs AS r
+  INNER JOIN system.tasks AS t ON r.task_id = t.id
+  WHERE t.origin_product NOT IN ('signals_scout', 'scout_suggestions')
+    AND r.created_at > {now} - INTERVAL 14 DAY
+  GROUP BY origin_product
 ---
 
 # Signals scout: tasks
@@ -82,6 +89,8 @@ They are not filtered out for you — the `internal` flag does not cover them.
 A run that forgets this exclusion is mostly measuring the scout fleet, and the demand lens would be reading the inbox's own output back as if it were user demand.
 
 ## Quick close-out: does this project run tasks?
+
+A scheduled run can start with a `<precheck_result>` block. Each row counts one origin's runs of the last 14 days, without the fleet's own origins, so the project uses Tasks. When the block is present, skip the `not-in-use` close-out. The baseline close-out below still applies.
 
 Close out on **runs, not task creation**.
 A project that creates no new tasks can still be running old ones daily, and those runs are exactly what lens A exists to watch — closing out on a task-creation count would skip today's failures entirely.
@@ -216,7 +225,7 @@ Author / edit / remember / skip, against the four-states classifier:
 - **Actionability and repo.**
   A failure localized to a component the project owns, with a concrete fix, is `immediately_actionable` with `repository="owner/repo"`.
   A cause you could only name as a hypothesis keeps the same call, as long as the failing component sits in a repo the project owns: checking the hypothesis is the work.
-  A break in the task platform itself, or a cluster whose next step is a call only a person can make, is `requires_human_input` with `repository=NO_REPO` — `NO_REPO` is what stops a pointless repo-selection sandbox from spawning.
+  A break in the task platform itself, or a cluster whose next step is a call only a person can make, is `requires_human_input` with `repository=NO_REPO`.
 - **Routing.**
   Resolve a reviewer from the `reviewer:tasks:<repo>` cache, then inbox precedent (`inbox-report-artefacts-list` on a comparable report), then `tasks-retrieve` on a representative task in the cluster for its `created_by.uuid`, then `scout-members-list`.
   Pass reviewer objects (`{github_login}` or `{user_uuid}`), never bare strings.

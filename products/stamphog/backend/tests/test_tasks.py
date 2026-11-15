@@ -3,17 +3,28 @@ import contextlib
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils.dateparse import parse_datetime
+
+import requests
 
 from posthog.models import Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
-from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.enums import (
+    AudienceReason,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewVerdict,
+    RoutingMode,
+)
+from products.stamphog.backend.facade.review_requests import reviewing_team_ids
 from products.stamphog.backend.logic.audiences import ResolvedAudience
 from products.stamphog.backend.models import (
     PullRequest,
@@ -24,13 +35,20 @@ from products.stamphog.backend.models import (
 )
 from products.stamphog.backend.tasks.tasks import (
     _INBOX_OPT_OUT_DISMISS_MESSAGE,
+    STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX,
     _parse_pr_url,
     _upsert_pull_request,
     process_inbox_pr_review,
     process_installation_event,
     process_pull_request_event,
 )
-from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES
+from products.stamphog.backend.tasks.trigger_label import (
+    TRIGGER_LABEL_COLOR,
+    TRIGGER_LABEL_DESCRIPTION,
+    create_trigger_label,
+)
+from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, _generate_app_private_key
+from products.stamphog.backend.tests.fakes import FakeResponse
 from products.tasks.backend.facade.contracts import SignalImplementationRunDTO
 
 REPO = "acme/widgets"
@@ -45,6 +63,7 @@ _RESOLVER_SLOT = "products.stamphog.backend.facade.inbox_hooks._inbox_acting_rev
 # Deferred import inside the carve-out, so the defining module is the patch target.
 # tasks.py imports the name at module top, so the use site is the patch target.
 _FIND_RUN = "products.stamphog.backend.tasks.tasks.find_signal_implementation_run"
+_ROUTE_AFTER_RETRACTION = "products.stamphog.backend.tasks.tasks.route_reviewers_after_approval_retracted.delay"
 
 
 def _signal_run_dto(team_id: int) -> SignalImplementationRunDTO:
@@ -145,7 +164,9 @@ def _run_task(
 @pytest.fixture
 def repo_config(team):
     with team_scope(team.id):
-        return StamphogRepoConfig.objects.create(team_id=team.id, repository=REPO, installation_id=INSTALLATION_ID)
+        return StamphogRepoConfig.objects.create(
+            team_id=team.id, repository=REPO, installation_id=INSTALLATION_ID, review_mode=ReviewMode.ALL
+        )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -378,21 +399,48 @@ def test_review_mode_gates_events(team, repo_config, review_mode, payload_kwargs
         mock_execute.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "retrigger_updated_at,redeliver,expect_label_removed",
+    [
+        ("2026-10-15T14:03:30Z", False, True),
+        ("2026-10-15T14:00:20Z", False, True),
+        ("2026-10-15T14:00:10Z", False, False),
+        ("2026-10-15T14:00:20Z", True, False),
+    ],
+    ids=["fresh_relabel", "same_second_relabel", "stale_delivery", "late_redelivery"],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_labeled_rereview_cooldown_skips_rapid_retrigger(team, repo_config):
+def test_labeled_rereview_cooldown_skips_rapid_retrigger(
+    team, repo_config, retrigger_updated_at: str, redeliver: bool, expect_label_removed: bool
+):
     # Removing and re-adding the trigger label within the cooldown must not queue a second sandbox +
     # LLM run — the cheap re-review spam the cooldown exists for.
     with team_scope(team.id):
         repo_config.review_mode = ReviewMode.LABEL
         repo_config.save()
 
-    payload = _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog")
-    _run_task(payload, "delivery-label-1", team.id)
-    mock_execute = _run_task(payload, "delivery-label-2", team.id)
+    def labeled(updated_at: str) -> dict:
+        return _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog", updated_at=updated_at)
+
+    first_delivery = f"delivery-label-1-{uuid.uuid4()}"
+    with time_machine.travel("2026-10-15T14:00:20Z", tick=False):
+        first = _run_task(labeled("2026-10-15T14:00:20Z"), first_delivery, team.id)
+    retrigger_delivery = first_delivery if redeliver else f"delivery-label-2-{uuid.uuid4()}"
+    cache.delete(f"{STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX}{retrigger_delivery}")
+    with time_machine.travel("2026-10-15T14:03:30Z", tick=False):
+        mock_execute = _run_task(labeled(retrigger_updated_at), retrigger_delivery, team.id)
 
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 1
     mock_execute.assert_not_called()
+    first.github.remove_pr_label.assert_not_called()
+    if not expect_label_removed:
+        mock_execute.github.remove_pr_label.assert_not_called()
+        mock_execute.github.upsert_sticky_comment.assert_not_called()
+        return
+    mock_execute.github.remove_pr_label.assert_called_once_with(REPO, 42, "stamphog")
+    _, _, body = mock_execute.github.upsert_sticky_comment.call_args.args
+    assert "14:11 UTC (in about 8 minutes)" in body
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -763,6 +811,30 @@ def test_installation_event_for_unbound_installation_is_a_noop(team, repo_config
 def _make_second_team(organization) -> Team:
     project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
     return Team.objects.create(id=project.id, project=project, organization=organization)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "enabled,connected_by_user_id,expected_reviewing",
+    [(True, 1, True), (False, 1, False), (True, None, False)],
+    ids=["enabled_and_synced", "disabled", "never_synced"],
+)
+def test_reviewing_team_ids_applies_the_manual_request_rule(team, enabled, connected_by_user_id, expected_reviewing):
+    other_team = _make_second_team(team.organization)
+    environment = Team.objects.create(organization=team.organization, parent_team=team, name="env")
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.create(
+            team_id=team.id,
+            repository=REPO,
+            installation_id=INSTALLATION_ID,
+            enabled=enabled,
+            connected_by_user_id=connected_by_user_id,
+        )
+
+    # An environment reviews where its project does.
+    assert reviewing_team_ids(REPO.upper(), [environment.id, team.id, other_team.id]) == (
+        [environment.id, team.id] if expected_reviewing else []
+    )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1291,39 +1363,76 @@ index aaa..bbb 100644
 """
 
 
-def _approved_run(team_id: int) -> None:
+def _approved_run(team_id: int, *, lifted: bool | None = False) -> None:
+    attestation = {} if lifted is None else {"gate_attestation": {"attested": True, "lifted": lifted}}
     with team_scope(team_id):
         ReviewRun.objects.filter(pull_request__pr_number=42).update(
             verdict=ReviewVerdict.APPROVED,
             posted_review_id=9,
-            output={"pr": {"base": {"sha": "base-1"}}},
+            output={"pr": {"base": {"sha": "base-1"}}, **attestation},
+            # The sandbox's own report, which says no check lifted anything and must decide nothing.
+            gate_result={"classification": {"lifted_files": {}}},
         )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "same_diff,expect_retained",
-    [(True, True), (False, False)],
-    ids=["identical_diff_retains", "changed_diff_dismisses"],
+    "review_mode,author_permission,same_diff,clean_base_merge,lifted,expect_retained",
+    [
+        (ReviewMode.ALL, "write", True, False, False, True),
+        (ReviewMode.ALL, "write", False, False, False, False),
+        (ReviewMode.ALL, "write", False, True, False, True),
+        (ReviewMode.ALL, "write", True, False, True, False),
+        (ReviewMode.ALL, "write", True, False, None, False),
+        # The push lacks the trigger label, so it skips the review. A silent approval survives a clean base merge.
+        (ReviewMode.LABEL, "write", False, True, False, True),
+        (ReviewMode.LABEL, "write", False, False, False, False),
+        # The main path drops an author below write before retention, so the label skip retains nothing for one.
+        (ReviewMode.LABEL, "read", True, False, False, False),
+    ],
+    ids=[
+        "identical_diff_retains",
+        "changed_diff_dismisses",
+        "clean_base_merge_retains",
+        "lifted_approval_dismisses",
+        "approval_the_worker_did_not_record_dismisses",
+        "label_skip_clean_base_merge_retains",
+        "label_skip_changed_diff_dismisses",
+        "label_skip_author_below_write_dismisses",
+    ],
 )
-def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_config, same_diff, expect_retained):
+def test_push_retains_the_approval_only_when_the_diff_is_identical(
+    team, repo_config, review_mode, author_permission, same_diff, clean_base_merge, lifted, expect_retained
+):
     # A merge of the base branch does not change any blob in the PR's own diff, so there is nothing
     # new to review, and a dismissal would drop the PR out of merge readiness. A blob that did move
     # is content that the approval no longer covers, and that case keeps the stale-approval
-    # invariant intact.
+    # invariant intact, unless the push is a proven clean merge of the base branch.
     #
     # Each case uses its own delivery id, because _mark_pr_event_processed writes to the
     # process-wide cache. A shared id would let the first case remove the second case's deliveries
     # as duplicates.
+    case = f"{review_mode}-{author_permission}-{same_diff}-{clean_base_merge}-{lifted}"
     current_diff = _APPROVED if same_diff else _APPROVED.replace("+added", "+something else")
-    _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}", team.id)
-    _approved_run(team.id)
+    _run_task(_pr_payload(), f"delivery-retention-approved-{case}", team.id)
+    _approved_run(team.id, lifted=lifted)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.filter(id=repo_config.id).update(
+            review_mode=review_mode, routing_mode=RoutingMode.FALLBACK
+        )
+    # The first run cached the author's write permission.
+    cache.clear()
 
-    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
+    with (
+        patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss,
+        patch("products.stamphog.backend.tasks.tasks.base_merge_is_clean", return_value=clean_base_merge),
+        patch(_ROUTE_AFTER_RETRACTION) as route_after_retraction,
+    ):
         mock_execute = _run_task(
             _pr_payload(action="synchronize", head_sha="sha-2"),
-            f"delivery-retention-push-{same_diff}",
+            f"delivery-retention-push-{case}",
             team.id,
+            author_permission=author_permission,
             compare_diffs=[_APPROVED, current_diff],
         )
 
@@ -1332,9 +1441,18 @@ def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_co
     if expect_retained:
         dismiss.assert_not_called()
         mock_execute.assert_not_called()
+        route_after_retraction.assert_not_called()
+        assert run_count == 1
+    elif review_mode == ReviewMode.LABEL:
+        dismiss.assert_called_once()
+        mock_execute.assert_not_called()
+        route_after_retraction.assert_called_once_with(
+            team_id=team.id, repo_config_id=str(repo_config.id), pr_number=42
+        )
         assert run_count == 1
     else:
         mock_execute.assert_called_once()
+        route_after_retraction.assert_not_called()
         assert run_count == 2
 
 
@@ -1470,3 +1588,42 @@ def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, exp
     assert client.upsert_sticky_comment.called is expect_comment
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 0
+
+
+@pytest.mark.parametrize(
+    "review_mode,enabled,github_answer,expect_post",
+    [
+        pytest.param(ReviewMode.LABEL, True, FakeResponse(201), True, id="created"),
+        pytest.param(ReviewMode.LABEL, True, FakeResponse(422), True, id="already_exists"),
+        pytest.param(ReviewMode.LABEL, True, FakeResponse(403), True, id="not_permitted"),
+        pytest.param(ReviewMode.LABEL, True, requests.ConnectionError("down"), True, id="network_error"),
+        pytest.param(ReviewMode.ALL, True, FakeResponse(201), False, id="all_mode"),
+        pytest.param(ReviewMode.LABEL, False, FakeResponse(201), False, id="paused"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_create_trigger_label_never_raises(team, repo_config, review_mode, enabled, github_answer, expect_post):
+    StamphogRepoConfig.objects.unscoped().filter(id=repo_config.id).update(
+        review_mode=review_mode, enabled=enabled, trigger_label="review-me"
+    )
+    calls: list[tuple[str, str, Any]] = []
+
+    def fake_request(method: str, url: str, **kwargs: Any) -> FakeResponse:
+        if url.endswith("/access_tokens"):
+            return FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+        calls.append((method, url, kwargs.get("json")))
+        if isinstance(github_answer, Exception):
+            raise github_answer
+        return github_answer
+
+    _GH = "products.stamphog.backend.logic.github_client"
+    with (
+        override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
+        patch(f"{_GH}.github_request", fake_request),
+        patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
+        patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
+    ):
+        create_trigger_label(team.id, str(repo_config.id))
+
+    expected_body = {"name": "review-me", "color": TRIGGER_LABEL_COLOR, "description": TRIGGER_LABEL_DESCRIPTION}
+    assert calls == ([("POST", f"https://api.github.com/repos/{REPO}/labels", expected_body)] if expect_post else [])

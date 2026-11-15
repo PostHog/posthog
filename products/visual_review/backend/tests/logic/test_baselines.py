@@ -309,10 +309,10 @@ class TestMergeBaseBaselineHealing:
         assert merged == {"A": "h1", "B": "h2"}
         assert healed == 0
 
-    def test_deleted_branch_still_heals_because_compare_uses_the_commit(self, repo, mocker):
+    def test_deleted_branch_still_compares_against_the_merge_base_via_the_commit(self, repo, mocker):
         # The compare API is asked from the same ref the baseline was read at.
-        # Asking by branch name 404s once the batch resolves, and healing would
-        # then switch off exactly on the branches that need it.
+        # Asking by branch name 404s once the batch resolves, and the lost entry
+        # below would then go unnoticed on exactly the branches that land.
         self._mock_github(
             mocker,
             branch_baseline={},
@@ -321,16 +321,16 @@ class TestMergeBaseBaselineHealing:
             commit_sha_baselines={"batch-sha": {"kept": "h1"}},
         )
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(
-            repo,
-            "storybook",
-            "trunk-merge/pr-4242/0c2f75d8",
-            rendered_identifiers={"kept", "lost-to-rebase"},
-            commit_sha="batch-sha",
-        )
+        with pytest.raises(errors.BaselineEntriesLostError) as exc_info:
+            baselines._resolve_baselines_with_merge_base(
+                repo,
+                "storybook",
+                "trunk-merge/pr-4242/0c2f75d8",
+                rendered_identifiers={"kept", "lost-to-rebase"},
+                commit_sha="batch-sha",
+            )
 
-        assert merged == {"kept": "h1", "lost-to-rebase": "h2"}
-        assert healed == 1
+        assert exc_info.value.identifiers == ["lost-to-rebase"]
 
     def test_falls_back_on_merge_base_failure(self, repo, mocker):
         branch_baseline = {"A": "h1"}
@@ -487,10 +487,16 @@ class TestMergeBaseBaselineHealing:
         assert run.new_count == 0
         assert run.changed_count == 0
 
-    def test_merge_queue_batch_deleting_a_story_reports_no_removals(self, repo, mocker):
-        # The batch tree has the story and its entry gone; the merge base still has
-        # both. Healing used to restore the entry, and a queue run has no reviewer to
-        # approve the removal, so every co-batched PR failed until the deleter merged.
+    @pytest.mark.parametrize(
+        ("rendered", "expected_status"),
+        [
+            # The batch deleted the story and its entry: nothing to approve, nothing to fail.
+            (["kept"], RunStatus.COMPLETED),
+            # The story still renders but its entry is gone: merging would delete a live baseline.
+            (["kept", "doomed"], RunStatus.FAILED),
+        ],
+    )
+    def test_merge_queue_batch_missing_an_entry(self, repo, mocker, rendered, expected_status):
         batch_branch = "trunk-merge/pr-4242/0c2f75d8-0c2f-4c2f-8c2f-0c2f75d80c2f"
         master_baseline = {"kept": "h1", "doomed": "h2"}
         batch_baseline = {"kept": "h1"}
@@ -503,8 +509,8 @@ class TestMergeBaseBaselineHealing:
         )
 
         artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
+        artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="h2", storage_path="p/h2")
 
-        # The batch renders everything except the story it deleted.
         run, _ = runs.create_run(
             CreateRunInput(
                 repo_id=repo.id,
@@ -512,7 +518,10 @@ class TestMergeBaseBaselineHealing:
                 commit_sha="batch-sha",
                 branch=batch_branch,
                 pr_number=None,
-                snapshots=[SnapshotManifestItem(identifier="kept", content_hash="h1")],
+                snapshots=[
+                    SnapshotManifestItem(identifier=identifier, content_hash=master_baseline[identifier])
+                    for identifier in rendered
+                ],
             ),
             team_id=repo.team_id,
         )
@@ -521,9 +530,9 @@ class TestMergeBaseBaselineHealing:
         runs.complete_run(run.id)
 
         run.refresh_from_db()
+        assert run.status == expected_status
         assert run.removed_count == 0
-        assert run.new_count == 0
-        assert run.changed_count == 0
+        assert ("doomed" in run.error_message) == (expected_status == RunStatus.FAILED)
 
     def test_healing_detects_changed_when_hash_differs(self, repo, mocker):
         """Healed entry with different hash shows as changed, not new."""
@@ -660,6 +669,15 @@ class TestMergeBaseBaselineHealing:
             result=SnapshotResult.REMOVED,
             review_state=prior_review_state,
         )
+
+        if run_branch.startswith("trunk-merge/"):
+            # The candidate still renders, so a queue branch missing its entry would delete it on
+            # merge. A tombstone does not excuse that: a story that renders needs its baseline.
+            with pytest.raises(errors.BaselineEntriesLostError):
+                baselines._resolve_baselines_with_merge_base(
+                    repo, RunType.STORYBOOK, run_branch, rendered_identifiers={"candidate"}
+                )
+            return
 
         merged, healed = baselines._resolve_baselines_with_merge_base(
             repo, RunType.STORYBOOK, run_branch, rendered_identifiers={"candidate"}

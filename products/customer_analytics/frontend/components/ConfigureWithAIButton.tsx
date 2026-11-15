@@ -1,10 +1,12 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useOpenAi } from 'scenes/max/useOpenAi'
+
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { customerAnalyticsDashboardEventsLogic } from '../scenes/CustomerAnalyticsConfigurationScene/events/customerAnalyticsDashboardEventsLogic'
 
@@ -21,8 +23,9 @@ export function ConfigureWithAIButton({
     eventToHighlight,
     children,
     ...props
-}: ConfigureWithAIButtonProps): JSX.Element {
+}: ConfigureWithAIButtonProps): JSX.Element | null {
     const { openAi } = useOpenAi()
+    const { todayRailEnabled } = useValues(todayShellLogic)
     const { addEventToHighlight } = useActions(customerAnalyticsDashboardEventsLogic)
     const { reportCustomerAnalyticsDashboardConfigureEventWithAIClicked } = useActions(eventUsageLogic)
 
@@ -32,6 +35,10 @@ export function ConfigureWithAIButton({
             addEventToHighlight(eventToHighlight)
         }
         reportCustomerAnalyticsDashboardConfigureEventWithAIClicked({ event: event || eventToHighlight })
+    }
+
+    if (todayRailEnabled) {
+        return null
     }
 
     return (

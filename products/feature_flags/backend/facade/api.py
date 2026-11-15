@@ -3,6 +3,8 @@
 Every write routes through ``FeatureFlagSerializer`` — the only path that honors
 ``@approval_gate``, validation, and activity logging. Consumers (currently experiments)
 call these functions instead of driving the serializer and its DRF context by hand.
+``clear_feature_enrollment`` falls back to a raw model write when the serializer rejects
+a flag's stored config version 1 filters, because enrollment cleanup must never fail.
 The read helpers (``user_can_edit_flag``, ``user_can_create_flags``, ``flag_disable_requires_approval``,
 ``serialize_flags``, ``get_feature_flag_request_usage``) expose the flag API's
 access-control, approval-policy, representation, and request-usage logic behind
@@ -28,6 +30,7 @@ caller cannot surface a 409/change request), so ``ApprovalRequired`` is never ra
 from datetime import datetime
 from typing import Any, Literal
 
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
@@ -35,16 +38,23 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.approvals.backend.policies import PolicyEngine
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.approvals.backend.coverage import write_needs_approval
+from products.feature_flags.backend.api.feature_flag import (
+    FeatureFlagSerializer,
+    validate_stored_cohort_references as _validate_stored_cohort_references,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
+from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import MINTED_OWNER_CONTEXT_KEY, flag_owner_kind
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
     FeatureFlagRequestUsage as FeatureFlagRequestUsage,
     query_feature_flag_request_usage,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 def _serializer_context(team: Team, user: Any, request: Any | None, *, method: str = "POST") -> dict:
@@ -87,6 +97,7 @@ def create_flag(
     user: Any,
     request: Any | None = None,
     serializer_context: dict | None = None,
+    owner: Literal["survey"] | None = None,
 ) -> FeatureFlag:
     """Gated create: routes through FeatureFlagSerializer so @approval_gate, validation,
     and activity logging apply. ``data`` is the flag's own write shape (key, name, filters,
@@ -95,8 +106,12 @@ def create_flag(
     ``created_by`` stays null, activity is logged as system, the approval gate is skipped.
     ``serializer_context`` is extra serializer context (an HTTP caller passes its viewset
     context); the facade's own ``request``, ``team_id``, ``project_id``, ``get_team`` and
-    ``get_organization`` entries win over the caller's."""
+    ``get_organization`` entries win over the caller's. ``owner`` names the product that will own
+    the new flag, so the approval gate applies that product's policies to the create instead of the
+    policies for flags no product owns. Pass it only when the caller links the flag to its own row
+    in the same transaction."""
     context = {**(serializer_context or {}), **_serializer_context(team, user, request)}
+    context[MINTED_OWNER_CONTEXT_KEY] = owner
     serializer = FeatureFlagSerializer(data=data, context=context)
     serializer.is_valid(raise_exception=True)
     return serializer.save()
@@ -205,9 +220,63 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
     """Unarchive a flag through the gated serializer path.
 
     The flag stays disabled; re-enabling it is a separate, explicit write
-    (``set_flag_active``).
+    (``set_flag_active``). Raises ``ValidationError`` when a release condition targets a
+    deleted cohort.
     """
     return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
+
+
+def validate_flag_restorable(flag_id: int, *, team_id: int) -> None:
+    """Raise ``ValidationError`` when a release condition targets a missing or deleted cohort.
+
+    A restored flag with such a condition fails every evaluation that reaches it. ``update_flag`` runs this
+    check on a restore. A caller that restores a flag another way must run it first. A
+    hard-deleted id or another team's flag has nothing to check.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).first()
+    if flag is not None:
+        _validate_stored_cohort_references(flag)
+
+
+def clear_feature_enrollment(flag_id: int, *, team: Team) -> None:
+    """Clear the enrollment marker on an early access feature's linked flag (feature demoted or deleted).
+
+    Cleanup must never fail: a linked flag can hold stored filter shapes the current
+    FeatureFlagSerializer rejects or crashes on (group-aggregated conditions, malformed
+    legacy properties, ...), and a rejection here would make the feature undeletable.
+    Prefer the gated facade write (validation, activity logging); fall back to a raw
+    model write when it raises. This is a system write (user=None): an enabled approval
+    policy must never block cleanup with a 409, and activity is logged as system.
+
+    Another config format raises ``ConfigFormatError`` from ``set_feature_enrollment`` before
+    either write. No caller reaches it: an early access feature only links config version 1 flags.
+
+    The early return covers a hard-deleted id or another team's flag, so nothing is left to
+    clear. A soft-deleted flag still gets cleared, through ``objects_including_soft_deleted``:
+    the default manager hides it, and skipping it would leave the marker to come back with the
+    flag on a restore.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team=team).first()
+    if flag is None:
+        return
+
+    cleared_filters = set_feature_enrollment(flag.get_filters() or {}, None)
+    # Without "groups", the serializer's partial-PATCH shortcut discards the incoming
+    # filters and returns the stored ones — silently skipping the cleanup entirely.
+    if "groups" in cleared_filters:
+        try:
+            update_flag(flag, {"filters": cleared_filters}, team=team, user=None)
+            return
+        except Exception as exc:
+            # Stored legacy JSON can raise arbitrary exception types through the flag
+            # validator (ValidationError, TypeError, KeyError, ...), so catch broadly.
+            logger.warning(
+                "early_access_feature_enrollment_cleanup_fell_back_to_raw_write",
+                feature_flag_id=flag.id,
+                error=str(exc),
+            )
+    flag.filters = cleared_filters  # nosemgrep: feature-flags-no-raw-filters-access -- deliberate never-fail cleanup fallback when the gated write can't validate stored legacy filter shapes
+    flag.save(update_fields=["filters"])
 
 
 def _roll_out_variant(
@@ -325,10 +394,14 @@ def user_can_create_flags(*, team: Team, user: User) -> bool:
     return UserAccessControl(user=user, team=team).check_access_level_for_resource("feature_flag", "editor")
 
 
-def flag_disable_requires_approval(team: Team) -> bool:
-    """Whether an enabled approval policy gates disabling a flag for this team/org."""
-    policy = PolicyEngine().get_policy(action_key="feature_flag.disable", team=team, organization=team.organization)
-    return policy is not None
+def flag_disable_requires_approval(flag_id: int, *, team: Team) -> bool:
+    """Whether an enabled approval policy gates disabling this flag.
+
+    Reads the policy of the family that governs the flag, which follows its owner once the
+    organization scopes policies by flag owner.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag_id, team=team)
+    return write_needs_approval(flag_owner_kind(flag), "disable", team, team.organization)
 
 
 def serialize_flags(flags: Any, *, context: dict) -> Any:
@@ -360,3 +433,19 @@ def flag_is_active(key: str, *, team_id: int | None = None) -> bool:
     if team_id is not None:
         qs = qs.filter(team_id=team_id)
     return qs.exists()
+
+
+def existing_flag_ids(
+    flag_ids: list[int],
+    *,
+    team_id: int,
+    access_control: UserAccessControl | None = None,
+    include_deleted: bool = False,
+) -> set[int]:
+    manager = FeatureFlag.objects_including_soft_deleted if include_deleted else FeatureFlag.objects
+    queryset = manager.filter(team_id=team_id, id__in=flag_ids)
+    if not include_deleted:
+        queryset = queryset.filter(deleted=False)
+    if access_control is not None:
+        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+    return set(queryset.values_list("id", flat=True))

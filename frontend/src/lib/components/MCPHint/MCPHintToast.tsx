@@ -1,21 +1,24 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 
 import { AgentBadgeRotator } from './AgentBadgeRotator'
+import { MCPHintActions } from './MCPHintActions'
 import { mcpHintLogic } from './mcpHintLogic'
-import { MCPInstallCommand } from './MCPInstallCommand'
 import { type SurfaceKey, formatDerivedToastPrompt, getSurfacePrompts } from './prompts'
 
 export function MCPHintToast({
     surfaceKey,
     derivedPrompt,
+    toastId,
 }: {
     surfaceKey: SurfaceKey
     /** If provided, replaces the per-surface default toast prompt with this action-derived string. */
     derivedPrompt?: string
+    toastId?: string
 }): JSX.Element {
     const { userRole } = useValues(mcpHintLogic)
+    const { keepHintOpen } = useActions(mcpHintLogic)
     const prompt = derivedPrompt
         ? formatDerivedToastPrompt(derivedPrompt)
         : getSurfacePrompts(surfaceKey, { role: userRole }).toast
@@ -29,7 +32,12 @@ export function MCPHintToast({
                 </span>
             </div>
             <div className="text-xs italic text-muted leading-snug">{prompt}</div>
-            <MCPInstallCommand size="sm" silentCopy />
+            <MCPHintActions
+                surfaceKey={surfaceKey}
+                example={prompt}
+                placement="toast"
+                onMenuOpen={toastId ? () => keepHintOpen(toastId) : undefined}
+            />
         </div>
     )
 }

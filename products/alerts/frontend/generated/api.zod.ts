@@ -47,17 +47,67 @@ export const AlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
  */
 export const alertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
 
+export const alertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
+
 export const AlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.uuid())
-        .min(1)
         .max(alertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
-        .describe('Destination IDs to delete, as returned when the destination was created.'),
+        .optional()
+        .describe('HogFunction IDs of the destination, as returned when it was created.'),
+    destination_ids: zod
+        .array(zod.uuid())
+        .max(alertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .optional()
+        .describe('Destination IDs from the destinations list, to delete with their HogFunctions.'),
+})
+
+/**
+ * Open a PagerDuty incident when this alert starts firing, and resolve it when the alert stops. Only an alert whose pagerduty_available is true can take one. The returned IDs identify the destination.
+ */
+export const alertsDestinationsPagerdutyCreateBodyPagerdutySeverityDefault = `critical`
+export const alertsDestinationsPagerdutyCreateBodyPagerdutyRegionDefault = `us`
+
+export const AlertsDestinationsPagerdutyCreateBody = /* @__PURE__ */ zod.object({
+    pagerduty_routing_key: zod
+        .string()
+        .describe('The 32-character integration key of a PagerDuty Events API v2 integration.'),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .default(alertsDestinationsPagerdutyCreateBodyPagerdutySeverityDefault)
+        .describe(
+            'Severity of the incidents the alert opens.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .default(alertsDestinationsPagerdutyCreateBodyPagerdutyRegionDefault)
+        .describe('Region of the PagerDuty account.\n\n\* `us` - us\n\* `eu` - eu'),
+})
+
+/**
+ * Send this alert's firings to a Discord or Microsoft Teams channel, or to any webhook. The returned IDs identify the destination.
+ */
+export const AlertsDestinationsWebhookCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['discord', 'teams', 'webhook'])
+        .describe('\* `discord` - discord\n\* `teams` - teams\n\* `webhook` - webhook')
+        .describe(
+            'Destination type: a Discord or Microsoft Teams channel, or any webhook.\n\n\* `discord` - discord\n\* `teams` - teams\n\* `webhook` - webhook'
+        ),
+    webhook_url: zod
+        .string()
+        .describe('The https URL to send to. Its path and query are a credential, so reads show only the host.'),
 })
 
 /**
  * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
  */
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsDefault = 0
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsMin = 0
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsMax = 100
+
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -85,13 +135,7 @@ export const alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm
 export const alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
-export const alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMin = 0
-export const alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMax = 1
-
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
-export const alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMin = 5
-export const alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMax = 400
-
 export const alertsSimulateCreateBodySeriesIndexDefault = 0
 export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
@@ -99,6 +143,14 @@ export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertCo
 export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsSimulateCreateBodyEvaluationDelayIntervalsMin)
+        .max(alertsSimulateCreateBodyEvaluationDelayIntervalsMax)
+        .default(alertsSimulateCreateBodyEvaluationDelayIntervalsDefault)
+        .describe(
+            'Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.'
+        ),
     insight: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),
@@ -1111,27 +1163,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ])
                     .optional()
                     .describe('What counts as unusual or interesting for this metric, in your own words. Optional.'),
-                threshold: zod
-                    .union([
-                        zod
-                            .number()
-                            .min(alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMin)
-                            .max(alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMax),
-                        zod.null(),
-                    ])
-                    .optional()
-                    .describe('Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)'),
                 type: zod.enum(['llm']).default(alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault),
-                window: zod
-                    .union([
-                        zod
-                            .number()
-                            .min(alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMin)
-                            .max(alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMax),
-                        zod.null(),
-                    ])
-                    .optional()
-                    .describe('How many recent points the model is shown (default: 90)'),
             }),
         ])
         .describe('Detector configuration types')
@@ -1209,6 +1241,23 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .enum(['MetricsAlertConfig'])
                             .default(alertsSimulateCreateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(
@@ -1219,5 +1268,11 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row\/first_row) so the preview matches the alert; ignored for trends.'
+        ),
+    alert: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert."
         ),
 })

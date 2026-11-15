@@ -3,6 +3,8 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
@@ -77,17 +79,79 @@ describe('logsViewerDataLogic', () => {
 
             expect(lemonToast.error).not.toHaveBeenCalled()
             expect(posthog.capture).not.toHaveBeenCalled()
+            expect(logic.values.logsError).toBeNull()
         })
 
         it.each([['Network error'], ['Server returned 500'], ['Timeout exceeded']])(
-            'shows toast for legitimate fetchLogs error "%s"',
-            async (error) => {
+            'sets logsError instead of toasting for legitimate fetchLogs error "%s"',
+            (error) => {
+                logic.actions.fetchLogs()
                 logic.actions.fetchLogsFailure(error)
-                await expectLogic(logic).toFinishAllListeners()
 
-                expect(lemonToast.error).toHaveBeenCalledWith(`Failed to load logs: ${error}`)
+                expect(lemonToast.error).not.toHaveBeenCalled()
+                expect(logic.values.logsError).toBe(error)
+                expect(logic.values.logsLoading).toBe(false)
             }
         )
+
+        it('sets sparklineError and stops the spinner for a legitimate fetchSparkline error', () => {
+            logic.actions.fetchSparkline()
+            logic.actions.fetchSparklineFailure('Network error')
+
+            expect(logic.values.sparklineError).toBe('Network error')
+            expect(logic.values.sparklineLoading).toBe(false)
+        })
+
+        it.each(['new query started', 'unmounting component'])(
+            'keeps loading and sets no error when a query is %s',
+            (error) => {
+                logic.actions.fetchLogs()
+                logic.actions.fetchLogsFailure(error)
+                logic.actions.fetchSparkline()
+                logic.actions.fetchSparklineFailure(error)
+
+                expect(logic.values.logsError).toBeNull()
+                expect(logic.values.logsLoading).toBe(true)
+                expect(logic.values.sparklineError).toBeNull()
+                expect(logic.values.sparklineLoading).toBe(true)
+            }
+        )
+
+        it('clears the errors when the next query starts', async () => {
+            logic.actions.fetchLogsFailure('Network error')
+            logic.actions.fetchSparklineFailure('Network error')
+
+            await expectLogic(logic, () => logic.actions.runQuery()).toDispatchActions([
+                'fetchLogsSuccess',
+                'fetchSparklineSuccess',
+            ])
+
+            expect(logic.values.logsError).toBeNull()
+            expect(logic.values.sparklineError).toBeNull()
+        })
+
+        it('retries a fast failure once before giving up', async () => {
+            const create = api.create.bind(api)
+            let queryCalls = 0
+            const createSpy = jest.spyOn(api, 'create').mockImplementation(((url: string, ...rest: any[]) => {
+                if (url.includes('/logs/query/')) {
+                    queryCalls += 1
+                    if (queryCalls === 1) {
+                        return Promise.reject(new Error('Network error'))
+                    }
+                }
+                return create(url, ...rest)
+            }) as typeof api.create)
+
+            try {
+                await logic.asyncActions.fetchLogs()
+            } finally {
+                createSpy.mockRestore()
+            }
+
+            expect(queryCalls).toBe(2)
+            expect(logic.values.logsError).toBeNull()
+        })
 
         it.each([
             ['Fetch is aborted', 'Safari abort message'],
@@ -440,6 +504,29 @@ describe('logsViewerDataLogic', () => {
 
             scoped.unmount()
             scopedFilters.unmount()
+        })
+
+        it.each([
+            ['a manual refresh', 'refresh', () => logic.actions.refreshQuery()],
+            ['a filter edit', 'filter_change', () => filtersLogic.actions.setSearchTerm('error message')],
+            ['a restored filter set', 'filters_restored', () => filtersLogic.actions.setFilters({}, false)],
+            ['a scope change', 'scope_change', () => filtersLogic.actions.setSessionId('sess-1')],
+        ])('%s tells the backend the query trigger is %s', async (_name, trigger, act) => {
+            const sentTriggers: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/logs/query/': async ({ request }) => {
+                        sentTriggers.push(((await request.json()) as Record<string, unknown>).trigger)
+                        return [200, { results: [], maxExportableLogs: 5000 }]
+                    },
+                    '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+                },
+            })
+
+            act()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(sentTriggers).toEqual([trigger])
         })
 
         it('setOrderBy triggers runQuery', async () => {

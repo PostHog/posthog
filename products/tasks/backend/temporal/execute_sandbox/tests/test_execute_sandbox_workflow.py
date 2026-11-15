@@ -30,10 +30,8 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import (
     SandboxEvent,
 )
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
-from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
-    GetSandboxForRepositoryOutput,
-)
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.activities.provision_sandbox import GetSandboxForRepositoryOutput
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import STEER_DECLINED_OUTCOME
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
 from products.tasks.backend.temporal.process_task.credential_refresh import (
@@ -170,12 +168,20 @@ class TestParseInputs:
 
 
 class TestSignalHandlers:
-    async def test_parent_attached_sets_parent_id_and_queues_ack(self, silent_workflow_logger):
+    @pytest.mark.parametrize("patched", [True, False])
+    @pytest.mark.parametrize("delivery_closed", [True, False])
+    async def test_parent_attached_sets_parent_id_and_queues_ack(
+        self, monkeypatch, silent_workflow_logger, patched: bool, delivery_closed: bool
+    ) -> None:
         workflow = ExecuteSandboxWorkflow()
+        workflow._parent_signal_delivery_closed = delivery_closed
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "in_workflow", lambda: True)
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "patched", lambda _: patched)
 
         await workflow.parent_attached("ack-1", "parent-wf-id")
 
         assert workflow._parent_workflow_id == "parent-wf-id"
+        assert workflow._parent_signal_delivery_closed is (delivery_closed and not patched)
         assert workflow._pending_outbound == [
             OutboundSignal(
                 target_signal=PARENT_ACK_SIGNAL,

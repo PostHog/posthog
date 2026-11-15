@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='publish_delete_finished' */ DELETE FROM person_publish_outbox WHERE id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3470b933e2fa66a9eac4f28c7e898b3cfbcbbb563b720227aba2d3f448b197a3"
+}

@@ -4,7 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -12,7 +12,7 @@ import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
 
-const query: DataVisualizationNode = {
+const query: VisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: { kind: NodeKind.HogQLQuery, query: 'select * from summaries' },
     display: ChartDisplayType.BoxPlot,
@@ -48,7 +48,7 @@ describe('BoxPlotSeriesTab', () => {
     it('shows box plot roles and saves a changed statistic column', async () => {
         initKeaTests()
         const setQuery = jest.fn()
-        let currentQuery = query
+        let currentQuery: VisualizationNode = query
         const props: DataVisualizationLogicProps = {
             key: 'box-plot-series-tab',
             query: currentQuery,

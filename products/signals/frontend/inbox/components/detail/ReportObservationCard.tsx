@@ -53,7 +53,6 @@ export function ReportObservationCard({
                         <Link
                             to={openTarget.url}
                             target="_blank"
-                            disableClientSideRouting
                             className="ml-auto flex shrink-0 items-center gap-0.5 whitespace-nowrap"
                             data-attr="report-primary-metric-open"
                         >

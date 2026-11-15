@@ -1,190 +1,233 @@
-//! Scrubs rrweb CanvasMutation events: redacts text drawn via fill/strokeText and blurs drawn images
-//! and canvas snapshots. Blur runs inline (native), so the object lands on its final blurred/blanked
-//! value directly.
+//! Scrubs rrweb CanvasMutation events.
+//!
+//! posthog-js records a canvas in one way only: a snapshot frame that clears the canvas and draws one
+//! encoded image of it. That frame is rebuilt from its known fields, and its image goes to the image
+//! scrub. Any other canvas mutation (drawing commands, text, raw pixels, WebGL) cannot be scrubbed as
+//! an image, so the event keeps only its identity and an empty command list.
 
-use base64::Engine;
 use simd_json::borrowed::{Object, Value};
 
-use crate::blur::{is_image_data_uri, split_data_uri, BLANK_PNG_BASE64};
 use crate::collect::{is_image_ref, is_image_ref_strict, normalize_collected_mime};
 use crate::context::Ctx;
-use crate::images::ImageFallback;
+use crate::data_uri::ImageFallback;
+use crate::data_uri::{split_data_uri, BLANK_PNG_BASE64};
 use crate::json::{
-    as_array, as_array_mut, as_object, as_object_mut, as_str, as_u32, as_usize, key, string_value,
+    as_array, as_array_mut, as_f64, as_object, as_object_mut, as_str, as_u32, key, string_value,
 };
-use crate::url::scrub_url;
 
-fn b64() -> base64::engine::general_purpose::GeneralPurpose {
-    base64::engine::general_purpose::STANDARD
-}
+const FRAME_MIMES: &[&str] = &["image/webp", "image/png", "image/jpeg"];
+const CONTEXT_2D: u32 = 0;
+const DATA_KEYS: &[&str] = &[
+    "source",
+    "id",
+    "type",
+    "commands",
+    "displayWidth",
+    "displayHeight",
+];
+pub(crate) const REJECTED_CANVAS_MUTATION: &str = "canvas_mutation_not_snapshot_frame";
 
 /// Scrub a CanvasMutation `data` object in place. Returns whether anything changed.
 pub fn scrub_canvas_mutation(ctx: &Ctx<'_>, data: &mut Value<'_>) -> bool {
     let Some(obj) = as_object_mut(data) else {
         return false;
     };
-    let has_commands = matches!(obj.get("commands"), Some(Value::Array(_)));
-    if has_commands {
-        let mut changed = false;
-        let commands = obj.get_mut("commands").and_then(as_array_mut).unwrap();
-        for cmd in commands.iter_mut() {
-            if let Some(c) = as_object_mut(cmd) {
-                changed |= scrub_command(ctx, c);
-            }
+    if is_snapshot_frame(obj) {
+        let mut changed = prune_to_frame(obj);
+        if let Some(blob) = frame_blob_mut(obj) {
+            changed |= scrub_frame_blob(ctx, blob);
         }
         changed
-    } else if obj.get("property").and_then(as_str).is_some() {
-        // Flattened single-command form: `data` itself is the command.
-        scrub_command(ctx, obj)
     } else {
-        false
+        let changed = empty_mutation(obj);
+        if changed {
+            ctx.record_scrub_drop(REJECTED_CANVAS_MUTATION);
+        }
+        changed
     }
 }
 
-// Canvas API calls whose leading string arguments are user-visible text.
-fn is_text_command(property: &str) -> bool {
-    matches!(property, "fillText" | "strokeText")
+fn is_number(v: &Value<'_>) -> bool {
+    as_f64(v).is_some_and(f64::is_finite)
 }
 
-fn scrub_command(ctx: &Ctx<'_>, cmd: &mut Object<'_>) -> bool {
-    let is_text = cmd
-        .get("property")
-        .and_then(as_str)
-        .map(is_text_command)
-        .unwrap_or(false);
-    let Some(args) = cmd.get_mut("args").and_then(as_array_mut) else {
+fn is_property(cmd: &Object<'_>, name: &str) -> bool {
+    cmd.get("property").and_then(as_str) == Some(name)
+}
+
+fn rr_type_is(obj: &Object<'_>, name: &str) -> bool {
+    obj.get("rr_type").and_then(as_str) == Some(name)
+}
+
+fn numbers(args: &[Value<'_>]) -> bool {
+    args.iter().all(is_number)
+}
+
+/// `{ id, type: 2D, commands: [clearRect(4 numbers), drawImage(ImageBitmap(Blob), 4 numbers)] }`,
+/// with any display size given as numbers.
+fn is_snapshot_frame(obj: &Object<'_>) -> bool {
+    if obj.get("id").and_then(as_u32).is_none()
+        || obj.get("type").and_then(as_u32) != Some(CONTEXT_2D)
+    {
+        return false;
+    }
+    if ["displayWidth", "displayHeight"]
+        .iter()
+        .any(|name| obj.get(*name).is_some_and(|v| !is_number(v)))
+    {
+        return false;
+    }
+    let Some([clear, draw]) = obj.get("commands").and_then(as_array).map(Vec::as_slice) else {
         return false;
     };
-    let mut changed = false;
-
-    // Text drawn onto the canvas: fillText/strokeText take the text as leading string args.
-    if is_text {
-        for a in args.iter_mut() {
-            if let Value::String(s) = a {
-                if let Some(nv) = crate::text::scrub_text(ctx.allow, s) {
-                    *a = string_value(nv);
-                    changed = true;
-                }
-            }
-        }
-    }
-
-    // Images/snapshots can appear anywhere in the (recursive) arg tree.
-    for a in args.iter_mut() {
-        changed |= blur_canvas_arg(ctx, a);
-    }
-    changed
-}
-
-/// Recursively neutralize+blur image data inside a canvas arg, mutating in place.
-fn blur_canvas_arg(ctx: &Ctx<'_>, value: &mut Value<'_>) -> bool {
-    match value {
-        Value::String(s) => {
-            if is_image_data_uri(s) {
-                let b = ctx.scrub_image(s, ImageFallback::Blank);
-                *value = string_value(b);
-                return true;
-            }
-            return false;
-        }
-        Value::Array(arr) => {
-            let mut changed = false;
-            for item in arr.iter_mut() {
-                changed |= blur_canvas_arg(ctx, item);
-            }
-            return changed;
-        }
-        _ => {}
-    }
-
-    let Some(obj) = as_object_mut(value) else {
+    let (Some(clear), Some(draw)) = (as_object(clear), as_object(draw)) else {
         return false;
     };
+    let clear_ok = is_property(clear, "clearRect")
+        && clear
+            .get("args")
+            .and_then(as_array)
+            .is_some_and(|args| args.len() == 4 && numbers(args));
+    let draw_ok = is_property(draw, "drawImage")
+        && draw.get("args").and_then(as_array).is_some_and(|args| {
+            // posthog-js before 1.391 drew at the origin without a size, so `[bitmap, x, y]`.
+            matches!(args.len(), 3 | 5)
+                && numbers(&args[1..])
+                && as_object(&args[0]).is_some_and(is_frame_bitmap)
+        });
+    clear_ok && draw_ok
+}
 
-    // Serialized image element: { rr_type, src }. Data-URI src is an embedded image; a remote src is a
-    // URL that may itself carry PII.
-    if let Some(src) = obj.get("src").and_then(as_str).map(str::to_string) {
-        if is_image_data_uri(&src) {
-            let b = ctx.scrub_image(&src, ImageFallback::Blank);
-            obj.insert(key("src"), string_value(b));
-            return true;
-        }
-        return match scrub_url(ctx, &src) {
-            Some(v) => {
-                obj.insert(key("src"), string_value(v));
-                true
-            }
-            None => false,
+fn is_frame_bitmap(bitmap: &Object<'_>) -> bool {
+    rr_type_is(bitmap, "ImageBitmap")
+        && matches!(
+            bitmap.get("args").and_then(as_array).map(Vec::as_slice),
+            Some([blob]) if as_object(blob).is_some_and(is_frame_blob)
+        )
+}
+
+fn is_frame_blob(blob: &Object<'_>) -> bool {
+    rr_type_is(blob, "Blob")
+        && blob
+            .get("type")
+            .and_then(as_str)
+            .is_some_and(|mime| FRAME_MIMES.contains(&mime))
+        && matches!(
+            blob.get("data").and_then(as_array).map(Vec::as_slice),
+            Some([buffer]) if as_object(buffer).is_some_and(|b| {
+                rr_type_is(b, "ArrayBuffer") && b.get("base64").and_then(as_str).is_some()
+            })
+        )
+}
+
+fn prune_to_frame(obj: &mut Object<'_>) -> bool {
+    let mut changed = retain_keys(obj, DATA_KEYS);
+    let Some(commands) = obj.get_mut("commands").and_then(as_array_mut) else {
+        return changed;
+    };
+    for command in commands.iter_mut() {
+        let Some(command) = as_object_mut(command) else {
+            continue;
         };
+        changed |= retain_keys(command, &["property", "args"]);
     }
-
-    let rr_type = obj.get("rr_type").and_then(as_str).map(str::to_string);
-
-    // Encoded image snapshot: { rr_type: 'Blob', type: 'image/...', data: [ {rr_type:'ArrayBuffer', base64} ] }.
-    if rr_type.as_deref() == Some("Blob") {
-        if let Some(t) = obj.get("type").and_then(as_str) {
-            if t.starts_with("image/") {
-                return blur_blob_image(ctx, obj);
+    if let Some(bitmap) = commands
+        .get_mut(1)
+        .and_then(as_object_mut)
+        .and_then(|draw| draw.get_mut("args"))
+        .and_then(as_array_mut)
+        .and_then(|args| args.first_mut())
+        .and_then(as_object_mut)
+    {
+        changed |= retain_keys(bitmap, &["rr_type", "args"]);
+        if let Some(blob) = bitmap
+            .get_mut("args")
+            .and_then(as_array_mut)
+            .and_then(|args| args.first_mut())
+            .and_then(as_object_mut)
+        {
+            changed |= retain_keys(blob, &["rr_type", "type", "data"]);
+            if let Some(buffer) = blob
+                .get_mut("data")
+                .and_then(as_array_mut)
+                .and_then(|data| data.first_mut())
+                .and_then(as_object_mut)
+            {
+                changed |= retain_keys(buffer, &["rr_type", "base64"]);
             }
-        }
-    }
-
-    // Raw pixels: { rr_type: 'ImageData', args: [pixels, width, height] } (putImageData).
-    if rr_type.as_deref() == Some("ImageData") {
-        return blur_image_data(ctx, obj);
-    }
-
-    // Otherwise recurse into nested arg/data arrays (ImageBitmap -> Blob, etc.).
-    let mut changed = false;
-    if let Some(args) = obj.get_mut("args").and_then(as_array_mut) {
-        for it in args.iter_mut() {
-            changed |= blur_canvas_arg(ctx, it);
-        }
-    }
-    if let Some(data) = obj.get_mut("data").and_then(as_array_mut) {
-        for it in data.iter_mut() {
-            changed |= blur_canvas_arg(ctx, it);
         }
     }
     changed
 }
 
-/// Blur the encoded image bytes inside an image Blob, neutralizing them first (fail-safe).
-fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
+fn retain_keys(obj: &mut Object<'_>, keep: &[&str]) -> bool {
+    let before = obj.len();
+    obj.retain(|name, _| keep.contains(&name.as_ref()));
+    obj.len() != before
+}
+
+fn frame_blob_mut<'a, 'v>(obj: &'a mut Object<'v>) -> Option<&'a mut Object<'v>> {
+    obj.get_mut("commands")
+        .and_then(as_array_mut)?
+        .get_mut(1)
+        .and_then(as_object_mut)?
+        .get_mut("args")
+        .and_then(as_array_mut)?
+        .first_mut()
+        .and_then(as_object_mut)?
+        .get_mut("args")
+        .and_then(as_array_mut)?
+        .first_mut()
+        .and_then(as_object_mut)
+}
+
+fn empty_mutation(obj: &mut Object<'_>) -> bool {
+    let already_empty = obj
+        .get("commands")
+        .and_then(as_array)
+        .is_some_and(Vec::is_empty);
+    let mut changed = !already_empty;
+    changed |= retain_keys(obj, &["source", "id", "type", "commands"]);
+    for name in ["id", "type"] {
+        if obj.get(name).is_some_and(|v| as_u32(v).is_none()) {
+            obj.remove(name);
+            changed = true;
+        }
+    }
+    obj.insert(key("commands"), Value::Array(Box::default()));
+    changed
+}
+
+fn scrub_frame_blob(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
     let mime = blob
         .get("type")
         .and_then(as_str)
         .unwrap_or("image/png")
         .to_string();
-    let Some(idx) = find_array_buffer_index(blob) else {
-        return false;
-    };
-    let base64 = match blob
+    let Some(base64) = blob
         .get("data")
         .and_then(as_array)
-        .and_then(|d| d.get(idx))
+        .and_then(|data| data.first())
         .and_then(as_object)
-        .and_then(|o| o.get("base64"))
+        .and_then(|buffer| buffer.get("base64"))
         .and_then(as_str)
-    {
-        Some(s) => s.to_string(),
-        None => return false,
+        .map(str::to_string)
+    else {
+        return false;
     };
     // A content ref left by an earlier pass. Reassembling it into `data:{mime};base64,image:...`
-    // below yields a URI that cannot decode, which `scrub_image` fails safe to a blank pixel —
-    // destroying the join key and stranding the image. Left alone only on an explicitly trusted
-    // re-scrub, and only when fully well-formed: see `assets::apply_blur`.
+    // yields a URI that cannot decode, which `scrub_image` fails safe to a blank pixel — destroying
+    // the join key and stranding the image. Left alone only on an explicitly trusted re-scrub, and
+    // only when fully well-formed: see `assets::scrub_media_sources`.
     if ctx.keeps_image_refs() && is_image_ref_strict(&base64) {
         return false;
     }
-    let original = format!("data:{mime};base64,{base64}");
-    // scrub_image never fails outward (fallbacks are baked in). The collection lane's ref
-    // replaces the payload wholesale (it is the consumer's join key, not decodable bytes); the
-    // mime survives only through the raster allowlist — the blur path re-encoded and overwrote
-    // it, so the ref path must not let a client string through this field either. Otherwise the
-    // split always succeeds — the stated fallback keeps the fail-safe explicit if the URI shape
-    // ever changes.
-    let scrubbed = ctx.scrub_image(&original, ImageFallback::Blank);
+    let scrubbed = ctx.scrub_image(
+        &format!("data:{mime};base64,{base64}"),
+        ImageFallback::Blank,
+    );
+    // The collection lane's ref replaces the payload wholesale, and the mime survives only through
+    // the raster allowlist, so no client string reaches the output through this field.
     let (new_b64, new_type) = if is_image_ref(&scrubbed) {
         (scrubbed, normalize_collected_mime(&mime).to_string())
     } else {
@@ -193,330 +236,184 @@ fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
             None => (BLANK_PNG_BASE64.to_string(), "image/png".to_string()),
         }
     };
-    if let Some(ab) = blob
+    if let Some(buffer) = blob
         .get_mut("data")
         .and_then(as_array_mut)
-        .and_then(|d| d.get_mut(idx))
+        .and_then(|data| data.first_mut())
         .and_then(as_object_mut)
     {
-        ab.insert(key("base64"), string_value(new_b64));
+        buffer.insert(key("base64"), string_value(new_b64));
     }
     blob.insert(key("type"), string_value(new_type));
     true
-}
-
-fn find_array_buffer_index(blob: &Object<'_>) -> Option<usize> {
-    blob.get("data").and_then(as_array).and_then(|data| {
-        data.iter().position(|d| {
-            as_object(d)
-                .map(|o| {
-                    o.get("rr_type").and_then(as_str) == Some("ArrayBuffer")
-                        && o.get("base64").and_then(as_str).is_some()
-                })
-                .unwrap_or(false)
-        })
-    })
-}
-
-/// Pixelate raw ImageData pixels in place (blanked, with the downsampled-and-restored region merged
-/// back in on success). Falls back to blanking every nested ArrayBuffer for an unexpected shape.
-fn blur_image_data<'v>(ctx: &Ctx<'_>, image_data: &mut Object<'v>) -> bool {
-    let width = image_data
-        .get("args")
-        .and_then(as_array)
-        .and_then(|a| a.get(1))
-        .and_then(as_u32);
-    let height = image_data
-        .get("args")
-        .and_then(as_array)
-        .and_then(|a| a.get(2))
-        .and_then(as_u32);
-    if let (Some(w), Some(h)) = (width, height) {
-        if w > 0 && h > 0 && pixelate_image_data_arg(ctx, image_data, w, h) {
-            return true;
-        }
-    }
-    // Unexpected shape — guarantee no raw-pixel leak by blanking every nested ArrayBuffer.
-    let mut v: Value<'v> = Value::Object(Box::new(std::mem::take(image_data)));
-    let changed = blank_array_buffers(&mut v);
-    if let Value::Object(o) = v {
-        *image_data = *o;
-    }
-    changed
-}
-
-/// Locate the RGBA ArrayBuffer behind an ImageData's pixel descriptor (direct or typed-array-wrapped),
-/// blank it and merge the pixelated region back. Returns whether it handled the pixels.
-fn pixelate_image_data_arg(ctx: &Ctx<'_>, image_data: &mut Object<'_>, w: u32, h: u32) -> bool {
-    // `checked_mul`: `w*h*4` on attacker-controlled dims can overflow usize; overflow -> no match.
-    let Some(expected) = (w as usize)
-        .checked_mul(h as usize)
-        .and_then(|wh| wh.checked_mul(4))
-    else {
-        return false;
-    };
-
-    // Shape A: args[0] is the ArrayBuffer directly.
-    let direct = image_data
-        .get("args")
-        .and_then(as_array)
-        .and_then(|a| a.first())
-        .and_then(as_object)
-        .map(|o| {
-            o.get("rr_type").and_then(as_str) == Some("ArrayBuffer")
-                && o.get("base64").and_then(as_str).is_some()
-        })
-        .unwrap_or(false);
-    if direct {
-        if let Some(ab) = image_data
-            .get_mut("args")
-            .and_then(as_array_mut)
-            .and_then(|a| a.first_mut())
-            .and_then(as_object_mut)
-        {
-            return process_raw_buffer(ctx, ab, 0, None, w, h, expected);
-        }
-    }
-
-    // Shape B: typed-array wrapper { args: [ {ArrayBuffer}, byteOffset?, length? ] }.
-    let (start, length_opt, wrapped) = {
-        let inner = image_data
-            .get("args")
-            .and_then(as_array)
-            .and_then(|a| a.first())
-            .and_then(as_object)
-            .and_then(|o| o.get("args"))
-            .and_then(as_array);
-        match inner {
-            Some(args) => {
-                let is_ab = args
-                    .first()
-                    .and_then(as_object)
-                    .map(|o| {
-                        o.get("rr_type").and_then(as_str) == Some("ArrayBuffer")
-                            && o.get("base64").and_then(as_str).is_some()
-                    })
-                    .unwrap_or(false);
-                (
-                    args.get(1).and_then(as_usize).unwrap_or(0),
-                    args.get(2).and_then(as_usize),
-                    is_ab,
-                )
-            }
-            None => (0, None, false),
-        }
-    };
-    if wrapped {
-        if let Some(ab) = image_data
-            .get_mut("args")
-            .and_then(as_array_mut)
-            .and_then(|a| a.first_mut())
-            .and_then(as_object_mut)
-            .and_then(|o| o.get_mut("args"))
-            .and_then(as_array_mut)
-            .and_then(|a| a.first_mut())
-            .and_then(as_object_mut)
-        {
-            return process_raw_buffer(ctx, ab, start, length_opt, w, h, expected);
-        }
-    }
-    false
-}
-
-fn process_raw_buffer(
-    ctx: &Ctx<'_>,
-    ab: &mut Object<'_>,
-    start: usize,
-    length_opt: Option<usize>,
-    w: u32,
-    h: u32,
-    expected: usize,
-) -> bool {
-    let Some(base64) = ab.get("base64").and_then(as_str).map(str::to_string) else {
-        return false;
-    };
-    let Ok(full) = b64().decode(base64.as_bytes()) else {
-        return false;
-    };
-    let length = length_opt.unwrap_or_else(|| full.len().saturating_sub(start));
-    // `start`/`length` come from untrusted JSON numbers; guard against overflow (release builds don't
-    // check arithmetic) so a crafted pair can't produce a reversed/out-of-range slice panic.
-    let Some(end) = start.checked_add(length) else {
-        return false;
-    };
-    if length != expected || end > full.len() {
-        return false;
-    }
-    let rgba = b64().encode(&full[start..end]);
-    let mut merged = full.clone();
-    for b in &mut merged[start..end] {
-        *b = 0;
-    }
-    if let Some(pix) = ctx.pixelate_raw(&rgba, w, h) {
-        if let Ok(outbuf) = b64().decode(pix.as_bytes()) {
-            if outbuf.len() == length {
-                merged[start..end].copy_from_slice(&outbuf);
-            }
-        }
-    }
-    ab.insert(key("base64"), string_value(b64().encode(&merged)));
-    true
-}
-
-/// Zero out every nested `{rr_type:'ArrayBuffer', base64}` (same byte length). Last-resort fail-safe.
-fn blank_array_buffers(node: &mut Value<'_>) -> bool {
-    match node {
-        Value::Array(arr) => {
-            let mut changed = false;
-            for item in arr.iter_mut() {
-                changed |= blank_array_buffers(item);
-            }
-            changed
-        }
-        Value::Object(obj) => {
-            if obj.get("rr_type").and_then(as_str) == Some("ArrayBuffer") {
-                if let Some(base64) = obj.get("base64").and_then(as_str) {
-                    let len = b64()
-                        .decode(base64.as_bytes())
-                        .map(|b| b.len())
-                        .unwrap_or(0);
-                    let zeros = b64().encode(vec![0u8; len]);
-                    obj.insert(key("base64"), string_value(zeros));
-                    return true;
-                }
-            }
-            let mut changed = false;
-            for (_, val) in obj.iter_mut() {
-                changed |= blank_array_buffers(val);
-            }
-            changed
-        }
-        _ => false,
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::allow_lists::AllowLists;
+    use crate::collect::ImageCollection;
     use crate::context::Ctx;
-    use crate::testkit::{png_base64, png_data_uri, rgba_base64};
-    use base64::Engine;
+    use crate::testkit::png_base64;
+    use serde_json::json;
     use simd_json::prelude::Writable;
 
-    // Scrub a CanvasMutation `data` JSON string and return the result as a serde_json Value.
-    fn scrub(data_json: &str) -> serde_json::Value {
+    fn frame(mime: &str, base64: &str) -> serde_json::Value {
+        json!({ "source": 9, "id": 1, "type": 0,
+            "commands": [
+                { "property": "clearRect", "args": [0, 0, 8, 8] },
+                { "property": "drawImage", "args": [
+                    { "rr_type": "ImageBitmap", "args": [
+                        { "rr_type": "Blob", "type": mime,
+                          "data": [{ "rr_type": "ArrayBuffer", "base64": base64 }] }] },
+                    0, 0, 8, 8] }],
+            "displayWidth": 8, "displayHeight": 8 })
+    }
+
+    fn scrub_with(ctx: &Ctx<'_>, data: &serde_json::Value) -> (bool, serde_json::Value) {
+        let mut bytes = data.to_string().into_bytes();
+        let mut value = simd_json::to_borrowed_value(&mut bytes).unwrap();
+        let changed = scrub_canvas_mutation(ctx, &mut value);
+        (changed, serde_json::from_str(&value.encode()).unwrap())
+    }
+
+    fn blob(out: &serde_json::Value) -> &serde_json::Value {
+        &out["commands"][1]["args"][0]["args"][0]
+    }
+
+    #[test]
+    fn snapshot_frame_image_never_passes_through() {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
-        let ctx = Ctx::new(&allow);
-        let mut bytes = data_json.as_bytes().to_vec();
-        let mut data = simd_json::to_borrowed_value(&mut bytes).unwrap();
-        scrub_canvas_mutation(&ctx, &mut data);
-        serde_json::from_str(&data.encode()).unwrap()
-    }
-
-    fn decode(b64: &str) -> Vec<u8> {
-        b64_engine().decode(b64).unwrap()
-    }
-    fn b64_engine() -> base64::engine::general_purpose::GeneralPurpose {
-        base64::engine::general_purpose::STANDARD
-    }
-
-    #[test]
-    fn image_element_data_uri_src_is_neutralized() {
-        let uri = png_data_uri(8, 8, [200, 10, 10, 255]);
-        let out = scrub(&format!(
-            r#"{{"source":9,"id":1,"type":0,"commands":[{{"property":"drawImage","args":[{{"rr_type":"HTMLImageElement","src":"{uri}"}}]}}]}}"#
-        ));
-        let src = out["commands"][0]["args"][0]["src"].as_str().unwrap();
-        assert!(src.starts_with("data:image/"), "still an image: {src}");
-        assert_ne!(src, uri, "raw image must not pass through");
+        let b64 = png_base64(8, 8, [10, 200, 10, 255]);
+        let sized = frame("image/png", &b64);
+        let mut unsized_frame = sized.clone();
+        unsized_frame["commands"][1]["args"]
+            .as_array_mut()
+            .unwrap()
+            .truncate(3);
+        for data in [sized, unsized_frame] {
+            let ctx = Ctx::new(&allow);
+            let (changed, out) = scrub_with(&ctx, &data);
+            assert!(changed);
+            assert_ne!(blob(&out)["data"][0]["base64"], b64.as_str());
+            assert_eq!(out["commands"][0]["property"], "clearRect");
+            let rejected = ctx
+                .take_scrub_drops()
+                .into_iter()
+                .any(|(reason, _)| reason == REJECTED_CANVAS_MUTATION);
+            assert!(!rejected, "a frame is kept: {data}");
+        }
     }
 
     #[test]
-    fn blob_mime_is_allowlisted_on_the_collection_lane() {
-        // The blur path re-encodes and overwrites the client-controlled `type`; the ref path has
-        // no bytes to re-encode, so it must normalize the mime instead of echoing client text.
-        use crate::collect::ImageCollection;
+    fn snapshot_frame_image_becomes_a_ref_on_the_collection_lane() {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::with_image_collection(
             &allow,
-            Some(ImageCollection {
-                team_id: "0".repeat(32),
-                content_key: "k".repeat(32),
-            }),
+            Some(ImageCollection::new("0".repeat(32), "k".repeat(32))),
         );
-        let b64 = png_base64(8, 8, [10, 200, 10, 255]);
-        let scrub_with = |mime: &str| -> serde_json::Value {
-            let data_json = format!(
-                r#"{{"source":9,"id":1,"type":0,"commands":[{{"property":"drawImage","args":[{{"rr_type":"Blob","type":"{mime}","data":[{{"rr_type":"ArrayBuffer","base64":"{b64}"}}]}}]}}]}}"#
-            );
-            let mut bytes = data_json.as_bytes().to_vec();
-            let mut data = simd_json::to_borrowed_value(&mut bytes).unwrap();
-            scrub_canvas_mutation(&ctx, &mut data);
-            serde_json::from_str(&data.encode()).unwrap()
-        };
-        let arg = |v: &serde_json::Value| v["commands"][0]["args"][0].clone();
-
-        let kept = arg(&scrub_with("image/webp"));
-        assert_eq!(kept["type"], "image/webp", "known raster subtype survives");
-        assert!(kept["data"][0]["base64"]
+        let (_, out) = scrub_with(
+            &ctx,
+            &frame("image/webp", &png_base64(8, 8, [10, 200, 10, 255])),
+        );
+        assert_eq!(blob(&out)["type"], "image/webp");
+        assert!(blob(&out)["data"][0]["base64"]
             .as_str()
             .unwrap()
             .starts_with("image:"));
-
-        let scrubbed = arg(&scrub_with("image/x-evil-client-text"));
-        assert_eq!(
-            scrubbed["type"], "image/png",
-            "unknown subtype must not echo"
-        );
+        assert!(ctx.take_scrub_drops().is_empty());
     }
 
     #[test]
-    fn blob_image_bytes_are_neutralized() {
-        let b64 = png_base64(8, 8, [10, 200, 10, 255]);
-        let out = scrub(&format!(
-            r#"{{"source":9,"id":1,"type":0,"commands":[{{"property":"drawImage","args":[{{"rr_type":"Blob","type":"image/png","data":[{{"rr_type":"ArrayBuffer","base64":"{b64}"}}]}}]}}]}}"#
-        ));
-        let new_b64 = out["commands"][0]["args"][0]["data"][0]["base64"]
-            .as_str()
-            .unwrap();
-        assert_ne!(new_b64, b64, "raw blob bytes must not pass through");
+    fn snapshot_frame_keeps_only_its_known_keys() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let mut data = frame("image/png", &png_base64(8, 8, [1, 2, 3, 255]));
+        data["secret"] = json!("x");
+        data["commands"][0]["secret"] = json!("x");
+        data["commands"][1]["args"][0]["secret"] = json!("x");
+        data["commands"][1]["args"][0]["args"][0]["secret"] = json!("x");
+        data["commands"][1]["args"][0]["args"][0]["data"][0]["secret"] = json!("x");
+        let (_, out) = scrub_with(&Ctx::new(&allow), &data);
+        assert!(!out.to_string().contains("secret"), "{out}");
     }
 
     #[test]
-    fn image_data_raw_pixels_are_pixelated_preserving_length() {
-        let (w, h) = (8u32, 8u32);
-        let rgba = rgba_base64(w, h);
-        let out = scrub(&format!(
-            r#"{{"source":9,"id":1,"type":0,"commands":[{{"property":"putImageData","args":[{{"rr_type":"ImageData","args":[{{"rr_type":"ArrayBuffer","base64":"{rgba}"}},{w},{h}]}}]}}]}}"#
-        ));
-        let new_b64 = out["commands"][0]["args"][0]["args"][0]["base64"]
-            .as_str()
-            .unwrap();
-        assert_ne!(new_b64, rgba, "raw pixels must not pass through");
-        assert_eq!(
-            decode(new_b64).len(),
-            (w * h * 4) as usize,
-            "byte length preserved"
-        );
+    fn anything_but_a_snapshot_frame_keeps_only_its_identity() {
+        let png = png_base64(8, 8, [10, 200, 10, 255]);
+        let mut extra_command = frame("image/png", &png);
+        extra_command["commands"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "property": "fillText", "args": ["secret", 1, 2] }));
+        let mut webgl = frame("image/png", &png);
+        webgl["type"] = json!(1);
+        let cases = [
+            (
+                "text",
+                json!({ "source": 9, "id": 1, "type": 0,
+                "commands": [{ "property": "fillText", "args": ["Hello secret", 10, 20] }] }),
+            ),
+            (
+                "flattened command",
+                json!({ "source": 9, "id": 1, "type": 0,
+                "property": "strokeText", "args": ["Hi secret", 1, 2] }),
+            ),
+            (
+                "raw pixels",
+                json!({ "source": 9, "id": 1, "type": 0,
+                "commands": [{ "property": "putImageData", "args": [{ "rr_type": "ImageData",
+                    "args": [{ "rr_type": "ArrayBuffer", "base64": "AAAA" }, 1, 1] }, 0, 0] }] }),
+            ),
+            (
+                "image element",
+                json!({ "source": 9, "id": 1, "type": 0,
+                "commands": [{ "property": "drawImage", "args": [
+                    { "rr_type": "HTMLImageElement", "src": format!("data:image/png;base64,{png}") }] }] }),
+            ),
+            (
+                "unwrapped blob",
+                json!({ "source": 9, "id": 1, "type": 0,
+                "commands": [{ "property": "drawImage", "args": [{ "rr_type": "Blob", "type": "image/png",
+                    "data": [{ "rr_type": "ArrayBuffer", "base64": png }] }] }] }),
+            ),
+            ("svg frame", frame("image/svg+xml", &png)),
+            ("extra command", extra_command),
+            ("webgl context", webgl),
+        ];
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        for (name, data) in cases {
+            let ctx = Ctx::new(&allow);
+            let (changed, out) = scrub_with(&ctx, &data);
+            let context = if name == "webgl context" {
+                json!(1)
+            } else {
+                json!(0)
+            };
+            assert!(changed, "{name}");
+            assert_eq!(
+                out,
+                json!({ "source": 9, "id": 1, "type": context, "commands": [] }),
+                "{name}"
+            );
+            assert_eq!(
+                ctx.take_scrub_drops(),
+                vec![(REJECTED_CANVAS_MUTATION, 1)],
+                "{name}"
+            );
+        }
     }
 
     #[test]
-    fn malformed_image_data_blanks_the_array_buffer() {
-        // 4x4 buffer (64 bytes) but claims 8x8 (256 expected) → the raw-pixel path bails and the
-        // fail-safe zeroes every nested ArrayBuffer rather than shipping the pixels.
-        let rgba = rgba_base64(4, 4);
-        let out = scrub(&format!(
-            r#"{{"source":9,"id":1,"type":0,"commands":[{{"property":"putImageData","args":[{{"rr_type":"ImageData","args":[{{"rr_type":"ArrayBuffer","base64":"{rgba}"}},8,8]}}]}}]}}"#
-        ));
-        let new_b64 = out["commands"][0]["args"][0]["args"][0]["base64"]
-            .as_str()
-            .unwrap();
-        let bytes = decode(new_b64);
-        assert_eq!(bytes.len(), decode(&rgba).len(), "byte length preserved");
+    fn an_emptied_mutation_is_left_alone() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let empty = json!({ "source": 9, "id": 1, "type": 0, "commands": [] });
+        let ctx = Ctx::new(&allow);
+        let (changed, out) = scrub_with(&ctx, &empty);
+        assert!(!changed);
+        assert_eq!(out, empty);
         assert!(
-            bytes.iter().all(|&b| b == 0),
-            "unhandled shape must be blanked"
+            ctx.take_scrub_drops().is_empty(),
+            "nothing was dropped this time"
         );
     }
 }

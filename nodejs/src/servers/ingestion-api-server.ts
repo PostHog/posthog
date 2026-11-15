@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import {
@@ -20,7 +21,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
-import { GeoIPService } from '~/common/utils/geoip'
+import { GeoIPServiceComponent, geoipServerDefaultMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -28,7 +29,7 @@ import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
-import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
+import { buildIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
@@ -48,6 +49,7 @@ import {
 import {
     FlushBatchStoresOutputs,
     createGroupProducePromises,
+    createPersonProducePromises,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { TopHog } from '~/ingestion/framework/tophog'
 import {
@@ -175,6 +177,9 @@ export class IngestionApiServer implements NodeServer {
     // Kafka consumer's contract of crashing and rebuilding rather than serving
     // a wedged pipeline forever.
     private fatalError?: Error
+    // Set when a sub-batch is stuck: readiness fails so consumers stop routing
+    // here, while liveness passes so the drain is not cut short by a restart.
+    private stuckError?: Error
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
         this.config = {
@@ -222,16 +227,17 @@ export class IngestionApiServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
-        await geoipService.get()
+        const { value: geoipService, stop: stopGeoIPService } = await new GeoIPServiceComponent(
+            this.config.MMDB_FILE_LOCATION,
+            geoipServerDefaultMode(this.config.CLOUD_DEPLOYMENT)
+        ).start()
 
         const personhogClient = createPersonHogClient(this.config)
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
 
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-            personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
-            personCreateClaimTeamAllowlist: this.config.PERSON_CREATE_CLAIM_TEAM_ALLOWLIST,
+            personBatchWritePerKeyTeamAllowlist: this.config.PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(
             personhogClient,
@@ -251,7 +257,10 @@ export class IngestionApiServer implements NodeServer {
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            new PostgresIntegrationSource(this.postgres, encryptedFields)
+        )
 
         // 3. Ingestion-specific services
         logger.info('🤔', 'Connecting to cookieless Redis...')
@@ -276,7 +285,8 @@ export class IngestionApiServer implements NodeServer {
         })
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
-        this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
+        this.ingestionProducerRegistry = await buildIngestionProducerRegistry(
+            this.config.KAFKA_CLIENT_RACK,
             this.config
         )
         const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
@@ -296,6 +306,7 @@ export class IngestionApiServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
+            teamManager,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()
@@ -311,6 +322,7 @@ export class IngestionApiServer implements NodeServer {
             overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                localCacheMaxSize: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE,
                 strategies: createAnalyticsOverflowStrategies({
                     eventBucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                     eventReplenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
@@ -346,7 +358,7 @@ export class IngestionApiServer implements NodeServer {
             maxOptimisticUpdateRetries: this.config.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
-            mergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
+            mergeLockedOutcomeTeamAllowlist: this.config.PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST,
             mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
             mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
             mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
@@ -371,13 +383,17 @@ export class IngestionApiServer implements NodeServer {
                 readMaxBytes: this.config.PERSONHOG_READ_MAX_BYTES,
                 writeMaxBytes: this.config.PERSONHOG_WRITE_MAX_BYTES,
                 clientName: 'ingestion-persons-store',
+                initialStreamWindowBytes: this.config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
+                initialConnectionWindowBytes: this.config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,
             })
             const identityClients = createIdentityClients(
                 {
                     addr: this.config.PERSONHOG_IDENTITY_ADDR,
                     useTls: this.config.PERSONHOG_TLS,
-                    timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                    timeoutMs: this.config.PERSONHOG_IDENTITY_TIMEOUT_MS,
                     clientName: 'ingestion-persons-store',
+                    initialStreamWindowBytes: this.config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
+                    initialConnectionWindowBytes: this.config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,
                 },
                 { mergeTimeoutMs: this.config.PERSONHOG_MERGE_TIMEOUT_MS }
             )
@@ -392,6 +408,7 @@ export class IngestionApiServer implements NodeServer {
                 updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 syncMergeMoveLimit: this.config.PERSONHOG_SYNC_MERGE_MOVE_LIMIT,
                 requestTimeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                mergeTimeoutMs: this.config.PERSONHOG_MERGE_TIMEOUT_MS,
             })
             personsStore = new RoutingPersonsStore(this.personsStore, personhogStore, personsStoreMode)
         }
@@ -431,6 +448,8 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
+                PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: this.config.PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS,
+                PERSON_MERGE_NOT_APPLIED_WAIT_MS: this.config.PERSON_MERGE_NOT_APPLIED_WAIT_MS,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
@@ -440,7 +459,9 @@ export class IngestionApiServer implements NodeServer {
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
             createEventUsageBatch: createEventUsageBatchFactory(this.config, 'events'),
         }
-        const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres).start()
+        const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres, {
+            pipeline: 'analytics',
+        }).start()
         const featureFlagCalledDedupService = createFeatureFlagCalledDedupService(
             this.featureFlagCalledDedupRedisPool,
             this.config
@@ -488,31 +509,40 @@ export class IngestionApiServer implements NodeServer {
                 sessionIdleTimeoutMs: this.config.INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS,
                 readMaxBytes: this.config.INGESTION_API_GRPC_READ_MAX_BYTES,
                 drainTimeoutMs: this.config.INGESTION_API_GRPC_DRAIN_TIMEOUT_MS,
+                stuckBatchTimeoutMs: this.config.INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS,
+                stuckDrainTimeoutMs: this.config.INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS,
             },
             {
                 driver: new GrpcStreamIngestDriver(grpcPipeline, this.promiseScheduler),
                 feedOrderSentinel: this.feedOrderSentinel,
-                onFatal: (error) => {
-                    // A poisoned pipeline is rebuilt by the supervisor, not
-                    // served: latch unhealthy and shut down once.
-                    if (!this.fatalError) {
-                        this.fatalError = error
-                        void this.stop(error)
-                    }
+                // A poisoned pipeline is rebuilt by the supervisor, not
+                // served: latch unhealthy and shut down once.
+                onFatal: (error) => this.crash(error),
+                onStuck: (error) => {
+                    this.stuckError = error
                 },
+                onStuckDrained: (error) => this.crash(error),
             }
         )
         await this.grpcServer.start()
 
         const service: PluginServerService = {
             id: 'ingestion-api',
+            // Runs before the lifecycle ends Postgres and Redis, so in-flight batches and the store drain finish here.
             onShutdown: async () => {
-                await this.topHog.stop()
-                await this.hogTransformer.stop()
-                await eventFilterManagerStarted.stop()
-                await stopEventIngestionRestrictionManager()
+                try {
+                    await this.grpcServer?.stop()
+                    await this.drainStores()
+                } finally {
+                    await this.topHog.stop()
+                    await this.hogTransformer.stop()
+                    await eventFilterManagerStarted.stop()
+                    await stopEventIngestionRestrictionManager()
+                    await stopGeoIPService()
+                }
             },
             healthcheck: () => this.isHealthy(),
+            readinessCheck: () => this.isReady(),
         }
         this.lifecycle.services.push(service)
     }
@@ -525,6 +555,64 @@ export class IngestionApiServer implements NodeServer {
         return new HealthCheckResultOk()
     }
 
+    private crash(error: Error): void {
+        if (this.fatalError) {
+            return
+        }
+        this.fatalError = error
+        if (this.stuckError) {
+            setTimeout(() => {
+                logger.error('🧊', 'Stuck-batch shutdown cleanup timed out, exiting')
+                process.exit(1)
+            }, this.config.INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS)
+        }
+        void this.stop(error)
+    }
+
+    private isReady(): HealthCheckResult {
+        if (this.stuckError) {
+            return new HealthCheckResultError('Sub-batch stuck, draining before exit', {
+                error: this.stuckError.message,
+            })
+        }
+        return new HealthCheckResultOk()
+    }
+
+    /** Drains both stores even when one fails, then rethrows the first failure. */
+    private async drainStores(): Promise<void> {
+        const results = await Promise.allSettled([this.drainPersonsStore(), this.drainGroupStore()])
+        this.personhogClientClosers.forEach((close) => close())
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+        if (failed) {
+            throw failed.reason
+        }
+    }
+
+    private async drainPersonsStore(): Promise<void> {
+        // In shadow mode the pipeline's store is the routing store, so both backends write the pending updates.
+        const personsStore = this.pipelinePersonsStore ?? this.personsStore
+        if (!personsStore) {
+            return
+        }
+        const flushResults = await personsStore.flush()
+        if (this.ingestionOutputs) {
+            await Promise.all(createPersonProducePromises(flushResults, this.ingestionOutputs))
+        }
+        await personsStore.shutdown()
+    }
+
+    private async drainGroupStore(): Promise<void> {
+        if (!this.groupStore) {
+            return
+        }
+        const flushResults = await this.groupStore.flush()
+        // flush() leaves the ClickHouse messages to the caller; skipping them would write Postgres only.
+        if (flushResults.length > 0 && this.ingestionOutputs) {
+            await Promise.all(createGroupProducePromises(flushResults, this.ingestionOutputs))
+        }
+        await this.groupStore.shutdown()
+    }
+
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
@@ -534,33 +622,8 @@ export class IngestionApiServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
-                // Stop accepting stream traffic before draining stores, so no
-                // new batches land mid-teardown.
-                await this.grpcServer?.stop()
-                // No Kafka offsets in this server — drain buffered writes before
-                // shutdown so shutdown() can assert a clean cache.
-                if (this.personsStore) {
-                    await this.personsStore.flushAndProduceMessages()
-                }
-                if (this.pipelinePersonsStore) {
-                    await this.pipelinePersonsStore.shutdown()
-                } else if (this.personsStore) {
-                    await this.personsStore.shutdown()
-                }
-                this.personhogClientClosers.forEach((close) => close())
-                if (this.groupStore) {
-                    const groupFlushResults = await this.groupStore.flush()
-                    // flush() returns messages for the caller to produce (it no
-                    // longer awaits ClickHouse delivery inline) — mirror
-                    // personsStore.flushAndProduceMessages() so a drain at
-                    // shutdown doesn't write Postgres but silently drop the
-                    // corresponding ClickHouse row.
-                    if (groupFlushResults.length > 0 && this.ingestionOutputs) {
-                        await Promise.all(createGroupProducePromises(groupFlushResults, this.ingestionOutputs))
-                    }
-                    await this.groupStore.shutdown()
-                }
                 this.cookielessManager?.shutdown()
+                // Disconnected last: the store drain in the ingestion-api service's onShutdown produces through them.
                 await this.ingestionProducerRegistry?.disconnectAll()
             },
         }

@@ -818,6 +818,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     ): void => {
       this.markRelayRequestHandled(requestKey);
       this.analytics.track(ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY, {
+        $update_person_last_seen_at: false,
         credential: data.credential,
         outcome,
       });
@@ -1743,6 +1744,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       });
       if (idleWatcher) {
         this.analytics.track(ANALYTICS_EVENTS.CLOUD_STREAM_IDLE_TIMEOUT, {
+          $update_person_last_seen_at: false,
           task_id: idleWatcher.taskId,
           run_id: idleWatcher.runId,
           team_id: idleWatcher.teamId,
@@ -2402,6 +2404,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     });
 
     this.analytics.track(ANALYTICS_EVENTS.CLOUD_STREAM_DISCONNECTED, {
+      $update_person_last_seen_at: false,
       task_id: watcher.taskId,
       run_id: watcher.runId,
       team_id: watcher.teamId,
@@ -2775,20 +2778,22 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   }
 
   /**
-   * A one-entry probe learns the chain total from X-Matching-Count without
-   * downloading a page an oversized log would throw away, then only the
-   * newest `transcriptTailWindow` entries are fetched; the renderer pages in
-   * older history on scroll. Hosts without a tail window, and servers that
-   * don't report the total, get the full walk continued from the probe's
-   * page. `coverFromOffset` pulls the window start down to a chain offset the
-   * caller needs covered. Null on failure.
+   * Fetch a usable first page because each request reads the full log on the server.
+   * Long transcripts use the returned count to fetch the tail; older history stays paged.
+   * `coverFromOffset` keeps a required chain offset in the window.
    */
   private async fetchSessionLogsWindow(
     watcher: WatcherState,
     options: { coverFromOffset?: number } = {},
   ): Promise<SessionLogsWindow | null> {
     const tailWindow = this.transcriptTailWindow;
-    const probe = await this.fetchSessionLogsPage(watcher, 0, 1);
+    const probe = await this.fetchSessionLogsPage(
+      watcher,
+      0,
+      tailWindow === undefined
+        ? 1
+        : Math.min(tailWindow, SESSION_LOG_PAGE_LIMIT),
+    );
     if (!probe) return null;
     if (!probe.hasMore) {
       return {
@@ -2810,8 +2815,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         options.coverFromOffset ?? Number.POSITIVE_INFINITY,
       ),
     );
-    const entries: StoredLogEntry[] = [];
-    let offset = tailStart;
+    const entries: StoredLogEntry[] = tailStart === 0 ? [...probe.entries] : [];
+    let offset = tailStart + entries.length;
     // The probe's count is a snapshot, and a run whose log is still being
     // persisted grows behind it. Following the server's own end-of-log signal
     // as well keeps those newest entries in the window.

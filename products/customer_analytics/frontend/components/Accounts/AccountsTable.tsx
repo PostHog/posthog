@@ -5,6 +5,7 @@ import { IconCheck, IconInfo, IconPencil, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonColorGlyph,
+    LemonDialog,
     LemonInput,
     LemonSelect,
     LemonSkeleton,
@@ -18,39 +19,35 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
-import { tagsModel } from '~/models/tagsModel'
+import { membersLogic } from '~/models/membersLogic'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import type {
+    AccountsTableCustomPropertyDefinition,
+    AccountsTableRelationshipDefinition,
+} from '~/queries/schema/schema-general'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
 
-import type {
-    AccountRelationshipDefinitionApi,
-    CustomPropertyDefinitionApi,
-} from 'products/customer_analytics/frontend/generated/api.schemas'
-
 import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
-import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { AccountPinnedPropertiesExpansion } from './AccountPinnedPropertiesExpansion'
-import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
+import { AccountColumnDisplayConfig, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { accountsViewsLogic } from './accountsViewsLogic'
+import type { AccountSystemTabKind } from './accountViewComponents'
 import { useAccountColumnAutoSizing } from './useAccountColumnAutoSizing'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
@@ -109,8 +106,6 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 function TagsCell({ record }: { record: unknown }): JSX.Element {
     const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
     const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
-    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
     const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
     const cellTags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
@@ -123,11 +118,10 @@ function TagsCell({ record }: { record: unknown }): JSX.Element {
         <ObjectTags
             tags={tags}
             onChange={(newTags) => updateAccountTags(accountId, newTags)}
-            onEdit={loadTagsIfNeeded}
             onTagClick={addTagToFilter}
-            saving={isTagsSaving(accountId) || tagsLoading}
-            tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
+            saving={isTagsSaving(accountId)}
             data-attr="accounts-tags-cell"
+            editorFullWidth
         />
     )
 }
@@ -145,7 +139,7 @@ function RelationshipCell({
 }: {
     record: unknown
     column: string
-    definition: AccountRelationshipDefinitionApi
+    definition: AccountsTableRelationshipDefinition
 }): JSX.Element {
     const { isRoleSaving, relationshipOverrides } = useValues(accountsLogic)
     const { updateAccountRole } = useActions(accountsLogic)
@@ -251,7 +245,7 @@ function CustomPropertyHistoryCell({
     display,
 }: {
     raw: unknown
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
     display: AccountColumnDisplayConfig
 }): JSX.Element {
     const { latest, baseline, chartPoints } = buildHistoryDisplay(
@@ -313,11 +307,13 @@ function CustomPropertyHistoryCell({
     )
 }
 
-const CANONICAL_PROPERTY_TAB: Record<string, AccountExpansionTab> = {
+const CANONICAL_PROPERTY_TAB: Record<string, AccountSystemTabKind> = {
     'Last Slack message at': 'conversations',
 }
 
-export function getCanonicalPropertyTab(definition: CustomPropertyDefinitionApi): AccountExpansionTab | undefined {
+export function getCanonicalPropertyTab(
+    definition: AccountsTableCustomPropertyDefinition
+): AccountSystemTabKind | undefined {
     return definition.is_canonical ? CANONICAL_PROPERTY_TAB[definition.name] : undefined
 }
 
@@ -328,47 +324,29 @@ function CanonicalTimestampCell({
     tab,
 }: {
     record: unknown
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
     value: string
-    tab: AccountExpansionTab
+    tab: AccountSystemTabKind
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { openAccountTab } = useActions(accountsExpansionLogic)
     const accountId = getNameCell(record)?.id
     const label = <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
 
     if (!accountId) {
         return label
     }
-    return (
-        <Link
-            to={urls.customerAnalyticsAccount(accountId, tab)}
-            onClick={(event) => {
-                if (
-                    featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE] ||
-                    event.metaKey ||
-                    event.ctrlKey ||
-                    event.shiftKey
-                ) {
-                    return
-                }
-                event.preventDefault()
-                event.stopPropagation()
-                openAccountTab(accountId, tab)
-            }}
-        >
-            {label}
-        </Link>
-    )
+    return <Link to={urls.customerAnalyticsAccount(accountId, tab)}>{label}</Link>
 }
 
-export function isCustomPropertyEditable(definition: CustomPropertyDefinitionApi): boolean {
+export function isCustomPropertyEditable(definition: AccountsTableCustomPropertyDefinition): boolean {
     return !definition.is_canonical && !definition.source
 }
 
 type CustomPropertyDraft = boolean | string
 
-function customPropertyDraftValue(value: unknown, definition: CustomPropertyDefinitionApi): CustomPropertyDraft {
+function customPropertyDraftValue(
+    value: unknown,
+    definition: AccountsTableCustomPropertyDefinition
+): CustomPropertyDraft {
     if (definition.display_type === 'boolean') {
         return value === true || value === 'true' || value === '1'
     }
@@ -384,7 +362,7 @@ function customPropertyDraftValue(value: unknown, definition: CustomPropertyDefi
 
 function customPropertyValueToSave(
     draft: CustomPropertyDraft,
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
 ): string | number | boolean {
     if (definition.display_type === 'boolean') {
         return draft === true
@@ -409,7 +387,7 @@ function isHttpUrl(value: string): boolean {
 
 export function isCustomPropertyValueValid(
     draft: CustomPropertyDraft,
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
 ): boolean {
     if (definition.display_type === 'boolean') {
         return true
@@ -430,7 +408,7 @@ export function isCustomPropertyValueValid(
 function renderCustomPropertyValue(
     record: unknown,
     value: string,
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
 ): JSX.Element {
     if (!value) {
         return <span className="text-muted">—</span>
@@ -466,7 +444,7 @@ function renderCustomPropertyValue(
 
 function renderCustomPropertyEditor(
     draft: CustomPropertyDraft,
-    definition: CustomPropertyDefinitionApi,
+    definition: AccountsTableCustomPropertyDefinition,
     setDraft: (draft: CustomPropertyDraft) => void,
     saveValue: (nextValue?: CustomPropertyDraft) => void,
     cancelEdit: () => void
@@ -569,7 +547,7 @@ function CustomPropertyCell({
 }: {
     record: unknown
     column: string
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
     display?: AccountColumnDisplayConfig
     isEditable: boolean
 }): JSX.Element {
@@ -582,7 +560,7 @@ function CustomPropertyCell({
     const currentValue = display
         ? (buildHistoryDisplay(parseHistoryPoints(raw), display.window_days, dayjs().valueOf()).latest?.[1] ?? null)
         : raw
-    const value = override ?? currentValue
+    const value = override !== undefined ? override : currentValue
     const [isEditing, setIsEditing] = useState(false)
     const [draft, setDraft] = useState<CustomPropertyDraft>(() => customPropertyDraftValue(value, definition))
     const saving = accountId ? isCustomPropertySaving(accountId, definition.id) : false
@@ -591,23 +569,59 @@ function CustomPropertyCell({
         setDraft(customPropertyDraftValue(value, definition))
         setIsEditing(true)
     }
-    const saveValue = (nextValue: CustomPropertyDraft = draft): void => {
-        if (!accountId || !isCustomPropertyValueValid(nextValue, definition)) {
+    const saveValue = (nextValue: CustomPropertyDraft | null = draft): void => {
+        if (!accountId || saving || (nextValue !== null && !isCustomPropertyValueValid(nextValue, definition))) {
             return
         }
-        updateAccountCustomProperty(accountId, definition, customPropertyValueToSave(nextValue, definition))
+        updateAccountCustomProperty(
+            accountId,
+            definition,
+            nextValue === null ? null : customPropertyValueToSave(nextValue, definition)
+        )
         setIsEditing(false)
+    }
+    const confirmClear = (): void => {
+        if (saving) {
+            return
+        }
+        LemonDialog.open({
+            title: `Clear ${definition.name}?`,
+            content: 'This will remove the current value. You can set it again later.',
+            primaryButton: {
+                children: 'Clear value',
+                status: 'danger',
+                onClick: () => saveValue(null),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
     }
     const isDatePicker = definition.display_type === 'date' || definition.display_type === 'datetime'
 
     if (isEditing && accountId) {
         return (
             <div
-                className={`inline-flex w-fit min-w-0 max-w-full flex-wrap items-center ${definition.display_type === 'boolean' ? 'gap-2' : 'gap-1'}`}
+                className={`inline-flex w-fit min-w-0 max-w-full flex-wrap items-center gap-y-2 ${definition.display_type === 'boolean' ? 'gap-x-2' : 'gap-x-1'}`}
             >
                 <div className={definition.display_type === 'boolean' ? undefined : 'w-40 min-w-0 max-w-full'}>
                     {renderCustomPropertyEditor(draft, definition, setDraft, saveValue, () => setIsEditing(false))}
                 </div>
+                <LemonButton
+                    size="xsmall"
+                    status="danger"
+                    tooltip="Clear value"
+                    aria-label="Clear value"
+                    onClick={confirmClear}
+                    disabledReason={
+                        saving
+                            ? 'Saving…'
+                            : value === null || value === undefined
+                              ? 'This property has no value'
+                              : undefined
+                    }
+                    data-attr="accounts-custom-property-value-clear"
+                >
+                    Clear
+                </LemonButton>
                 {!isDatePicker && (
                     <div
                         className={`ml-auto flex shrink-0 items-center ${definition.display_type === 'boolean' ? 'gap-2' : 'gap-1'}`}
@@ -618,6 +632,7 @@ function CustomPropertyCell({
                             icon={<IconCheck />}
                             tooltip="Save"
                             onClick={() => saveValue()}
+                            loading={saving}
                             disabledReason={
                                 isCustomPropertyValueValid(draft, definition)
                                     ? undefined
@@ -799,10 +814,8 @@ function useContextColumns(): Record<string, QueryContextColumn> {
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { expandedAccountIds } = useValues(accountsExpansionLogic)
     const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
-    const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
     return useMemo(() => {
         return {
             noIndent: true,
@@ -828,14 +841,10 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
                 if (!cell) {
                     return null
                 }
-                return accountSceneEnabled ? (
-                    <AccountPinnedPropertiesExpansion accountId={cell.id} />
-                ) : (
-                    <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
-                )
+                return <AccountPinnedPropertiesExpansion accountId={cell.id} />
             },
         }
-    }, [accountSceneEnabled, expandedAccountIds, toggleAccountExpanded])
+    }, [expandedAccountIds, toggleAccountExpanded])
 }
 
 const SKELETON_ROW_COUNT = 5
@@ -866,16 +875,6 @@ const SKELETON_COLUMNS: LemonTableColumns<{ key: number }> = [
         width: COLUMN_WIDTHS.notebook_count,
         render: () => <LemonSkeleton className="h-4 w-4" />,
     },
-    ...Object.values(LEGACY_ROLE_COLUMNS).map((label) => ({
-        title: label,
-        width: COLUMN_WIDTHS.relationship,
-        render: () => (
-            <div className="flex items-center gap-2">
-                <LemonSkeleton.Circle className="h-5 w-5" />
-                <LemonSkeleton className="h-4 w-24" />
-            </div>
-        ),
-    })),
 ]
 
 function AccountsTableSkeleton(): JSX.Element {
@@ -923,8 +922,6 @@ export function AccountsTable(): JSX.Element {
         }),
         [contextColumns, columnWidths, hasAutoSizedColumns, expandable, sortedRowsTransformer]
     )
-    // A null source means the query is still waiting on the relationship
-    // definitions — same skeleton as the initial fetch, not an empty table.
     if ((responseLoading || !accountsQuerySource) && !response) {
         return <AccountsTableSkeleton />
     }

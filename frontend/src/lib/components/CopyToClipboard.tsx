@@ -24,6 +24,7 @@ interface InlinePropsBase {
     style?: React.CSSProperties
     /** @default true */
     iconMargin?: boolean
+    'data-attr'?: string
 }
 interface InlinePropsWithStringInside extends InlinePropsBase {
     children: string
@@ -49,6 +50,7 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
         className,
         style,
         iconMargin = true,
+        'data-attr': dataAttr,
         ...props
     },
     ref
@@ -61,7 +63,7 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
             icon={<IconCopy style={{ ...iconStyle }} />}
             noPadding
             className={iconMargin ? 'ml-1' : undefined}
-            data-attr="copy-icon"
+            data-attr={!children && dataAttr ? dataAttr : 'copy-icon'}
             onClick={selectable || !children ? copy : undefined}
         />
     )
@@ -79,6 +81,7 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
                 onClick={!selectable ? copy : undefined}
+                data-attr={dataAttr}
                 {...props}
                 ref={ref}
             >

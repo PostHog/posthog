@@ -61,6 +61,7 @@ the enums (~270 classes) live in `posthog.schema_enums`, a separate generated mo
 everything else got one of the standard treatments — enum-only imports repointed to `posthog.schema_enums`, annotation-only model uses moved under `TYPE_CHECKING` with quoted annotations, method-body uses imported at call time.
 The default when writing a model file or any other setup-path module: take enums from `posthog.schema_enums`; if you need an actual pydantic model, import it inside the method that uses it.
 The same applies to the celery task graph: `posthog/tasks/__init__.py` eagerly imports every task module so autodiscovery registers them, so any module-level `from posthog.tasks...` import on a setup path drags all of them in — import tasks at the call site, and take `CeleryQueue` from `posthog.celery_queues` (import-light, made for decorator-eval consumers).
+Periodic task registration in `posthog/celery.py` runs on Celery's `import_modules` signal, which only worker and beat boot send. Keep imports out of `on_after_finalize` receivers: a web worker finalizes Celery on its first `.delay()`, and an import under the finalize lock can deadlock with a thread lazily importing a task module.
 
 ## The regression guard
 
@@ -163,6 +164,18 @@ When the floor has crept, the lever is the same as it ever was — find the heav
   Sometimes you cannot just defer a heavy import because it is load-bearing in a circular import — deferring one edge only relocates the cycle.
   `grimp`'s `nominate_cycle_breakers` ranks which edge to cut, so the real work becomes untangling the owning package's cycle before the heavy import can come off the startup path.
 
+### Diagnose a stalled migration check
+
+Set `POSTHOG_COMMAND_DIAGNOSTICS=1` for `migrate --check` or `migrate_clickhouse --check`; other management commands ignore it.
+`manage.py` arms `faulthandler.dump_traceback_later` before Django imports and writes every thread's stack to stderr every 60 seconds.
+`POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS` changes the interval; invalid, nonpositive or oversized values fall back to 60 seconds.
+faulthandler writes from its own C thread, so a dump still arrives while the main thread is blocked in native code or holds the GIL.
+The top frames tell a Django import or `django.setup()` wait apart from a database connection or query wait.
+Diagnostics impose no timeout and preserve the command's exit status. With the variable unset, they produce no output.
+Direct output requires a draining stderr: a blocked destination can block the watchdog and delay interpreter shutdown.
+Use it on a scoped run, such as a deployment's migration check, and capture stderr before the pod is replaced.
+`migrate --profile-operations` covers per-operation timings once migrations run; this covers everything before and around them.
+
 ## Where the floor is now, and what is left
 
 Re-profiled September 2026 (`TEST=1 DEBUG=1`, warm page cache, GC disabled): a bare `django.setup()` went from ~1.95s to ~1.5s and `manage.py shell -c '1'` from ~1.9s to ~1.6s wall, by removing ~460 modules from the setup path.
@@ -171,6 +184,7 @@ Every removal was a `ready()` chain or a model file dragging a subsystem in at m
 - `products/signals/backend/receivers.py` imported `scout_harness.suggestions` → `prompt` → `products.tasks.backend.facade.api` → `facade.contracts` (61 pydantic dataclasses) to wire one `post_delete` receiver. Deferred to the receiver body.
 - `ee` `ready()` imported all of `ee/vercel/integration.py` to wire four receivers. That module imports `ee.api.authentication`, which holds `@api_view` functions, and DRF's decorator resolves `DEFAULT_SCHEMA_CLASS` at decoration time → `posthog.api.documentation` → `drf_spectacular.plumbing` → `rest_framework.test` → `django.test` → `jinja2`. The receivers now live in `ee/vercel/receivers.py` (a light module, as the skill asks) and import the integration when they fire.
 - `posthog/helpers/impersonation.py` (reached from the activity-log signal handlers) imported `posthog.auth`, which pulls `zxcvbn` and `webauthn`. Deferred. The guard then caught that `WebauthnCredential` only registered through that import — it is now imported from `posthog/models/__init__.py`.
+  `posthog/event_usage.py` is a second door: model files import it at module scope, so its `posthog.auth` import is call-time too.
 - `posthog/apps.py` imported `posthog.async_migrations.setup` (which imports every async migration) even when `SKIP_ASYNC_MIGRATIONS_SETUP` is on. Import moved under the branch that runs it. That module also used `infi.clickhouse_orm.utils.import_submodules`, and the `infi` package `__init__` imports `pkg_resources` (~40ms); replaced with a local `pkgutil` helper. Deferring it exposed a latent cycle that setup-first import order had hidden: `async_migrations/utils.py` imported the dependency map from `setup.py` at module scope, `setup.py` imports every migration module, and three migrations import `utils`. Entering at `utils` first (the celery task module, the API module, the tests) now failed with a partially initialised module, so `utils` reads the map at call time.
 - `boto3`/`botocore` reached setup through three doors: `products.workflows.backend.providers` (eager aggregator `__init__`, hit by the email and twilio integration models), `posthog/storage/object_storage.py`, and `posthog/models/js_snippet_versioning.py`, plus an `except (BotoCoreError, ClientError)` in `posthog/storage/hypercache.py`. All build clients or classify exceptions at call time now. Web workers pay the boto3 import on their first request that touches object storage.
 

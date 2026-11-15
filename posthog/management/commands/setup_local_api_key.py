@@ -109,6 +109,7 @@ class Command(BaseCommand):
 
         create_scopes = scopes if scopes is not None else add_scopes
 
+        # nosemgrep: personal-api-key-created-outside-mint -- the local dev key has a fixed value that survives database resets, and the mint always generates a random one
         PersonalAPIKey.objects.create(
             user=user,
             label=DEV_KEY_LABEL,

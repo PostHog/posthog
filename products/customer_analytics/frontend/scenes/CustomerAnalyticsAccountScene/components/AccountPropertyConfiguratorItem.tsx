@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
-import type { AccountPropertyOption } from './accountPropertyTypes'
+import { ACCOUNT_PROPERTY_KIND_LABELS, AccountPropertyOption } from './accountPropertyTypes'
 
 export interface AccountPropertyConfiguratorItemProps {
     option: AccountPropertyOption
@@ -47,9 +47,7 @@ export function AccountPropertyConfiguratorItem({
                 <SortableDragIcon />
             </button>
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{option.label}</span>
-            <span className="shrink-0 text-xs text-secondary">
-                {option.kind === 'custom' ? 'Custom property' : 'Relationship'}
-            </span>
+            <span className="shrink-0 text-xs text-secondary">{ACCOUNT_PROPERTY_KIND_LABELS[option.kind]}</span>
             <LemonButton
                 size="xsmall"
                 icon={<IconX />}

@@ -84,6 +84,15 @@ class Project(Taggable, UpdatedMetaFields):
         default="Default project",
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
+    logo_media = models.ForeignKey(
+        "posthog.UploadedMedia",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     # Deprecated in favor of CoreMemory
     product_description = models.TextField(null=True, blank=True, max_length=1000)
@@ -100,6 +109,15 @@ class Project(Taggable, UpdatedMetaFields):
     )
 
     objects: ProjectManager = ProjectManager()
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["logo_media"],
+                name="posthog_project_logo_media_idx",
+                condition=models.Q(logo_media__isnull=False),
+            ),
+        ]
 
     def __str__(self):
         if self.name:

@@ -15,7 +15,7 @@ use sqlx::Row;
 
 use personhog_common::grpc::{current_client_name, current_method_name};
 
-use crate::config::IdentityTables;
+use crate::config::{IdentityTables, OutboxWrites};
 use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
@@ -60,12 +60,17 @@ pub(super) fn person_columns(p: &str) -> String {
 pub struct PostgresIdentityStorage {
     pools: IdentityPools,
     tables: IdentityTables,
+    outbox_writes: OutboxWrites,
 }
 
 impl PostgresIdentityStorage {
-    pub fn new(pools: IdentityPools, tables: IdentityTables) -> Self {
+    pub fn new(pools: IdentityPools, tables: IdentityTables, outbox_writes: OutboxWrites) -> Self {
         tables.validate().expect("invalid identity table set");
-        Self { pools, tables }
+        Self {
+            pools,
+            tables,
+            outbox_writes,
+        }
     }
 
     fn query_labels(operation: &str, lane: Lane) -> [(String, String); 4] {
@@ -89,6 +94,15 @@ impl IdentityStorage for PostgresIdentityStorage {
         resolve::resolve_distinct_ids(&self.pools, &self.tables, keys).await
     }
 
+    async fn resolve_person_ids(
+        &self,
+        keys: &[(i64, String)],
+    ) -> StorageResult<HashMap<(i64, String), i64>> {
+        let labels = Self::query_labels("resolve_person_ids", Lane::Fast);
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+        resolve::resolve_person_ids(&self.pools, &self.tables, keys).await
+    }
+
     async fn get_distinct_ids_for_persons(
         &self,
         team_id: i64,
@@ -110,7 +124,7 @@ impl IdentityStorage for PostgresIdentityStorage {
     async fn create_person_stubs(&self, stubs: &[PersonStub]) -> StorageResult<Vec<StubOutcome>> {
         let labels = Self::query_labels("create_person_stubs", Lane::Heavy);
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
-        stub_create::create_person_stubs(&self.pools, &self.tables, stubs).await
+        stub_create::create_person_stubs(&self.pools, &self.tables, stubs, self.outbox_writes).await
     }
 
     async fn attach_distinct_ids(
@@ -121,7 +135,14 @@ impl IdentityStorage for PostgresIdentityStorage {
     ) -> StorageResult<HashMap<String, AttachOutcome>> {
         let labels = Self::query_labels("attach_distinct_ids", Lane::Heavy);
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
-        attach::attach_distinct_ids(&self.pools, &self.tables, team_id, person_id, distinct_ids)
-            .await
+        attach::attach_distinct_ids(
+            &self.pools,
+            &self.tables,
+            team_id,
+            person_id,
+            distinct_ids,
+            self.outbox_writes,
+        )
+        .await
     }
 }

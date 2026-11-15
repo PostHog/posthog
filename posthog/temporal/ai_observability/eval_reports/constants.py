@@ -5,7 +5,7 @@ from datetime import timedelta
 from temporalio.common import RetryPolicy
 
 # Agent configuration
-EVAL_REPORT_AGENT_MODEL = "gpt-5.2"
+EVAL_REPORT_AGENT_MODEL = "gpt-6.1-terra"
 EVAL_REPORT_AGENT_RECURSION_LIMIT = 100
 EVAL_REPORT_AGENT_TIMEOUT = 600.0  # 10 minutes
 
@@ -53,6 +53,9 @@ COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS = 100
 COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS = 5
 # Narrower than this, halving the range no longer removes enough rows to be worth an attempt.
 COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE = timedelta(minutes=1)
+# A check saves its running count only up to this long before its own time, so results that
+# arrive late still land after the saved cursor and count on a later check.
+COUNT_TRIGGER_CURSOR_SETTLE_LAG = timedelta(hours=1)
 PREPARE_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 AGENT_ACTIVITY_TIMEOUT = timedelta(seconds=660)  # 11 minutes (agent timeout + buffer)
 STORE_ACTIVITY_TIMEOUT = timedelta(seconds=60)

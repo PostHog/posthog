@@ -36,6 +36,7 @@ class TestProductPullRequestAttribution(SimpleTestCase):
                 "body": "private PR content",
             },
             "review": {"id": 90, "state": "approved", "user": {"login": "reviewer", "type": "User"}},
+            "sender": {"login": "reviewer", "id": 5},
         }
         attribution = PullRequestAttribution(
             source="wizard",
@@ -74,6 +75,11 @@ class TestProductPullRequestAttribution(SimpleTestCase):
             self.assertEqual(properties["pr_url"], pr_url)
             self.assertNotIn("task_id", properties)
             self.assertIsNone(properties["pr_body"])
+            closer = {"pr_closed_by_login": "reviewer", "pr_closed_by_id": 5, "pr_closed_by_distinct_id": "reviewer-id"}
+            self.assertEqual(
+                {key: properties.get(key) for key in closer},
+                closer if event == "pr_closed" else dict.fromkeys(closer),
+            )
             suffix = ":90" if event == "pr_reviewed" else ""
             self.assertEqual(
                 kwargs["uuid"],

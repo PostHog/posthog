@@ -30,6 +30,8 @@ import {
 import {
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
+    AlertPagerDutyRegion,
+    AlertPagerDutySeverity,
     PendingAlertNotificationDestinationView,
 } from './AlertNotificationDestinationEditor'
 import { AlertPreviewCard } from './AlertPreviewCard'
@@ -146,17 +148,21 @@ function AdvancedOptionsStory(): JSX.Element {
     )
 }
 
-type StoryNotificationType = 'slack' | 'webhook'
+type StoryNotificationType = 'slack' | 'webhook' | 'pagerduty'
 
 const NOTIFICATION_TYPE_OPTIONS: LemonSelectOptions<StoryNotificationType> = [
     { label: 'Slack', value: 'slack' },
+    { label: 'PagerDuty', value: 'pagerduty' },
     { label: 'Webhook', value: 'webhook' },
 ]
 
-function NotificationsStory(): JSX.Element {
-    const [selectedType, setSelectedType] = useState<StoryNotificationType>('webhook')
+function NotificationsStory({ initialType = 'webhook' }: { initialType?: StoryNotificationType }): JSX.Element {
+    const [selectedType, setSelectedType] = useState<StoryNotificationType>(initialType)
     const [urlValue, setUrlValue] = useState('https://example.com/alerts')
     const [slackChannelValue, setSlackChannelValue] = useState<string | null>(null)
+    const [routingKey, setRoutingKey] = useState('')
+    const [severity, setSeverity] = useState<AlertPagerDutySeverity>('critical')
+    const [region, setRegion] = useState<AlertPagerDutyRegion>('us')
     const [existingDestinations, setExistingDestinations] = useState<AlertNotificationDestinationView[]>([
         {
             key: 'existing-slack',
@@ -197,6 +203,8 @@ function NotificationsStory(): JSX.Element {
     let addDisabledReason: string | undefined
     if (selectedType === 'slack') {
         addDisabledReason = 'Connect Slack first'
+    } else if (selectedType === 'pagerduty') {
+        addDisabledReason = routingKey ? undefined : 'Enter the PagerDuty integration key'
     } else if (!urlValue) {
         addDisabledReason = 'Enter a webhook URL'
     }
@@ -231,6 +239,18 @@ function NotificationsStory(): JSX.Element {
                               input: { placeholder: 'https://example.com/webhook' },
                               value: urlValue,
                               onChange: setUrlValue,
+                          }
+                        : undefined
+                }
+                pagerduty={
+                    selectedType === 'pagerduty'
+                        ? {
+                              routingKey,
+                              onRoutingKeyChange: setRoutingKey,
+                              severity,
+                              onSeverityChange: setSeverity,
+                              region,
+                              onRegionChange: setRegion,
                           }
                         : undefined
                 }
@@ -270,38 +290,27 @@ const STORY_SLACK_CHANNELS: Record<string, { id: string; name: string }[]> = {
     ],
 }
 
-const STORY_EXISTING_HOG_FUNCTIONS = [
+const STORY_EXISTING_DESTINATIONS = [
     {
-        id: 'hf1',
-        type: 'internal_destination',
-        name: 'Alert: Slack #alerts',
-        description: '',
-        created_by: null,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
+        id: null,
+        hog_function_ids: ['hf1'],
+        type: 'slack',
         enabled: true,
-        hog: '',
-        template_id: 'template-slack',
-        inputs: {
-            slack_workspace: { value: 1 },
-            channel: { value: 'C100' },
-        },
+        hears_firing: true,
+        message_customized: false,
+        slack_workspace_id: 1,
+        slack_channel_id: 'C100',
     },
     {
-        id: 'hf2',
-        type: 'internal_destination',
-        name: 'Alert: Slack #acme-alerts',
-        description: '',
-        created_by: null,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
+        id: 'row-2',
+        hog_function_ids: ['hf2'],
+        type: 'slack',
         enabled: true,
-        hog: '',
-        template_id: 'template-slack',
-        inputs: {
-            slack_workspace: { value: 2 },
-            channel: { value: 'C200' },
-        },
+        hears_firing: true,
+        message_customized: false,
+        slack_workspace_id: 2,
+        slack_channel_id: 'C200',
+        slack_channel_name: 'acme-alerts',
     },
 ]
 
@@ -320,10 +329,7 @@ function MultipleSlackWorkspacesStory(): JSX.Element {
                 const channels = channelId ? allChannels.filter((channel) => channel.id === channelId) : allChannels
                 return [200, { channels, lastRefreshedAt: '2026-01-01T00:00:00Z' }]
             },
-            '/api/environments/:team_id/hog_functions': {
-                results: STORY_EXISTING_HOG_FUNCTIONS,
-                count: STORY_EXISTING_HOG_FUNCTIONS.length,
-            },
+            '/api/projects/:team_id/alerts/:id/destinations/': STORY_EXISTING_DESTINATIONS,
         },
     })
 
@@ -338,7 +344,7 @@ function MultipleSlackWorkspacesStory(): JSX.Element {
 
     return (
         <div className="max-w-2xl border rounded bg-surface-primary p-4">
-            <InlineAlertNotifications alertId="alert-1" />
+            <InlineAlertNotifications alertId="alert-1" pagerDutyAvailable={false} />
         </div>
     )
 }
@@ -411,6 +417,20 @@ function PreviewStory(): JSX.Element {
                 trendsLabels={PREVIEW_LABELS}
                 funnelPreview={null}
                 hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
+function PreviewDelayHistoryTooShortStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm({ evaluation_delay_intervals: 10 })}
+                trendsValues={[]}
+                funnelPreview={null}
+                hogqlPreview={null}
+                previewHistoryTooShort
             />
         </div>
     )
@@ -495,10 +515,12 @@ export const EditorLoading: Story = {
 export const Definition: Story = { render: () => <DefinitionStory /> }
 export const AdvancedOptions: Story = { render: () => <AdvancedOptionsStory /> }
 export const Notifications: Story = { render: () => <NotificationsStory /> }
+export const NotificationsPagerDuty: Story = { render: () => <NotificationsStory initialType="pagerduty" /> }
 export const NotificationsMultipleSlackWorkspaces: Story = { render: () => <MultipleSlackWorkspacesStory /> }
 export const QuietHours: Story = { render: () => <QuietHoursStory /> }
 export const EvaluationHistory: Story = { render: () => <EvaluationHistoryStory /> }
 export const Preview: Story = { render: () => <PreviewStory /> }
+export const PreviewDelayHistoryTooShort: Story = { render: () => <PreviewDelayHistoryTooShortStory /> }
 export const PreviewRelative: Story = { render: () => <PreviewRelativeStory /> }
 export const PreviewLogScale: Story = { render: () => <PreviewLogScaleStory /> }
 export const PreviewBreakdown: Story = { render: () => <PreviewBreakdownStory /> }

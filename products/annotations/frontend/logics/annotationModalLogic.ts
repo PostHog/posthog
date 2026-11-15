@@ -5,7 +5,7 @@ import { urlToAction } from 'kea-router'
 
 import '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,6 +17,7 @@ import { AnnotationScope, AnnotationType, DashboardBasicType, InsightModel } fro
 
 import type { UserType } from '../../../../frontend/src/types'
 import type { RawAnnotationType } from '../../../../frontend/src/types'
+import { annotationsPartialUpdate } from '../generated/api'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -281,17 +282,25 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
 
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
-                    const updatedAnnotation = await api.annotations.update(values.existingModalAnnotation.id, {
-                        date_marker: dateMarker.toISOString(),
-                        content,
-                        emoji: emoji || null,
-                        scope,
-                        // update to new insight we're saving from
-                        dashboard_item: dashboardItemId,
-                        // preserve existing dashboard id
-                        dashboard_id: values.existingModalAnnotation.dashboard_id,
-                    })
-                    actions.replaceAnnotation(updatedAnnotation)
+                    const updatedAnnotation = await annotationsPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        values.existingModalAnnotation.id,
+                        {
+                            date_marker: dateMarker.toISOString(),
+                            content,
+                            emoji: emoji || null,
+                            scope,
+                            // Off an insight, omit the field so the PATCH keeps the stored insight. An organization-scoped
+                            // row can point at another team's insight, which fails the team-scoped lookup if sent back.
+                            ...(dashboardItemId ? { dashboard_item: dashboardItemId } : {}),
+                            // A row without a dashboard that moves to dashboard scope takes the one it was opened on,
+                            // because the API rejects that scope without an id.
+                            dashboard_id:
+                                values.existingModalAnnotation.dashboard_id ??
+                                (scope === AnnotationScope.Dashboard ? dashboardId : null),
+                        }
+                    )
+                    actions.replaceAnnotation(updatedAnnotation as unknown as RawAnnotationType)
                 } else {
                     // annotationsModel's createAnnotationGenerically inlined so that isAnnotationModalSubmitting works
                     const createdAnnotation = await api.annotations.create({

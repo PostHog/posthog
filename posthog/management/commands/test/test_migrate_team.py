@@ -5,7 +5,8 @@ import pytest
 
 from posthog.management.commands.migrate_team import DATA_START_UNBOUNDED, get_migrated_data_start
 
-from products.batch_exports.backend.facade.contracts import BatchExportBackfillStatus, BatchExportBackfillSummary
+from products.batch_exports.backend.facade.contracts import BatchExportBackfillSummary
+from products.batch_exports.backend.facade.enums import BatchExportBackfillStatus
 
 JAN_1 = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
 JAN_2 = JAN_1 + dt.timedelta(days=1)

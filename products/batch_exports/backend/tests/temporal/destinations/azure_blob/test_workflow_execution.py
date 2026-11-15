@@ -1,8 +1,12 @@
 import pytest
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
-    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_AZURE_BLOB_MODELS,
     assert_clickhouse_records_in_azure_blob,
     list_blobs,
@@ -11,10 +15,23 @@ from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
+# The activity tests cover every codec. Here each model runs through the workflow once, alternating
+# file formats, so the workflow is checked to pass the model, format and codec through.
+WORKFLOW_FILE_FORMAT_COMPRESSIONS: list[tuple[str, str | None]] = [("Parquet", "zstd"), ("JSONLines", "gzip")]
 
-@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=True)
-@pytest.mark.parametrize("model", TEST_AZURE_BLOB_MODELS)
+
+@pytest.mark.parametrize(
+    ("model", "file_format", "compression", "interval"),
+    [
+        (model, *WORKFLOW_FILE_FORMAT_COMPRESSIONS[index % len(WORKFLOW_FILE_FORMAT_COMPRESSIONS)], "hour")
+        for index, model in enumerate(TEST_AZURE_BLOB_MODELS)
+    ]
+    + [
+        (BatchExportEventsModel(), file_format, compression, "day")
+        for file_format, compression in WORKFLOW_FILE_FORMAT_COMPRESSIONS
+    ],
+    indirect=["file_format", "compression", "interval"],
+)
 async def test_workflow_exports_model_successfully(
     ateam,
     azure_batch_export,
@@ -27,11 +44,10 @@ async def test_workflow_exports_model_successfully(
     data_interval_start,
     data_interval_end,
     generate_test_data,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
 ):
     """Test that the workflow exports events, persons, or sessions to Azure Blob Storage."""
-    batch_export_model = model if isinstance(model, BatchExportModel) else None
-    batch_export_schema = model if isinstance(model, dict) else None
+    batch_export_model = BatchExportEventsCustomModel(schema=model) if isinstance(model, dict) else model
 
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
@@ -44,7 +60,6 @@ async def test_workflow_exports_model_successfully(
         file_format=file_format,
         compression=compression,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
     )
 
     assert run.status == "Completed"
@@ -93,7 +108,7 @@ async def test_workflow_names_parquet_blobs_by_the_extension_setting(
         integration_id=azure_batch_export.destination.integration.id,
         file_format=file_format,
         compression=compression,
-        batch_export_model=BatchExportModel(name="events", schema=None),
+        batch_export_model=BatchExportEventsModel(),
         legacy_parquet_extension=legacy_parquet_extension,
     )
 

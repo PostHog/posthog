@@ -7,6 +7,7 @@ import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { UnexpectedNeverError } from 'lib/utils/guards'
+import { hogql } from 'lib/utils/hogql'
 
 import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { hogqlQuery } from '~/queries/query'
@@ -19,12 +20,11 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { InsightLogicProps, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
-/** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
+/** Matches BREAKDOWN_NULL_DISPLAY in products/web_analytics/backend/hogql_queries/stats_table.py */
 export const BREAKDOWN_NULL_DISPLAY = '(none)'
-/** Matches BREAKDOWN_REFERRER_PREFIX in posthog/hogql_queries/web_analytics/stats_table.py */
+/** Matches BREAKDOWN_REFERRER_PREFIX in products/web_analytics/backend/hogql_queries/stats_table.py */
 export const BREAKDOWN_REFERRER_PREFIX = 'referrer:'
 
 export interface WebTileLayout {
@@ -123,12 +123,15 @@ export enum ProductTab {
     BOT_ANALYTICS = 'bots',
     PAGE_PERFORMANCE = 'page-performance',
     AGENTS = 'agents',
-    CONTENT_AUTOPILOT = 'content-autopilot',
+    CONTENT_AUTOPILOT = 'ai-visibility',
 }
 
+// One flag gates the whole AI visibility page: prompt tracking and content autopilot.
 export const isContentAutopilotEnabled = (featureFlags: FeatureFlagsSet): boolean =>
-    !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE] &&
     !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]
+
+// pinned: the AI visibility filters' URL search params, links people share depend on them
+export const AI_VISIBILITY_URL_PARAMS = ['days', 'engine', 'topic', 'branded'] as const
 
 export type DeviceType = 'Desktop' | 'Mobile'
 
@@ -618,6 +621,12 @@ export const sessionPropertiesToPathClean = new Set([
     '$end_current_url',
 ])
 export const personPropertiesToPathClean = new Set(['$initial_pathname', '$initial_current_url'])
+
+/** Operators that compare raw paths, mapped to the operators that clean both sides before they compare. */
+export const cleanedPathOperators: Partial<Record<PropertyOperator, PropertyOperator>> = {
+    [PropertyOperator.Exact]: PropertyOperator.IsCleanedPathExact,
+    [PropertyOperator.IsNot]: PropertyOperator.IsCleanedPathNotExact,
+}
 
 /**
  * Pick the operator for an exact match on a breakdown value. With path cleaning on, the value is a

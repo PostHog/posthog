@@ -8,7 +8,14 @@ in full in the "Other findings" section below the tally, because the body is the
 appear at all.
 """
 
-from products.review_hog.backend.reviewer.constants import PRIORITIES_BY_URGENCY, PRIORITY_LABELS, effective_priority
+from products.review_hog.backend.reviewer.constants import (
+    PRIORITIES_BY_URGENCY,
+    PRIORITY_LABELS,
+    display_level,
+    effective_priority,
+    finding_heading,
+    finding_text,
+)
 from products.review_hog.backend.reviewer.diff_position import (
     build_diff_line_map,
     find_diff_position,
@@ -113,38 +120,14 @@ def _render_off_diff_section(findings: list[tuple[Issue, IssueValidation]]) -> l
     ]
     for issue, validation in findings:
         priority = effective_priority(issue.priority, validation.adjusted_priority)
-        meta = [f"**Priority:** {priority.value}", f"**File:** `{issue.file}:{format_line_ranges(issue.lines)}`"]
-        if validation.category:
-            meta.append(f"**Category:** {validation.category}")
+        level = display_level(priority, issue.reported_priority)
         lines.extend(
             [
-                f"### {issue.title}",
+                finding_heading(issue.title, level),
                 "",
-                " | ".join(meta),
+                f"`{issue.file}:{format_line_ranges(issue.lines)}`",
                 "",
-                "<details>",
-                "<summary><strong>Issue description</strong></summary>",
-                "<br>",
-                "",
-                issue.issue,
-                "",
-                "</details>",
-                "",
-                "<details>",
-                "<summary><strong>Why we think it's a valid issue</strong></summary>",
-                "<br>",
-                "",
-                validation.argumentation,
-                "",
-                "</details>",
-                "",
-                "<details>",
-                "<summary><strong>Suggested fix</strong></summary>",
-                "<br>",
-                "",
-                issue.suggestion,
-                "",
-                "</details>",
+                finding_text(issue.issue, issue.suggestion),
                 "",
             ]
         )

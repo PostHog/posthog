@@ -1,7 +1,7 @@
 import os
 import atexit
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from numbers import Number
 from typing import Any, cast
@@ -11,8 +11,10 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from posthoganalytics.contexts import get_tags
 
-from posthog.cloud_utils import is_cloud
+from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.utils import get_instance_region
 
 PH_US_API_KEY = "sTMFPsFhdP1Ssg"
@@ -22,6 +24,90 @@ PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
 logger = structlog.get_logger(__name__)
+
+
+def filter_scout_experiment_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+    if get_query_tags().is_scout_experiment is True:
+        return None
+    return message
+
+
+def drop_exception_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+    if message.get("event") == "$exception":
+        return None
+    return message
+
+
+def suppress_last_seen_updates(message: dict[str, Any]) -> dict[str, Any]:
+    event = message.get("event", "")
+    if event == "$exception" or event.startswith("$ai_") or get_tags().get("$update_person_last_seen_at") is False:
+        message.setdefault("properties", {})["$update_person_last_seen_at"] = False
+    return message
+
+
+BeforeSend = Callable[[dict[str, Any]], dict[str, Any] | None]
+
+
+def _query_without_sql_filters(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _query_without_sql_filters(item)
+            for key, item in value.items()
+            if not (value.get("kind") == "HogQLQuery" and key == "filters")
+        }
+    if isinstance(value, list):
+        return [_query_without_sql_filters(item) for item in value]
+    return value
+
+
+def has_filtered_sql_query(value: Any) -> bool:
+    if isinstance(value, dict):
+        return (value.get("kind") == "HogQLQuery" and bool(value.get("filters"))) or any(
+            has_filtered_sql_query(item) for item in value.values()
+        )
+    if isinstance(value, list):
+        return any(has_filtered_sql_query(item) for item in value)
+    return False
+
+
+def filter_sql_query_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+    properties = message.get("properties", {})
+    has_filtered_sql = has_filtered_sql_query(properties)
+    # Exception chains and stack context can include expanded SQL beyond the query metadata.
+    if message.get("event") == "$exception" and (has_filtered_sql or has_filtered_sql_query(get_query_tags().query)):
+        return None
+    if has_filtered_sql:
+        properties = _query_without_sql_filters(properties)
+    if properties.get("query_type") == "HogQLQuery":
+        # ClickHouse errors can embed the compiled SQL with filter values substituted.
+        properties = {key: value for key, value in properties.items() if key != "error_message"}
+    return {**message, "properties": properties}
+
+
+def self_hosted_capture_reaches_posthog() -> bool:
+    return is_hobby() and not settings.TEST and not settings.SELF_CAPTURE
+
+
+def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> BeforeSend:
+    # A self-hosted install captures to the PostHog US project by default. Its exceptions carry
+    # that install's own stack traces and data, so they must not reach our error tracking.
+    hooks: list[BeforeSend] = []
+    if private_scout_capture:
+        hooks.append(filter_scout_experiment_capture)
+    if self_hosted:
+        hooks.append(drop_exception_capture)
+    hooks.append(filter_sql_query_capture)
+    hooks.append(suppress_last_seen_updates)
+
+    def chained(message: dict[str, Any]) -> dict[str, Any] | None:
+        for hook in hooks:
+            next_message = hook(message)
+            if next_message is None:
+                return None
+            message = next_message
+        return message
+
+    return chained
 
 
 def feature_enabled_or_false(
@@ -115,6 +201,14 @@ class ScopedCapture:
         if is_cloud() and self._client:
             self._client.capture(*args, **kwargs)
 
+    def alias(self, previous_id: str, distinct_id: str) -> None:
+        """Merge the person behind ``distinct_id`` into the person behind ``previous_id``.
+
+        Ingestion refuses the merge when the ``distinct_id`` person is already identified.
+        """
+        if is_cloud() and self._client:
+            self._client.alias(previous_id=previous_id, distinct_id=distinct_id)
+
     def flush(self) -> None:
         """Wait for every queued event to be attempted. Blocks; keep it off an event loop.
 
@@ -133,11 +227,14 @@ class ScopedCapture:
 
 
 @contextmanager
-def ph_scoped_capture(region: str = "US", *, raise_on_error: bool = False) -> Iterator[ScopedCapture]:
+def ph_scoped_capture(
+    region: str = "US", *, raise_on_error: bool = False, event_region: str | None = None
+) -> Iterator[ScopedCapture]:
     """Use this instead of posthoganalytics.capture() in Celery tasks — the global
     client's background flush may never run before the worker exits, silently losing events.
     This creates a dedicated client and flushes on context-manager exit.
     Pass the deployment region when events must stay in their regional project.
+    Set event_region when the event's region differs from its destination.
 
     In a long-lived worker (e.g. Temporal activities), prefer `ph_background_capture` —
     the client setup and synchronous flush here add seconds of blocking per call.
@@ -153,6 +250,8 @@ def ph_scoped_capture(region: str = "US", *, raise_on_error: bool = False) -> It
         errors.append(error)
 
     ph_client = get_client(region, on_error=on_error) if raise_on_error else get_client(region)
+    if ph_client and event_region is not None:
+        ph_client.super_properties["region"] = event_region
 
     # Flush even when the caller's block raises — events already captured
     # before the exception shouldn't be dropped with the buffer.
@@ -209,6 +308,21 @@ def get_client(region: str = "US", **kwargs: Any):
     # under TEST, so without this a test that runs in cloud mode captures to the real
     # project. Callers can still pass `disabled` explicitly to override.
     kwargs.setdefault("disabled", bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
+    before_send = kwargs.get("before_send")
+    private_scout_capture = settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE
+
+    def capture_filter(message: dict[str, Any]) -> dict[str, Any] | None:
+        if private_scout_capture and filter_scout_experiment_capture(message) is None:
+            return None
+        if before_send is not None:
+            next_message = before_send(message)
+            if next_message is None:
+                return None
+            message = next_message
+        filtered_message = filter_sql_query_capture(message)
+        return suppress_last_seen_updates(filtered_message) if filtered_message is not None else None
+
+    kwargs["before_send"] = capture_filter
 
     return Posthog(
         api_key,

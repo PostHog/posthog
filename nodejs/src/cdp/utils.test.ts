@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { Team } from '../types'
+import { createIncomingEvent } from './_tests/fixtures'
 import { CdpInternalEvent } from './schema'
 import { LogEntry, MinimalLogEntry } from './types'
 import {
     convertInternalEventToHogFunctionInvocationGlobals,
+    convertToHogFunctionInvocationGlobals,
     createAddLogFunction,
     fixLogDeduplication,
     getSensitiveValues,
@@ -55,6 +57,23 @@ describe('Utils', () => {
             })
         }
     )
+
+    test.each([
+        ['$feature_flag_called', '?event=%24feature_flag_called'],
+        ['$pageview', ''],
+    ])('names the event in the event link of %s only when it is a flag call', (eventName, expectedQuery) => {
+        const uuid = '018f0000-0000-7000-8000-000000000002'
+
+        const globals = convertToHogFunctionInvocationGlobals(
+            createIncomingEvent(1, { uuid, event: eventName }),
+            { id: 1, name: 'Test project' } as Team,
+            'https://us.posthog.com'
+        )
+
+        expect(globals.event.url).toBe(
+            `https://us.posthog.com/project/1/events/${uuid}/${encodeURIComponent(globals.event.timestamp)}${expectedQuery}`
+        )
+    })
 
     describe('gzip compressions', () => {
         it("should compress and decompress a string using gzip's sync functions", async () => {
@@ -153,6 +172,13 @@ describe('Utils', () => {
         ])('masks a nested secret in an %s input', (type, value) => {
             const hogFunction: any = { inputs_schema: [{ key: 'connection', type }] }
             expect(getSensitiveValues(hogFunction, { connection: value })).toContain('nested-private-key')
+        })
+
+        it('masks the bare token of every secret dictionary entry, whatever the header name', () => {
+            const hogFunction: any = { inputs_schema: [{ key: 'secret_headers', type: 'dictionary', secret: true }] }
+            expect(
+                getSensitiveValues(hogFunction, { secret_headers: { 'X-Custom-Auth': 'Bearer sk_live_abc' } })
+            ).toContain('sk_live_abc')
         })
 
         it('masks a credential-named input that the stored schema leaves non-secret', () => {

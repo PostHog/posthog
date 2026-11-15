@@ -13,8 +13,12 @@ import type {
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
     NotebookComputeOptionsResponseApi,
+    NotebookKernelCompleteRequestApi,
+    NotebookKernelCompleteResponseApi,
     NotebookKernelConfigApi,
     NotebookKernelConfigResponseApi,
+    NotebookKernelInspectRequestApi,
+    NotebookKernelInspectResponseApi,
     NotebookKernelStatusResponseApi,
     NotebookMarkdownSaveApi,
     NotebookRunInterruptResponseApi,
@@ -540,6 +544,27 @@ export const notebooksCollabStreamRetrieve = async (
     })
 }
 
+export const getNotebooksKernelCompleteCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/kernel/complete/`
+}
+
+/**
+ * Completions for the cursor position in a Python cell, from the notebook's running kernel. Returns no matches when no kernel is running or the kernel is busy, and never starts one.
+ */
+export const notebooksKernelCompleteCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookKernelCompleteRequestApi: NotebookKernelCompleteRequestApi,
+    options?: RequestInit
+): Promise<NotebookKernelCompleteResponseApi> => {
+    return apiMutator<NotebookKernelCompleteResponseApi>(getNotebooksKernelCompleteCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookKernelCompleteRequestApi),
+    })
+}
+
 export const getNotebooksKernelConfigCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/config/`
 }
@@ -579,6 +604,27 @@ export const notebooksKernelExecuteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(notebookApi),
+    })
+}
+
+export const getNotebooksKernelInspectCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/kernel/inspect/`
+}
+
+/**
+ * The signature and docstring of the name at the cursor in a Python cell, from the notebook's running kernel. Returns found=false when no kernel is running or the kernel is busy.
+ */
+export const notebooksKernelInspectCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookKernelInspectRequestApi: NotebookKernelInspectRequestApi,
+    options?: RequestInit
+): Promise<NotebookKernelInspectResponseApi> => {
+    return apiMutator<NotebookKernelInspectResponseApi>(getNotebooksKernelInspectCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookKernelInspectRequestApi),
     })
 }
 
@@ -668,7 +714,7 @@ export const getNotebooksRunsCreateUrl = (projectId: string, shortId: string) =>
 }
 
 /**
- * Run every SQL and Python cell of a markdown notebook, in document order, stopping at the first cell that does not finish. Returns as soon as the run starts; poll the run status endpoint until the status is terminal. Flag-gated (revamped-py-notebooks).
+ * Run every SQL and Python cell of a markdown notebook, in document order, stopping at the first cell that does not finish. Returns as soon as the run starts; poll the run status endpoint until the status is terminal.
  */
 export const notebooksRunsCreate = async (
     projectId: string,
@@ -689,7 +735,7 @@ export const getNotebooksRunsRetrieveUrl = (projectId: string, shortId: string, 
 }
 
 /**
- * Read a whole-notebook run: its state, which cell it is on, and one line per planned cell. Carries no result rows — fetch a cell's result from the cell run result endpoint. Flag-gated (revamped-py-notebooks).
+ * Read a whole-notebook run: its state, which cell it is on, and one line per planned cell. Carries no result rows — fetch a cell's result from the cell run result endpoint.
  */
 export const notebooksRunsRetrieve = async (
     projectId: string,
@@ -708,7 +754,7 @@ export const getNotebooksRunsInterruptCreateUrl = (projectId: string, shortId: s
 }
 
 /**
- * Stop a whole-notebook run and the cell it is on. Idempotent: stopping a run that already finished returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
+ * Stop a whole-notebook run and the cell it is on. Idempotent: stopping a run that already finished returns its outcome unchanged.
  */
 export const notebooksRunsInterruptCreate = async (
     projectId: string,
@@ -727,7 +773,7 @@ export const getNotebooksSqlV2RunCreateUrl = (projectId: string, shortId: string
 }
 
 /**
- * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Python notebooks enable all run types. Generated widgets enable HogQL runs without a connection or kernel.
+ * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. HogQL runs without a connection or kernel are always available.
  */
 export const notebooksSqlV2RunCreate = async (
     projectId: string,
@@ -767,7 +813,7 @@ export const getNotebooksSqlV2RunsInterruptCreateUrl = (projectId: string, short
 }
 
 /**
- * Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
+ * Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged.
  */
 export const notebooksSqlV2RunsInterruptCreate = async (
     projectId: string,
@@ -789,7 +835,7 @@ export const getNotebooksSqlV2StateRetrieveUrl = (projectId: string, shortId: st
 }
 
 /**
- * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config.
  */
 export const notebooksSqlV2StateRetrieve = async (
     projectId: string,

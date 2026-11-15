@@ -18,6 +18,7 @@ OPENAI_OAUTH_REVOKE_URL = "https://auth.openai.com/oauth/revoke"
 
 class OpenAIAuthClient(RecordedEgressClient):
     observability = openai_auth_egress
+    egress_domain = "openai_auth"
 
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json"}

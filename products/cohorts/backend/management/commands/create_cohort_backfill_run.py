@@ -8,14 +8,23 @@ from django.db import IntegrityError
 from django.utils import timezone as django_timezone
 from django.utils.dateparse import parse_datetime
 
+from posthog.errors import InternalCHQueryError
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models.team.team import Team
 
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
 from products.cohorts.backend.backfill.pinning import (
     PersonPinningCapExceeded,
-    pin_conditions_for_cohorts,
+    pin_behavioral_run,
     pin_person_conditions_for_cohorts,
 )
 from products.cohorts.backend.backfill.runs import (
+    BehavioralScanOverLimit,
     _validate_boundary_at,
     behavioral_backfill_ineligibility_reason,
     check_person_run_preconditions,
@@ -25,11 +34,30 @@ from products.cohorts.backend.backfill.runs import (
     judge_team_cohorts,
     person_backfill_ineligibility_reason,
 )
-from products.cohorts.backend.backfill.sizing import estimate_person_seed_topic_bytes
+from products.cohorts.backend.backfill.sizing import (
+    BehavioralScanEstimate,
+    PersonSeedEstimateScanCapExceeded,
+    estimate_behavioral_scan_events,
+    estimate_person_seed_topic_bytes,
+)
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRunCohort, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.cohorts.backend.realtime_teams import is_processing_team
+
+_SCAN_ESTIMATE_ERRORS = (
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseAtCapacity,
+    InternalCHQueryError,
+)
+
+
+def _scan_estimate_failed(error: Exception) -> CommandError:
+    return CommandError(
+        f"The scan estimate failed: {error}. Pass --max-scan-events-per-day 0 to create the run without it."
+    )
 
 
 def _parse_boundary_at(value: str | None) -> datetime | None:
@@ -64,6 +92,15 @@ class Command(BaseCommand):
         parser.add_argument("--cohort-ids", type=int, nargs="+")
         parser.add_argument("--boundary-at", help="ISO 8601 disaster recovery boundary with a UTC offset")
         parser.add_argument("--person-horizon-days", type=int)
+        parser.add_argument(
+            "--max-scan-events-per-day",
+            type=int,
+            help=(
+                "Behavioral runs only: refuse the run when its pinned event names had more events than this on "
+                "any of the last 7 complete UTC days. Overrides BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY; "
+                "0 disables it."
+            ),
+        )
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -78,9 +115,16 @@ class Command(BaseCommand):
             raise CommandError("--person-horizon-days is required with --kind person_property")
         if kind == CohortBackfillKind.BEHAVIORAL and person_horizon_days is not None:
             raise CommandError("--person-horizon-days is only valid with --kind person_property")
+        max_scan_events_per_day: int | None = options.get("max_scan_events_per_day")
+        if kind == CohortBackfillKind.PERSON_PROPERTY and max_scan_events_per_day is not None:
+            raise CommandError("--max-scan-events-per-day is only valid with --kind behavioral")
+        if max_scan_events_per_day is None:
+            max_scan_events_per_day = settings.BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY
+        if max_scan_events_per_day < 0:
+            raise CommandError("--max-scan-events-per-day must be 0 or more")
 
-        if not is_realtime_cohort_team(team_id):
-            raise CommandError(f"Team {team_id} is not in the realtime cohort allowlist")
+        if not is_processing_team(team_id):
+            raise CommandError(f"Team {team_id} is not processed by the realtime cohort pipeline")
 
         if kind == CohortBackfillKind.PERSON_PROPERTY:
             assert person_horizon_days is not None
@@ -101,15 +145,30 @@ class Command(BaseCommand):
         cohort_ids = options.get("cohort_ids")
         if options["dry_run"]:
             cohorts = self._dry_run_cohorts(team_id, cohort_ids, behavioral_backfill_ineligibility_reason, "behavioral")
-            pinned, event_names = pin_conditions_for_cohorts(cohorts)
+            pinned = self._pin(team_id, cohorts)
             self.stdout.write(
                 f"Dry run: {len(cohorts)} cohorts, {len(pinned['conditions'])} conditions, "
-                f"{len(event_names)} event names"
+                f"{len(pinned['event_names'])} event names, flag calls from {pinned['flag_calls_table']}"
             )
+            if max_scan_events_per_day:
+                self._write_scan_estimate(
+                    self._scan_estimate(team_id, pinned, max_scan_events_per_day), len(pinned["event_names"])
+                )
+            else:
+                self.stdout.write("Scan estimate: skipped, because the limit is 0")
             return
 
         try:
-            run = create_team_backfill_run(team_id, trigger, cohort_ids, boundary_at=boundary_at)
+            run = create_team_backfill_run(
+                team_id, trigger, cohort_ids, boundary_at=boundary_at, max_events_per_day=max_scan_events_per_day
+            )
+        except BehavioralScanOverLimit as error:
+            self._write_scan_estimate(error.estimate, error.event_name_count)
+            raise CommandError(
+                f"{error} Narrow it with --cohort-ids, or pass --max-scan-events-per-day 0 to accept the volume."
+            ) from error
+        except _SCAN_ESTIMATE_ERRORS as error:
+            raise _scan_estimate_failed(error) from error
         except (Team.DoesNotExist, ValueError) as error:
             raise CommandError(str(error)) from error
         except IntegrityError as error:
@@ -156,7 +215,7 @@ class Command(BaseCommand):
                 cohort_ids,
                 boundary_at=boundary_at,
             )
-        except (Team.DoesNotExist, ValueError) as error:
+        except (Team.DoesNotExist, ValueError, PersonSeedEstimateScanCapExceeded) as error:
             raise CommandError(str(error)) from error
         except IntegrityError as error:
             raise CommandError(f"Team {team_id} already has an active person-property team backfill run") from error
@@ -200,17 +259,46 @@ class Command(BaseCommand):
             person_scan_since = (normalized_boundary or django_timezone.now()) - timedelta(days=person_horizon_days)
         except (OverflowError, ValueError) as error:
             raise CommandError(str(error)) from error
-        estimate = estimate_person_seed_topic_bytes(
-            team_id,
-            person_scan_since,
-            len(pinned["conditions"]),
-        )
+        try:
+            estimate = estimate_person_seed_topic_bytes(
+                team_id,
+                person_scan_since,
+                len(pinned["conditions"]),
+            )
+        except PersonSeedEstimateScanCapExceeded as error:
+            raise CommandError(str(error)) from error
         verdict = "yes" if estimate.over_budget else "no"
         self.stdout.write(
             f"Dry run: {len(cohorts)} cohorts, {len(pinned['conditions'])} conditions, "
             f"{dropped} hash-less person leaves dropped, {estimate.estimated_persons} estimated persons, "
             f"{estimate.estimated_topic_bytes} estimated topic bytes, budget {estimate.budget_bytes}, "
             f"would refuse: {verdict}"
+        )
+
+    def _pin(self, team_id: int, cohorts: list[Cohort]) -> dict[str, Any]:
+        try:
+            return pin_behavioral_run(cohorts, Team.objects.get(id=team_id))
+        except (Team.DoesNotExist, FlagCallsTableUnresolved) as error:
+            raise CommandError(str(error)) from error
+
+    def _scan_estimate(self, team_id: int, pinned: dict[str, Any], max_events_per_day: int) -> BehavioralScanEstimate:
+        try:
+            return estimate_behavioral_scan_events(
+                team_id,
+                pinned["event_names"],
+                flag_calls_table=pinned["flag_calls_table"],
+                max_events_per_day=max_events_per_day,
+            )
+        except _SCAN_ESTIMATE_ERRORS as error:
+            raise _scan_estimate_failed(error) from error
+
+    def _write_scan_estimate(self, estimate: BehavioralScanEstimate, event_name_count: int) -> None:
+        largest = ", ".join(f"{name} {count}" for name, count in estimate.largest_events(5)) or "none"
+        verdict = "yes" if estimate.over_limit else "no"
+        self.stdout.write(
+            f"Scan estimate: {estimate.peak_day_events} events on the busiest of the last {estimate.days_sampled} "
+            f"complete UTC days ({estimate.peak_day or 'no events'}) across {event_name_count} event names, "
+            f"limit {estimate.max_events_per_day}, would refuse: {verdict}. Largest on that day: {largest}"
         )
 
     def _dry_run_cohorts(

@@ -1,14 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { Provider } from 'kea'
+import { render, screen } from '@testing-library/react'
 
-import { initKeaTests } from '~/test/init'
-
-import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
-import { EvaluationConfig, EvaluationRun } from '../evaluations/types'
-import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
-import { EvalResultBadges, getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
+import { EvaluationRun } from '../evaluations/types'
+import { EvalTooltipContent, getEvalBadgeProps, getEvalSummaries } from './EvalResultBadges'
 import {
     compareEvaluationResults,
     getEvaluationResultDisplay,
@@ -32,6 +27,12 @@ function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
 }
 
 describe('EvalResultBadges', () => {
+    it('shows a fallback when a run has no reasoning', () => {
+        render(<EvalTooltipContent latestRun={makeRun()} runCount={1} />)
+
+        expect(screen.getByText('No reasoning provided')).toBeInTheDocument()
+    })
+
     it('sorts numeric scores together without colliding with status ranks', () => {
         const rows = [
             makeRun({ id: 'negative', result_type: 'numeric', score: -10 }),
@@ -54,14 +55,61 @@ describe('EvalResultBadges', () => {
     })
 
     it.each([
-        [1 / 3, '0.333333'],
+        [0, '0'],
+        [1 / 3, '0.33'],
         [123456789, '123456789'],
         [-123456789, '-123456789'],
-        [0.0000000123456789, '1.23457e-8'],
-        [1234567.1234567, '1234567.123457'],
-    ])('formats score %s without dropping integer digits', (score, label) => {
+        [0.0000000123456789, '1.2e-8'],
+        [1234567.1234567, '1234567.12'],
+    ])('formats score %s compactly without losing its magnitude', (score, label) => {
         expect(getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score })).label).toBe(label)
     })
+
+    it.each([
+        [4.899999, 'gte', 4.9, '4.899999', 'danger'],
+        [4.9, 'gte', 4.9, '4.9', 'success'],
+        [4.900001, 'lte', 4.9, '4.900001', 'danger'],
+        [4.9, 'lte', 4.9, '4.9', 'success'],
+        [4.900001, 'gte', 4.900001, '4.900001', 'success'],
+        [4.899999, 'lte', 4.899999, '4.899999', 'success'],
+        [10.001, 'gte', 10, '10', 'success'],
+        [9.999, 'lte', 10, '10', 'success'],
+    ] as const)('keeps the label for score %s consistent with %s %s', (score, operator, threshold, label, type) => {
+        expect(
+            getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score }), {
+                passingRule: { operator, threshold },
+            })
+        ).toMatchObject({ label, type })
+    })
+
+    it.each([
+        [[], true, ['resolved'], 'danger', 'No categories'],
+        [['resolved'], true, ['resolved'], 'success', 'Resolved'],
+        [['resolved', 'incorrect'], true, ['resolved'], 'danger', 'Resolved, incorrect'],
+        [[], true, [], 'success', 'No categories'],
+        [['resolved'], true, [], 'danger', 'Resolved'],
+        [[], true, null, 'none', 'No categories'],
+        [null, false, ['resolved'], 'muted', 'N/A'],
+        [null, false, [], 'muted', 'N/A'],
+    ] as const)(
+        'renders categorical results %s without confusing empty selections and N/A',
+        (categories, applicable, passingCategories, type, label) => {
+            expect(
+                getEvaluationResultDisplay(
+                    makeRun({
+                        result_type: 'categorical',
+                        result: null,
+                        categories: categories ? [...categories] : null,
+                        applicable,
+                    }),
+                    {
+                        passingRule: passingCategories ? { categories: [...passingCategories] } : null,
+                        categoryOptions: [{ key: 'resolved', label: 'Resolved' }],
+                    }
+                )
+            ).toMatchObject({ type, label })
+        }
+    )
 
     describe('getEvalSummaries', () => {
         it('returns empty array for empty input', () => {
@@ -96,27 +144,26 @@ describe('EvalResultBadges', () => {
             expect(descResult[0].latestRun.id).toBe('new')
         })
 
+        it('orders by when a verdict was produced, not by its backdated timestamp', () => {
+            const live = makeRun({
+                id: 'live',
+                timestamp: '2026-04-10T12:00:05Z',
+                start_time: '2026-04-10T12:00:05Z',
+            })
+            const rerun = makeRun({
+                id: 'rerun',
+                timestamp: '2026-04-10T12:00:00.400Z',
+                start_time: '2026-04-12T09:00:00Z',
+                backfill_id: 'backfill-1',
+            })
+
+            expect(getEvalSummaries([live, rerun])[0]).toMatchObject({ latestRun: { id: 'rerun' }, runCount: 2 })
+        })
+
         it('handles a single run', () => {
             const summaries = getEvalSummaries([makeRun()])
             expect(summaries).toHaveLength(1)
             expect(summaries[0].runCount).toBe(1)
-        })
-    })
-
-    describe('scopeRunsToTarget', () => {
-        const generationRun = makeRun({ id: 'gen-run', generation_id: 'gen-1' })
-        const otherGenerationRun = makeRun({ id: 'other-gen-run', generation_id: 'gen-2' })
-        // HogQL returns '' (not null) for a missing $ai_target_event_id on trace-target runs.
-        const traceRunEmptyString = makeRun({ id: 'trace-run-empty', generation_id: '' })
-        const traceRunNull = makeRun({ id: 'trace-run-null', generation_id: null })
-        const allRuns = [generationRun, otherGenerationRun, traceRunEmptyString, traceRunNull]
-
-        it('scoped to a generation, returns only that generation runs', () => {
-            expect(scopeRunsToTarget(allRuns, 'gen-1').map((r) => r.id)).toEqual(['gen-run'])
-        })
-
-        it('without a generation, returns only trace-target runs (empty string and null)', () => {
-            expect(scopeRunsToTarget(allRuns).map((r) => r.id)).toEqual(['trace-run-empty', 'trace-run-null'])
         })
     })
 
@@ -210,60 +257,6 @@ describe('EvalResultBadges', () => {
 
         it('returns false for boolean evaluation runs', () => {
             expect(isSentimentRun(makeRun())).toBe(false)
-        })
-    })
-
-    describe('rendered with the trace scene evaluations logic', () => {
-        const detectorEvaluation: EvaluationConfig = {
-            id: 'eval-detector',
-            name: 'Detects struggle',
-            enabled: true,
-            status: 'active',
-            status_reason: null,
-            status_reason_detail: null,
-            evaluation_type: 'hog',
-            evaluation_config: { source: 'return true' },
-            output_type: 'boolean',
-            output_config: { true_is_failure: true },
-            conditions: [{ id: 'cond-1', rollout_percentage: 100, properties: [] }],
-            target: 'trace',
-            target_config: {},
-            model_configuration: null,
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z',
-        }
-
-        beforeEach(() => {
-            initKeaTests()
-        })
-
-        afterEach(() => {
-            cleanup()
-        })
-
-        it('colors a detector true result as danger, matching the config switch', () => {
-            const evaluationsLogic = llmEvaluationsLogic()
-            evaluationsLogic.mount()
-            evaluationsLogic.actions.loadEvaluationsSuccess([detectorEvaluation])
-
-            const runsLogic = generationEvaluationRunsLogic({ traceId: 'trace-1' })
-            runsLogic.mount()
-            runsLogic.actions.loadGenerationEvaluationRunsSuccess([
-                makeRun({ evaluation_id: 'eval-detector', evaluation_name: 'Detects struggle', generation_id: '' }),
-            ])
-
-            render(
-                <Provider>
-                    <EvalResultBadges traceId="trace-1" />
-                </Provider>
-            )
-
-            expect(screen.getByText('Detects struggle: True')).toBeInTheDocument()
-            expect(document.querySelector('.LemonTag--danger')).toBeInTheDocument()
-            expect(document.querySelector('.LemonTag--success')).not.toBeInTheDocument()
-
-            evaluationsLogic.unmount()
-            runsLogic.unmount()
         })
     })
 })

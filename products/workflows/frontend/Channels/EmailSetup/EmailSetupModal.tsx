@@ -17,9 +17,21 @@ import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { EmailDomainSetupModal, EmailDomainSetupModalProps } from '../EmailDomain/EmailDomainSetupModal'
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
-export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
+export type EmailSetupModalProps = EmailSetupModalLogicProps & { entry?: EmailDomainSetupModalProps['entry'] }
+
+export const EmailSetupModal = ({ entry, ...props }: EmailSetupModalProps): JSX.Element => {
+    // A verified sender keeps the settings form, which edits what the wizard does not: reply-to and the bounce subdomain.
+    const editsVerifiedSender = props.integration?.config?.verified === true
+    if (!editsVerifiedSender) {
+        return <EmailDomainSetupModal {...props} entry={entry ?? (props.integration ? 'configure' : 'channels')} />
+    }
+    return <LegacyEmailSetupModal {...props} />
+}
+
+const LegacyEmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
     const logic = emailSetupModalLogic(props)
     const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
         useValues(logic)
@@ -68,13 +80,27 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                         <LemonField
                             name="mail_from_subdomain"
                             label="MAIL FROM subdomain"
-                            help="The subdomain used for your emails' Return-Path header. Setting a MAIL FROM domain helps improve email deliverability."
+                            help="The subdomain used for your emails' Return-Path header. Every sender on a domain uses the same one, so changing it here changes it for all of them. Setting a MAIL FROM domain helps improve email deliverability."
                         >
                             <LemonInput
                                 className="w-fit"
                                 type="text"
                                 placeholder="feedback"
                                 suffix={<>.{domain || 'yourdomain.com'}</>}
+                                disabledReason={
+                                    verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
+                                }
+                            />
+                        </LemonField>
+                        <LemonField
+                            name="reply_to"
+                            label="Default reply-to address"
+                            help="Replies go here when an email step has no reply-to address of its own. Leave empty to send replies to the sender address."
+                            showOptional
+                        >
+                            <LemonInput
+                                type="text"
+                                placeholder="support@example.com"
                                 disabledReason={
                                     verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
                                 }
@@ -222,10 +248,8 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                             </LemonButton>
                             <LemonButton
                                 type="primary"
-                                onClick={async () => {
-                                    await submitEmailSender()
-                                    props.onComplete(savedIntegration?.id)
-                                }}
+                                onClick={submitEmailSender}
+                                loading={isEmailSenderSubmitting}
                                 tooltip="You will not be able to send emails until you verify the DNS records"
                             >
                                 {isDomainVerified ? 'Save' : 'Save & finish later'}

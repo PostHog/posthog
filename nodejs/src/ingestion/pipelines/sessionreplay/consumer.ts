@@ -18,6 +18,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { SessionReplayPipelineConfig, createSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
+import { CaptureWatermark } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
@@ -37,8 +38,10 @@ import { BatchStages } from './batch-stages'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
+import { statedDecodedBytes } from './parse-message-step'
 import { SessionReplayLagReporter } from './session-replay-lag-reporter'
 import { SessionReplayPipelineFactory, SessionReplayPipelineRunner } from './session-replay-pipeline-runner'
+import { billPersistedSessions } from './session-usage-step'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { BlockCompression } from './sessions/block-compression'
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
@@ -86,6 +89,10 @@ export interface SessionRecordingIngesterCollaborators {
      * (which would let it mark a session seen without the main key and cause a cleartext recording).
      */
     redisKeyNamespace?: string
+    /** The ML mirror reports how far back its events are complete; the main lane leaves this unset. */
+    captureWatermark?: CaptureWatermark
+    /** False on the ML mirror, because the main lane bills the same recordings. */
+    reportUsage?: boolean
 }
 
 export class SessionRecordingIngester {
@@ -135,6 +142,7 @@ export class SessionRecordingIngester {
     private readonly runner: StagedBatchRunner
     private readonly batchStages: BatchStages
     private readonly usageBatch: UsageRecordBatch
+    private readonly captureWatermark?: CaptureWatermark
 
     constructor(
         private config: SessionRecordingIngesterConfig,
@@ -157,10 +165,13 @@ export class SessionRecordingIngester {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
         this.promiseScheduler = new PromiseScheduler()
-        this.usageBatch = new UsageRecordBatch(createUsageIngestionClient(config, 'session_replay'), {
-            unit: 'recordings',
-            isTeamEnabled: usageReportTeamMatcher(config),
-        })
+        this.usageBatch = new UsageRecordBatch(
+            collaborators.reportUsage === false ? null : createUsageIngestionClient(config, 'session_replay'),
+            {
+                unit: 'recordings',
+                isTeamEnabled: usageReportTeamMatcher(config),
+            }
+        )
 
         this.runner =
             collaborators.runner ??
@@ -273,6 +284,7 @@ export class SessionRecordingIngester {
         })
 
         this.lagReporter = new SessionReplayLagReporter(this.topic)
+        this.captureWatermark = collaborators.captureWatermark
 
         this.currentBatch = this.sessionBatchManager.createBatch()
         this.lastFlushTime = Date.now()
@@ -299,10 +311,25 @@ export class SessionRecordingIngester {
             SessionRecordingIngesterMetrics.incrementMessageReceived(message.partition)
         })
 
+        this.captureWatermark?.hold(
+            messages.map((message) => ({
+                topic: message.topic,
+                partition: message.partition,
+                offset: message.offset,
+                data: 'events',
+                capturedAtMs: message.timestamp,
+            }))
+        )
+
         const batchSize = messages.length
         const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
+        if (messages.length > 0) {
+            SessionRecordingIngesterMetrics.observeKafkaBatchDecodedKb(
+                messages.reduce((acc, m) => statedDecodedBytes(m) + acc, 0) / 1024
+            )
+        }
 
         const batch = this.runner.run(messages, this.batchStages.admit(), this.committer)
         // A runner with one stage cannot overlap batches. The batch completes inside this call, which is what the consumer expects from a lane that returns no task.
@@ -349,15 +376,24 @@ export class SessionRecordingIngester {
             await this.promiseScheduler.waitForAllSettled()
         })
         await this.batchLock(async () => {
+            // The offset store refuses after a background task failed, so writing the batch would only
+            // duplicate data that the next owner replays.
+            if (this.kafkaConsumer.hasFailed()) {
+                logger.warn('⚠️', 'blob_ingester_consumer_v2 - skipping flush after a background task failed', {
+                    batchSize: this.currentBatch.size,
+                })
+                return
+            }
             logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
-            // Billing has nothing to wait on the batch for, and a usage outage must not stop lag
-            // reporting or the batch reset — so it goes out alongside and swallows its own failure.
-            await Promise.all([
-                instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () => this.currentBatch.flush()),
-                this.usageBatch.flush().catch((error) => {
-                    logger.warn('⚠️', 'blob_ingester_consumer_v2 - usage flush failed', { error })
-                }),
-            ])
+            // Usage goes out before the offsets commit, so a crash cannot lose the bill of a session with no later
+            // batch. A replayed batch resends the same record, and the usage table removes the duplicate.
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
+                this.currentBatch.flush((sessions) =>
+                    billPersistedSessions(this.usageBatch, this.sessionTracker, sessions).catch((error) => {
+                        logger.warn('⚠️', 'blob_ingester_consumer_v2 - usage flush failed', { error })
+                    })
+                )
+            )
             // The flush committed the batch's offsets, so its data is now durably ingested — report lag.
             // Skipped if the flush above threw, so a failed flush records no premature lag sample.
             this.lagReporter.flush()
@@ -379,6 +415,12 @@ export class SessionRecordingIngester {
         this.stopEventIngestionRestrictionManager = started.stop
 
         const pipelineConfig: SessionReplayPipelineConfig = {
+            maxDecodedBytesPerWrite: this.config.SESSION_RECORDING_MAX_DECODED_KB_PER_WRITE * 1024,
+            messageLimits: {
+                maxWindowIdBytes: this.config.SESSION_RECORDING_MAX_WINDOW_ID_BYTES,
+                maxEventsPerMessage: this.config.SESSION_RECORDING_MAX_EVENTS_PER_MESSAGE,
+                enforce: this.config.SESSION_RECORDING_ENFORCE_MESSAGE_LIMITS,
+            },
             outputs: this.outputs,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowMode: this.config.INGESTION_OVERFLOW_MODE,
@@ -391,7 +433,6 @@ export class SessionRecordingIngester {
             sessionKeyResolutionMaxConcurrency: this.config.SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY,
             topHog: this.topHog,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,
-            usageBatch: this.usageBatch,
         }
         this.runner.start(pipelineConfig)
 
@@ -422,13 +463,29 @@ export class SessionRecordingIngester {
 
         // Persist whatever is buffered and store its offsets while we still own the partitions;
         // disconnect commits them as it leaves the group.
-        await this.flushCurrentBatch()
-        await this.kafkaConsumer.disconnect()
+        let promiseResults: PromiseSettledResult<any>[]
+        let disconnectFailure: { error: unknown } | undefined
+        try {
+            await this.flushCurrentBatch()
+        } finally {
+            // The flush rejects when the consumer refuses the offset store. Without the disconnect,
+            // the partitions wait for the session timeout before another consumer takes them.
+            // A disconnect error must not skip the cleanup below or replace the flush error.
+            try {
+                await this.kafkaConsumer.disconnect()
+            } catch (error) {
+                disconnectFailure = { error }
+                logger.error('🔥', 'blob_ingester_consumer_v2 - disconnect failed', { error: String(error) })
+            }
 
-        const promiseResults = await this.promiseScheduler.waitForAllSettled()
+            promiseResults = await this.promiseScheduler.waitForAllSettled()
 
-        this.keyStore.stop()
-        await this.stopEventIngestionRestrictionManager?.()
+            this.keyStore.stop()
+            await this.stopEventIngestionRestrictionManager?.()
+        }
+        if (disconnectFailure) {
+            throw disconnectFailure.error
+        }
         // Note: Kafka producers and Redis pools are owned by the server (IngestionSessionReplayServer),
         // not by the ingester. The server handles their lifecycle in getCleanupResources().
 
@@ -463,6 +520,8 @@ export class SessionRecordingIngester {
             return Promise.resolve()
         }
 
+        // Forgotten before the flush, because a failed revoke flush is swallowed and the partitions still go to the next owner.
+        this.captureWatermark?.forget(topicPartitions)
         SessionRecordingIngesterMetrics.resetSessionsHandled()
         return this.flushCurrentBatch()
     }
@@ -470,6 +529,7 @@ export class SessionRecordingIngester {
     private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {
         await instrumentFn(`recordingingesterv2.handleEachBatch.flush.commitOffsets`, () => {
             this.kafkaConsumer.offsetsStore(offsets)
+            this.captureWatermark?.release(offsets)
             return Promise.resolve()
         })
     }

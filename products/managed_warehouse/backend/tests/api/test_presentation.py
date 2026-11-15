@@ -38,21 +38,41 @@ def _onboarding_side_effects():
     clear_team_membership_cache()
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "enabled_flags, expected_variant",
+    [
+        ({"managed-warehouse-trino-query"}, "trino"),
+        ({"managed-warehouse-trino-query", "data-warehouse-scene"}, "trino"),
+        ({"data-warehouse-scene"}, "duckdb"),
+        (set(), None),
+    ],
+)
 @patch("products.managed_warehouse.backend.presentation.views.posthoganalytics.feature_enabled")
-def test_is_enabled_uses_data_warehouse_scene_flag(mock_feature_enabled: MagicMock) -> None:
+def test_data_ops_variant_prefers_the_trino_flag(
+    mock_feature_enabled: MagicMock, enabled_flags: set[str], expected_variant: str | None
+) -> None:
     organization_id = uuid4()
-    mock_feature_enabled.return_value = True
+    mock_feature_enabled.side_effect = lambda flag, *_args, **_kwargs: flag in enabled_flags
 
-    assert managed_warehouse.is_enabled(organization_id) is True
-
-    mock_feature_enabled.assert_called_once_with(
-        "data-warehouse-scene",
+    assert managed_warehouse.data_ops_variant(organization_id) == expected_variant
+    assert managed_warehouse.is_enabled(organization_id) is (expected_variant is not None)
+    mock_feature_enabled.assert_any_call(
+        "managed-warehouse-trino-query",
         str(organization_id),
         groups={"organization": str(organization_id)},
         group_properties={"organization": {"id": str(organization_id)}},
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
+
+
+@patch(
+    "products.managed_warehouse.backend.presentation.views.posthoganalytics.feature_enabled",
+    side_effect=RuntimeError("flags unavailable"),
+)
+def test_data_ops_variant_fails_closed_when_flag_evaluation_errors(_mock_feature_enabled: MagicMock) -> None:
+    assert managed_warehouse.data_ops_variant(uuid4()) is None
 
 
 @patch("products.managed_warehouse.backend.facade.connection.update_managed_warehouse_root_password")
@@ -293,7 +313,7 @@ def test_provision_captures_generation_before_request_and_skips_local_writes_if_
             status=202,
         )
 
-    def lose_activation(_organization_id, expected_generation: int) -> None:
+    def lose_activation(_organization_id, expected_generation: int, internal_only: bool = False) -> None:
         call_order.append(("activate", expected_generation))
         return None
 
@@ -633,13 +653,20 @@ def test_status_for_strips_bucket_from_response(mock_request: MagicMock) -> None
     # The bucket is internal infra detail — never part of the UI-facing status body.
     org = Organization.objects.create(name="Org")
     mock_request.return_value = Response(
-        {"org_id": str(org.id), "state": "ready", "bucket": "posthog-duckling-x-mw-prod-us"}, status=200
+        {
+            "org_id": str(org.id),
+            "state": "ready",
+            "bucket": "posthog-duckling-x-mw-prod-us",
+            "bucket_prefix": "warehouses/x",
+        },
+        status=200,
     )
 
     resp = managed_warehouse.status_for(org.id)
 
     assert "bucket" not in resp.data
     assert "bucket_region" not in resp.data
+    assert "bucket_prefix" not in resp.data
 
 
 @pytest.mark.django_db
@@ -718,6 +745,27 @@ def test_cp_bucket_for_returns_none_when_cp_has_no_bucket(mock_request: MagicMoc
     mock_request.return_value = Response({"org_id": str(org.id), "state": "ready"}, status=200)
 
     assert managed_warehouse.cp_bucket_for(org.id) is None
+
+
+@pytest.mark.parametrize(
+    "body_overrides, expected",
+    [
+        ({"bucket": "lake-bucket"}, "s3://lake-bucket/"),
+        ({"bucket": "lake-bucket", "bucket_prefix": "lake"}, "s3://lake-bucket/lake/"),
+        ({"bucket": "lake-bucket", "bucket_prefix": "/lake/sub/"}, "s3://lake-bucket/lake/sub/"),
+        ({}, None),
+        ({"bucket": "lake-bucket", "org_id": "00000000-0000-0000-0000-000000000000"}, None),
+    ],
+)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_cp_data_path_for_renders_the_ducklake_data_path(
+    mock_request: MagicMock, body_overrides: dict[str, str], expected: str | None
+) -> None:
+    org_id = "11111111-1111-1111-1111-111111111111"
+    mock_request.return_value = Response({"org_id": org_id, "state": "ready", **body_overrides}, status=200)
+
+    assert managed_warehouse.cp_data_path_for(org_id) == expected
+    assert mock_request.call_args.kwargs["require_enabled"] is False
 
 
 def test_teams_response_attaches_the_org_naming_policy_to_each_row() -> None:
@@ -1243,6 +1291,19 @@ def test_deprovision_for_org_deletion_treats_converged_states_as_done(
 
 
 @pytest.mark.django_db
+@override_settings(HOGTOWER_API_URL="http://hogtower.invalid")
+@patch("products.managed_warehouse.backend.presentation.views.deprovision")
+def test_deprovision_for_org_deletion_does_not_skip_a_hogtower_501(mock_deprovision: MagicMock) -> None:
+    # With hogtower configured, 501 is the adapter's "unmapped route", not "no control plane":
+    # skipping would let the org cascade drop the pointer to a live warehouse.
+    org, _team, _server = _provisioned_org()
+    mock_deprovision.return_value = Response({"error": "not supported"}, status=501)
+
+    with pytest.raises(RuntimeError):
+        managed_warehouse.deprovision_for_org_deletion(org.id)
+
+
+@pytest.mark.django_db
 @patch("products.managed_warehouse.backend.presentation.views._request")
 def test_provision_rejected_for_org_pending_deletion(mock_request: MagicMock) -> None:
     # The deletion workflow's deprovision step runs once, early: a warehouse provisioned for a
@@ -1300,3 +1361,117 @@ def test_update_team_puts_only_passed_fields_to_org_team_route(mock_internal: Ma
     assert method == "PUT"
     assert url == f"http://duckgres.invalid/api/v1/orgs/{org_id}/teams/42"
     assert mock_internal.request.call_args.kwargs["json"] == {"earliest_event_date": "2020-06-15"}
+
+
+_TRINO_ORG_ID = "0193f1a4-0000-7000-8000-000000000001"
+_TRINO_CONNECTION = {"host": "my-warehouse.dw.example.com", "port": 443, "username": "root"}
+
+
+def _trino_upstream(*, top: dict[str, object] | None = None, **status_overrides: object) -> Response:
+    trino_status: dict[str, object] = {
+        "org": _TRINO_ORG_ID,
+        "state": "ready",
+        "ready_at": "2026-09-01T12:00:00Z",
+        "trino_catalog_name": "org_my_warehouse",
+        "connection": _TRINO_CONNECTION,
+        "status_message": "sensitive reconcile detail",
+        "cell": "sensitive-cell",
+        "principal": "sensitive-principal",
+    }
+    trino_status.update(status_overrides)
+    return Response({"enabled": True, "available": True, "status": trino_status, **(top or {})}, status=200)
+
+
+@pytest.mark.parametrize(
+    "top, hoglake",
+    [
+        ({"backend": "hoglake", "hoglake_initialized": True}, True),
+        # hogtower has not created hoglake's catalog yet: credentials would reach nothing.
+        ({"backend": "hoglake", "hoglake_initialized": False}, False),
+        ({"backend": "hoglake"}, False),
+        ({"backend": "ducklake", "hoglake_initialized": True}, False),
+        ({"backend": "", "hoglake_initialized": True}, False),
+        ({}, False),
+    ],
+)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_trino_status_for_says_whether_the_catalog_is_hoglake(
+    mock_request: MagicMock, top: dict[str, object], hoglake: bool
+) -> None:
+    mock_request.return_value = _trino_upstream(top=top)
+
+    assert managed_warehouse.trino_status_for(_TRINO_ORG_ID)["hoglake"] is hoglake
+
+
+@pytest.mark.parametrize(
+    "upstream, expected",
+    [
+        (
+            _trino_upstream(),
+            {
+                "state": "ready",
+                "ready_at": "2026-09-01T12:00:00Z",
+                "connection": {
+                    "host": "my-warehouse.dw.example.com",
+                    "port": 443,
+                    "catalog": "org_my_warehouse",
+                    "username": "root",
+                },
+                "hoglake": False,
+            },
+        ),
+        # The coordinator is unreachable, so duckgres advertises no connection.
+        (
+            _trino_upstream(connection=None),
+            {"state": "ready", "ready_at": "2026-09-01T12:00:00Z", "connection": None, "hoglake": False},
+        ),
+        (
+            _trino_upstream(state="provisioning", ready_at=None),
+            {"state": "provisioning", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            _trino_upstream(state="failed"),
+            {"state": "failed", "ready_at": "2026-09-01T12:00:00Z", "connection": None, "hoglake": False},
+        ),
+        (
+            _trino_upstream(state="", ready_at=None),
+            {"state": "pending", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            _trino_upstream(state=None, ready_at=None),
+            {"state": "pending", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            _trino_upstream(state="resharding"),
+            {"state": "unavailable", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            _trino_upstream(state=["ready"]),
+            {"state": "unavailable", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            Response({"enabled": False, "assigned": False}, status=200),
+            {"state": "not_enabled", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            _trino_upstream(org="another-organization"),
+            {"state": "unavailable", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            Response({"error": "the assigned Trino cell is not configured"}, status=409),
+            {"state": "unavailable", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            Response({"error": "Provisioning service is unreachable"}, status=502),
+            {"state": "unavailable", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+    ],
+)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_trino_status_for_presents_only_customer_safe_fields(
+    mock_request: MagicMock, upstream: Response, expected: dict[str, object]
+) -> None:
+    mock_request.return_value = upstream
+
+    assert managed_warehouse.trino_status_for(_TRINO_ORG_ID) == expected
+    mock_request.assert_called_once_with("GET", _TRINO_ORG_ID, "/trino", timeout=10)

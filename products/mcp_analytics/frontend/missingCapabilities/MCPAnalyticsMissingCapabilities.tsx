@@ -13,6 +13,7 @@ import { MCPMissingCapabilitiesItem } from '~/queries/schema/schema-general'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { McpDateFilter } from '../components/McpDateFilter'
+import { McpInternalUsersFilter } from '../components/McpInternalUsersFilter'
 import { HarnessLogo } from '../dashboard/harness'
 import { useMCPAnalyticsWizardCommand } from '../onboarding/MCPAnalyticsInstall'
 import { isUnidentifiedClient, mcpMissingCapabilitiesLogic, parsePersonProperties } from './mcpMissingCapabilitiesLogic'
@@ -43,6 +44,7 @@ function FilterBar(): JSX.Element {
                 onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
                 dataAttr="mcp-missing-capabilities-date-filter"
             />
+            <McpInternalUsersFilter dataAttr="mcp-missing-capabilities-test-account-filter" />
         </div>
     )
 }
@@ -155,7 +157,9 @@ function ClientCell({ harness }: { harness: string }): JSX.Element {
     return (
         <span className="flex items-center gap-1.5">
             <HarnessLogo category={harness} className="h-3.5 w-3.5" />
-            <span className="truncate">{harness}</span>
+            <span className="truncate" title={harness}>
+                {harness}
+            </span>
         </span>
     )
 }

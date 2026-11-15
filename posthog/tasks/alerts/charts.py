@@ -40,8 +40,11 @@ def render_series_chart(
     triggered_indices: list[int] | None = None,
     scores: list[float | None] | None = None,
     title: str = "",
+    highlight_index: int | None = None,
 ) -> bytes | None:
     """Return a PNG of the series with anomaly points marked, or None on failure.
+
+    ``highlight_index`` marks one point, such as the point a judge is asked about.
 
     Best-effort: if matplotlib can't render (empty data, backend error, etc.),
     log and return None so the investigation continues text-only.
@@ -70,6 +73,17 @@ def render_series_chart(
             anomaly_y = [values[i] for i in anomaly_x]
             if anomaly_x:
                 ax.scatter(anomaly_x, anomaly_y, color="#dc2626", s=80, zorder=5, label="Anomaly", edgecolors="white")
+
+        if highlight_index is not None and 0 <= highlight_index < len(values):
+            ax.scatter(
+                [highlight_index],
+                [values[highlight_index]],
+                color="#f59e0b",
+                s=120,
+                zorder=6,
+                label="Current point",
+                edgecolors="black",
+            )
 
         # A detector that does not score its points sends a list of nulls, which is the same
         # length as the values and so passes a plain emptiness check.

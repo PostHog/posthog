@@ -13,19 +13,22 @@ from owners_yaml import (
     cli as cli_module,
     first_team_owner,
     fmt as fmt_module,
+    newly_unowned,
     owner_handle,
     package_dirs_from,
     project,
     runner_for_path,
     spellings,
+    unowned_test_directories,
 )
 from owners_yaml.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
 from owners_yaml.fmt import CanonicalPlacer, CanonicalPlan
-from owners_yaml.resolver import OwnersResolver, team_channel
+from owners_yaml.resolver import DiskSource, OwnersResolver, PathKind, first_new_path, team_channel
 from owners_yaml.schema import (
     _RULE_KEYS,
     DEFAULT_ALIAS_FILES,
     TOP_LEVEL_KEYS,
+    UNSET,
     CodeownersSettings,
     TeamEntry,
     is_simple_owners_file,
@@ -173,6 +176,22 @@ def test_json_schema_accepts_the_same_keys_as_the_parser() -> None:
 @pytest.mark.parametrize(
     "fragment",
     [
+        "sensitive: 'true'\n",
+        "sensitive: 1\n",
+        "rules:\n  - match: '/*'\n    sensitive: [true]\n",
+    ],
+)
+def test_malformed_sensitive_is_a_schema_error_and_sets_nothing(tmp_path: Path, fragment: str) -> None:
+    file, errors = parse_owners_file(
+        "version: 1\nowners: [team-a]\n" + fragment, path=tmp_path / "owners.yaml", directory=""
+    )
+    assert any("'sensitive' must be a boolean" in e for e in errors), errors
+    assert file is not None and file.sensitive is UNSET and all(r.sensitive is UNSET for r in file.rules)
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
         "additions: 5\n",
         "additions: [team-a, '']\n",
         "additions: {}\n",
@@ -200,7 +219,6 @@ def test_malformed_additions_is_a_schema_error_and_adds_nobody(tmp_path: Path, f
         ("alias_files: [a, b, c, d, e, f, g, h, i]\n", "at most 8 names"),
         ("alias_files: [a.yaml, b.yaml, a.yaml]\n", "is listed twice"),
         ("alias_files: [a, b, c, d, e, f, g, h, a]\n", "at most 8 names"),
-        ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
     ],
 )
 def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: str, needle: str) -> None:
@@ -220,7 +238,6 @@ def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: 
         ("teams: [team-a]\n", "'teams' must be a mapping"),
         ("teams:\n  team-a:\n    slack: 'no-hash'\n", "must be a string starting with '#' or false"),
         ("teams:\n  team-a:\n    notifications: 'no-hash'\n", "must be a string starting with '#' or false"),
-        ("teams:\n  team-a:\n    channel: '#a'\n", "unknown field 'channel'"),
         ("teams:\n  team-a: '#a'\n", "entry must be a mapping"),
         ("teams:\n  '@alice':\n    slack: '#a'\n", "not @handles"),
         ("teams:\n  123:\n    slack: '#a'\n", "slug must be a string"),
@@ -314,8 +331,19 @@ def test_a_repo_without_a_producers_list_accepts_any_producer(tmp_path: Path) ->
     assert file is not None and file.teams == {"team-a": TeamEntry(notifications={"reviewbot": "#a-bots"})}
 
 
-def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:
-    text = "version: 1\nowners: [team-a]\nteams:\n  team-a:\n    slack: '#a'\n"
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        "teams:\n  team-a:\n    slack: '#a'\n",
+        "sensitive: true\n",
+        "rules:\n  - match: '/a/'\n    sensitive: false\n",
+        "reviewers: [team-c]\n",
+        "rules:\n  - match: '/a/'\n    reviewers: [team-c]\n",
+    ],
+    ids=["teams-registry", "file-sensitive", "rule-sensitive", "file-unknown-field", "rule-unknown-field"],
+)
+def test_content_beyond_owners_pins_file_as_non_simple(tmp_path: Path, fragment: str) -> None:
+    text = "version: 1\nowners: [team-a]\n" + fragment
     file, _ = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert file is not None
     assert is_simple_owners_file(file) is False
@@ -743,6 +771,33 @@ def test_resolver_reads_through_an_injected_source() -> None:
     assert resolver.resolve("posthog/temporal/test_run.py").source == "posthog/temporal/owners.yaml"
 
 
+@pytest.mark.parametrize("include_added", [True, False])
+def test_resolver_can_omit_tree_metadata(include_added: bool) -> None:
+    class Source:
+        def read(self, path: str) -> str | None:
+            if path == "owners.yaml":
+                return "version: 1\nowners: [team-root]\nadditions: [team-review]\nsensitive: true\n"
+            return None
+
+        def path_kind(self, path: str) -> PathKind | None:
+            if not include_added:
+                raise OSError("Tree metadata is unavailable")
+            return None
+
+    resolution = OwnersResolver(source=Source()).resolve("new/app.py", include_added=include_added)
+
+    assert resolution.owners == ["team-root"]
+    assert resolution.additions == ["team-review"]
+    assert resolution.sensitive is True
+    assert resolution.is_owned
+    if include_added:
+        assert resolution.added is not None
+        assert resolution.added.path == "new"
+        assert resolution.added.additions == ["team-review"]
+    else:
+        assert resolution.added is None
+
+
 @pytest.mark.parametrize(
     "root_text,expected_prefetch",
     [
@@ -801,7 +856,9 @@ def test_census_counts_test_files_per_team_and_folds_gaps_into_unowned(tmp_path:
     _write(tmp_path, "owners.yaml", "version: 1\nowners: []\n")
     _write(tmp_path, "products/a/owners.yaml", "version: 1\nowners: [team-a]\n")
     _write(tmp_path, "products/p/owners.yaml", "version: 1\nowners: ['@someone']\n")
+    _write(tmp_path, "vendor/owners.yaml", "version: 1\nowners: null\n")
     paths = [
+        "vendor/lib/test_vendored.py",
         "products/a/backend/test_api.py",
         "products/a/backend/queries_test.py",
         "products/a/frontend/thing.test.tsx",
@@ -849,6 +906,8 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
             "slack": "#registry-chan",
             "source": "reg/owners.yaml",
             "additions": [],
+            "added": {"path": "reg/x.py", "additions": []},
+            "sensitive": False,
         }
     }
     jsonschema = pytest.importorskip("jsonschema")
@@ -907,6 +966,71 @@ def test_both_front_doors_pass_the_producer_to_the_channel_lookup(
         return
     assert exit_code == 0, output
     assert json.loads(output)["mapped/x.py"]["slack"] == channel
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("products/new/sub/a.py", "products/new"),
+        ("products/old/c.py", "products/old/c.py"),
+        ("products/old/existing.py", None),
+        ("products/old", None),
+        ("products/was-a-file/a.py", "products/was-a-file"),
+        ("products/linked/a.py", "products/linked"),
+    ],
+    ids=[
+        "new-directory",
+        "new-file-in-existing-directory",
+        "existing-file",
+        "existing-directory",
+        "file-to-directory",
+        "symlink-to-directory",
+    ],
+)
+def test_first_new_path_names_the_part_nearest_the_root_that_the_tree_lacks(path: str, expected: str | None) -> None:
+    tree: dict[str, PathKind] = {
+        "products": "dir",
+        "products/old": "dir",
+        "products/old/existing.py": "file",
+        "products/was-a-file": "file",
+        "products/linked": "file",
+        "products/linked/a.py": "file",
+    }
+
+    assert first_new_path(path, tree.get) == expected
+
+
+def test_disk_source_reports_a_symlink_to_a_directory_as_a_file(tmp_path: Path) -> None:
+    _write(tmp_path, "real/a.py", "")
+    (tmp_path / "linked").symlink_to(tmp_path / "real", target_is_directory=True)
+
+    source = DiskSource(tmp_path)
+
+    assert source.path_kind("linked") == "file"
+    assert source.path_kind("real") == "dir"
+    assert first_new_path("linked/a.py", source.path_kind) == "linked"
+
+
+@pytest.mark.parametrize("front_door", ["cli", "module"])
+def test_both_front_doors_report_the_new_part_of_a_path_the_tree_lacks(tmp_path: Path, front_door: str) -> None:
+    _write(
+        tmp_path,
+        "owners.yaml",
+        "version: 1\nowners: team-root\nrules:\n  - match: '/products/*'\n    additions: team-arch\n",
+    )
+    _write(tmp_path, "products/old/owners.yaml", "version: 1\nowners: team-old\n")
+    _write(tmp_path, "products/old/x.py", "")
+
+    exit_code, output = _resolve_json(
+        front_door, tmp_path, ["products/new/a.py", "products/old/x.py", "products/old/y.py"]
+    )
+
+    assert exit_code == 0, output
+    wire = json.loads(output)
+    assert wire["products/new/a.py"]["added"] == {"path": "products/new", "additions": ["team-arch"]}
+    assert wire["products/new/a.py"]["additions"] == []
+    assert wire["products/old/x.py"]["added"] is None
+    assert wire["products/old/y.py"]["added"] == {"path": "products/old/y.py", "additions": []}
 
 
 @pytest.mark.parametrize("root", ["nope", ""], ids=["missing", "empty"])
@@ -1043,6 +1167,43 @@ def test_cli_lint_reports_no_alias_conflict_the_resolver_does_not_see(tmp_path: 
 
 
 @pytest.mark.parametrize(
+    "root_yaml,warning",
+    [
+        ("reviewers: [team-c]\n", "unknown top-level field 'reviewers'"),
+        ("rules:\n  - match: '/web/'\n    reviewers: [team-c]\n", "rules[0]: unknown field 'reviewers'"),
+        ("teams:\n  team-a:\n    email: a@example.com\n", "teams['team-a']: unknown field 'email'"),
+        ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
+    ],
+)
+def test_cli_lint_warns_on_an_unknown_field_without_failing(tmp_path: Path, root_yaml: str, warning: str) -> None:
+    # A newer version of the format can add a field, and an older linter must still pass that file.
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-a]\n" + root_yaml)
+    _write(tmp_path, "web/app.ts", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert f"⚠ owners.yaml: {warning}" in result.output
+
+
+@pytest.mark.parametrize("guard_owners", ["[]", "null"], ids=["unowned", "unowned-by-design"])
+def test_cli_lint_warns_on_a_sensitive_path_without_owners(tmp_path: Path, guard_owners: str) -> None:
+    _write(
+        tmp_path,
+        "owners.yaml",
+        f"version: 1\nowners: []\nrules:\n  - match: '/guard/'\n    owners: {guard_owners}\n    sensitive: true\n",
+    )
+    _write(tmp_path, "guard/baseline.txt", "")
+    _write(tmp_path, "web/app.ts", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "⚠ guard/baseline.txt: sensitive but has no owners" in result.output
+    assert "web/app.ts: sensitive" not in result.output
+
+
+@pytest.mark.parametrize(
     "match,error",
     [
         ("docs", True),
@@ -1126,3 +1287,119 @@ def test_cli_reports_missing_context_without_a_traceback(tmp_path: Path, args: l
     assert result.exit_code == 1
     assert message in result.output
     assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def _git(repo: Path, *args: str) -> None:
+    identity = ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
+    subprocess.run(["git", "-C", str(repo), *identity, *args], check=True, capture_output=True)
+
+
+_OWNERS_WITH_A_GAP = """\
+version: 1
+owners: []
+rules:
+  - match: '/owned/'
+    owners: team-a
+  - match: '/person/'
+    owners: '@alice'
+"""
+
+
+@pytest.fixture
+def repo_with_a_gap(tmp_path: Path, request: pytest.FixtureRequest) -> Path:
+    repo = tmp_path / getattr(request, "param", "")
+    _write(repo, "owners.yaml", _OWNERS_WITH_A_GAP)
+    _write(repo, "owned/a.py", "a = 1\n")
+    _write(repo, "gap/b.py", "b = 2\n")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "init")
+    return repo
+
+
+def _change(repo: Path, moves: dict[str, str], writes: dict[str, str]) -> None:
+    for old, new in moves.items():
+        (repo / old).rename(repo / new)
+    for rel, text in writes.items():
+        _write(repo, rel, text)
+
+
+_CHANGES = [
+    pytest.param({}, {"gap/new.py": "new = 1\n"}, ["gap/new.py"], id="new-file-in-a-gap"),
+    pytest.param({}, {"person/new.py": "new = 1\n"}, [], id="new-file-a-person-owns"),
+    pytest.param({"gap/b.py": "gap/renamed.py"}, {}, [], id="moved-file-that-had-no-owners"),
+    pytest.param({"owned/a.py": "gap/a.py"}, {}, ["gap/a.py"], id="file-moved-away-from-its-owners"),
+    pytest.param({}, {"owners.yaml": "version: 1\nowners: []\n"}, ["owned/a.py"], id="rule-removed"),
+    pytest.param(
+        {},
+        {"owned/owners.yaml": "version: 1\nowners: []\ninherit: false\n"},
+        ["owned/a.py", "owned/owners.yaml"],
+        id="nested-file-drops-the-owners",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "repo_with_a_gap", ["", "below-the-git-root"], indirect=True, ids=["at-the-git-root", "below-the-git-root"]
+)
+@pytest.mark.parametrize(("moves", "writes", "expected"), _CHANGES)
+def test_unowned_against_lists_only_what_the_worktree_leaves_unowned(
+    repo_with_a_gap: Path, moves: dict[str, str], writes: dict[str, str], expected: list[str]
+) -> None:
+    _change(repo_with_a_gap, moves, writes)
+
+    result = CliRunner().invoke(main, ["unowned", "--against", "HEAD", "--repo-root", str(repo_with_a_gap)])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.split() == expected
+
+
+@pytest.mark.parametrize("has_an_index", [True, False])
+def test_newly_unowned_counts_a_file_git_does_not_track_yet(repo_with_a_gap: Path, has_an_index: bool) -> None:
+    _write(repo_with_a_gap, ".git/info/exclude", "ignored/\n")
+    for rel in ("gap/untracked.py", "ignored/untracked.py"):
+        _write(repo_with_a_gap, rel, "later = 1\n")
+    if not has_an_index:
+        (repo_with_a_gap / ".git/index").unlink()
+
+    assert newly_unowned(repo_with_a_gap, "HEAD") == ["gap/untracked.py"]
+
+
+def test_newly_unowned_skips_a_file_deleted_from_the_worktree(repo_with_a_gap: Path) -> None:
+    (repo_with_a_gap / "owned/a.py").unlink()
+    _write(repo_with_a_gap, "owners.yaml", "version: 1\nowners: []\n")
+
+    assert newly_unowned(repo_with_a_gap, "HEAD") == []
+
+
+def test_newly_unowned_counts_a_file_moved_into_the_included_paths(repo_with_a_gap: Path) -> None:
+    _change(repo_with_a_gap, {"gap/b.py": "gap/test_b.py"}, {})
+
+    assert newly_unowned(repo_with_a_gap, "HEAD", include=runner_for_path) == ["gap/test_b.py"]
+
+
+@pytest.mark.parametrize(("moves", "writes", "expected"), _CHANGES)
+def test_newly_unowned_reads_head_when_the_check_is_on_a_push(
+    repo_with_a_gap: Path, moves: dict[str, str], writes: dict[str, str], expected: list[str]
+) -> None:
+    _change(repo_with_a_gap, moves, writes)
+    _git(repo_with_a_gap, "add", "-A")
+    _git(repo_with_a_gap, "commit", "-q", "-m", "change")
+    _git(repo_with_a_gap, "restore", "--source=HEAD~1", "--worktree", ".")
+    _change(repo_with_a_gap, {}, {"gap/uncommitted.py": "later = 1\n"})
+
+    assert newly_unowned(repo_with_a_gap, "HEAD~1", committed_only=True) == expected
+
+
+def test_newly_unowned_reads_a_bare_repository_when_the_check_is_on_a_push(repo_with_a_gap: Path) -> None:
+    _change(repo_with_a_gap, {}, {"gap/new.py": "new = 1\n"})
+    _git(repo_with_a_gap, "add", "-A")
+    _git(repo_with_a_gap, "commit", "-q", "-m", "change")
+    _git(repo_with_a_gap, "clone", "-q", "--bare", ".", "bare.git")
+
+    assert newly_unowned(repo_with_a_gap / "bare.git", "HEAD~1", committed_only=True) == ["gap/new.py"]
+
+
+def test_a_branch_from_before_newly_unowned_imports_its_check_and_cannot_run_it() -> None:
+    with pytest.raises(NotImplementedError, match="merge master"):
+        unowned_test_directories(None, [])

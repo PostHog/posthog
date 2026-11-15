@@ -9,7 +9,7 @@ query-time computation:
      three properties — the ones the `@posthog/mcp` / `posthog.mcp` SDK schemas can
      emit: the x-anthropic-client vendor header (`$mcp_vendor_client`, with the
      legacy server-stamped `mcp_vendor_client` as a fallback for historical rows),
-     then Claude Code's User-Agent surface, then the Grok User-Agent surface, then
+     then Claude Code's User-Agent surface, then the Grok and Kimchi User-Agent surfaces, then
      the clientInfo.name (`$mcp_client_name`), then the generic User-Agent product
      token (`$mcp_client_user_agent`) — `HARNESS_TOKEN_SQL`.
   2. Bucket that token into a customer label — `harness_label_sql` when the result must
@@ -34,6 +34,12 @@ per-session value) and pass that column name to `harness_label_sql` — never in
 the token into the `multiIf`. `token_col` is always a SQL identifier the caller
 controls, never request input.
 """
+
+from collections.abc import Sequence
+
+from posthog.hogql.escape_sql import escape_hogql_string
+
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 
 # Leading product token of the User-Agent, e.g. "claude-code" from "claude-code/2.1.x (cli)".
 _UA_PRODUCT = "extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')"
@@ -72,6 +78,10 @@ _RAW_TOKEN = f"""coalesce(
     -- Promote the grok UA above it. (grok-shell keeps its `grok-`-prefixed
     -- clientInfo.name and buckets to Grok without help.)
     if(startsWith(lower({_UA_PRODUCT}), 'grok'), {_UA_TOKEN}, NULL),
+    -- Kimchi (kimchi.dev) is built on pi and reports the generic pi-mcp
+    -- `pi-mcp-<server>` as its clientInfo.name; only its `kimchi/…` User-Agent
+    -- names it, so promote that above the name the same way.
+    if(startsWith(lower({_UA_PRODUCT}), 'kimchi'), {_UA_TOKEN}, NULL),
     nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
     nullIf({_UA_TOKEN}, ''),
     ''
@@ -98,11 +108,12 @@ UNIDENTIFIED_HARNESS_LABEL = "Unidentified client"
 _MAX_TOKEN_LABEL_LENGTH = 200
 
 
-def harness_label_sql(token_col: str = "h") -> str:
+def harness_label_sql(token_col: str = "h", custom_rules: Sequence[CustomHarnessRule] = ()) -> str:
     """Bucket a normalized harness token column into a customer label.
 
     Every unrecognized token collapses into "Other", so the result is always one of
-    `HARNESS_LABELS`. Callers that aggregate labels into a per-row array need that
+    `HARNESS_LABELS` or a team's custom rule names. A custom rule is tried before the built-in
+    buckets, so a team can also rename a built-in client. Callers that aggregate labels into a per-row array need that
     bound; callers that rank a top-N list should prefer `harness_label_or_token_sql`,
     which names an unrecognized client instead of discarding it.
 
@@ -111,10 +122,12 @@ def harness_label_sql(token_col: str = "h") -> str:
     Surface-specific entries are listed before the generic prefix matches so
     `find`-style first-match precedence matches the frontend registry order.
     """
-    return _label_multi_if(token_col, "'Other'")
+    return _label_multi_if(token_col, "'Other'", custom_rules)
 
 
-def harness_label_or_token_sql(token_col: str = "h", display_col: str = "client_display") -> str:
+def harness_label_or_token_sql(
+    token_col: str = "h", display_col: str = "client_display", custom_rules: Sequence[CustomHarnessRule] = ()
+) -> str:
     """Same bucketing as `harness_label_sql`, but names unrecognized clients verbatim.
 
     An unrecognized token is not noise — it is the client's own self-reported name
@@ -133,10 +146,18 @@ def harness_label_or_token_sql(token_col: str = "h", display_col: str = "client_
     fallback = (
         f"if({token_col} = '', '{UNIDENTIFIED_HARNESS_LABEL}', substring({display_col}, 1, {_MAX_TOKEN_LABEL_LENGTH}))"
     )
-    return _label_multi_if(token_col, fallback)
+    return _label_multi_if(token_col, fallback, custom_rules)
 
 
-def _label_multi_if(token_col: str, fallback_sql: str) -> str:
+def custom_arms_sql(token_col: str, custom_rules: Sequence[CustomHarnessRule]) -> str:
+    # Rule fields are team-supplied. They are escaped here and also restricted to a safe character set on save.
+    return "".join(
+        f"position({token_col}, {escape_hogql_string(rule.pattern.lower())}) > 0, {escape_hogql_string(rule.name)},\n        "
+        for rule in custom_rules
+    )
+
+
+def _label_multi_if(token_col: str, fallback_sql: str, custom_rules: Sequence[CustomHarnessRule] = ()) -> str:
     """The shared bucketing `multiIf`, parameterized by its final (else) arm.
 
     `token_col` is interpolated into SQL, so it must be a bare identifier — never
@@ -145,7 +166,7 @@ def _label_multi_if(token_col: str, fallback_sql: str) -> str:
     if not token_col.isidentifier():
         raise ValueError(f"token_col must be a SQL identifier, got {token_col!r}")
     return f"""multiIf(
-        {token_col} = 'claude-code claude-desktop', 'Claude Desktop',
+        {custom_arms_sql(token_col, custom_rules)}{token_col} = 'claude-code claude-desktop', 'Claude Desktop',
         {token_col} = 'claude-code claude-vscode', 'Claude Code (VS Code)',
         startsWith({token_col}, 'claude-code sdk'), 'Claude Agent SDK',
         startsWith({token_col}, 'claude-code'), 'Claude Code',
@@ -175,6 +196,7 @@ def _label_multi_if(token_col: str, fallback_sql: str) -> str:
         startsWith({token_col}, 'linear'), 'Linear',
         position({token_col}, 'librechat') > 0, 'LibreChat',
         startsWith({token_col}, 'pi-client'), 'Pi',
+        startsWith({token_col}, 'kimchi'), 'Kimchi',
         startsWith({token_col}, 'antigravity'), 'Antigravity',
         {token_col} = 'poke', 'Poke',
         {token_col} = 'opencode', 'opencode',
@@ -219,6 +241,7 @@ HARNESS_LABELS: tuple[str, ...] = (
     "Linear",
     "LibreChat",
     "Pi",
+    "Kimchi",
     "Antigravity",
     "Poke",
     "opencode",
@@ -227,3 +250,7 @@ HARNESS_LABELS: tuple[str, ...] = (
     "PostHog CLI",
     "Other",
 )
+
+# Client names the classifier keeps as they are, but that the frontend shows with a brand mark
+# (`HARNESS_BY_LABEL` in harnessRegistry.ts). A frontend test pins that map to these two tuples.
+MARKED_CLIENT_NAMES: tuple[str, ...] = ("PostHog AI", "Slack")

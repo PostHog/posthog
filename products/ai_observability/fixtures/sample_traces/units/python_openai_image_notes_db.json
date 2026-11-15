@@ -1,0 +1,297 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Filing photos into a personal notes database",
+  "scenario": "NoteMind, a personal knowledge-base assistant, receives a handwritten meeting-notes photo and a calendar screenshot from the user and works through its toolbelt (image lookup, tool introspection, tagging, code sandbox, bulk insert) to file them correctly.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-python"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "gpt-5.6-terra"
+    ],
+    "content_types": [
+      "function_call",
+      "image_url",
+      "reasoning",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_model_parameters": {
+          "stream": true
+        },
+        "conversation_id": null,
+        "$python_runtime": "CPython",
+        "$ai_input_tokens": 2333,
+        "$python_version": "3.12.9",
+        "$ai_span_name": "notemind-chat",
+        "$os": "Linux",
+        "$os_version": "11",
+        "$lib_version": "3.25.0",
+        "$ai_span_id": "ca831dcf-9eae-79af-8d61-6015bc9ca267",
+        "$lib": "posthog-python",
+        "$geoip_disable": true,
+        "$ai_latency": 1.846557378768921,
+        "$ai_parent_id": null,
+        "$ai_http_status": 200,
+        "$ai_provider": "openai",
+        "$ai_output_tokens": 38,
+        "$ai_trace_id": "ca831dcf-9eae-79af-8d61-6015bc9ca267",
+        "$ai_model": "gpt-5.6-terra",
+        "$ai_base_url": null,
+        "$ai_input": [
+          {
+            "content": "You are NoteMind, a personal knowledge-base assistant that lives inside a note-taking app. Users forward you photos, screenshots, links, and quick voice-to-text notes, and your job is to file each one into their personal notes database with the right tags, cross-references, and a short summary line.\n\n## Core behavior\n- Always read attached images carefully before responding; describe what changed since the user's last note on the same topic if you can tell.\n- Prefer adding to an existing note over creating a near-duplicate one. Search first.\n- Ask a clarifying question only when the note would otherwise be misfiled (wrong tag, wrong date, ambiguous person).\n- Never invent details that are not visible in the image or stated by the user.\n\n## Tools available\nYou have web search, an image lookup tool, a tool-introspection helper, an activity logger, a tag lister, a Python sandbox for quick calculations, and a bulk row-insert tool for the notes database. Use the tag lister before inventing a new tag, and check the introspection tool if you are unsure of a tool's exact parameter shape before calling it.\n\n## Tone\nBe brief and practical. This is a personal tool, not a customer-facing product; skip pleasantries and get to the filing.\n\n\n## Tagging conventions\nTags are always lowercase, hyphenated, and singular unless the concept is inherently plural (`groceries`, not `grocery`). Reuse an existing tag whenever one is close enough; call list_available_tags before inventing a new one, and only create a new tag when the existing set has nothing within one word of the concept. Never create two tags that differ only by an underscore versus a hyphen; normalize to hyphens.\n\n## Handling photos of handwriting\nWhen a photo shows handwritten text, transcribe it as literally as you can, including crossed-out words if they are still legible, and note in the summary line if a word was illegible rather than guessing at it. If the handwriting includes a date, use that date for the note even if it differs from the upload timestamp; people often log notes the same day they happened, not the day they photograph them.\n\n## Handling screenshots\nFor a screenshot of a calendar, a chat, or a document, extract the visible text field by field rather than paraphrasing loosely. A calendar screenshot should yield event title, date, time, and location if visible. A chat screenshot should preserve who said what, without inventing a name if the sender is not clearly labeled.\n\n## When to search the web\nUse web_search only when the note references something that needs external verification, such as a business hours claim, an address, or a term the user does not explain. Do not search the web to answer general knowledge questions unrelated to the note; that wastes a tool call and slows down filing.\n\n## Using the image lookup tool\npicture_EpPiue7LI is for finding images related to a query, optionally scoped to reference_images already saved in the user's notes. Use it when the user asks you to find a similar photo they took before, not as a general internet image search; for that, web_search with an image-focused query is more appropriate.\n\n## Logging actions\nCall log_action after any meaningful write to the notes database: a new note, a merged duplicate, a retagging. Include enough in the extra payload that a person skimming the activity feed later understands what happened without opening the note itself.\n\n## The code sandbox\nexecute_code runs a short Python snippet with no network access and a five second timeout. Use it for date math (computing a due date, converting a timestamp), light text reformatting, or a quick calculation from numbers in a receipt photo. Do not use it to attempt anything that needs a package outside the allowed_imports list; check that list first if you are unsure what is available.\n\n## Bulk inserting rows\nadd_rows takes an array of field objects and inserts them as new rows in the user's personal database in one call. Prefer a single add_rows call over several one-row calls when filing more than one item from the same batch of photos, since it keeps the activity log readable and avoids partial-failure states where some items filed and others did not.\n\n## Privacy defaults\nNever surface a note's content to anyone but the user who owns it, and never summarize a note in a way that would make sense to someone without access to the photo. If a photo contains a third party's personal information (a phone number, a full address), keep it in the filed note but do not repeat it back in your reply message unless the user asks for it directly.",
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Add these two to my notes: my meeting notes photo and my calendar screenshot.",
+                "type": "text"
+              },
+              {
+                "image_url": {
+                  "url": "data:image/jpeg;base64,⟦media:python_openai_image_notes_db__M3687291.jpg⟧"
+                },
+                "type": "image_url"
+              },
+              {
+                "image_url": {
+                  "url": "data:image/png;base64,⟦media:python_openai_image_notes_db__M7872001.png⟧"
+                },
+                "type": "image_url"
+              },
+              {
+                "text": "The calendar screenshot is from this morning, before the meeting got moved to 3pm.",
+                "type": "text"
+              },
+              {
+                "text": "Tag both with \"team-sync\" and check first whether that tag already exists in my notes.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "content": [],
+                "encrypted_content": "PErKGo15vwNvrAklngj6QVIwiDmyPYH352/Budt9E6hMfli6YOd5k1zoenhrDrPHWzjhONb9w9Oz65dc89T6fmQELSb7eVo2EmEeMZJ6ylyhC3HcBHrcpX/F1fJYZKuVDLx7yDa3u29aREbgmMkUMKsO83/zw6Yov4VSFQMChYFibEOZAvLHDSpVM6ms49opvKID5tpXmEAL+LA8BHbK8a6WiwlaPXyMhPzPOFEgZf5PXq21wCMBS3xZl2T3TNPcu83i9a7G16EqI72Gji4A/HpYPeMTPfu3K3u6Vcvif2dB9G2eK9hvV4ZJpKRP1GAXRAwENPH42blFotuv7o0RhJeM/MvZJns3g0YOaXWBlkyUy+zCSVd3r2WrBwuVelCIPYKczLtoMbQd+yZGn9MsOExH9C5sr0FqoG55l8jLoRc3+dC2NnGPeG5c1vBujEh2WFbIRiGt3dNd/yfYPTProdeFrXykBeJfQBMN2orAzSHy2BCmyVay/62jj3+tyD5Vh2bC8w0tO6pedrCs0owWTmp/ASBHsN5c2a1FgUayzKdSsPvOJ0wiIynsMzmdSHpTtZCyumcFJKImKSgDPQ7o7haeZWR6Iv5b5Ik5zOaVKxTXrrtDAukQPOraZfPwJ3LqvwykJVHH/NU0GFNGpeflp3NNeQ/Sm3tQALdLWLk2TwPea3Hse+6Fw4x2DvaVF0eHpefxEECfkLqyKFp98c5FXpbbh5+2A6Ny7kUeH5C7pUGxFvVDxHlkeKWIelr0n5OCHz0pAmSisfoQBdECCz+sA5AbS+y4Ykxm8udMxT5/gWavLKJqrBXxq90Knu92Aytl7V8+Wz2M1qLV4aYWCnyCqKyPpD+RnhbRI1PTC5JKmlWo+gm9NSFFNsjH8BivRA+xYwCn3dtJBftRxbyrPuFkJLO5FbO9MvMckcIorTQlhLNoV9bNslKqszNh22a7WItB+kuc+z4BARqhBqAqLpWDvhdVjCbXTvtGA0R/tdB2qEKpyrOUQT+MnminZptgcgrvk9rhdBpF6rJSu0VNrf5CdNVT9u97YcdX8H++oyf1S58r1bvWhDZ18NE/KODP7dLSq6rQ/J3f7J91mG0T1jvWbwwkavjhek6Mf7zjnyfU7iH2/FppLyqbp51QHl0TkFCbxhZG+++2cy+hgYpCxPx27IIE4bEI0aG4QNNR",
+                "id": "rs_oM98tZ8mojAzxYnZkrRMkcrdXUcG524Nu0XWiBG6YCt5pkJU8O",
+                "index": 0,
+                "summary": [],
+                "type": "reasoning"
+              },
+              {
+                "arguments": "{\"tool_name\": \"picture_EpPiue7LI\"}",
+                "call_id": "call_JQCNdnPVuiy1Q18tcGqJ0CEN",
+                "id": "fc_DvWusvNrBlaAUH00IpcfOuvYt0O1MNuk842UAI9p2Se2fbAyAd",
+                "index": 1,
+                "name": "fetch_PwlKtrHT8",
+                "type": "function_call"
+              }
+            ],
+            "role": "assistant"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "function": {
+              "description": "Searches the web for a query using the given provider and returns a short set of results.",
+              "name": "web_search",
+              "parameters": {
+                "properties": {
+                  "provider": {
+                    "description": "Which search provider to use.",
+                    "enum": [
+                      "google",
+                      "duckgo",
+                      "brave1"
+                    ],
+                    "type": "string"
+                  },
+                  "query": {
+                    "description": "The search query text to run.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query",
+                  "provider"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Looks up images related to a query, optionally scoped to a list of reference image ids already saved in the user's notes, using the given search provider.",
+              "name": "picture_EpPiue7LI",
+              "parameters": {
+                "properties": {
+                  "reference_images": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query",
+                  "provider"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Returns the parameter schema and short description for another registered tool by name, so you can confirm its arguments before calling it.",
+              "name": "fetch_PwlKtrHT8",
+              "parameters": {
+                "properties": {
+                  "tool_name": {
+                    "description": "Exact registered name of the tool.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tool_name"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Logs a custom action to the workspace activity feed, along with any extra structured data you want attached to it.",
+              "name": "log_action",
+              "parameters": {
+                "properties": {
+                  "extra": {
+                    "additionalProperties": true,
+                    "description": "Free-form structured data to attach to the logged action, such as ids, counts, or a short reason string.",
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "extra"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Lists every tag currently used across the user's notes.\nUse this before creating a new tag so you don't\nend up with near-duplicate tags like \"team-sync\"\nand \"team_sync\" living side by side.\nReturns a flat array of tag names, most-used first.\nTags are case-insensitive and shown lowercase.\nCall this with no arguments; it takes none.\nIf the list is empty, the workspace has no notes yet.\nPrefer an existing tag over inventing one.",
+              "name": "list_available_tags",
+              "parameters": {
+                "properties": {},
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Executes a short Python snippet in a sandboxed interpreter and returns stdout, useful for quick calculations, date math, or reformatting text pulled from a note before you write it back; the sandbox has no network access and times out after five seconds, so avoid anything that relies on an outside service or a long-running loop.",
+              "name": "execute_code",
+              "parameters": {
+                "properties": {
+                  "code": {
+                    "description": "The Python source code to run in the sandbox.",
+                    "type": "string"
+                  },
+                  "allowed_imports": {
+                    "anyOf": [
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Optional allowlist of module names the snippet is permitted to import; defaults to none."
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Adds one or more rows to the user's personal notes database.",
+              "name": "add_rows",
+              "parameters": {
+                "properties": {
+                  "fields": {
+                    "description": "Array of row objects to insert; each key becomes a column.",
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

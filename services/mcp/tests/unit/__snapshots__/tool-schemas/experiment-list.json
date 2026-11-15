@@ -21,6 +21,10 @@
             "description": "Filter to experiments linked to the given feature flag ID.",
             "type": "number"
         },
+        "feature_flag_ids": {
+            "description": "Comma-separated feature flag IDs, at most 200. Returns experiments linked to any of them.",
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -38,7 +42,7 @@
             "type": "string"
         },
         "search": {
-            "description": "Free-text search applied to the experiment name (case-insensitive).",
+            "description": "Free-text search applied to the experiment name and its feature flag key (case-insensitive).",
             "type": "string"
         },
         "status": {

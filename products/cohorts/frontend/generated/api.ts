@@ -9,9 +9,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
     CohortApi,
+    CohortCalculationHistoryResponseApi,
     CohortPersonsResponseApi,
     CohortUsedInResponseApi,
+    CohortUsedInWorkflowsBlockApi,
+    CohortsActivityRetrieveParams,
+    CohortsCalculationHistoryRetrieveParams,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
     CohortsStaffListParams,
@@ -234,12 +239,33 @@ export const cohortsDestroy = async (projectId: string, id: number, options?: Re
     })
 }
 
-export const getCohortsActivityRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/cohorts/${id}/activity/`
+export const getCohortsActivityRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: CohortsActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/cohorts/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/cohorts/${id}/activity/`
 }
 
-export const cohortsActivityRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCohortsActivityRetrieveUrl(projectId, id), {
+export const cohortsActivityRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: CohortsActivityRetrieveParams,
+    options?: RequestInit
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getCohortsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -263,19 +289,57 @@ export const cohortsAddPersonsToStaticCohortPartialUpdate = async (
     })
 }
 
-export const getCohortsCalculationHistoryRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/cohorts/${id}/calculation_history/`
+export const getCohortsBlockingWorkflowsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/cohorts/${id}/blocking_workflows/`
+}
+
+/**
+ * Active workflows that block deleting this cohort or editing it so it stops updating in real time.
+ */
+export const cohortsBlockingWorkflowsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<CohortUsedInWorkflowsBlockApi> => {
+    return apiMutator<CohortUsedInWorkflowsBlockApi>(getCohortsBlockingWorkflowsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCohortsCalculationHistoryRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: CohortsCalculationHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/cohorts/${id}/calculation_history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/cohorts/${id}/calculation_history/`
 }
 
 export const cohortsCalculationHistoryRetrieve = async (
     projectId: string,
     id: number,
+    params?: CohortsCalculationHistoryRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getCohortsCalculationHistoryRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<CohortCalculationHistoryResponseApi> => {
+    return apiMutator<CohortCalculationHistoryResponseApi>(
+        getCohortsCalculationHistoryRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getCohortsPersonsRetrieveUrl = (projectId: string, id: number, params?: CohortsPersonsRetrieveParams) => {

@@ -231,3 +231,4 @@ class TestSampleAndEmbedForJobActivity:
             assert filter_expr.__class__.__name__ != "Constant"
             query = replace_placeholders(mock_execute.call_args.kwargs["query"], placeholders).to_hogql()
             assert "notEquals(properties.$ai_evaluation_result_type, 'numeric')" in query
+            assert "notEquals(properties.$ai_evaluation_result_type, 'categorical')" in query

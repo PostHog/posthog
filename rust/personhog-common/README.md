@@ -65,3 +65,10 @@ graph TB
 - N -> M pods (deployment handoff)
 - crashed pods/corrupted disks
 - ensures handoffs do not introduce split brain invariant or cause service interruptions amongst the different actors in the distributed system
+
+## CDC parity rules (`cdc_parity`)
+
+`src/cdc_parity/` holds the rules for the two person CDC feeds, the `clickhouse_person_distinct_id` rows and the `person_merge_events` that both the Node Postgres path and `personhog-publisher` produce.
+It covers strict decoding of the wire shapes, the fold to end state (the highest version per distinct id, one merge target per person, survivor chains), and the comparison between two feeds as the Kafka parity e2e (`nodejs/tests/service-e2e/personhog-kafka-parity.serial.test.ts`) states it: the same mapping per distinct id, the same survivor for every person both feeds named, and every person accounted for.
+`person` holds the same for `clickhouse_person` rows, which Node and the changelog relay both produce: the newest version per person, compared by content, never by version.
+The test harness folds a published topic through it and the parity monitor compares the two feeds through it, so a rule lives in one place.

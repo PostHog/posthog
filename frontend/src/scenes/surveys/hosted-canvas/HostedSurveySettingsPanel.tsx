@@ -2,11 +2,19 @@ import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 
 import { IconPhone, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonDialog,
+    LemonSegmentedButton,
+    LemonSelect,
+} from '@posthog/lemon-ui'
 
 import { IconMonitor } from 'lib/lemon-ui/icons'
 import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 import { SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { isIntroScreenShown } from 'scenes/surveys/surveyIntroScreen'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { canQuestionSkipSubmitButton, isThumbQuestion } from 'scenes/surveys/utils'
 
@@ -17,14 +25,30 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { type HostedSurveyPageKind } from './hostedSurveyPageKind'
+
 interface HostedSurveySettingsPanelProps {
     /** Active page in the canvas — used to pick the question to render settings for. */
     activePageIndex: number
-    isConfirmation: boolean
+    pageKind: HostedSurveyPageKind
     viewport: 'desktop' | 'mobile'
     onViewportChange: (viewport: 'desktop' | 'mobile') => void
+    onRemoveIntro: () => void
     onRemoveConfirmation: () => void
 }
+
+const SCREEN_SETTINGS = {
+    intro: {
+        title: 'Intro screen',
+        subtitle: 'Shown before the first question.',
+        removeTooltip: 'Remove the intro screen',
+    },
+    confirmation: {
+        title: 'End screen',
+        subtitle: 'Shown after the final answer.',
+        removeTooltip: 'Remove the end screen',
+    },
+} as const
 
 const QUESTION_TYPE_OPTIONS = [
     { label: SurveyQuestionLabel[SurveyQuestionType.Open], value: SurveyQuestionType.Open },
@@ -41,9 +65,10 @@ const QUESTION_TYPE_OPTIONS = [
  */
 export function HostedSurveySettingsPanel({
     activePageIndex,
-    isConfirmation,
+    pageKind,
     viewport,
     onViewportChange,
+    onRemoveIntro,
     onRemoveConfirmation,
 }: HostedSurveySettingsPanelProps): JSX.Element {
     const { survey } = useValues(surveyLogic)
@@ -51,6 +76,7 @@ export function HostedSurveySettingsPanel({
         useActions(surveyLogic)
 
     const question = survey.questions[activePageIndex] as SurveyQuestion | undefined
+    const screen = pageKind === 'question' ? null : SCREEN_SETTINGS[pageKind]
 
     const handleQuestionTypeChange = (newType: SurveyQuestionType): void => {
         if (!question) {
@@ -99,29 +125,31 @@ export function HostedSurveySettingsPanel({
     return (
         <aside className="flex min-w-0 flex-col gap-4 rounded border bg-surface-primary p-4">
             <SettingsSection
-                title={isConfirmation ? 'End screen' : `Question ${activePageIndex + 1}`}
+                title={screen ? screen.title : `Question ${activePageIndex + 1}`}
                 subtitle={
-                    isConfirmation
-                        ? 'Shown after the final answer.'
-                        : question
-                          ? SurveyQuestionLabel[question.type]
-                          : 'No question selected'
+                    screen ? screen.subtitle : question ? SurveyQuestionLabel[question.type] : 'No question selected'
                 }
                 actions={
-                    isConfirmation ? (
+                    screen ? (
                         <LemonButton
                             type="tertiary"
                             size="small"
                             status="danger"
                             icon={<IconTrash />}
-                            onClick={onRemoveConfirmation}
-                            tooltip="Remove the end screen"
+                            onClick={pageKind === 'intro' ? onRemoveIntro : onRemoveConfirmation}
+                            tooltip={screen.removeTooltip}
                         />
                     ) : null
                 }
             />
 
-            {!isConfirmation && question ? (
+            {pageKind === 'intro' && !isIntroScreenShown(survey.appearance) ? (
+                <LemonBanner type="warning">
+                    The intro screen won't show until it has a header or a description.
+                </LemonBanner>
+            ) : null}
+
+            {pageKind === 'question' && question ? (
                 <>
                     <LabelledControl label="Type">
                         <LemonSelect
@@ -202,9 +230,9 @@ export function HostedSurveySettingsPanel({
                         />
                     )}
 
-                    {/* Keep this block inside the `!isConfirmation && question` guard: the Group
-                        binds to `questions.${activePageIndex}`, which is only a valid question
-                        index for real questions, never the confirmation page. */}
+                    {/* Keep this block inside the `pageKind === 'question' && question` guard: the
+                        Group binds to `questions.${activePageIndex}`, which is only a valid question
+                        index for real questions, never the intro or confirmation page. */}
                     <div className="border-t pt-3">
                         <SettingsSection
                             title="Branching"

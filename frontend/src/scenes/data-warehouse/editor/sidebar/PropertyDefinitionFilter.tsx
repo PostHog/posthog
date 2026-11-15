@@ -5,7 +5,7 @@ import { LemonButton, LemonInput, LemonMenu, LemonMenuItems } from '@posthog/lem
 
 import { cn } from 'lib/utils/css-classes'
 
-import type { SidebarPropertyDefinitionTarget } from './queryDatabaseLogic'
+import type { SidebarPropertyDefinitionTarget } from 'products/data_warehouse/frontend/shared/propertyDefinitionTarget'
 
 export interface PropertyDefinitionFilterProps {
     propertyDefinitionKey: string

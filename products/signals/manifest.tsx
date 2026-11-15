@@ -1,11 +1,19 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { combineUrl } from 'kea-router'
+
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 import type { InboxTabKey } from './frontend/inbox/types'
 
 export const manifest: ProductManifest = {
     name: 'Signals',
+    activityDescribers: {
+        [ActivityScope.SIGNAL_SCOUT_CONFIG]: () =>
+            import('./frontend/activityDescriber').then((module) => module.signalScoutConfigActivityDescriber),
+    },
     urls: {
         // Tab-first routing: /inbox, /inbox/<tab>, /inbox/<tab>/<reportId>.
         inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
+        inboxActivate: (): string => '/inbox/activate',
+        inboxActivateWithoutGithub: (): string => '/inbox/activate/without-github',
         inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
         // Triage mode: the Needs-a-decision queue one report at a time, full-width over the list.
         inboxTriage: (): string => '/inbox/reports/triage',
@@ -24,8 +32,20 @@ export const manifest: ProductManifest = {
         inboxFindings: (): string => '/inbox/scouts/findings',
         // Project-wide list of scout and signal-pipeline runs, reached from the roster footer.
         inboxRuns: (): string => '/inbox/scouts/runs',
+        inboxScoutTrials: (): string => '/inbox/scout-trials',
     },
     scenes: {
+        InboxActivate: {
+            name: 'Activate Self-driving',
+            import: () => import('./frontend/inbox/InboxActivateScene'),
+            projectBased: true,
+            layout: 'plain',
+        },
+        ScoutTrials: {
+            name: 'Scout trials',
+            import: () => import('./frontend/inbox/ScoutTrialsScene'),
+            projectBased: true,
+        },
         Inbox: {
             name: 'Self-driving inbox',
             import: () => import('./frontend/inbox/InboxScene'),
@@ -36,6 +56,9 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/inbox': ['Inbox', 'inbox'],
+        '/inbox/activate': ['InboxActivate', 'inboxActivate'],
+        '/inbox/activate/without-github': ['InboxActivate', 'inboxActivate'],
+        '/inbox/scout-trials': ['ScoutTrials', 'scoutTrials'],
         '/inbox/:tab': ['Inbox', 'inbox'],
         // Static panel routes, registered before `:skillName` / `:reportId` so they aren't read as ids.
         '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
@@ -47,6 +70,10 @@ export const manifest: ProductManifest = {
         // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.
         '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
         '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
+    },
+    redirects: {
+        '/scout-trials': (_params, searchParams, hashParams) =>
+            combineUrl('/inbox/scout-trials', searchParams, hashParams).url,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

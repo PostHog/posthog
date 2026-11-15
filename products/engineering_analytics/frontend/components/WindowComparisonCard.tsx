@@ -1,8 +1,5 @@
-// A window-comparison card for the repo hub's headline sections. Each metric's question is "this
-// window vs the previous window", a comparison of exactly two values, so the graphic is two labeled
-// horizontal bars on a shared zero-based scale rather than a time series: the daily buckets behind
-// these metrics are noise at this grain. Rates use a pass/fail split bar per window, where the
-// status colors are the data.
+// The comparison draws two bars on a shared zero-based scale, not a time series, because the daily
+// buckets behind these metrics are noise at this grain.
 
 import { ReactNode } from 'react'
 
@@ -45,7 +42,6 @@ function ComparisonRow({
     value: number
     max: number
     formatValue: (value: number) => string
-    /** Render the value as a pass/fail split of the whole bar instead of a length. */
     share: boolean
     current: boolean
 }): JSX.Element {
@@ -57,6 +53,31 @@ function ComparisonRow({
         )
     }
     return <ComparisonBarRow label={label} value={value} max={max} formatValue={formatValue} muted={!current} />
+}
+
+function PreviousWindowNote({ text }: { text: string }): JSX.Element {
+    return (
+        <div className="flex items-center gap-2">
+            <span className="w-24 shrink-0 truncate text-[11px] text-tertiary">Previous window</span>
+            <span className="text-[11px] text-tertiary">{text}</span>
+        </div>
+    )
+}
+
+function previousWindowGap(
+    previousValue: number | null | undefined,
+    formatValue: (value: number) => string,
+    relative: boolean
+): string | null {
+    if (previousValue == null) {
+        return 'No data'
+    }
+    // A relative change against a value that displays as zero (a 9s median shown as "0m") reads as a
+    // huge swing that the shown numbers can't explain.
+    if (relative && previousValue > 0 && formatValue(previousValue) === formatValue(0)) {
+        return 'Too close to zero to compare'
+    }
+    return null
 }
 
 export function WindowComparisonCard({
@@ -74,27 +95,24 @@ export function WindowComparisonCard({
     emptyText,
 }: {
     title: string
-    /** This window's value. */
     value: number | null | undefined
-    /** The previous window's value; without one the card shows this window's bar alone. */
     previousValue: number | null | undefined
     formatValue: (value: number) => string
     goodWhenDown?: boolean
-    /** Rate mode: bars become a full-width pass/fail split instead of a length. */
+    /** Rate mode: each bar becomes a full-width pass/fail split instead of a length. */
     share?: boolean
-    /** 'pt' renders the delta as percentage points; default is relative percent. */
+    /** 'pt' renders the delta as percentage points. The default is relative percent. */
     deltaUnit?: 'pt'
-    /** Decimal places shown in the delta badge. */
     deltaPrecision?: number
-    /** Definition or methodology, shown on title hover. */
     tooltip?: ReactNode
-    /** Where the value lands on its DORA ladder: a colored left edge plus the ladder in the title tooltip. */
     benchmark?: DoraBenchmark | null
     loading?: boolean
     emptyText: string
 }): JSX.Element {
-    const max = Math.max(value ?? 0, previousValue ?? 0)
-    const delta = deltaUnit === 'pt' ? pointChange(value, previousValue) : percentChange(value, previousValue)
+    const previousGap = previousWindowGap(previousValue, formatValue, deltaUnit !== 'pt')
+    const comparablePrevious = previousGap == null ? previousValue : null
+    const max = Math.max(value ?? 0, comparablePrevious ?? 0)
+    const delta = deltaUnit === 'pt' ? pointChange(value, comparablePrevious) : percentChange(value, comparablePrevious)
     const tooltipContent = benchmark ? (
         <div className="flex flex-col gap-1">
             {tooltip}
@@ -142,15 +160,17 @@ export function WindowComparisonCard({
                             share={share}
                             current
                         />
-                        {previousValue != null && (
+                        {comparablePrevious != null ? (
                             <ComparisonRow
                                 label="Previous window"
-                                value={previousValue}
+                                value={comparablePrevious}
                                 max={max}
                                 formatValue={formatValue}
                                 share={share}
                                 current={false}
                             />
+                        ) : (
+                            <PreviousWindowNote text={previousGap ?? 'No data'} />
                         )}
                     </div>
                 </>

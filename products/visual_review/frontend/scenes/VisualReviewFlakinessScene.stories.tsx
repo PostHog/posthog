@@ -16,6 +16,7 @@ const repo: RepoApi = {
     baseline_file_paths: {},
     enable_pr_comments: true,
     debt_digest_enabled: false,
+    auto_quarantine_mode: 'off',
     created_at: '2026-06-10T00:00:00Z',
 }
 
@@ -120,7 +121,6 @@ const overview: FlakinessOverviewApi = {
         broken: 18,
         unstable: 231,
         at_risk: 63,
-        noisy: 604,
         clean: 812,
         quarantined: 47,
         // Zero, and deliberately so: none of the three entries needs a decision,
@@ -141,7 +141,6 @@ const emptyOverview: FlakinessOverviewApi = {
         broken: 0,
         unstable: 0,
         at_risk: 0,
-        noisy: 0,
         clean: 0,
         quarantined: 0,
         needs_decision: 0,
@@ -160,7 +159,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-10',
-        pageUrl: `/visual_review/repos/${REPO_ID}/flakiness`,
+        pageUrl: `/visual-review/repos/PostHog/posthog/flakiness`,
         testOptions: { waitForSelector: '[data-attr="visual-review-flakiness-preset-unstable"]' },
     },
     decorators: [
@@ -182,7 +181,7 @@ export const Unstable: StoryObj = {
     // Names its own preset. Inheriting the default made this story a hostage to
     // it: the default changed, no fixture matched the new one, and the story
     // quietly rendered an empty table for a while before anybody noticed.
-    parameters: { pageUrl: `/visual_review/repos/${REPO_ID}/flakiness#preset=unstable` },
+    parameters: { pageUrl: `/visual-review/repos/PostHog/posthog/flakiness#preset=unstable` },
 }
 
 // A repo whose snapshots all render deterministically. Two of the three repos in

@@ -7,10 +7,11 @@ import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect, LemonText
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils/dom'
-import { ActionFilter as ActionFilterComponent } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
+import { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import {
     ActionsNode,
     CoreEvent,
@@ -19,14 +20,7 @@ import {
     EventsNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import {
-    ActionFilter,
-    BaseMathType,
-    AnyDataWarehouseFilter,
-    FilterType,
-    GroupMathType,
-    PropertyMathType,
-} from '~/types'
+import { BaseMathType, ChartDisplayCategory, GroupMathType, PropertyMathType } from '~/types'
 
 import { coreEventsLogic } from './coreEventsLogic'
 
@@ -76,83 +70,6 @@ function getFilterSummary(filter: EventsNode | ActionsNode | DataWarehouseNode):
             return filter.table_name || 'Unknown table'
         default:
             return 'Unknown'
-    }
-}
-
-// Convert ActionFilter format to our filter node format
-function actionFilterToNode(filters: FilterType): EventsNode | ActionsNode | DataWarehouseNode | null {
-    const series = actionsAndEventsToSeries(
-        {
-            actions: filters.actions as ActionFilter[] | undefined,
-            events: filters.events as ActionFilter[] | undefined,
-            data_warehouse: filters.data_warehouse as AnyDataWarehouseFilter[] | undefined,
-        },
-        true,
-        MathAvailability.All
-    )
-
-    if (series.length > 0) {
-        return series[0] as EventsNode | ActionsNode | DataWarehouseNode
-    }
-    return null
-}
-
-// Convert our filter node to ActionFilter format for the picker
-function nodeToActionFilter(filter: EventsNode | ActionsNode | DataWarehouseNode | null): Partial<FilterType> {
-    if (!filter) {
-        return { events: [], actions: [], data_warehouse: [] }
-    }
-
-    switch (filter.kind) {
-        case NodeKind.EventsNode:
-            return {
-                events: [
-                    {
-                        id: filter.event || null,
-                        name: filter.name,
-                        type: 'events',
-                        math: filter.math || BaseMathType.TotalCount,
-                        math_property: filter.math_property,
-                        properties: filter.properties,
-                    } as ActionFilter,
-                ],
-                actions: [],
-                data_warehouse: [],
-            }
-        case NodeKind.ActionsNode:
-            return {
-                events: [],
-                actions: [
-                    {
-                        id: filter.id,
-                        name: filter.name,
-                        type: 'actions',
-                        math: filter.math || BaseMathType.TotalCount,
-                        math_property: filter.math_property,
-                        properties: filter.properties,
-                    } as ActionFilter,
-                ],
-                data_warehouse: [],
-            }
-        case NodeKind.DataWarehouseNode:
-            return {
-                events: [],
-                actions: [],
-                data_warehouse: [
-                    {
-                        id: filter.table_name,
-                        name: filter.name || filter.table_name,
-                        type: 'data_warehouse',
-                        math: filter.math || BaseMathType.TotalCount,
-                        math_property: filter.math_property,
-                        id_field: filter.id_field,
-                        timestamp_field: filter.timestamp_field,
-                        distinct_id_field: filter.distinct_id_field,
-                    } as ActionFilter,
-                ],
-            }
-        default:
-            return { events: [], actions: [], data_warehouse: [] }
     }
 }
 
@@ -209,8 +126,9 @@ export function CoreEventsSettings(): JSX.Element {
         setFormState(createEmptyFormState())
     }
 
-    const handleFilterChange = (filters: Partial<FilterType>): void => {
-        const node = actionFilterToNode(filters as FilterType)
+    const handleSeriesChange = (series: SeriesNode[]): void => {
+        // The picker offers events, actions and data warehouse tables only, and cannot combine them.
+        const [node] = cleanSeriesNodes(series, MathAvailability.All) as CoreEvent['filter'][]
         if (node) {
             setFormState((prev) => ({
                 ...prev,
@@ -264,9 +182,6 @@ export function CoreEventsSettings(): JSX.Element {
     }
 
     const disabledReason = getDisabledReason()
-
-    // Build filter for ActionFilterComponent
-    const currentFilter = nodeToActionFilter(formState.filter)
 
     return (
         <div className="space-y-4">
@@ -371,10 +286,11 @@ export function CoreEventsSettings(): JSX.Element {
 
                     <div className="space-y-1">
                         <LemonLabel>Event, action, or data warehouse table</LemonLabel>
-                        <ActionFilterComponent
+                        <SeriesActionFilter
                             bordered
-                            filters={currentFilter}
-                            setFilters={handleFilterChange}
+                            series={[formState.filter]}
+                            onChange={handleSeriesChange}
+                            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                             typeKey="core-events-settings"
                             mathAvailability={MathAvailability.All}
                             allowedMathTypes={ALLOWED_MATH_TYPES}

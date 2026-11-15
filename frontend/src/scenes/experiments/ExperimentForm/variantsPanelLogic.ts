@@ -237,10 +237,11 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                         }
                     }
 
-                    // Double-check with API for recently created flags
+                    // Double-check with API for recently created flags.
+                    // Filter by exact `key`, not `search`: the API rejects search terms over 200 characters, but keys can have up to 400.
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsList() from 'products/feature_flags/frontend/generated/api' instead.
                     const response = await api.get(
-                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ search: key })}`
+                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ key })}`
                     )
 
                     if (response.results.length > 0) {

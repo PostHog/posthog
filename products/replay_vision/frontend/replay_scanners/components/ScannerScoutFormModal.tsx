@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
@@ -10,9 +10,9 @@ import { urls } from 'scenes/urls'
 import type { SignalScoutOutputDestinationsApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
-import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { getReplayVisionEditDisabledReason, getScoutCreateDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { SCOUT_DISPLAY_NAME_MAX_LENGTH, scannerScoutTemplate, scoutBodyPlaceholders } from '../scannerScout'
+import { SCOUT_DISPLAY_NAME_MAX_LENGTH, scoutBodyPlaceholders } from '../scannerScout'
 import { SCOUT_REPORT_EMITTED_EVENT, webhookUrlError } from '../scannerScoutDelivery'
 import type { ScannerScoutForm } from '../scannerScoutLogic'
 import { scannerScoutLogic } from '../scannerScoutLogic'
@@ -105,23 +105,16 @@ export function ScannerScoutFormModal({
         scoutDeliveryLoading,
         creating,
         settingsSaving,
+        scoutTemplates,
     } = useValues(logic)
     const { closeCreateModal, closeScoutSettings, createScout, saveScoutSettings } = useActions(logic)
 
-    // The trend template is written for the one output this scanner emits, so it needs the type.
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    // Rebuilding the templates on every keystroke would regenerate three multi-KB prompts.
-    const template = useMemo(
-        () =>
-            createTemplateKey
-                ? scannerScoutTemplate(createTemplateKey, scannerId, scanner?.scanner_type, scannerName)
-                : null,
-        [createTemplateKey, scannerId, scanner?.scanner_type, scannerName]
-    )
+    const template = scoutTemplates.find((candidate) => candidate.key === createTemplateKey) ?? null
     const config = scoutConfigsForScanner.find((candidate) => candidate.skill_name === settingsSkillName)
     const [activeTab, setActiveTab] = useState<ScoutFormTab>('instructions')
     const [form, setForm] = useState<ScannerScoutForm>(() => ({
-        name: template ? template.defaultName : config ? scoutDisplayName(config) : '',
+        name: template ? template.default_name : config ? scoutDisplayName(config) : '',
         body: template ? template.body : '',
         cron: template ? template.cron : (config?.run_cron_schedule ?? ''),
         outputDestinations: (config?.output_destinations ?? {}) as SignalScoutOutputDestinationsApi,
@@ -147,18 +140,19 @@ export function ScannerScoutFormModal({
         }
     }, [template, seeded, loadedForThisScout, skillPrompt, scoutDelivery])
 
-    // The scanner's name can arrive after the modal opens (the scanner and the scouts list load in
-    // parallel), and the default name leads with it. Until it answers, the scanner logic holds a
-    // team-named placeholder, so a name seeded before it reads wrong. Follow a changed default
-    // until the person edits the name.
-    const nameTouchedRef = useRef(false)
+    // The root cause prompt can open the form before the templates have loaded, so seed each field
+    // from the template when it arrives, unless the person has already edited it.
+    const touchedRef = useRef({ name: false, body: false, cron: false })
     useEffect(() => {
-        if (!template || nameTouchedRef.current) {
+        if (!template) {
             return
         }
-        setForm((current) =>
-            current.name === template.defaultName ? current : { ...current, name: template.defaultName }
-        )
+        setForm((current) => ({
+            ...current,
+            name: touchedRef.current.name ? current.name : template.default_name,
+            body: touchedRef.current.body ? current.body : template.body,
+            cron: touchedRef.current.cron ? current.cron : template.cron,
+        }))
     }, [template])
 
     if (!template && !config) {
@@ -191,9 +185,12 @@ export function ScannerScoutFormModal({
     const scannerLoaded = scanner?.id?.toLowerCase() === scannerId.toLowerCase()
 
     const submitDisabledReason = (): string | undefined => {
-        const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
-        if (editDisabledReason) {
-            return editDisabledReason
+        // Creating also publishes a skill, so it needs skill editor access on top of scanner edit.
+        const permissionDisabledReason = template
+            ? getScoutCreateDisabledReason(scanner?.user_access_level)
+            : getReplayVisionEditDisabledReason(scanner?.user_access_level)
+        if (permissionDisabledReason) {
+            return permissionDisabledReason
         }
         if (template && !scannerLoaded) {
             return 'Loading the scanner'
@@ -250,10 +247,10 @@ export function ScannerScoutFormModal({
                     <LemonInput
                         value={form.name}
                         onChange={(name) => {
-                            nameTouchedRef.current = true
+                            touchedRef.current.name = true
                             patch({ name })
                         }}
-                        placeholder={template?.defaultName}
+                        placeholder={template?.default_name}
                         maxLength={SCOUT_DISPLAY_NAME_MAX_LENGTH}
                         data-attr="vision-scout-form-name"
                     />
@@ -276,7 +273,10 @@ export function ScannerScoutFormModal({
                                     </span>
                                     <ScoutInstructionsField
                                         value={form.body}
-                                        onChange={(body) => patch({ body })}
+                                        onChange={(body) => {
+                                            touchedRef.current.body = true
+                                            patch({ body })
+                                        }}
                                         minRows={14}
                                         maxRows={20}
                                         dataAttr="vision-scout-form-instructions"
@@ -292,7 +292,15 @@ export function ScannerScoutFormModal({
                         {
                             key: 'schedule',
                             label: 'Schedule',
-                            content: <ScheduleFields cron={form.cron} onChange={(cron) => patch({ cron })} />,
+                            content: (
+                                <ScheduleFields
+                                    cron={form.cron}
+                                    onChange={(cron) => {
+                                        touchedRef.current.cron = true
+                                        patch({ cron })
+                                    }}
+                                />
+                            ),
                         },
                         {
                             key: 'delivery',

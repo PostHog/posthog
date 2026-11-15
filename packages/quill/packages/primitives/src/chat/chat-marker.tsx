@@ -61,26 +61,34 @@ type ChatMarkerProps = useRender.ComponentProps<'div'> &
         onOpenChange?: (open: boolean) => void
     }
 
-function ChatMarker({ body, ...props }: ChatMarkerProps): React.ReactElement {
+const ChatMarker = React.forwardRef<HTMLDivElement, ChatMarkerProps>(function ChatMarker({ body, ...props }, ref) {
     // Every value React renders as nothing means there's nothing to disclose. `body == null` alone
     // would miss `body={items.length > 0 && <List />}`, the usual way to pass one conditionally, and
     // give the row a chevron that opens onto an empty panel.
     const hasBody = body != null && body !== false && body !== ''
-    return hasBody ? <ChatMarkerCollapsible body={body} {...props} /> : <ChatMarkerFlat {...props} />
-}
+    return hasBody ? (
+        <ChatMarkerCollapsible ref={ref} body={body} {...props} />
+    ) : (
+        <ChatMarkerFlat ref={ref} {...props} />
+    )
+})
 
-function ChatMarkerFlat({
-    className,
-    variant = 'default',
-    status,
-    render,
-    // `body`/collapse props are accepted by ChatMarker but inert in the flat path.
-    defaultOpen: _defaultOpen,
-    open: _open,
-    onOpenChange: _onOpenChange,
-    ...props
-}: ChatMarkerProps): React.ReactElement {
+const ChatMarkerFlat = React.forwardRef<HTMLDivElement, ChatMarkerProps>(function ChatMarkerFlat(
+    {
+        className,
+        variant = 'default',
+        status,
+        render,
+        // `body`/collapse props are accepted by ChatMarker but inert in the flat path.
+        defaultOpen: _defaultOpen,
+        open: _open,
+        onOpenChange: _onOpenChange,
+        ...props
+    },
+    ref
+) {
     const row = useRender({
+        ref,
         defaultTagName: 'div',
         props: mergeProps<'div'>(
             {
@@ -101,23 +109,16 @@ function ChatMarkerFlat({
     })
 
     return <ChatMarkerContext.Provider value={status}>{row}</ChatMarkerContext.Provider>
-}
+})
 
-function ChatMarkerCollapsible({
-    className,
-    variant = 'default',
-    status,
-    body,
-    defaultOpen,
-    open,
-    onOpenChange,
-    children,
-    render,
-    ...props
-}: ChatMarkerProps): React.ReactElement {
+const ChatMarkerCollapsible = React.forwardRef<HTMLDivElement, ChatMarkerProps>(function ChatMarkerCollapsible(
+    { className, variant = 'default', status, body, defaultOpen, open, onOpenChange, children, render, ...props },
+    ref
+) {
     return (
         <ChatMarkerContext.Provider value={status}>
             <CollapsiblePrimitive.Root
+                ref={ref}
                 data-quill
                 data-slot="marker"
                 data-variant={variant}
@@ -152,33 +153,44 @@ function ChatMarkerCollapsible({
             </CollapsiblePrimitive.Root>
         </ChatMarkerContext.Provider>
     )
-}
+})
 
-function ChatMarkerIcon({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
+const ChatMarkerIcon = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function ChatMarkerIcon(
+    { className, ...props },
+    ref
+) {
     return (
         <span
+            ref={ref}
             data-slot="marker-icon"
             aria-hidden="true"
             className={cn('quill-chat-marker__icon', className)}
             {...props}
         />
     )
-}
+})
 
-function ChatMarkerContent({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
+const ChatMarkerContent = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function ChatMarkerContent(
+    { className, ...props },
+    ref
+) {
     const status = React.useContext(ChatMarkerContext)
     return (
         <span
+            ref={ref}
             data-slot="marker-content"
             className={cn('quill-chat-marker__content', status === 'running' && 'quill-shimmer', className)}
             {...props}
         />
     )
-}
+})
 
 /** The argument a call acted on — a query, a path, a command. Quoted, and kept once it settles. */
-function ChatMarkerValue({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return <span data-slot="marker-value" className={cn('quill-chat-marker__value', className)} {...props} />
-}
+const ChatMarkerValue = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function ChatMarkerValue(
+    { className, ...props },
+    ref
+) {
+    return <span ref={ref} data-slot="marker-value" className={cn('quill-chat-marker__value', className)} {...props} />
+})
 
 export { ChatMarker, ChatMarkerIcon, ChatMarkerContent, ChatMarkerValue, markerVariants, type ChatMarkerStatus }

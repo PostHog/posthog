@@ -23,6 +23,14 @@ const mockRecap = webAnalyticsRecap as jest.Mock
 
 function makeRecap(overrides: Partial<WebAnalyticsRecapResponseApi> = {}): WebAnalyticsRecapResponseApi {
     return {
+        metadata: {
+            data_status: 'ok',
+            date_from: '2025-01-22T00:00:00Z',
+            date_to: '2025-01-29T00:00:00Z',
+            timezone: 'UTC',
+            filter_test_accounts: true,
+            notes: [],
+        },
         visitors: { current: 100, previous: 80, change: null },
         pageviews: { current: 200, previous: 150, change: null },
         sessions: { current: 90, previous: 70, change: null },

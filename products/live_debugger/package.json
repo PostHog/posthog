@@ -1,23 +1,6 @@
 {
     "name": "@posthog/products-live-debugger",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
-    },
-    "dependencies": {
-        "fuse.js": "catalog:"
-    },
-    "devDependencies": {
-        "kea-test-utils": "catalog:"
-    },
-    "peerDependencies": {
-        "@posthog/icons": "catalog:",
-        "@posthog/lemon-ui": "*",
-        "@types/react": "*",
-        "@types/react-dom": "*",
-        "clsx": "*",
-        "kea": "catalog:",
-        "kea-loaders": "catalog:",
-        "react": "*",
-        "react-dom": "*"
+        "backend:test": "echo 'vestigial app — no tests'"
     }
 }

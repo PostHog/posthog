@@ -1,10 +1,10 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import { MAX_REPLAYS, replayBatch } from './dlq-replay'
 import { REPLAY_COUNT_HEADER } from './image-batcher'
-import { CAPTURE_TIMESTAMP_HEADER } from './image-transport'
 
 function parked(
     ref: string,

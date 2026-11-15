@@ -2,7 +2,7 @@ import { murmur2, murmur2Partition } from './murmur2'
 
 describe('murmur2', () => {
     // Published Kafka murmur2 vectors, identical to the Rust pin in
-    // rust/cohort-stream-processor/src/partitions/partitioner.rs. Expected values are signed i32, so
+    // rust/cohort-core/src/partitioner.rs. Expected values are signed i32, so
     // we compare the unsigned hash reinterpreted with `| 0`.
     const publishedVectors: [string, number][] = [
         ['21', -973932308],

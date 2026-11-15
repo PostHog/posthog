@@ -11,6 +11,8 @@ from django.db.models import F, Q
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
+
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
@@ -22,6 +24,14 @@ from ..signing import sign_snapshot_hash, verify_signed_hash
 from . import errors, github_api, run_queries
 
 logger = structlog.get_logger(__name__)
+
+PULL_REQUEST_CLOSED_MESSAGE = (
+    "Pull request #{pr_number} is closed or merged, so its changes can no longer be approved. "
+    "Approve them in an open pull request."
+)
+PR_SHA_MISMATCH_MESSAGE = (
+    "PR has newer commits. Expected {expected}, got {actual}. Please re-run visual tests on the latest commit."
+)
 
 
 def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str, str]:
@@ -136,12 +146,13 @@ def _resolve_baselines_with_merge_base(
     rewrites the full file, and git rebase replays it destructively).
 
     Branch entries win on conflict so approvals are preserved.
-    On a merge-queue branch, healing is limited to identifiers this run
-    rendered. An entry missing from the branch baseline whose story still
-    renders is the rebase loss above. An entry missing from both is one the
+    A merge-queue branch heals nothing, because the tested file is the one
+    that lands. An entry missing for a story the run did not render is one the
     branch deleted on purpose, and restoring it only manufactures a REMOVED
     that no one on a queue branch can approve, so it reds the batch and every
-    pull request sharing it until the deleting one lands.
+    pull request sharing it until the deleting one lands. An entry missing for
+    a story that still renders would delete a live baseline on merge, so it
+    raises BaselineEntriesLostError and the run fails.
 
     Ordinary branches keep healing everything, because there the REMOVED is
     the review gate: it is how a reviewer is asked to confirm that a story
@@ -210,6 +221,13 @@ def _resolve_baselines_with_merge_base(
 
     healed = set(healable_merge_base) - set(branch_baseline)
     merged = {**healable_merge_base, **branch_baseline}
+
+    # The name check only adds failures, so trusting an unverified name cannot skip a gate.
+    if on_merge_queue_branch or github_api._MERGE_QUEUE_BRANCH_RE.match(branch):
+        # Raw key sets, not `healed`: a tombstoned story that renders again still needs its baseline.
+        lost = (set(merge_base_baseline) - set(branch_baseline)) & rendered_identifiers
+        if lost:
+            raise errors.BaselineEntriesLostError(sorted(lost))
 
     if healed or tombstoned:
         logger.info(
@@ -352,7 +370,7 @@ def _get_coauthor_trailer(user_id: int, installation_id: str) -> str | None:
     ).first()
     if user_integration is None:
         return None
-    return UserGitHubIntegration(user_integration).coauthor_trailer
+    return UserGitHubIntegration(user_integration, source="visual_review", priority=Priority.NORMAL).coauthor_trailer
 
 
 def _commit_baseline_to_github(
@@ -363,6 +381,7 @@ def _commit_baseline_to_github(
 
     Raises:
         GitHubIntegrationNotFoundError: No GitHub integration for team
+        PullRequestClosedError: PR is closed or merged
         PRSHAMismatchError: PR has newer commits than this run
         BaselineFilePathNotConfiguredError: No baseline path for run type
         GitHubCommitError: GitHub API error
@@ -380,10 +399,12 @@ def _commit_baseline_to_github(
 
     pr_info = github_api._get_pr_info(github, repo.repo_full_name, run.pr_number)
 
+    if not pr_info["open"]:
+        raise errors.PullRequestClosedError(PULL_REQUEST_CLOSED_MESSAGE.format(pr_number=run.pr_number))
+
     if pr_info["head_sha"] != run.commit_sha:
         raise errors.PRSHAMismatchError(
-            f"PR has newer commits. Expected {run.commit_sha}, got {pr_info['head_sha']}. "
-            "Please re-run visual tests on the latest commit."
+            PR_SHA_MISMATCH_MESSAGE.format(expected=run.commit_sha, actual=pr_info["head_sha"])
         )
 
     current_baselines, file_sha = github_api._fetch_baseline_file(

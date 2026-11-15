@@ -10,8 +10,6 @@ from django.db import IntegrityError, transaction
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.fixtures import template_slack
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -19,6 +17,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionTemplate
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_alert import (
     VisionAlertConfiguration,

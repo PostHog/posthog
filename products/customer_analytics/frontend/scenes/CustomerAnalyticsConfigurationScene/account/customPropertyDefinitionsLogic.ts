@@ -6,11 +6,11 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { hogql } from 'lib/utils/hogql'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import type { DataWarehouseSavedQuery, DataWarehouseTable, PropertyDefinition } from '~/types'
 import { PropertyDefinitionType } from '~/types'
 
@@ -244,6 +244,7 @@ export interface customPropertyDefinitionsLogicValues {
     customPropertyFormValidationErrors: DeepPartialMap<CustomPropertyFormValues, ValidationErrorType>
     definitions: CustomPropertyDefinitionApi[]
     definitionsInitialLoading: boolean
+    definitionsLoadFailed: boolean
     definitionsLoading: boolean
     editingDefinition: CustomPropertyDefinitionApi | null
     editingHasWorkflowReference: boolean
@@ -639,6 +640,14 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         pollRunsStatus: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
     }),
     reducers({
+        definitionsLoadFailed: [
+            false,
+            {
+                loadDefinitions: () => false,
+                loadDefinitionsSuccess: () => false,
+                loadDefinitionsFailure: () => true,
+            },
+        ],
         searchTerm: [
             '',
             {

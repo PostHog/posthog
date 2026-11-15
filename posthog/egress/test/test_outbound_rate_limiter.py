@@ -2,6 +2,8 @@ import uuid
 
 import pytest
 
+from prometheus_client import REGISTRY
+
 import posthog.egress.limiter.backends as backends_module
 import posthog.egress.limiter.outbound as outbound_module
 import posthog.egress.limiter.policies as policies_module
@@ -71,6 +73,28 @@ async def test_unique_keys_do_not_share_budget():
     assert await limiter.acquire("test-isolation:scope:A", 1) is True
     assert await limiter.acquire("test-isolation:scope:A", 1) is False
     assert await limiter.acquire("test-isolation:scope:B", 1) is True
+
+
+@pytest.mark.parametrize("scope_in_metrics", [True, False])
+def test_denied_decision_records_its_scope_only_when_the_policy_opts_in(scope_in_metrics: bool) -> None:
+    # A denial must trace to the installation it hit, but a key scoped per PostHog team must not add a
+    # metric series per team.
+    domain = f"test-decision-scope-{scope_in_metrics}"
+    register_policy(domain, RatePolicy(limits=((1, 3600.0),), scope_in_metrics=scope_in_metrics))
+    limiter = _fresh_limiter()
+    key = _unique_key(domain)
+    labels = {
+        "domain": domain,
+        "scope": key.rpartition(":")[2] if scope_in_metrics else "",
+        "source": "probe",
+        "priority": "normal",
+        "granted": "false",
+    }
+
+    limiter.consume_sync(key, source="probe")
+    limiter.consume_sync(key, source="probe")
+
+    assert REGISTRY.get_sample_value("outbound_rate_limit_decisions_total", labels) == 1
 
 
 def test_policy_rejects_empty_limits():

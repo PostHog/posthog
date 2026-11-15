@@ -109,8 +109,8 @@ describe("TaskLinkService", () => {
     it.each([
       [
         "with target params",
-        "comment=thread-1&scope=desktop_canvas&item=canvas-9",
-        { threadId: "thread-1", scope: "desktop_canvas", itemId: "canvas-9" },
+        "comment=thread-1&scope=canvas&item=canvas-9",
+        { threadId: "thread-1", scope: "canvas", itemId: "canvas-9" },
       ],
       [
         "bare",

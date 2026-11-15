@@ -35,6 +35,18 @@ const batchExportCreate = (): ToolBase<ReturnType<typeof BatchExportCreateSchema
         if (params.hogql_query !== undefined) {
             body['hogql_query'] = params.hogql_query
         }
+        if (params.hogql_modifiers !== undefined) {
+            body['hogql_modifiers'] = params.hogql_modifiers
+        }
+        if (params.primary_key !== undefined) {
+            body['primary_key'] = params.primary_key
+        }
+        if (params.version_key !== undefined) {
+            body['version_key'] = params.version_key
+        }
+        if (params.incremental_mode !== undefined) {
+            body['incremental_mode'] = params.incremental_mode
+        }
         if (params.timezone !== undefined) {
             body['timezone'] = params.timezone
         }
@@ -119,6 +131,18 @@ const batchExportUpdate = (): ToolBase<ReturnType<typeof BatchExportUpdateSchema
         if (params.hogql_query !== undefined) {
             body['hogql_query'] = params.hogql_query
         }
+        if (params.hogql_modifiers !== undefined) {
+            body['hogql_modifiers'] = params.hogql_modifiers
+        }
+        if (params.primary_key !== undefined) {
+            body['primary_key'] = params.primary_key
+        }
+        if (params.version_key !== undefined) {
+            body['version_key'] = params.version_key
+        }
+        if (params.incremental_mode !== undefined) {
+            body['incremental_mode'] = params.incremental_mode
+        }
         if (params.timezone !== undefined) {
             body['timezone'] = params.timezone
         }
@@ -165,6 +189,7 @@ const batchExportsList = (): ToolBase<
                     'id',
                     'name',
                     'model',
+                    'incremental_mode',
                     'destination',
                     'interval',
                     'paused',
@@ -226,6 +251,9 @@ const fileDownloadBatchExportsCountRowsCreate = (): ToolBase<
         if (params.hogql_query !== undefined) {
             body['hogql_query'] = params.hogql_query
         }
+        if (params.hogql_modifiers !== undefined) {
+            body['hogql_modifiers'] = params.hogql_modifiers
+        }
         if (params.data_interval_start !== undefined) {
             body['data_interval_start'] = params.data_interval_start
         }
@@ -275,6 +303,9 @@ const fileDownloadBatchExportsCreate = (): ToolBase<
         }
         if ('hogql_query' in params && params.hogql_query !== undefined) {
             body['hogql_query'] = params.hogql_query
+        }
+        if ('hogql_modifiers' in params && params.hogql_modifiers !== undefined) {
+            body['hogql_modifiers'] = params.hogql_modifiers
         }
         const result = await context.api.request<unknown>({
             method: 'POST',

@@ -1,7 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 
-/** Carry the shared window, run scope, source, and repo onto an internal nav URL, so drilling in or stepping
- *  back never silently resets them. */
+/** Carries the shared window, run scope, and source onto an internal URL, so a drill-in or a step back
+ *  never resets them. The repository is in the path, never a param. */
 export function withScope(
     url: string,
     searchParams: Record<string, string | undefined>,
@@ -12,18 +12,15 @@ export function withScope(
         ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
         ...(searchParams.run_scope ? { run_scope: searchParams.run_scope } : {}),
         ...(sourceId ? { source: sourceId } : {}),
-        ...(searchParams.repo ? { repo: searchParams.repo } : {}),
     }).url
 }
 
-/** Like withScope, but reads the live URL for module-level link builders that don't have searchParams in
- *  scope, so a source-only link still carries the current window / run scope / repo. */
+/** Reads the live URL, for module-level link builders that have no searchParams in scope. */
 export function withCurrentScope(url: string, sourceId: string | null | undefined): string {
     return withScope(url, router.values.searchParams, sourceId)
 }
 
-/** Encode a (source, repo) selection as one string for the repo picker's LemonSelect value, since a
- *  source can offer several repos. `::` never appears in a UUID or an 'owner/name', so the split is safe. */
+/** `::` never appears in a UUID or an 'owner/name', so the split is safe. */
 export function scopeToValue(sourceId: string, repo: string): string {
     return `${sourceId}::${repo}`
 }
@@ -33,6 +30,6 @@ export function scopeFromValue(value: string): { sourceId: string; repo: string 
     if (sep === -1) {
         return { sourceId: value, repo: null }
     }
-    // A blank repo (a source with no configured repo) decodes to null → backend default repo.
+    // A blank repo (a source with no configured repo) decodes to null, which selects the backend's default repo.
     return { sourceId: value.slice(0, sep), repo: value.slice(sep + 2) || null }
 }

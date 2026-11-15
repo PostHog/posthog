@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { FormContext } from 'kea-forms'
-import { useContext, useEffect, useMemo } from 'react'
+import { useContext, useEffect, useMemo, useRef } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { credentialAccountsLogic } from 'lib/integrations/credentialAccountsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+
+import type { IntegrationAccountApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { InputSuggestion, InputWithSuggestionsDropdown } from './InputWithSuggestionsDropdown'
 
@@ -15,6 +17,9 @@ export interface CredentialAccountSelectorProps {
     fieldLabel: string
     /** Sibling payload fields whose values the listing needs, named by the field config. */
     credentialFields: string[]
+    /** Name of an OAuth integration id field that lists the same accounts. When the form holds a
+     *  value there, it stands in for `credentialFields`, which the other auth branch leaves empty. */
+    integrationField?: string
     /** Data warehouse source type used to route the listing endpoint, e.g. "AppleSearchAds". */
     sourceType: string
     placeholder?: string
@@ -36,6 +41,20 @@ export function collectCredentials(payload: unknown, credentialFields: string[])
         collected[name] = String(value)
     }
     return collected
+}
+
+/** The account to put in an empty field: the only one a listing found, or null when there is a
+ *  choice to make, nothing to pick, or a value the user already entered. */
+export function accountToAutoFill(
+    accounts: IntegrationAccountApi[],
+    accountsError: string | null,
+    currentValue: unknown
+): string | null {
+    const hasValue = currentValue !== undefined && currentValue !== null && String(currentValue).trim() !== ''
+    if (accountsError || accounts.length !== 1 || hasValue) {
+        return null
+    }
+    return accounts[0].value
 }
 
 /** Find the value stored under `key` anywhere in a (possibly nested) payload object. Mirrors the
@@ -74,9 +93,14 @@ function CredentialAccountSelectorInner({
     formKey,
     ...props
 }: CredentialAccountSelectorProps & { formLogic: any; formKey: string }): JSX.Element {
-    const { sourceType, credentialFields, fieldName, fieldLabel, placeholder, caption } = props
+    const { sourceType, credentialFields, integrationField, fieldName, fieldLabel, placeholder, caption } = props
     const values = useValues(formLogic) as Record<string, any> | null
-    const credentials = collectCredentials(values?.[formKey]?.payload, credentialFields)
+    const payload = values?.[formKey]?.payload
+    // A connected account answers the same listing, and the two branches are never both filled in,
+    // so prefer whichever one the form holds rather than requiring the typed-in set.
+    const credentials =
+        (integrationField ? collectCredentials(payload, [integrationField]) : undefined) ??
+        collectCredentials(payload, credentialFields)
 
     const { accounts, accountsLoading, accountsLoaded, accountsError } = useValues(
         credentialAccountsLogic({ sourceType })
@@ -90,6 +114,25 @@ function CredentialAccountSelectorInner({
             setCredentials(JSON.parse(credentialsKey))
         }
     }, [credentialsKey, setCredentials])
+
+    // Fill the field when the credentials can read exactly one account: there is nothing to choose,
+    // and an empty field fails the connect step. Each listing is judged once, on arrival, so a user
+    // who clears or changes the value is not overridden, and a listing for the previous credentials
+    // is never applied to the next ones.
+    const ownValue = payload?.[fieldName]
+    const judgedListing = useRef<IntegrationAccountApi[] | null>(null)
+    useEffect(() => {
+        if (accountsLoading || judgedListing.current === accounts) {
+            return
+        }
+        judgedListing.current = accounts
+        const fill = accountToAutoFill(accounts, accountsError, ownValue)
+        if (fill === null) {
+            return
+        }
+        const setValueAction = formLogic.actions[`set${formKey.charAt(0).toUpperCase()}${formKey.slice(1)}Value`]
+        setValueAction?.(['payload', fieldName], fill)
+    }, [accounts, accountsLoading, accountsError, ownValue, formLogic, formKey, fieldName])
 
     const suggestions = useMemo<InputSuggestion[]>(
         () =>
@@ -119,7 +162,9 @@ function CredentialAccountSelectorInner({
                         emptyMessage={
                             credentials
                                 ? "Couldn't load your accounts. Type the value in above."
-                                : 'Fill in the credentials above to list accounts.'
+                                : integrationField
+                                  ? 'Connect your account above to list accounts.'
+                                  : 'Fill in the credentials above to list accounts.'
                         }
                         noMatchMessage={() => 'No accounts match your filter.'}
                         loadingMessage="Loading accounts…"

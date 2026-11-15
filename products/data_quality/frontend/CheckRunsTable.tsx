@@ -4,7 +4,13 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import { CHECK_STATUS_TAG_TYPES, byStatusAttention, checkRunDisplayName, runResultCell } from './checksConstants'
+import {
+    CHECK_STATUS_TAG_TYPES,
+    UNPUBLISHED_REFRESH_EXPLANATION,
+    byStatusAttention,
+    checkRunDisplayName,
+    runResultCell,
+} from './checksConstants'
 import type { DataQualityCheckRunApi } from './generated/api.schemas'
 
 type CheckRunColumn = LemonTableColumn<DataQualityCheckRunApi, keyof DataQualityCheckRunApi | undefined>
@@ -19,7 +25,16 @@ const OUTCOME_COLUMNS: CheckRunColumn[] = [
     {
         title: 'Status',
         key: 'status',
-        render: (_, run) => <LemonTag type={CHECK_STATUS_TAG_TYPES[run.status] ?? 'default'}>{run.status}</LemonTag>,
+        render: (_, run) => (
+            <div className="flex flex-wrap items-center gap-1">
+                <LemonTag type={CHECK_STATUS_TAG_TYPES[run.status] ?? 'default'}>{run.status}</LemonTag>
+                {run.audited_staged_refresh ? (
+                    <Tooltip title={UNPUBLISHED_REFRESH_EXPLANATION}>
+                        <LemonTag type="muted">Unpublished refresh</LemonTag>
+                    </Tooltip>
+                ) : null}
+            </div>
+        ),
     },
     {
         title: 'Started',

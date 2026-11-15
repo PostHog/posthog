@@ -50,7 +50,9 @@ class TestSummarize:
             ChunkResult(chunk_id=2, scored=7, fetched=9),
         ]
         with (
-            mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger"),
+            mock.patch(
+                "posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger"
+            ) as mock_logger,
             mock.patch(
                 "posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.record_tick_summary",
             ) as mock_record_tick_summary,
@@ -60,6 +62,9 @@ class TestSummarize:
             total_scored=10, total_fetched=13, chunks_dispatched=3, chunks_failed=1
         )
         mock_record_tick_summary.assert_called_once_with(total_scored=10, total_fetched=13, chunks_failed=1)
+        mock_logger.info.assert_called_once_with(
+            "surfacing_scoring_sweep.tick_done chunks_dispatched=3 chunks_failed=1 total_scored=10 total_fetched=13"
+        )
 
     def test_record_tick_summary_noops_when_tick_has_no_positive_counts(self) -> None:
         chunks = [_chunk(0), _chunk(1)]

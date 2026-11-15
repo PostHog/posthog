@@ -2,7 +2,8 @@
 //! crate.
 
 use crate::api::CaptureError;
-use crate::outputs::PublishEvents;
+use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
+use crate::sinks::sink::SinkResult;
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
@@ -27,5 +28,12 @@ impl PublishEvents for MockSink {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend(events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for MockSink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
     }
 }

@@ -22,6 +22,7 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend.contract import GRID_COLUMN_CHOICES, MAX_COMPONENT_HEIGHT, contract_limits
+from products.canvas.backend.facade.enums import CanvasPlacementStatus
 from products.canvas.backend.source import diagnostic
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 
 CANVAS_LAYOUT_SCHEMA_VERSION = 1
 
-PLACEMENT_STATUSES = ("pending", "generating", "live", "failed")
+PLACEMENT_STATUSES = tuple(CanvasPlacementStatus.values)
 PLACEMENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 MIN_ROW_HEIGHT = 24
@@ -297,6 +298,27 @@ def _validate_placements(placements: list[Any], columns: int) -> list[dict[str, 
                     )
             rects.append(placement)
     return diagnostics
+
+
+@frozen
+class PinnedComponentVersion:
+    component_id: str
+    version_id: str
+
+
+def pinned_component_versions(layout: dict[str, Any]) -> set[PinnedComponentVersion]:
+    """The component versions the layout's placements pin to a specific version.
+
+    Both ids are canonical UUID strings, so they compare equal to `str()` of a model id
+    however the layout spelled them.
+    """
+    return {
+        PinnedComponentVersion(
+            component_id=str(UUID(placement["component"])), version_id=str(UUID(placement["version"]))
+        )
+        for placement in layout.get("placements", [])
+        if isinstance(placement, dict) and _is_uuid(placement.get("component")) and _is_uuid(placement.get("version"))
+    }
 
 
 def validate_layout_references(team_id: int, user_id: int | None, layout: dict[str, Any]) -> list[dict[str, Any]]:

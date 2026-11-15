@@ -1,11 +1,17 @@
+import re
+import json
+import struct
 import datetime as dt
+import threading
 from typing import Any
+from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -17,51 +23,29 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.models import Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.metrics.backend.facade.api import run_metric_query
+from products.metrics.backend.facade.api import _output_unit, run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
-from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
-from products.metrics.backend.formula import evaluate, parse_formula
+from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricRangeFunction
 from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
     MetricQueryRunner,
-    _active_since_expr,
     _align_to_interval,
-    _histogram_quantile,
-    _pick_interval,
     attribute_field,
 )
+from products.metrics.backend.metric_samples_query_runner import MetricSamplesQueryRunner, build_metric_query_runner
+from products.metrics.backend.metrics4_samples import METRICS4_CUTOVER, STALE_NAN_BITS
+from products.metrics.backend.query_counts import list_metric_query_counts
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
-
-class TestPickInterval:
-    @parameterized.expand(
-        [
-            # 60 one-minute buckets.
-            ("1h_range_picks_minute", dt.timedelta(hours=1), "minute"),
-            # 24 buckets are below the target.
-            ("1d_range_picks_hour", dt.timedelta(days=1), "hour"),
-            # Finer intervals exceed the target.
-            ("30d_range_picks_day", dt.timedelta(days=30), "day"),
-        ]
-    )
-    def test_pick_interval(self, _name: str, delta: dt.timedelta, expected: str) -> None:
-        start = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-        assert _pick_interval(start, start + delta) == expected
+STALE_NAN = struct.unpack("<d", struct.pack("<Q", STALE_NAN_BITS))[0]
 
 
-class TestActiveSinceExpr:
-    def test_keeps_series_within_the_last_seen_buffer(self) -> None:
-        date_from = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
-
-        expr = _active_since_expr(date_from)
-
-        assert isinstance(expr, ast.CompareOperation)
-        assert isinstance(expr.right, ast.Constant)
-        assert expr.right.value == date_from - dt.timedelta(hours=1)
-
-
-class TestAlignToInterval(ClickhouseTestMixin, APIBaseTest):
+@pytest.mark.usefixtures("clickhouse_database")
+class TestAlignToInterval(ClickhouseTestMixin, SimpleTestCase):
     @parameterized.expand(
         [
             (project_timezone, interval)
@@ -91,6 +75,8 @@ class TestAlignToInterval(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    runner_class: type[MetricQueryRunner] = MetricQueryRunner
+
     CLASS_DATA_LEVEL_SETUP = True
 
     def setUp(self):
@@ -99,7 +85,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_rejects_unsupported_aggregation(self):
         with self.assertRaises(ValueError):
-            MetricQueryRunner(
+            self.runner_class(
                 team=self.team,
                 metric_name="x",
                 aggregation="median",
@@ -110,7 +96,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_rejects_inverted_date_range(self):
         now = timezone.now()
         with self.assertRaises(ValueError):
-            MetricQueryRunner(
+            self.runner_class(
                 team=self.team,
                 metric_name="x",
                 aggregation="sum",
@@ -121,7 +107,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_rejects_too_wide_date_range(self):
         now = timezone.now()
         with self.assertRaises(ValueError):
-            MetricQueryRunner(
+            self.runner_class(
                 team=self.team,
                 metric_name="x",
                 aggregation="sum",
@@ -129,21 +115,30 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 date_to=now,
             )
 
-    def test_rejects_interval_exceeding_row_budget(self):
+    @parameterized.expand(
+        [
+            ("too_fine_is_coarsened", dt.timedelta(days=2), "second_15", "minute_15"),
+            ("fitting_interval_is_kept", dt.timedelta(hours=2), "second_15", "second_15"),
+            ("limit_is_kept", dt.timedelta(minutes=125), "second_15", "second_15"),
+            ("six_hours_is_coarsened", dt.timedelta(hours=6), "second_15", "minute"),
+            ("thirty_minutes", dt.timedelta(days=2), "minute_30", "minute_30"),
+        ]
+    )
+    def test_resolves_interval(self, _name, span, interval, expected):
         now = timezone.now()
-        with self.assertRaises(ValueError):
-            MetricQueryRunner(
-                team=self.team,
-                metric_name="x",
-                aggregation="sum",
-                date_from=now - dt.timedelta(days=2),
-                date_to=now,
-                interval="second",
-            )
+        runner = self.runner_class(
+            team=self.team,
+            metric_name="x",
+            aggregation="sum",
+            date_from=now - span,
+            date_to=now,
+            interval=interval,
+        )
+        self.assertEqual(runner.interval, expected)
 
     def test_rejects_invalid_regex_filter(self):
         now = timezone.now()
-        runner = MetricQueryRunner(
+        runner = self.runner_class(
             team=self.team,
             metric_name="x",
             aggregation="sum",
@@ -161,7 +156,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_name="m_trunc",
             points=[(anchor + dt.timedelta(minutes=m), 1.0) for m in range(6)],
         )
-        runner = MetricQueryRunner(
+        runner = self.runner_class(
             team=self.team,
             metric_name="m_trunc",
             aggregation="sum",
@@ -174,7 +169,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 runner.run()
 
     def test_returns_empty_for_no_data(self):
-        runner = MetricQueryRunner(
+        runner = self.runner_class(
             team=self.team,
             metric_name="http.server.duration",
             aggregation="sum",
@@ -207,7 +202,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             points=[(anchor - dt.timedelta(minutes=5), 99.0)],
         )
 
-        runner = MetricQueryRunner(
+        runner = self.runner_class(
             team=self.team,
             metric_name="m1",
             aggregation="sum",
@@ -243,7 +238,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 labels={"pod": pod},
             )
 
-        runner = MetricQueryRunner(
+        runner = self.runner_class(
             team=self.team,
             metric_name="m_multi",
             aggregation=aggregation,
@@ -252,6 +247,33 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([row["value"] for row in runner.run()], [expected])
+
+    @parameterized.expand([("sum",), ("avg",), ("count",)])
+    def test_skips_prometheus_stale_markers(self, aggregation: str):
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_stale",
+            points=[(anchor - dt.timedelta(minutes=20), 2.0), (anchor - dt.timedelta(minutes=5), STALE_NAN)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_stale",
+            points=[(anchor - dt.timedelta(minutes=5), 3.0)],
+            labels={"pod": "b"},
+        )
+
+        rows = self.runner_class(
+            team=self.team,
+            metric_name="m_stale",
+            aggregation=aggregation,
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        ).run()
+
+        expected = [1.0, 1.0] if aggregation == "count" else [2.0, 3.0]
+        self.assertEqual([row["value"] for row in rows], expected)
 
     def test_unaligned_date_from_reads_the_whole_first_bucket(self):
         # Relative presets can start inside a bucket. The whole bucket must count.
@@ -269,7 +291,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             labels={"pod": "b"},
         )
 
-        rows = MetricQueryRunner(
+        rows = self.runner_class(
             team=self.team,
             metric_name="m1",
             aggregation="sum",
@@ -287,14 +309,14 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # In a half-hour time zone, a UTC floor can drop the first bucket.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
-        bucket_start = dt.datetime(2026, 3, 17, 7, 30, tzinfo=dt.UTC)
+        bucket_start = dt.datetime(2026, 9, 17, 7, 30, tzinfo=dt.UTC)
         seed_metric(
             team_id=self.team.id,
             metric_name="m1",
             points=[(bucket_start + dt.timedelta(minutes=15), 3.0)],
         )
 
-        rows = MetricQueryRunner(
+        rows = self.runner_class(
             team=self.team,
             metric_name="m1",
             aggregation="sum",
@@ -311,16 +333,16 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_synthetic_original_timestamp_does_not_split_a_series(self):
         anchor = timezone.now().replace(second=0, microsecond=0)
         bucket = anchor - dt.timedelta(minutes=5)
-        # Ingestion excludes `$originalTimestamp` from series identity.
+        # Ingestion excludes `posthog.original_timestamp` from series identity.
         for index, value in enumerate((1.0, 2.0, 3.0)):
             seed_metric(
                 team_id=self.team.id,
                 metric_name="m_skewed",
                 points=[(bucket + dt.timedelta(seconds=10 * index), value)],
-                labels={"pod": "a", "$originalTimestamp": f"2020-01-0{index + 1}T00:00:00+00:00"},
+                labels={"pod": "a", "posthog.original_timestamp": f"2020-01-0{index + 1}T00:00:00+00:00"},
             )
 
-        runner = MetricQueryRunner(
+        runner = self.runner_class(
             team=self.team,
             metric_name="m_skewed",
             aggregation="sum",
@@ -330,6 +352,30 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([row["value"] for row in runner.run()], [3.0])
 
+    def test_reads_points_ingested_without_observed_timestamps(self):
+        # Both points sit in one storage hour, so ingest writes a single samples row.
+        anchor = timezone.now().replace(minute=0, second=0, microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=50), 2.0), (anchor - dt.timedelta(minutes=49), 3.0)],
+        )
+
+        stored = sync_execute(
+            "SELECT length(timestamp_arr), length(observed_timestamp_arr) FROM metrics4_samples WHERE team_id = %(team_id)s",
+            {"team_id": self.team.id},
+        )
+        runner = self.runner_class(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual(stored, [(2, 0)])
+        self.assertEqual(sum(row["value"] for row in runner.run()), 5.0)
+
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(
@@ -338,7 +384,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             points=[(anchor - dt.timedelta(minutes=5), 5.0)],
         )
 
-        runner = MetricQueryRunner(
+        runner = self.runner_class(
             team=self.team,
             metric_name="m1",
             aggregation="sum",
@@ -394,6 +440,77 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_query_with_no_matching_series_returns_a_hint(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "missing_metric",
+                    "aggregation": "max",
+                    "dateFrom": (timezone.now() - dt.timedelta(hours=1)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(all(series["points"] == [] for series in response.json()["results"]))
+        self.assertIn("metric-names-list", response.json()["hint"])
+
+    @parameterized.expand([("relative", {"dateFrom": "-1h"}), ("max_lookback", {"dateFrom": "-31d"}), ("omitted", {})])
+    def test_query_accepts_relative_or_omitted_date_from(self, _name: str, date_params: dict[str, str]):
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(timezone.now().replace(microsecond=0) - dt.timedelta(minutes=10), 4.0)],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={"query": {"metricName": "m1", "aggregation": "sum", **date_params}},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(sum(point["value"] for point in response.json()["results"][0]["points"]), 4.0)
+
+    def test_omitted_date_from_covers_the_24_hours_before_date_to(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(team_id=self.team.id, metric_name="m1", points=[(anchor - dt.timedelta(hours=2), 1.0)])
+        seed_metric(team_id=self.team.id, metric_name="m1", points=[(anchor - dt.timedelta(hours=30), 10.0)])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "m1",
+                    "aggregation": "sum",
+                    "dateTo": (anchor - dt.timedelta(hours=1)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(sum(point["value"] for point in response.json()["results"][0]["points"]), 1.0)
+
+    @parameterized.expand(
+        [
+            ("days", {"dateFrom": "-1000000000d"}),
+            ("years", {"dateFrom": "-10000y"}),
+            ("non_ascii_digits", {"dateFrom": "-1\u0661h"}),
+            ("default_window_before_year_one", {"dateTo": "0001-01-01T12:00:00Z"}),
+        ]
+    )
+    def test_query_rejects_out_of_range_relative_date(self, _name: str, date_params: dict[str, str]):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={"query": {"metricName": "m1", "aggregation": "sum", **date_params}},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_query_returns_aggregated_points(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(
@@ -425,6 +542,7 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         self.assertIn("results", body)
+        self.assertNotIn("hint", body)
         self.assertEqual(len(body["results"]), 1)
         series = body["results"][0]
         self.assertEqual(series["labels"], {})
@@ -455,7 +573,7 @@ class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
             query_type="AttributeFieldTest",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,
+            workload=Workload.METRICS,
         )
         if not response.results:
             return None
@@ -579,6 +697,21 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(series[0].metric_name, "m1")
         self.assertEqual(series[0].clause, "a")
         self.assertEqual(sum(p.value for p in series[0].points), 4.0)
+
+    def test_counts_one_query_for_each_metric_it_reads(self):
+        run_metric_query(
+            team=self.team,
+            request=self._request(
+                clauses=(
+                    MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
+                    MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
+                    MetricQueryClause(name="c", metric_name="m1", aggregation=MetricAggregation.AVG),
+                )
+            ),
+        )
+
+        counts = list_metric_query_counts(self.team)
+        self.assertEqual({count.metric_name: count.query_count for count in counts}, {"m1": 1, "m2": 1})
 
     def test_attaches_ingested_unit_to_series(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -745,6 +878,40 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(series[0].clause, "formula")
         self.assertIsNone(series[0].unit)
 
+    @parameterized.expand(
+        [
+            ("count_counts_series", MetricAggregation.COUNT, None, None),
+            ("rate_is_per_second", MetricAggregation.SUM, MetricRangeFunction.RATE, "ms/s"),
+        ]
+    )
+    def test_series_unit_is_the_unit_of_the_output(self, _name, aggregation, range_function, expected_unit):
+        anchor = timezone.now().replace(second=0, microsecond=0) - dt.timedelta(minutes=30)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            metric_type="sum",
+            is_monotonic=True,
+            unit="ms",
+            points=[(anchor, 0.0), (anchor + dt.timedelta(seconds=30), 30.0)],
+        )
+
+        series = run_metric_query(
+            team=self.team,
+            request=self._request(
+                clauses=(
+                    MetricQueryClause(
+                        name="a", metric_name="m1", aggregation=aggregation, range_function=range_function
+                    ),
+                ),
+                date_from=anchor - dt.timedelta(minutes=1),
+                date_to=anchor + dt.timedelta(minutes=2),
+                interval="minute",
+            ),
+        )
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].unit, expected_unit)
+
     def test_quantile_095_maps_to_p95(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(team_id=self.team.id, metric_name="m1", points=[(anchor - dt.timedelta(minutes=10), 5.0)])
@@ -780,7 +947,97 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
             run_metric_query(team=self.team, request=self._request(**overrides))
 
 
+class TestRunMetricQueryInParallel(SimpleTestCase):
+    def test_the_clause_queries_and_the_unit_lookup_run_at_the_same_time_and_close_their_connections(self) -> None:
+        # Each query waits until all three run, so a serial run breaks the barrier.
+        barrier = threading.Barrier(3, timeout=5)
+        anchor = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
+
+        class _Runner:
+            def run(self) -> list[dict[str, Any]]:
+                barrier.wait()
+                return [{"time": anchor.isoformat(), "value": 1.0, "labels": {}, "series_fingerprints": [1]}]
+
+        def units(_team: Team, _names: set[str]) -> dict[int, str]:
+            barrier.wait()
+            return {1: "ms"}
+
+        with (
+            override_settings(IN_UNIT_TESTING=False),
+            patch("products.metrics.backend.facade.api.build_metric_query_runner", side_effect=lambda **_: _Runner()),
+            patch("products.metrics.backend.facade.api._units_by_fingerprint", side_effect=units),
+            patch("products.metrics.backend.facade.api.record_metric_queries"),
+            patch("products.metrics.backend.facade.api.connection") as connection,
+        ):
+            series = run_metric_query(
+                team=Team(id=1),
+                request=MetricQueryRequest(
+                    clauses=(
+                        MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
+                        MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
+                    ),
+                    date_from=anchor - dt.timedelta(hours=1),
+                    date_to=anchor,
+                ),
+            )
+
+        assert [(item.clause, item.unit, [point.value for point in item.points]) for item in series] == [
+            ("a", "ms", [1.0]),
+            ("b", "ms", [1.0]),
+        ]
+        # Each worker closes the Postgres connection that it opened.
+        assert connection.close.call_count == 3
+
+
+class TestOutputUnit(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("sum_keeps_unit", "ms", MetricAggregation.SUM, None, "ms"),
+            ("max_keeps_unit", "By", MetricAggregation.MAX, None, "By"),
+            ("increase_keeps_unit", "ms", MetricAggregation.INCREASE, None, "ms"),
+            ("increase_range_keeps_unit", "ms", MetricAggregation.SUM, MetricRangeFunction.INCREASE, "ms"),
+            ("histogram_quantile_keeps_unit", "s", MetricAggregation.HISTOGRAM_QUANTILE, None, "s"),
+            ("count_drops_unit", "ms", MetricAggregation.COUNT, None, None),
+            ("count_after_rate_drops_unit", "ms", MetricAggregation.COUNT, MetricRangeFunction.RATE, None),
+            ("rate_aggregation_per_second", "ms", MetricAggregation.RATE, None, "ms/s"),
+            ("rate_range_per_second", "By", MetricAggregation.AVG, MetricRangeFunction.RATE, "By/s"),
+            ("rate_of_annotation", "{request}", MetricAggregation.RATE, None, "{request}/s"),
+            ("rate_of_one", "1", MetricAggregation.RATE, None, "1/s"),
+            ("rate_of_unitless", "", MetricAggregation.RATE, None, "1/s"),
+            ("unitless_without_rate", "", MetricAggregation.SUM, None, None),
+            ("rate_of_disagreeing_units", None, MetricAggregation.RATE, None, None),
+            (
+                "unitless_seconds_histogram_quantile",
+                "",
+                MetricAggregation.HISTOGRAM_QUANTILE,
+                None,
+                "s",
+                "latency_seconds",
+            ),
+            ("unitless_bytes_histogram_quantile", "", MetricAggregation.HISTOGRAM_QUANTILE, None, "By", "size_bytes"),
+            ("ingested_unit_wins_over_name", "ms", MetricAggregation.HISTOGRAM_QUANTILE, None, "ms", "latency_seconds"),
+            (
+                "disagreeing_units_ignore_name",
+                None,
+                MetricAggregation.HISTOGRAM_QUANTILE,
+                None,
+                None,
+                "latency_seconds",
+            ),
+            ("unitless_seconds_gauge_average", "", MetricAggregation.AVG, None, None, "start_time_seconds"),
+        ]
+    )
+    def test_output_unit(self, _name, ingested, aggregation, range_function, expected, metric_name="m1"):
+        quantile = 0.5 if aggregation.needs_quantile else None
+        clause = MetricQueryClause(
+            name="a", metric_name=metric_name, aggregation=aggregation, range_function=range_function, quantile=quantile
+        )
+        self.assertEqual(_output_unit(ingested, clause), expected)
+
+
 class TestMetricFilters(ClickhouseTestMixin, APIBaseTest):
+    runner_class: type[MetricQueryRunner] = MetricQueryRunner
+
     CLASS_DATA_LEVEL_SETUP = True
 
     def setUp(self):
@@ -803,7 +1060,7 @@ class TestMetricFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _total(self, filters: tuple[MetricFilter, ...]) -> float:
-        runner = MetricQueryRunner(
+        runner = self.runner_class(
             team=self.team,
             metric_name="req",
             aggregation="sum",
@@ -874,7 +1131,7 @@ class TestMetricFilters(ClickhouseTestMixin, APIBaseTest):
             ],
             labels={"env": "staging", "path": "/api"},
         )
-        runner = MetricQueryRunner(
+        runner = self.runner_class(
             team=self.team,
             metric_name="req",
             aggregation="sum",
@@ -984,9 +1241,10 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         by_env = {s.labels["env"]: s for s in series}
         self.assertEqual(len(by_env["prod"].points), len(by_env["dev"].points))
 
-    def test_unknown_interval_raises(self):
+    @parameterized.expand([("removed_one_second_step", "second"), ("unknown", "fortnight")])
+    def test_unknown_interval_raises(self, _name, interval):
         with self.assertRaises(ValueError):
-            self._run(interval="fortnight")
+            self._run(interval=interval)
 
     def test_group_by_resource_scope(self):
         truncate_metrics_tables()
@@ -1044,6 +1302,162 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         results = response.json()["results"]
         self.assertEqual({s["labels"]["env"] for s in results}, {"prod", "dev"})
 
+    @parameterized.expand(
+        [
+            # The app reads every series, so a browser session keeps the all-zero one.
+            ("app_keeps_every_series", False, {}, {"dev", "prod", "idle"}, None, None),
+            ("mcp_drops_all_zero_series", True, {}, {"dev", "prod"}, 1, None),
+            ("mcp_can_keep_all_zero_series", True, {"dropEmptySeries": False}, {"dev", "prod", "idle"}, None, None),
+            ("limit_keeps_the_largest", False, {"limit": 1}, {"dev"}, None, 2),
+            ("mcp_limit_counts_after_dropping", True, {"limit": 1}, {"dev"}, 1, 1),
+        ]
+    )
+    def test_group_by_via_api_trims_series(
+        self,
+        _name: str,
+        via_mcp: bool,
+        options: dict[str, Any],
+        expected_envs: set[str],
+        omitted_empty: int | None,
+        omitted_by_limit: int | None,
+    ) -> None:
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 0.0)],
+            labels={"env": "idle"},
+        )
+        headers: dict[str, str] = {}
+        if via_mcp:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="mcp", user=self.user, secure_value=hash_key_value(token), scopes=["metrics:read"]
+            )
+            self.client.logout()
+            headers = {"authorization": f"Bearer {token}", "user-agent": "posthog/mcp-server"}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "req",
+                    "aggregation": "sum",
+                    "groupBy": [{"key": "env"}],
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(hours=1)).isoformat(),
+                    "dateTo": self.anchor.isoformat(),
+                    **options,
+                }
+            },
+            content_type="application/json",
+            headers=headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual({s["labels"]["env"] for s in body["results"]}, expected_envs)
+        self.assertEqual(body.get("omitted_empty_series"), omitted_empty)
+        self.assertEqual(body.get("omitted_by_limit"), omitted_by_limit)
+
+    def _query_via_api(self, **options: Any) -> dict[str, Any]:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={"query": {"metricName": "req", "aggregation": "sum", "groupBy": [{"key": "env"}], **options}},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        return response.json()
+
+    @parameterized.expand(
+        [
+            # The bucket at anchor-4m is still filling at that time, so the last complete one is anchor-5m.
+            ("last_bucket_has_samples", 4, {"prod": 2.0, "dev": 10.0}, 5),
+            ("last_bucket_is_empty", 3, {"prod": None, "dev": None}, None),
+        ]
+    )
+    def test_instant_builder_query_returns_the_last_complete_bucket(
+        self, _name: str, minutes_before: int, expected: dict[str, float | None], bucket_minutes_before: int | None
+    ) -> None:
+        body = self._query_via_api(
+            instant=True, interval="minute", time=(self.anchor - dt.timedelta(minutes=minutes_before)).isoformat()
+        )
+
+        by_env = {s["labels"]["env"]: s for s in body["results"]}
+        self.assertEqual({env: s["value"] for env, s in by_env.items()}, expected)
+        expected_time = (
+            None if bucket_minutes_before is None else self.anchor - dt.timedelta(minutes=bucket_minutes_before)
+        )
+        time = by_env["prod"]["time"]
+        self.assertEqual(time and dt.datetime.fromisoformat(time), expected_time)
+        self.assertNotIn("points", by_env["prod"])
+
+    def test_summary_builder_query_reduces_each_series(self) -> None:
+        body = self._query_via_api(
+            interval="minute",
+            dateFrom=(self.anchor - dt.timedelta(hours=1)).isoformat(),
+            dateTo=self.anchor.isoformat(),
+            output="summary",
+        )
+
+        by_env = {s["labels"]["env"]: s for s in body["results"]}
+        self.assertEqual(
+            {env: (s["last"], s["min"], s["max"], s["avg"]) for env, s in by_env.items()},
+            {"prod": (2.0, 1.0, 2.0, 1.5), "dev": (10.0, 0.0, 10.0, 5.0)},
+        )
+
+    def test_builder_query_links_to_the_metrics_viewer(self) -> None:
+        body = self._query_via_api(
+            filters=[{"key": "env", "op": "neq", "value": "staging"}],
+            dateFrom="-1h",
+            interval="minute",
+        )
+
+        params = parse_qs(body["url_params"])
+        self.assertEqual(
+            (params["activeTab"], params["dateFrom"], params["interval"]), (["viewer"], ["-1h"], ["minute"])
+        )
+        self.assertEqual(
+            json.loads(params["clauses"][0]),
+            [
+                {
+                    "name": "a",
+                    "metricName": "req",
+                    "aggregation": "sum",
+                    "groupBy": ["env"],
+                    "filterGroup": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "metric_attribute",
+                                        "key": "env",
+                                        "value": ["staging"],
+                                        "operator": "is_not",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                }
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            ("non_auto_scope", {"metricName": "req", "groupBy": [{"key": "env", "scope": "resource"}]}),
+            ("empty_filter_value", {"metricName": "req", "filters": [{"key": "env", "op": "neq", "value": ""}]}),
+            ("uppercase_clause_name", {"clauses": [{"name": "A", "metricName": "req"}], "formula": "A * 2"}),
+        ]
+    )
+    def test_builder_query_the_viewer_cannot_show_links_to_the_viewer(self, _name: str, query: dict) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query", data={"query": query}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["url_params"], "activeTab=viewer")
+
     def test_series_cap_keeps_largest(self):
         with patch("products.metrics.backend.facade.api.MAX_SERIES_PER_CLAUSE", 1):
             series = self._run()
@@ -1052,6 +1466,8 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
+    runner_class: type[MetricQueryRunner] = MetricQueryRunner
+
     CLASS_DATA_LEVEL_SETUP = True
 
     def setUp(self):
@@ -1070,7 +1486,7 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
             "interval": "minute",
         }
         defaults.update(runner_overrides)
-        return MetricQueryRunner(**defaults).run()
+        return self.runner_class(**defaults).run()
 
     def _seed_counter(self, points, **kwargs):
         seed_metric(
@@ -1143,14 +1559,15 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(earliest, self.anchor)
 
     def test_bucket_with_no_computable_increase_is_dropped_not_zero(self):
-        # The predecessor is outside the lookback. Return a gap, not zero.
+        # The predecessor is outside the lookback, and the counter is too large to have just started.
+        # Return a gap, not zero.
         start = self.anchor - dt.timedelta(minutes=self.anchor.minute % 5)
         self._seed_counter(
             [
-                (start - dt.timedelta(minutes=10), 100.0),
-                (start, 200.0),
-                (start + dt.timedelta(minutes=10), 300.0),
-                (start + dt.timedelta(minutes=20), 400.0),
+                (start - dt.timedelta(minutes=10), 10_000.0),
+                (start, 10_100.0),
+                (start + dt.timedelta(minutes=10), 10_200.0),
+                (start + dt.timedelta(minutes=20), 10_300.0),
             ]
         )
         rows = self._run(
@@ -1176,8 +1593,8 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
     def test_counter_reset_counts_post_reset_value(self):
         self._seed_counter(
             [
-                (self.anchor + dt.timedelta(seconds=0), 10.0),
-                (self.anchor + dt.timedelta(seconds=15), 20.0),
+                (self.anchor + dt.timedelta(seconds=0), 1_000.0),
+                (self.anchor + dt.timedelta(seconds=15), 1_010.0),
                 (self.anchor + dt.timedelta(seconds=30), 5.0),
                 (self.anchor + dt.timedelta(seconds=45), 15.0),
             ]
@@ -1186,17 +1603,94 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         # The reset contributes its post-reset value.
         self.assertEqual([row["value"] for row in rows], [25.0])
 
-    def test_delta_temporality_sums_samples_directly(self):
+    @parameterized.expand(
+        [
+            # A pod that served one request and was scraped until it went away: the counter starts at 1.
+            ("one_request_then_flat", [1.0, 1.0, 1.0], 1.0),
+            ("new_series_keeps_counting", [2.0, 5.0, 9.0], 9.0),
+            # A lone sample has no next delta, so it counts only when it is small.
+            ("lone_small_sample", [3.0], 3.0),
+        ]
+    )
+    def test_new_series_counts_its_first_value_from_zero(self, _name: str, values: list[float], expected: float):
+        # A counter that appears inside the range started there, as on a new pod. PromQL counts it from zero.
         self._seed_counter(
-            [
-                (self.anchor + dt.timedelta(seconds=0), 3.0),
-                (self.anchor + dt.timedelta(seconds=15), 4.0),
-                (self.anchor + dt.timedelta(seconds=30), 5.0),
-            ],
-            aggregation_temporality="delta",
+            [(self.anchor + dt.timedelta(seconds=15 * index), value) for index, value in enumerate(values)]
         )
         rows = self._run("increase")
-        self.assertEqual([row["value"] for row in rows], [12.0])
+        self.assertEqual(sum(row["value"] for row in rows), expected)
+
+    def test_short_lived_series_add_up_like_promql(self):
+        # Each pod's counter appears with the requests it served before its first scrape.
+        for pod, values in {"a": [1.0, 1.0], "b": [2.0, 3.0], "c": [1.0, 4.0]}.items():
+            self._seed_counter(
+                [(self.anchor + dt.timedelta(seconds=15 * index), value) for index, value in enumerate(values)],
+                labels={"pod": pod},
+            )
+        rows = self._run("increase")
+        self.assertEqual(sum(row["value"] for row in rows), 1.0 + 3.0 + 4.0)
+
+    @parameterized.expand(
+        [
+            ("keeps_counting", [1_000_000.0, 1_000_010.0, 1_000_020.0], 20.0),
+            # The reset after the first sample must not read as a delta of a million.
+            ("resets_next", [1_000_000.0, 5.0, 15.0], 15.0),
+        ]
+    )
+    def test_large_first_value_is_a_counter_seen_late_not_a_new_series(
+        self, _name: str, values: list[float], expected: float
+    ):
+        # A process that counted long before ingestion started must not add its whole history.
+        self._seed_counter(
+            [(self.anchor + dt.timedelta(seconds=15 * index), value) for index, value in enumerate(values)]
+        )
+        rows = self._run("increase")
+        self.assertEqual(sum(row["value"] for row in rows), expected)
+
+    @parameterized.expand(
+        [
+            ("delivered_once", [[(0, 3.0), (15, 4.0), (30, 5.0)]], False, 12.0),
+            ("delivered_once_with_dedupe", [[(0, 3.0), (15, 4.0), (30, 5.0)]], True, 12.0),
+            # An at-least-once replay sends the first points again in a new block, so
+            # ClickHouse insert deduplication does not drop them.
+            ("replayed_with_dedupe", [[(0, 3.0), (15, 4.0)], [(0, 3.0), (15, 4.0), (30, 5.0)]], True, 12.0),
+            # Dedupe drops only exact copies, not a different point at the same time.
+            ("same_time_different_value_with_dedupe", [[(0, 3.0)], [(0, 4.0)]], True, 7.0),
+        ]
+    )
+    def test_delta_temporality_sums_samples_directly(
+        self, _name: str, batches: list[list[tuple[int, float]]], dedupe: bool, expected: float
+    ):
+        for batch in batches:
+            self._seed_counter(
+                [(self.anchor + dt.timedelta(seconds=offset), value) for offset, value in batch],
+                aggregation_temporality="delta",
+            )
+        with patch(
+            "products.metrics.backend.metric_query_runner.posthog_feature_flag_enabled", return_value=dedupe
+        ) as flag:
+            rows = self._run("increase")
+        self.assertEqual([row["value"] for row in rows], [expected])
+        self.assertEqual(flag.call_args.args[0], "metrics-query-dedupe-points")
+
+    @parameterized.expand(
+        [
+            # A copy cannot change argMax, so a last-value query skips the dedupe cost.
+            ("last_value", "sum", {}, False),
+            ("increase", "sum", {"range_function": "increase"}, True),
+        ]
+    )
+    def test_dedupe_flag_applies_only_where_copies_change_the_result(
+        self, _name: str, aggregation: str, overrides: dict[str, Any], expect_dedupe: bool
+    ):
+        with (
+            patch("products.metrics.backend.metric_query_runner.posthog_feature_flag_enabled", return_value=True),
+            patch(
+                "products.metrics.backend.metric_query_runner.execute_hogql_query", wraps=execute_hogql_query
+            ) as execute,
+        ):
+            self._run(aggregation, **overrides)
+        self.assertEqual(bool(re.search(r"LIMIT 1\s+BY", execute.call_args.kwargs["query"].to_hogql())), expect_dedupe)
 
     def test_deltas_are_computed_per_underlying_series(self):
         # Diff each pod separately.
@@ -1215,7 +1709,8 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
             resource_labels={"k8s.pod.name": "web-2"},
         )
         rows = self._run("increase")
-        self.assertEqual([row["value"] for row in rows], [15.0])
+        # web-1 adds 10. web-2 is a new counter, so its first 5 counts from zero, and then it adds 5.
+        self.assertEqual([row["value"] for row in rows], [20.0])
 
     def test_rate_composes_with_group_by(self):
         self._seed_counter(
@@ -1279,24 +1774,9 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         )
 
 
-class TestHistogramQuantileInterpolation:
-    @parameterized.expand(
-        [
-            # p50 is 0.3 in the second bucket.
-            ("p50_mid_bucket", 0.5, [0.1, 0.5, 1.0], [10.0, 10.0, 10.0, 0.0], 0.3),
-            # p25 is 0.075 in the first bucket.
-            ("p25_first_bucket", 0.25, [0.1, 0.5, 1.0], [10.0, 10.0, 10.0, 0.0], 0.075),
-            # Clamp overflow ranks to the highest bound.
-            ("overflow_clamps", 0.99, [0.1, 0.5, 1.0], [1.0, 1.0, 1.0, 10.0], 1.0),
-            ("empty_counts", 0.5, [0.1, 0.5], [0.0, 0.0, 0.0], 0.0),
-            ("no_bounds", 0.5, [], [10.0], 0.0),
-        ]
-    )
-    def test_interpolation(self, _name, q, bounds, counts, expected):
-        assert abs(_histogram_quantile(q, bounds, counts) - expected) < 1e-9
-
-
 class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
+    runner_class: type[MetricQueryRunner] = MetricQueryRunner
+
     CLASS_DATA_LEVEL_SETUP = True
 
     BOUNDS = [0.1, 0.5, 1.0]
@@ -1330,7 +1810,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
             "interval": "minute",
         }
         defaults.update(overrides)
-        return MetricQueryRunner(**defaults).run()
+        return self.runner_class(**defaults).run()
 
     def test_requires_quantile(self):
         with self.assertRaises(ValueError):
@@ -1414,16 +1894,61 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor)
 
-    def test_mismatched_bounds_raise(self):
-        self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
+    @parameterized.expand(
+        [
+            ("two_series", {"resource_labels": {"k8s.pod.name": "other"}}),
+            # One series changes its buckets inside one hour. The merge must keep each point on its own layout.
+            ("one_series_after_merge", {}),
+        ]
+    )
+    def test_mismatched_bounds_merge_onto_one_layout(self, _name, second_series_labels):
+        # Two endpoints with their own buckets chart together instead of failing.
+        self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [10, 0, 0, 0])], temporality="delta")
         self._seed_histogram(
-            [(self.anchor + dt.timedelta(seconds=10), [1, 1, 1, 0])],
+            [(self.anchor + dt.timedelta(seconds=10), [0, 10, 0, 0])],
             temporality="delta",
             bounds=[0.2, 0.6, 2.0],
-            resource_labels={"k8s.pod.name": "other"},
+            **second_series_labels,
         )
-        with self.assertRaises(ValueError):
-            self._run(0.5)
+        sync_execute("OPTIMIZE TABLE metrics4_samples FINAL")
+        rows = self._run(0.75)
+        self.assertEqual(len(rows), 1)
+        # Union edges [0.1, 0.2, 0.5, 0.6, 1.0, 2.0] get counts [10, 0, 7.5, 2.5, 0, 0, 0], so p75 is 2/3 into (0.2, 0.5].
+        self.assertAlmostEqual(rows[0]["value"], 0.4)
+        # The (0.2, 0.6] bucket holds observations, so the 0.5 edge adds no precision.
+        self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.6, 1.0, 2.0])
+
+    def test_cumulative_bucket_count_change_does_not_fail(self):
+        # metrics4 keeps one bounds array per series-hour, so samples can carry more counts than bounds.
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [2, 2, 2, 0, 0]),
+            ],
+            temporality="cumulative",
+        )
+        self.assertEqual(self._run(0.5), [])
+
+    def test_exponential_histogram_reads_upper_edges(self):
+        # Ingest stores lower edges [0.1, 0.2, 0.4]: every value is in (0.2, 0.4].
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="latency",
+            metric_type="exponential_histogram",
+            aggregation_temporality="delta",
+            histogram_bounds=[0.1, 0.2, 0.4],
+            histogram_counts=[0, 10, 0],
+            points=[(self.anchor, 0.0)],
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+        self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.4, 0.8])
+
+    def test_rows_carry_the_bucket_edges(self):
+        self._seed_histogram([(self.anchor, [10, 10, 10, 0])], temporality="delta")
+        rows = self._run(0.5)
+        self.assertEqual(rows[0]["histogram_bounds"], self.BOUNDS)
 
     def test_histogram_quantile_via_api(self):
         self._seed_histogram(
@@ -1448,6 +1973,57 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         points = response.json()["results"][0]["points"]
         self.assertEqual(len(points), 1)
         self.assertAlmostEqual(points[0]["value"], 0.3)
+        # The chart reads the edges to tell how coarse the estimate is.
+        self.assertEqual(response.json()["results"][0]["histogram_bounds"], self.BOUNDS)
+
+    @parameterized.expand(
+        [
+            ("single_query", {"metricName": "latency", "aggregation": "histogram_quantile", "quantile": 0.99}, 1),
+            (
+                "formula",
+                {
+                    "clauses": [
+                        {"name": "a", "metricName": "latency", "aggregation": "histogram_quantile", "quantile": 0.99}
+                    ],
+                    "formula": "a * 1000",
+                },
+                1000,
+            ),
+        ]
+    )
+    def test_histogram_quantile_via_api_merges_layouts_and_says_so(self, _name, query, scale):
+        # Two workloads export one histogram name with different buckets. The coarse layout
+        # holds 0.7% of observations above 8.1, and the fine one holds 1% of them, all below 0.5.
+        self._seed_histogram(
+            [(self.anchor, [900, 50, 30, 7, 6, 7])], temporality="delta", bounds=[0.1, 0.3, 0.9, 2.7, 8.1]
+        )
+        self._seed_histogram(
+            [(self.anchor, [10, 0, 0])],
+            temporality="delta",
+            bounds=[0.5, 75.0],
+            resource_labels={"k8s.namespace.name": "billing"},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    **query,
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=2)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [series] = response.json()["results"]
+        [point] = series["points"]
+        # Summing the two layouts by le, as PromQL does, leaves the fine layout out of every bucket from
+        # 0.9 up and puts p99 in +Inf, read as 75. Merged by width, 1003 of 1010 are at or below 8.1.
+        self.assertAlmostEqual(point["value"], (2.7 + 5.4 * 2.9 / 6) * scale)
+        self.assertEqual(series["histogram_layout_count"], 2)
+        self.assertIn("2 bucket layouts", response.json()["hint"])
 
     def test_histogram_quantile_via_api_requires_quantile(self):
         response = self.client.post(
@@ -1462,37 +2038,6 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-
-class TestFormulaParser:
-    @parameterized.expand(
-        [
-            ("add", "a + b", {"a": 3.0, "b": 4.0}, 7.0),
-            ("precedence", "a + b * 2", {"a": 1.0, "b": 2.0}, 5.0),
-            ("parens", "(a - b) / a", {"a": 10.0, "b": 4.0}, 0.6),
-            ("unary_minus", "-a + 5", {"a": 2.0}, 3.0),
-            ("division_by_zero_yields_zero", "a / b", {"a": 5.0, "b": 0.0}, 0.0),
-            ("number_only_arithmetic", "a * 0 + 1.5", {"a": 9.0}, 1.5),
-        ]
-    )
-    def test_evaluate(self, _name, formula, values, expected):
-        node = parse_formula(formula, frozenset(values))
-        assert abs(evaluate(node, values) - expected) < 1e-9
-
-    @parameterized.expand(
-        [
-            ("unknown_clause", "a + zz", frozenset({"a", "b"})),
-            ("unbalanced_parens", "(a + b", frozenset({"a", "b"})),
-            ("trailing_garbage", "a + b )", frozenset({"a", "b"})),
-            ("empty", "   ", frozenset({"a"})),
-            ("bad_char", "a ^ b", frozenset({"a", "b"})),
-            ("nesting_too_deep_parens", "(" * 40 + "a" + ")" * 40, frozenset({"a"})),
-            ("nesting_too_deep_unary", "-" * 40 + "a", frozenset({"a"})),
-        ]
-    )
-    def test_rejects(self, _name, formula, names):
-        with pytest.raises(ValueError):
-            parse_formula(formula, names)
 
 
 class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
@@ -1652,6 +2197,8 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
+    runner_class: type[MetricQueryRunner] = MetricQueryRunner
+
     """Test type isolation for metrics with the same name."""
 
     CLASS_DATA_LEVEL_SETUP = True
@@ -1677,7 +2224,7 @@ class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _run(self, aggregation: str, metric_type: str | None, **kwargs: Any) -> list[dict[str, Any]]:
-        return MetricQueryRunner(
+        return self.runner_class(
             team=self.team,
             metric_name="m_collide",
             aggregation=aggregation,
@@ -1744,6 +2291,8 @@ class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
+    runner_class: type[MetricQueryRunner] = MetricQueryRunner
+
     """Test null gaps for non-finite aggregates."""
 
     CLASS_DATA_LEVEL_SETUP = True
@@ -1764,7 +2313,7 @@ class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
             )
 
     def _run(self, aggregation: str) -> list[dict[str, Any]]:
-        return MetricQueryRunner(
+        return self.runner_class(
             team=self.team,
             metric_name="m_huge",
             aggregation=aggregation,
@@ -1837,3 +2386,146 @@ class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         values = [p["value"] for p in response.json()["results"][0]["points"]]
         assert values == [None]
+
+
+class TestHistogramQuantileRunnerOnSamples(TestHistogramQuantileRunner):
+    runner_class = MetricSamplesQueryRunner
+
+
+class TestMetricFiltersOnSamples(TestMetricFilters):
+    runner_class = MetricSamplesQueryRunner
+
+
+class TestMetricQueryRunnerOnSamples(TestMetricQueryRunner):
+    runner_class = MetricSamplesQueryRunner
+
+
+class TestMetricTypeIsolationOnSamples(TestMetricTypeIsolation):
+    runner_class = MetricSamplesQueryRunner
+
+
+class TestNonFiniteAggregatesOnSamples(TestNonFiniteAggregates):
+    runner_class = MetricSamplesQueryRunner
+
+
+class TestRateIncreaseOnSamples(TestRateIncrease):
+    runner_class = MetricSamplesQueryRunner
+
+
+class TestUnaggregatedSeries(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        truncate_metrics_tables()
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+
+    def _seed_pod(self, pod: str, points, metric_name: str = "requests_total") -> None:
+        seed_metric(
+            team_id=self.team.id,
+            metric_name=metric_name,
+            metric_type="sum",
+            is_monotonic=True,
+            points=points,
+            resource_labels={"k8s.pod.name": pod},
+            labels={"env": "prod"},
+        )
+
+    def _run(self, **clause_overrides):
+        clause: dict[str, Any] = {
+            "name": "a",
+            "metric_name": "requests_total",
+            "aggregation": MetricAggregation.NONE,
+        }
+        clause.update(clause_overrides)
+        return run_metric_query(
+            team=self.team,
+            request=MetricQueryRequest(
+                clauses=(MetricQueryClause(**clause),),
+                date_from=self.anchor - dt.timedelta(minutes=1),
+                date_to=self.anchor + dt.timedelta(minutes=2),
+                interval="minute",
+            ),
+        )
+
+    def test_one_series_per_physical_series_keeping_only_distinguishing_labels(self):
+        self._seed_pod("web-1", [(self.anchor + dt.timedelta(seconds=10), 5.0)])
+        self._seed_pod("web-2", [(self.anchor + dt.timedelta(seconds=10), 7.0)])
+
+        series = self._run()
+
+        self.assertEqual({s.labels["k8s.pod.name"] for s in series}, {"web-1", "web-2"})
+        self.assertTrue(all("env" not in s.labels for s in series))
+        self.assertEqual(
+            {s.labels["k8s.pod.name"]: [p.value for p in s.points][-1] for s in series},
+            {"web-1": 5.0, "web-2": 7.0},
+        )
+
+    def test_keeps_the_most_recently_reporting_series_when_over_the_cap(self):
+        for index in range(4):
+            self._seed_pod(f"web-{index}", [(self.anchor + dt.timedelta(seconds=index * 10), 1.0)])
+
+        with patch("products.metrics.backend.metric_query_runner.MAX_RAW_SERIES", 2):
+            series = self._run()
+
+        self.assertEqual({s.labels["k8s.pod.name"] for s in series}, {"web-2", "web-3"})
+
+    def test_rate_function_runs_per_series_and_sums_like_the_legacy_rate(self):
+        for pod, last in (("web-1", 60.0), ("web-2", 6.0)):
+            self._seed_pod(
+                pod,
+                [(self.anchor + dt.timedelta(seconds=0), 0.0), (self.anchor + dt.timedelta(seconds=30), last)],
+            )
+
+        per_series = self._run(range_function=MetricRangeFunction.RATE)
+        summed = self._run(aggregation=MetricAggregation.SUM, range_function=MetricRangeFunction.RATE)
+        legacy = self._run(aggregation=MetricAggregation.RATE)
+
+        self.assertEqual(
+            {s.labels["k8s.pod.name"]: [p.value for p in s.points][-1] for s in per_series},
+            {"web-1": 1.0, "web-2": 0.1},
+        )
+        self.assertEqual([p.value for p in summed[0].points], [p.value for p in legacy[0].points])
+
+    def test_rejects_group_by_without_an_aggregation(self):
+        with self.assertRaises(ValueError):
+            MetricQueryClause(
+                name="a",
+                metric_name="requests_total",
+                aggregation=MetricAggregation.NONE,
+                group_by=(MetricGroupBy(key="env"),),
+            )
+
+
+class TestBuildMetricQueryRunner(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("before_cutover", "sum", None, METRICS4_CUTOVER - dt.timedelta(hours=1), MetricQueryRunner),
+            ("at_cutover", "sum", None, METRICS4_CUTOVER, MetricSamplesQueryRunner),
+            ("lookback_crosses_cutover", "rate", "minute", METRICS4_CUTOVER, MetricQueryRunner),
+            (
+                "lookback_after_cutover",
+                "rate",
+                "minute",
+                METRICS4_CUTOVER + dt.timedelta(hours=1),
+                MetricSamplesQueryRunner,
+            ),
+        ]
+    )
+    def test_selects_runner_by_scan_start(
+        self,
+        _name: str,
+        aggregation: str,
+        interval: str | None,
+        date_from: dt.datetime,
+        expected: type[MetricQueryRunner],
+    ) -> None:
+        runner = build_metric_query_runner(
+            team=self.team,
+            metric_name="m",
+            aggregation=aggregation,
+            date_from=date_from,
+            date_to=date_from + dt.timedelta(hours=2),
+            interval=interval,
+        )
+        self.assertIs(type(runner), expected)

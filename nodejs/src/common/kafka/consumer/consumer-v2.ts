@@ -106,7 +106,7 @@ export class KafkaConsumerV2 {
 
     // Latched on the first backgroundTask failure: blocks further offset stores and
     // makes the loop exit on the next tick so the pod replays from the last good commit.
-    private fatalError: unknown | undefined
+    private fatalError: Error | undefined
 
     // Optional async hook invoked with the partitions being revoked, after the in-flight
     // drain and while the partitions are still assigned, before the unassign. The drain and
@@ -114,6 +114,11 @@ export class KafkaConsumerV2 {
     // a hook outliving it is abandoned so the rebalance proceeds. Not invoked for the final
     // revoke during disconnect — callers flush explicitly before disconnecting.
     private onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
+
+    // Optional hook invoked with the offsets that the auto offset store passed to librdkafka and
+    // librdkafka accepted. It runs in batch order and never for a failed batch or a fenced
+    // partition, so a caller can track how far each partition is durably done.
+    private onOffsetsStored?: (offsets: TopicPartitionOffset[]) => void
 
     // Tunables (resolved at construction)
     private fetchBatchSize: number
@@ -253,17 +258,27 @@ export class KafkaConsumerV2 {
         return meta.topics.find((entry) => entry.name === topic)?.partitions ?? []
     }
 
+    public hasFailed(): boolean {
+        return this.fatalError !== undefined
+    }
+
     public offsetsStore(offsets: TopicPartitionOffset[]): void {
         // Manual offset path used by SessionRecording. Storing offsets after the consumer
         // has revoked the partitions is harmless — librdkafka will reject the store internally.
+        // After a background task failed, an offset stored here could pass the failed batch.
+        if (this.fatalError) {
+            throw new Error('Refusing to store offsets after a background task failed', { cause: this.fatalError })
+        }
         this.rdKafkaConsumer.offsetsStore(offsets)
     }
 
     public async connect(
         eachBatch: EachBatch,
-        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
+        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>,
+        onOffsetsStored?: (offsets: TopicPartitionOffset[]) => void
     ): Promise<void> {
         this.onPartitionsRevoked = onPartitionsRevoked
+        this.onOffsetsStored = onOffsetsStored
         try {
             await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.connect({}, cb))
             logger.info('📝', 'kafka_consumer_v2_connected', { groupId: this.config.groupId, topic: this.config.topic })
@@ -447,7 +462,8 @@ export class KafkaConsumerV2 {
             } catch (error) {
                 logger.error('🔥', 'kafka_consumer_v2_background_task_failed', { error: String(error) })
                 captureException(error)
-                this.fatalError ??= error
+                this.fatalError ??=
+                    error instanceof Error ? error : new Error(`Background task rejected with ${String(error)}`)
             } finally {
                 stopBackgroundTimer?.()
             }
@@ -664,7 +680,9 @@ export class KafkaConsumerV2 {
                 error: String(error),
                 offsets,
             })
+            return
         }
+        this.onOffsetsStored?.(offsets)
     }
 
     // === Rebalance callback — pure event source, mutates nothing except the queue ===

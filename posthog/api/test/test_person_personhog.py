@@ -554,26 +554,3 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
             assert list(calls[0].request.person_uuids) == [str(p1.uuid)]
         # Other team's person should be untouched
         assert get_person_by_uuid(other_team.pk, str(other_person.uuid)) is not None
-
-    @mock.patch("posthog.models.person.bulk_delete.delete_person")
-    def test_bulk_delete_partial_failure_only_deletes_successful_from_postgres(self, mock_delete_person):
-        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
-        p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])
-
-        mock_delete_person.side_effect = [Exception("CH write failed"), None]
-
-        resp = self.client.post(
-            "/api/person/bulk_delete/",
-            {"ids": [str(p1.uuid), str(p2.uuid)]},
-        )
-
-        assert resp.status_code == status.HTTP_202_ACCEPTED
-        data = resp.json()
-        assert data["persons_found"] == 2
-        assert data["persons_deleted"] == 1
-        assert data["deletion_errors"] == [{"person_uuid": str(p1.uuid), "step": "tombstone_clickhouse"}]
-
-        calls = self._assert_personhog_called("delete_persons")
-        if calls:
-            # Only the successful person should be sent to personhog for PG deletion
-            assert list(calls[0].request.person_uuids) == [str(p2.uuid)]

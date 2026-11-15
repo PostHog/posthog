@@ -120,6 +120,26 @@ describe('traceErrorsLogic', () => {
         expect(lastQuery().dateRange).toEqual({ date_from, date_to })
     })
 
+    // A slow answer for the scope the user left must not replace the answer for the scope they picked.
+    it('keeps the issues of the current scope when an older scope answers last', async () => {
+        const pending: ((value: unknown) => void)[] = []
+        querySpy.mockImplementation(() => new Promise((resolve) => pending.push(resolve)))
+        const issue = (id: string): Record<string, unknown> => ({ id, name: id, aggregations: { occurrences: 1 } })
+
+        logic = traceErrorsLogic(ALL_IDS)
+        logic.mount()
+        logic.actions.setScope('session')
+        expect(pending).toHaveLength(2)
+
+        pending[1]({ results: [issue('session-issue')] })
+        pending[0]({ results: [issue('span-issue')] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.effectiveScope).toBe('session')
+        expect(logic.values.issues.map((i) => i.id)).toEqual(['session-issue'])
+        expect(logic.values.issuesLoading).toBe(false)
+    })
+
     it('asks nothing when the trace offers no scope', async () => {
         await mount({ traceId: '', spanId: null, sessionId: null })
 

@@ -15,7 +15,13 @@ import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { getEntryId } from './helpers'
 import type { AccessControlsTab, ScopeType } from './types'
 
-export function AccessControls({ projectId }: { projectId: string }): JSX.Element {
+export function AccessControls({
+    projectId,
+    tabsRightSlot,
+}: {
+    projectId: string
+    tabsRightSlot?: React.ReactNode
+}): JSX.Element {
     const logic = accessControlsLogic({ projectId })
 
     const {
@@ -30,6 +36,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         filteredRoles,
         filteredMembers,
         canEdit,
+        terraformDisabledReason,
         loading,
         activePanelSubject,
         visibleResourceKeySet,
@@ -65,6 +72,8 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                         },
                         { key: 'members' as AccessControlsTab, label: 'Members' },
                     ]}
+                    rightSlot={tabsRightSlot}
+                    rightSlotClassName="pr-0"
                 />
 
                 <AccessControlTabContainer activeTab={activeTab}>
@@ -89,6 +98,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
                                 loading={loading}
                                 canEditAny={canEdit}
+                                cannotEditReason={terraformDisabledReason}
                                 visibleResources={visibleResourceKeySet}
                                 filteredResources={filteredResourceKeySet}
                                 selectedEntryId={openInPanelId}

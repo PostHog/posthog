@@ -2100,6 +2100,7 @@ TRINO_PASSTHROUGH_FUNCTIONS = frozenset(
         "exp",
         "floor",
         "greatest",
+        "grouping",
         "json_value",
         "lag",
         "lead",

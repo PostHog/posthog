@@ -39,8 +39,7 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
             nodeid: 'products/batch_exports/backend/tests/test_snowflake.py::TestSnowflakeExport::test_resume',
             file: 'products/batch_exports/backend/tests/test_snowflake.py',
             owner_team: 'batch-exports',
-            status: 'FLAKY',
-            quarantine_setting: 'AUTO_QUARANTINE',
+            status: 'flaky',
             quarantined_at: '2026-05-19T08:00:00Z',
             age_days: 44,
             overdue: true,
@@ -51,8 +50,7 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
             nodeid: 'posthog/session_recordings/test/test_snapshots.py::TestSnapshots::test_batching',
             file: 'posthog/session_recordings/test/test_snapshots.py',
             owner_team: 'team-replay',
-            status: 'FLAKY',
-            quarantine_setting: 'AUTO_QUARANTINE',
+            status: 'flaky',
             quarantined_at: '2026-05-25T08:00:00Z',
             age_days: 38,
             overdue: true,
@@ -63,8 +61,7 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
             nodeid: 'frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx::humanizes flag changes',
             file: 'frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx',
             owner_team: 'unowned',
-            status: 'FLAKY',
-            quarantine_setting: 'AUTO_QUARANTINE',
+            status: 'flaky',
             quarantined_at: '2026-06-23T08:00:00Z',
             age_days: 9,
             overdue: false,
@@ -114,7 +111,7 @@ type Story = StoryObj<typeof meta>
 
 export const TrunkQuarantineDebt: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsTests() },
+    parameters: { pageUrl: urls.engineeringAnalyticsTests('PostHog/posthog') },
 }
 
 const OWNERS_UNAVAILABLE: TrunkQuarantineDebtApi = {
@@ -126,7 +123,7 @@ const OWNERS_UNAVAILABLE: TrunkQuarantineDebtApi = {
 
 export const TrunkQuarantineDebtOwnersUnavailable: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsTests() },
+    parameters: { pageUrl: urls.engineeringAnalyticsTests('PostHog/posthog') },
     decorators: [
         mswDecorator({
             get: { 'api/projects/:team_id/engineering_analytics/trunk_quarantine/': OWNERS_UNAVAILABLE },
@@ -137,7 +134,7 @@ export const TrunkQuarantineDebtOwnersUnavailable: Story = {
 export const QuarantineLoadError: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsTests(),
+        pageUrl: urls.engineeringAnalyticsTests('PostHog/posthog'),
         testOptions: { waitForSelector: '.text-danger' },
     },
     decorators: [

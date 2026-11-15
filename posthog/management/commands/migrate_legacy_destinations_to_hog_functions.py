@@ -2,7 +2,10 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
-from posthog.cdp.legacy_destination_migration import disable_migrated_plugin_configs, migrate_legacy_destinations
+from products.cdp.backend.legacy_destination_migration import (
+    disable_migrated_plugin_configs,
+    migrate_legacy_destinations,
+)
 
 
 def _int_list(value: str | None) -> list[int] | None:

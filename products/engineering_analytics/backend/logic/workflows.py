@@ -1,6 +1,6 @@
-"""Workflow/run/job-scoped orchestration: health, activity, jobs, costs, and repo-level state."""
-
 from products.engineering_analytics.backend.facade.contracts import (
+    CIDataFreshness,
+    CIEngine,
     CurrentBranchHealth,
     MasterFailureGroup,
     RepoOverview,
@@ -33,23 +33,26 @@ from products.engineering_analytics.backend.logic.queries.workflow_run import qu
 from products.engineering_analytics.backend.logic.queries.workflow_run_activity import query_workflow_run_activity
 from products.engineering_analytics.backend.logic.queries.workflow_run_list import query_workflow_run_list
 
-# Workflow health defaults to a tighter window than the PR backlog — CI health is a "right now"
-# question, and the short window also buckets by hour for a live-looking trend.
 _DEFAULT_WORKFLOW_WINDOW = "-24h"
 
 
-def build_workflow_run(*, curated: CuratedGitHubSource, run_id: int) -> WorkflowRunDetail | None:
-    return query_workflow_run(curated=curated, run_id=run_id)
+def build_workflow_run(
+    *, curated: CuratedGitHubSource, ci_engine: CIEngine | None = None, run_id: int
+) -> WorkflowRunDetail | None:
+    return query_workflow_run(curated=curated, run_id=run_id, ci_engine=ci_engine)
 
 
 def build_workflow_jobs(
-    *, curated: CuratedGitHubSource, run_id: int, run_attempt: int | None = None
+    *, curated: CuratedGitHubSource, ci_engine: CIEngine | None = None, run_id: int, run_attempt: int | None = None
 ) -> list[WorkflowJob]:
-    return query_workflow_jobs(curated=curated, run_id=run_id, run_attempt=run_attempt)
+    return query_workflow_jobs(curated=curated, run_id=run_id, ci_engine=ci_engine, run_attempt=run_attempt)
+
+
+def build_ci_data_freshness(*, curated: CuratedGitHubSource) -> CIDataFreshness:
+    return curated.ci_data_freshness()
 
 
 def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
-    """Absent/blank selects 'all'; anything else must be an exact enum value (ValueError → 400)."""
     normalized = value.strip() if value else ""
     if not normalized:
         return WorkflowHealthRunScope.ALL
@@ -161,8 +164,6 @@ def build_repo_overview(
     include_series: bool = True,
 ) -> RepoOverview:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    # The one place the endpoint's include_series toggle decides anything: headline-only consumers
-    # (the weekly digest) compose the empty series instead of paying the four chart scans.
     series = (
         query_repo_series(curated=curated, date_from=parsed_from, date_to=parsed_to)
         if include_series
@@ -187,7 +188,6 @@ def build_repo_run_activity(
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     resolved_branch = (branch or "").strip()
     if not resolved_branch:
-        # No branch given: collapse the repo's default branch, as observed in the window.
         resolved_branch = query_default_branch(curated=curated, date_from=parsed_from, date_to=parsed_to)
     return query_repo_run_activity(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=resolved_branch)
 
@@ -202,13 +202,14 @@ def build_master_failures(
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
     resolved_branch = (branch or "").strip()
     if not resolved_branch:
-        # No branch given: use the repo's default branch as observed in the window.
         resolved_branch = query_default_branch(curated=curated, date_from=parsed_from, date_to=parsed_to)
     return query_master_failures(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=resolved_branch)
 
 
-def build_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunFailureLogs:
-    return query_run_failure_logs(curated=curated, run_id=run_id)
+def build_run_failure_logs(
+    *, curated: CuratedGitHubSource, ci_engine: CIEngine | None = None, run_id: int
+) -> RunFailureLogs:
+    return query_run_failure_logs(curated=curated, run_id=run_id, ci_engine=ci_engine)
 
 
 def build_job_aggregates(

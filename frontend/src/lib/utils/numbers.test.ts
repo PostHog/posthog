@@ -3,6 +3,7 @@ import {
     compactNumber,
     formatPercentageDiff,
     humanFriendlyLargeNumber,
+    humanFriendlyNumber,
     median,
     roundToDecimal,
 } from 'lib/utils/numbers'
@@ -65,6 +66,17 @@ describe('numbers utils', () => {
             expect(humanFriendlyLargeNumber(NaN)).toEqual('NaN')
             expect(humanFriendlyLargeNumber(Infinity)).toEqual('inf')
             expect(humanFriendlyLargeNumber(-Infinity)).toEqual('-inf')
+        })
+    })
+
+    describe('humanFriendlyNumber()', () => {
+        it('formats number correctly', () => {
+            expect(humanFriendlyNumber(1234)).toEqual('1,234')
+            expect(humanFriendlyNumber(1234.567)).toEqual('1,234.57')
+            // Callers render this during a React render pass, so a missing count has to come back
+            // as a string. Throwing here unmounts the whole view over one label.
+            expect(humanFriendlyNumber(undefined)).toEqual('-')
+            expect(humanFriendlyNumber(null)).toEqual('-')
         })
     })
 

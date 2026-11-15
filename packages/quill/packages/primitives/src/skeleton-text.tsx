@@ -10,7 +10,10 @@ type SkeletonTextProps = {
     maxWidth?: number // %
 }
 
-function SkeletonText({ lines = 3, className, minWidth = 60, maxWidth = 100 }: SkeletonTextProps): React.ReactElement {
+const SkeletonText = React.forwardRef<HTMLDivElement, SkeletonTextProps>(function SkeletonText(
+    { lines = 3, className, minWidth = 60, maxWidth = 100 },
+    ref
+) {
     // stable random widths per render (no layout shift on re-render)
     const widths = React.useMemo(() => {
         return Array.from({ length: lines }).map((_, i) => {
@@ -27,7 +30,7 @@ function SkeletonText({ lines = 3, className, minWidth = 60, maxWidth = 100 }: S
     }, [lines, minWidth, maxWidth])
 
     return (
-        <div data-quill className={cn('flex flex-col', className)}>
+        <div ref={ref} data-quill className={cn('flex flex-col', className)}>
             {widths.map((w, i) => (
                 <span
                     key={i}
@@ -49,6 +52,6 @@ function SkeletonText({ lines = 3, className, minWidth = 60, maxWidth = 100 }: S
             ))}
         </div>
     )
-}
+})
 
 export { SkeletonText }

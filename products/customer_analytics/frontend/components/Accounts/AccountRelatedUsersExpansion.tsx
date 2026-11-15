@@ -10,12 +10,13 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
+import { getUserAdminUrl } from 'lib/utils/userAdmin'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { columnValueFilter } from '../columnValueFilter'
-import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
 const LEVEL_FILTER_OPTIONS = [
@@ -27,14 +28,17 @@ const LEVEL_FILTER_OPTIONS = [
     label: capitalizeFirstLetter(membershipLevelToName.get(level) ?? 'Unknown'),
 }))
 
+interface AccountRelatedUsersExpansionProps extends AccountViewTileLogicProps {
+    externalId: string
+    embedded?: boolean
+}
+
 export function AccountRelatedUsersExpansion({
     externalId,
     embedded = true,
-}: {
-    externalId: string
-    embedded?: boolean
-}): JSX.Element {
-    const logic = accountRelatedUsersLogic({ externalId })
+    ...tileProps
+}: AccountRelatedUsersExpansionProps): JSX.Element {
+    const logic = accountRelatedUsersLogic({ externalId, ...tileProps })
     const { membersResponse, membersResponseLoading, page, searchTerm, levels, sorting } = useValues(logic)
     const { user } = useValues(userLogic)
     const { setPage, setSearchTerm, setLevels, setSorting } = useActions(logic)
@@ -92,7 +96,7 @@ export function AccountRelatedUsersExpansion({
             key: 'actions',
             width: 0,
             render: (_, member) => {
-                const adminUrl = getAccountRelatedUserAdminUrl(member.region, member.user.id)
+                const adminUrl = getUserAdminUrl(member.region, member.user.id)
 
                 return (
                     <LemonButton

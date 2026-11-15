@@ -68,6 +68,24 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 _no_redirect_opener = urllib.request.build_opener(_NoRedirectHandler)
 
 
+_HEARTBEAT_TIMEOUT_SECONDS = 10
+
+
+def send_heartbeat(heartbeat_url: str, token: str) -> None:
+    """Tell the backend the run is still executing, so its watchdog does not fail a long cell.
+
+    Best effort: a missed beat only matters after many in a row, so no failure here may stop the cell.
+    """
+    request = urllib.request.Request(heartbeat_url, headers={"Authorization": f"Bearer {token}"}, method="POST")
+    try:
+        # heartbeat_url is the backend's own endpoint from the signed run payload, never user-controlled.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        with _no_redirect_opener.open(request, timeout=_HEARTBEAT_TIMEOUT_SECONDS):
+            pass
+    except (urllib.error.URLError, OSError):
+        pass
+
+
 @dataclass(frozen=True, kw_only=True)
 class _FetchedTable:
     """One data-plane fetch: the rows plus how they got here."""

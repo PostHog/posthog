@@ -3,7 +3,7 @@ import { FetchCandidatePool, FetchCandidatePoolLease, OriginPacing } from './fet
 
 const NOW_MS = 1_700_000_000_000
 
-function candidate(url: string, registrableDomain: string): FetchCandidate {
+function candidate(url: string, registrableDomain: string, firstSeenAtMs = NOW_MS): FetchCandidate {
     const parsed = new URL(url)
     return {
         originalRef: `imageurl:${url}`,
@@ -13,7 +13,7 @@ function candidate(url: string, registrableDomain: string): FetchCandidate {
         registrableDomain,
         remainingHops: MAX_HOPS,
         notBeforeMs: 0,
-        firstSeenAtMs: NOW_MS,
+        firstSeenAtMs,
         fetchCount: 0,
         republishCount: 0,
         lastRepublishReason: null,
@@ -57,13 +57,13 @@ describe('FetchCandidatePool', () => {
     beforeEach(() => jest.useFakeTimers().setSystemTime(NOW_MS))
     afterEach(() => jest.useRealTimers())
 
-    it('takes the oldest candidate of a domain under its limit, across batches from different partitions', async () => {
+    it('takes the earliest captured candidates of a domain under its limit, across batches from different partitions', async () => {
         const pool = buildPool()
         pool.add(
             [
                 candidate('https://cdn.hot.com/1.png', 'hot.com'),
                 candidate('https://cdn.hot.com/2.png', 'hot.com'),
-                candidate('https://cdn.hot.com/3.png', 'hot.com'),
+                candidate('https://cdn.hot.com/deferred.png', 'hot.com', NOW_MS - 86_400_000),
             ],
             'partition-1',
             NOW_MS + 40_000
@@ -74,8 +74,8 @@ describe('FetchCandidatePool', () => {
         const leases = [await takeReady(pool), await takeReady(pool), await takeReady(pool)]
 
         expect(leases.map((lease) => lease?.candidate.currentUrl)).toEqual([
+            'https://cdn.hot.com/deferred.png',
             'https://cdn.hot.com/1.png',
-            'https://cdn.hot.com/2.png',
             'https://cdn.quiet.com/1.png',
         ])
         expect(leases[2]?.context).toBe('partition-2')

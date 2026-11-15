@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from itertools import batched
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import OperationalError, close_old_connections
 from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
 
@@ -284,6 +284,18 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
     return counts
 
 
+def _build_and_send_for_org_with_retry(org_id: str, dry_run: bool = False) -> OrgDigestCounts:
+    """Retries once when the database drops the connection. The retry starts with
+    `close_old_connections`, which replaces the broken connection. The campaign key dedupes
+    any email that the first attempt already sent.
+    """
+    try:
+        return _build_and_send_for_org(org_id, dry_run=dry_run)
+    except OperationalError as e:
+        logger.warning("Data catalog digest hit a database error for org, retrying once", org_id=org_id, error=str(e))
+        return _build_and_send_for_org(org_id, dry_run=dry_run)
+
+
 def _run_digest_batch(input: DigestBatchInput) -> DigestBatchResult:
     close_old_connections()
 
@@ -291,7 +303,7 @@ def _run_digest_batch(input: DigestBatchInput) -> DigestBatchResult:
 
     for org_id in input.org_ids:
         try:
-            org_counts = _build_and_send_for_org(org_id, dry_run=input.dry_run)
+            org_counts = _build_and_send_for_org_with_retry(org_id, dry_run=input.dry_run)
         except Exception as e:
             logger.exception("Data catalog digest failed for org", org_id=org_id, error=str(e))
             capture_exception(e, {"org_id": org_id})

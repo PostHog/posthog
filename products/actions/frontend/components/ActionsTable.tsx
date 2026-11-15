@@ -8,18 +8,15 @@ import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiple
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -41,8 +38,6 @@ export function ActionsTable(): JSX.Element {
     const { actionsList, actionCount, actionsResponseLoading, page, filters, searchTerm } = useValues(actionsLogic)
     const { setSearchTerm, setFilters, setPage, pinAction, unpinAction, loadActions } = useActions(actionsLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const referenceCountEnabled = !!featureFlags[FEATURE_FLAGS.ACTION_REFERENCE_COUNT]
 
     const sorting: Sorting | null = filters.ordering
         ? { columnKey: filters.ordering.replace(/^-/, ''), order: filters.ordering.startsWith('-') ? -1 : 1 }
@@ -132,29 +127,6 @@ export function ActionsTable(): JSX.Element {
                 return <ObjectTags tags={tags} staticOnly />
             },
         } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-        ...(referenceCountEnabled
-            ? [
-                  {
-                      title: 'Used by',
-                      dataIndex: 'reference_count',
-                      render: function RenderReferenceCount(_, action: ActionType) {
-                          const count = action.reference_count
-                          if (count === undefined) {
-                              return actionsResponseLoading ? (
-                                  <LemonSkeleton className="w-12 h-4" />
-                              ) : (
-                                  <span className="text-secondary">—</span>
-                              )
-                          }
-                          return (
-                              <span className="text-secondary">
-                                  {count > 0 ? `${count} ${count === 1 ? 'reference' : 'references'}` : 'None'}
-                              </span>
-                          )
-                      },
-                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-              ]
-            : []),
         { ...createdByColumn(), sorter: true } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         { ...createdAtColumn(), sorter: true } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         {

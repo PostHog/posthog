@@ -16,6 +16,7 @@ export interface organizationIntegrationsLogicValues {
     getOrganizationIntegrationsByKind: (
         kinds: (
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -26,6 +27,7 @@ export interface organizationIntegrationsLogicValues {
             | 'customerio-webhook'
             | 'databricks'
             | 'email'
+            | 'email_sandbox'
             | 'firebase'
             | 'github'
             | 'gitlab'
@@ -58,6 +60,7 @@ export interface organizationIntegrationsLogicValues {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         )[]
@@ -94,6 +97,7 @@ export interface organizationIntegrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -104,6 +108,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -136,8 +141,10 @@ export interface organizationIntegrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[],
         payload?: any
     ) => {
@@ -154,6 +161,7 @@ export interface organizationIntegrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -164,6 +172,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -196,8 +205,10 @@ export interface organizationIntegrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[]
         payload?: any
     }
@@ -212,6 +223,7 @@ export interface organizationIntegrationsLogicMeta {
         ) => (
             kinds: (
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -222,6 +234,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -254,6 +267,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
             )[]

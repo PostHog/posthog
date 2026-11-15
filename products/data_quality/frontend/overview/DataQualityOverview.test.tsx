@@ -183,7 +183,7 @@ describe('DataQualityOverview', () => {
         expect(within(disclosure.parentElement!).getByText('Failing')).toBeTruthy()
         // Suffix match: the rendered href carries the /project/:id prefix, so an exact match on the
         // path would find nothing and the assertion below would pass on a null link.
-        const link = document.querySelector('a[href$="/models/node-1/tests"]')
+        const link = document.querySelector('a[href$="/models/node-1/data-quality"]')
         expect(link).not.toBeNull()
         expect(disclosure.contains(link)).toBe(false)
         expect(disclosure.contains(runSubjectButtons()[0])).toBe(false)

@@ -2,7 +2,7 @@ import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import { parseLogBodyForIngestion } from './log-body-parse'
 
-export const PATTERN_VERSION = 5
+export const PATTERN_VERSION = 6
 
 /**
  * Everything here shapes the emitted pattern, so it sits inside `PATTERN_VERSION`: two records may
@@ -37,7 +37,10 @@ export type MaskRuleName =
     | 'syslogtime'
     | 'email'
     | 'id'
+    | 'stripeid'
+    | 'snakeuuid'
     | 'uuid'
+    | 'snakenum'
     | 'host'
     | 'hex0x'
     | 'hex'
@@ -145,11 +148,37 @@ export const MASK_RULES: readonly MaskRule[] = [
             '\\b[a-z]{2,10}_(?:[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[0-9]|[A-Za-z0-9]*[0-9][A-Za-z0-9]*[A-Z])[A-Za-z0-9]*(?:-[A-Za-z0-9]+)*',
         replacement: '<ID>',
     },
+    // A digit-free Stripe id, which `id` cannot reach. Letters alone cannot tell an id from a camelCase
+    // name, so only Stripe's exact prefixes and 14 or 24 letter lengths match.
+    {
+        name: 'stripeid',
+        pattern: '\\b(?:cus|sub)_[A-Z][A-Za-z]{13}(?:[A-Za-z]{10})?\\b',
+        replacement: '<ID>',
+    },
+    // `\b\d+` cannot reach digits after `_`, because `_` is a word character. Runs under 4 digits stay
+    // literal so constants such as `aes_128` keep their meaning.
+    //
+    // `snakeuuid` sits ahead of `uuid` and `snakenum` because the leftmost match wins: otherwise
+    // `snakenum` takes digits that run into a UUID and leaves the rest of the UUID as literals.
+    {
+        name: 'snakeuuid',
+        pattern:
+            '_\\d{4,}(?:_\\d+)*_[0-9a-fA-F]*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+        replacement: '_<N>_<UUID>',
+    },
+    {
+        name: 'snakeuuid',
+        pattern: '_[0-9a-fA-F]*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+        replacement: '_<UUID>',
+    },
+    // The leading hex run takes characters glued to the front of a UUID, which `hex` or `num` would
+    // otherwise claim first and so leave the UUID's other groups behind as literals.
     {
         name: 'uuid',
-        pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+        pattern: '[0-9a-fA-F]*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
         replacement: '<UUID>',
     },
+    { name: 'snakenum', pattern: '_\\d{4,}(?:_\\d+)*\\b', replacement: '_<N>' },
     // The suffix list carries no `so` or `sh`. Both are real TLDs, but the rule cannot tell a host
     // from a filename, and shared object and shell script names reach it far more often than a
     // Somali or Saint Helenian domain does. With them in the list, `libssl.so` and `deploy.sh` both

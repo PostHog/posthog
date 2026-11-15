@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
@@ -12,6 +13,7 @@ import {
 import { parseWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
 import {
     KAFKA_CDP_INTERNAL_EVENTS,
+    KAFKA_COHORT_MEMBERSHIP_CHANGED,
     KAFKA_EVENTS_JSON,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
@@ -21,6 +23,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
+import { isValidTeamId } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 
 import {
@@ -32,12 +35,20 @@ import {
     Team,
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
+import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
+import { createCyclotronPool } from '../services/cyclotron-v2/pg-pool'
 import {
     hasEventOrActionTarget,
     matchesWaitUntilCondition,
     runFilterBytecode,
 } from '../services/hogflows/hogflow-utils'
-import { CyclotronPerson, HogFlowInvocationContext, HogFunctionInvocationGlobals, PinnedConversionGoal } from '../types'
+import {
+    CyclotronPerson,
+    HogFlowInvocationContext,
+    HogFunctionInvocationGlobals,
+    MinimalAppMetric,
+    PinnedConversionGoal,
+} from '../types'
 import {
     convertInternalEventToHogFunctionInvocationGlobals,
     convertToHogFunctionInvocationGlobals,
@@ -45,7 +56,9 @@ import {
 } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { convertCohortMembershipChangeToGlobals } from './cdp-cohort-membership-trigger.consumer'
+import { CohortMembershipChangeSchema, isCohortMembershipControlRecord } from './cdp-cohort-membership.consumer'
+import { ParseBatchOptions, parseBatch, skipIfMalformed } from './message-parsing'
 
 // A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
 // makes a fresh consumer group start at the tip instead of replaying the (unconsumable at prod
@@ -135,11 +148,11 @@ const histogramHogflowMatcherFindParkedJobs = new Histogram({
 
 // Which Kafka stream a batch came from. Labels the find_parked_jobs metric so the person and
 // internal-event query load is distinguishable from the events firehose on the shared cyclotron DB.
-type WakeSource = 'events' | 'person' | 'internal_events'
+type WakeSource = 'events' | 'person' | 'internal_events' | 'cohort_membership'
 
-const counterHogflowMatcherEventSkipped = new Counter({
+export const counterHogflowMatcherEventSkipped = new Counter({
     name: 'cdp_hogflow_matcher_event_skipped',
-    help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), or unknown team.',
+    help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), an invalid team id, unknown team, a backfilled cohort membership change, or a captured event that uses the reserved cohort membership event name.',
     labelNames: ['reason'],
 })
 
@@ -165,12 +178,43 @@ type PersonDistinctIdMove = {
 // A parked job the matcher needs to act on this batch: either resume it (stepMatched, or a
 // conversion match on an exit-on-conversion flow) and/or count its conversion once. Carries the
 // fields needed to emit the `conversion` metric without re-reading the hogflow.
+// Filter types that read the trigger event or the run's own variables. Neither changes while the run
+// waits, so a person change cannot move a term of these types.
+const PERSON_INDEPENDENT_FILTER_TYPES = new Set([
+    'event',
+    'event_metadata',
+    'meta',
+    'element',
+    'feature',
+    'session',
+    'workflow_variable',
+    'group',
+])
+
+// A person wake carries a synthetic $person_updated event with no properties and no workflow
+// variables, so anything but a pure person-property condition reads as false here and would strand
+// the wait until its ceiling. Wake the job and let the worker, which holds the run's own globals, decide.
+// A condition with no term a person change can move is left alone: the worker would only re-park it.
+function conditionNeedsRunGlobals(action: Extract<HogFlowAction, { type: 'wait_until_condition' }>): boolean {
+    const filters = action.config.condition?.filters
+    const properties = Array.isArray(filters?.properties) ? filters.properties : []
+    // An event or action selector reads the run's event, like an event property does.
+    const selectsEvent = [filters?.events, filters?.actions].some((list) => Array.isArray(list) && list.length > 0)
+    const types: (string | undefined)[] = properties.map((p: { type?: string }) => p?.type)
+    return (
+        (selectsEvent || types.some((t) => t !== 'person')) &&
+        types.some((t) => !PERSON_INDEPENDENT_FILTER_TYPES.has(t ?? ''))
+    )
+}
+
 type MatchedJob = {
     id: string
     teamId: number
     functionId: string
     parentRunId: string | null
     stepMatched: boolean
+    // The matcher could not decide this wait, so it wakes the job and lets the worker evaluate.
+    recheckMatched: boolean
     conversionMatched: boolean
     exitsOnConversion: boolean
     // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
@@ -208,14 +252,26 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // merged-away person's distinct_ids onto the survivor here; we consume it to re-key parked waits onto
     // the survivor's id so the survivor's person/event updates can wake them.
     private personDistinctIdKafkaConsumer: KafkaConsumerInterface
+    // realtime_only_events_json carries the $feature_flag_called events that ingestion stops writing to
+    // clickhouse_events_json for a FLAG_EVALUATIONS_ONLY organization.
+    private realtimeOnlyEventsKafkaConsumer?: KafkaConsumerInterface
+    // cohort_membership_changed carries realtime cohort joins and leaves. Each one becomes a
+    // `$cohort_membership_changed` event, so event waits and event conversion goals can match it.
+    private cohortMembershipKafkaConsumer: KafkaConsumerInterface
     private cyclotronPool: Pool
     private watcherTeamsRefreshTimer: NodeJS.Timeout | null = null
     // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
     // before consuming, so the gate is never consulted against an unpopulated set.
     private teamsWithLiveWatchers: Set<number> = new Set()
+    // A watcher written just before its flow was paused stays unseen until a refresh that starts after the change.
+    private teamsWithChangedFlows: Map<number, number> = new Map()
+    private watcherRefreshNumber = 0
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
+        deps.pubSub.on<{ teamId: number }>('reload-hog-flows', ({ teamId }) => {
+            this.teamsWithChangedFlows.set(teamId, this.watcherRefreshNumber)
+        })
         this.kafkaConsumer = createKafkaConsumer(
             {
                 groupId: 'cdp-hogflow-subscription-matcher-consumer',
@@ -249,6 +305,22 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             },
             startAtLatest
         )
+        this.cohortMembershipKafkaConsumer = createKafkaConsumer(
+            {
+                groupId: 'cdp-hogflow-subscription-matcher-cohort-membership-consumer',
+                topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+            },
+            startAtLatest
+        )
+        if (config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC) {
+            this.realtimeOnlyEventsKafkaConsumer = createKafkaConsumer(
+                {
+                    groupId: 'cdp-hogflow-subscription-matcher-realtime-only-events-consumer',
+                    topic: config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC,
+                },
+                startAtLatest
+            )
+        }
 
         // The matcher does nothing but read/write cyclotron_jobs, so a missing connection
         // string means it would silently consume the event stream and wake nothing. Fail
@@ -256,7 +328,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         if (!config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('CdpHogflowSubscriptionMatcherConsumer requires CYCLOTRON_NODE_DATABASE_URL')
         }
-        this.cyclotronPool = new Pool({
+        this.cyclotronPool = createCyclotronPool('subscription_matcher', {
             connectionString: config.CYCLOTRON_NODE_DATABASE_URL,
             max: config.CYCLOTRON_NODE_MAX_CONNECTIONS,
         })
@@ -312,17 +384,33 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return fg
         }
 
+        // A cohort membership change carries no person properties. A filter that reads the person would see
+        // an empty person, so a negative filter such as "is not set" would match. Such a change is judged
+        // only by event entries that do not read the person.
+        const eventsOnly = source === 'cohort_membership'
+        const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
+
         // Claimed before the parked-job work and independently of it: a watcher's run may have
         // finished long ago, so gating this on the flow still having something parked would put back
-        // exactly the blind spot watchers exist to remove.
-        const conversionsCounted = await this.claimConversionWatchers(indexed, filterGlobalsFor)
-        counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
+        // exactly the blind spot watchers exist to remove. Only a goal flow's run writes a watcher.
+        const watcherTeams = new Set(
+            teamIds.filter(
+                (teamId) => this.mayHaveLiveWatchers(teamId) || (hogFlowsByTeam[teamId] ?? []).some(hasConversionGoal)
+            )
+        )
+        if (watcherTeams.size > 0) {
+            const conversionsCounted = await this.claimConversionWatchers(
+                restrictToTeams(indexed, watcherTeams),
+                filterGlobalsFor,
+                eventsOnly
+            )
+            counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
+        }
 
         // Build the set of actionable flows from the in-memory hogflow cache (same pattern as
         // cdp-events). Only flows with a wait_until_condition step or an event-based conversion
         // goal can ever be woken; scoping to them keeps the function_id list in findParkedJobs
         // small and skips cyclotron entirely when a batch has none.
-        const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
         const hogflows: Record<string, HogFlow> = {}
         for (const flows of Object.values(hogFlowsByTeam)) {
             for (const flow of flows) {
@@ -361,12 +449,26 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 continue
             }
 
-            const action = candidate.actionId
+            const parkedOn = candidate.actionId
                 ? hogflow.actions.find((a: HogFlowAction) => a.id === candidate.actionId)
                 : undefined
+            const action =
+                eventsOnly && parkedOn?.type === 'wait_until_condition'
+                    ? {
+                          ...parkedOn,
+                          config: {
+                              ...parkedOn.config,
+                              condition: { filters: null },
+                              events: parkedOn.config.events?.filter(
+                                  (eventConfig) => !readsPerson(eventConfig.filters?.bytecode)
+                              ),
+                          },
+                      }
+                    : parkedOn
 
             // Any single matching event is enough. Stop early once both flags are set.
             let stepMatched = false
+            let recheckMatched = false
             let stepMatchedEventName: string | undefined
             let stepMatchedEventUuid: string | undefined
             let stepMatchedEventTimestamp: string | undefined
@@ -376,8 +478,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             let conversionEventUuid: string | undefined
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
-                if (!stepMatched && action?.type === 'wait_until_condition') {
-                    if (
+                if (!stepMatched && !recheckMatched && action?.type === 'wait_until_condition') {
+                    if (source === 'person' && conditionNeedsRunGlobals(action)) {
+                        recheckMatched = true
+                    } else if (
                         await matchesWaitUntilCondition(action, filterGlobals, {
                             hogFlowId: hogflow.id,
                             actionId: action.id,
@@ -389,7 +493,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         stepMatchedEventTimestamp = globals.event.timestamp
                     }
                 }
-                if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals))) {
+                if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals, eventsOnly))) {
                     conversionMatched = true
                     // Remember who converted (and via which event) so we can emit $workflows_conversion.
                     conversionDistinctId = globals.event.distinct_id
@@ -405,13 +509,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             // collected even on measurement-only (non-exit) flows: processMatchedJobs reads the job's
             // state under FOR UPDATE to count the conversion exactly once per run (and surface it to
             // the executor for exit-on-conversion flows). The wake-vs-count-only decision is made there.
-            if (stepMatched || conversionMatched) {
+            if (stepMatched || recheckMatched || conversionMatched) {
                 matchedJobs.push({
                     id: candidate.id,
                     teamId: candidate.teamId,
                     functionId: candidate.functionId,
                     parentRunId: candidate.parentRunId,
                     stepMatched,
+                    recheckMatched,
                     conversionMatched,
                     exitsOnConversion: exitsOnConversion(hogflow),
                     eventName: stepMatchedEventName,
@@ -437,11 +542,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {
+    private async evaluateConversionEvents(
+        hogflow: HogFlow,
+        filterGlobals: FilterGlobals,
+        eventsOnly: boolean
+    ): Promise<boolean> {
         const conversionEvents = hogflow.conversion?.events ?? []
         const context = { hogFlowId: hogflow.id }
         for (const eventConfig of conversionEvents) {
             if (!hasEventOrActionTarget(eventConfig)) {
+                continue
+            }
+            if (eventsOnly && readsPerson(eventConfig.filters?.bytecode)) {
                 continue
             }
             if (await runFilterBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
@@ -602,7 +714,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
      */
     private async claimConversionWatchers(
         indexed: IndexedBatch,
-        filterGlobalsFor: (globals: HogFunctionInvocationGlobals) => FilterGlobals
+        filterGlobalsFor: (globals: HogFunctionInvocationGlobals) => FilterGlobals,
+        eventsOnly: boolean
     ): Promise<number> {
         const { distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } = indexed
 
@@ -610,12 +723,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         let found
         try {
             found = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal
+                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
                  FROM conversion_watchers
                  WHERE expires_at > NOW()
                    AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
                  UNION
-                 SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal
+                 SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
                  FROM conversion_watchers
                  WHERE expires_at > NOW()
                    AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
@@ -648,8 +761,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 byDistinctId,
                 byPersonId
             )
+            const goal: PinnedConversionGoal = eventsOnly
+                ? { events: row.goal.events?.filter((bytecode: unknown) => !readsPerson(bytecode)) }
+                : row.goal
             for (const globals of candidateGlobals) {
-                const conversionType = await matchesPinnedGoal(row.goal, filterGlobalsFor(globals), row.function_id)
+                const conversionType = await matchesPinnedGoal(goal, filterGlobalsFor(globals), row.function_id)
                 if (conversionType) {
                     converted.push({
                         row,
@@ -682,17 +798,22 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             if (!claimedIds.has(row.id)) {
                 continue
             }
+            const conversionMetric: MinimalAppMetric = {
+                team_id: row.team_id,
+                app_source_id: row.parent_run_id ?? row.function_id,
+                instance_id: row.function_id,
+                metric_kind: 'other',
+                metric_name: 'conversion',
+                count: 1,
+                app_source_version:
+                    row.flow_version !== null ? { id: row.function_id, version: row.flow_version } : undefined,
+            }
+            this.hogFunctionMonitoringService.queueAppMetric(conversionMetric, 'hog_flow')
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
-                    team_id: row.team_id,
-                    // Batch children attribute to the parent batch job, matching every other run metric.
-                    app_source_id: row.parent_run_id ?? row.function_id,
-                    instance_id: row.function_id,
-                    metric_kind: 'other',
-                    metric_name: 'conversion',
-                    count: 1,
-                    app_source_version:
-                        row.flow_version !== null ? { id: row.function_id, version: row.flow_version } : undefined,
+                    ...conversionMetric,
+                    metric_name: 'conversion_by_start',
+                    timestamp: DateTime.fromJSDate(new Date(row.created_at)),
                 },
                 'hog_flow'
             )
@@ -740,95 +861,121 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         if (teamHogFlows.some(hasWaitUntilOrConversion)) {
             return true
         }
-        return this.teamsWithLiveWatchers.has(teamId)
+        return this.mayHaveLiveWatchers(teamId)
+    }
+
+    private mayHaveLiveWatchers(teamId: number): boolean {
+        return this.teamsWithLiveWatchers.has(teamId) || this.teamsWithChangedFlows.has(teamId)
     }
 
     // One small query per refresh, returning at most one row per team that has ever enrolled a run on
     // a goal workflow. Kept as a whole-set replace so a team whose watchers have all expired drops out
     // without needing its own invalidation.
     private async refreshTeamsWithLiveWatchers(): Promise<void> {
+        const refreshNumber = ++this.watcherRefreshNumber
         const result = await this.cyclotronPool.query(
             `SELECT DISTINCT team_id FROM conversion_watchers WHERE expires_at > NOW()`
         )
         this.teamsWithLiveWatchers = new Set(result.rows.map((row) => row.team_id))
+        for (const [teamId, changedAt] of this.teamsWithChangedFlows) {
+            if (changedAt < refreshNumber) {
+                this.teamsWithChangedFlows.delete(teamId)
+            }
+        }
         gaugeHogflowMatcherTeamsWithWatchers.set(this.teamsWithLiveWatchers.size)
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
+        return await this.parseMatcherBatch(messages, 'Error parsing message', (message) => {
+            const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+            // A job can be parked by distinct_id or person_id, so an event needs at least
+            // one of them to match anything. Drop only events that carry neither.
+            if (!clickHouseEvent.person_id && !clickHouseEvent.distinct_id) {
+                counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                return null
+            }
+            // Only the cohort membership topic says who joined or left a cohort. Anyone with the
+            // project token can capture an event with this name, and it would count as a conversion.
+            if (clickHouseEvent.event === COHORT_MEMBERSHIP_CHANGED_EVENT) {
+                counterHogflowMatcherEventSkipped.labels({ reason: 'reserved_event_name' }).inc()
+                return null
+            }
+            return {
+                teamId: clickHouseEvent.team_id,
+                toGlobals: (team) => convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL),
+            }
+        })
+    }
 
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
-                    // A job can be parked by distinct_id or person_id, so an event needs at least
-                    // one of them to match anything. Drop only events that carry neither.
-                    if (!clickHouseEvent.person_id && !clickHouseEvent.distinct_id) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
-                        return
-                    }
-                    // The vast majority of events belong to teams with no wait_until_condition
-                    // step and no event conversion goal. Bail on those via the in-memory hogflow
-                    // cache before paying for getTeam + full globals conversion.
-                    if (!(await this.teamIsActionable(clickHouseEvent.team_id))) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
-                        return
-                    }
-                    const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)
-                    if (!team) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
-                        return
-                    }
-                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL))
-                } catch (e) {
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
-                }
-            })
-        )
-
-        return events
+    @instrumented('cdpHogflowSubscriptionMatcher.parseCohortMembershipMessages')
+    public async _parseCohortMembershipBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        return await this.parseMatcherBatch(messages, 'Error parsing cohort membership change', (message) => {
+            const parsed = parseJSON(message.value!.toString())
+            if (isCohortMembershipControlRecord(parsed)) {
+                return null
+            }
+            const change = CohortMembershipChangeSchema.parse(parsed)
+            // Seed and reconcile changes restate membership the person already had. They are not a join
+            // or a leave, so they must not satisfy a wait or a conversion goal.
+            if (change.origin) {
+                counterHogflowMatcherEventSkipped.labels({ reason: 'cohort_membership_backfill' }).inc()
+                return null
+            }
+            return {
+                teamId: change.team_id,
+                toGlobals: (team) => convertCohortMembershipChangeToGlobals(change, team, this.config.SITE_URL),
+            }
+        })
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.parsePersonMessages')
     public async _parsePersonBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
+        return await this.parseMatcherBatch(messages, 'Error parsing person message', (message) => {
+            const data = parseJSON(message.value!.toString()) as ClickHousePerson
+            // A deleted person can never satisfy a wait, so skip tombstones.
+            if (data.is_deleted) {
+                return null
+            }
+            // Parked waits are matched by person_id (the job's person.id), so a person
+            // mutation needs an id to wake anything.
+            if (!data.id) {
+                counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                return null
+            }
+            return {
+                teamId: data.team_id,
+                toGlobals: (team) => convertClickhousePersonToWakeGlobals(data, team, this.config.SITE_URL),
+            }
+        })
+    }
 
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const data = parseJSON(message.value!.toString()) as ClickHousePerson
-                    // A deleted person can never satisfy a wait — skip tombstones.
-                    if (data.is_deleted) {
-                        return
-                    }
-                    // Parked waits are matched by person_id (the job's person.id), so a person
-                    // mutation needs an id to wake anything.
-                    if (!data.id) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
-                        return
-                    }
-                    // clickhouse_person is a firehose; bail before getTeam + JSON parse for teams
-                    // with no flow the matcher can act on.
-                    if (!(await this.teamIsActionable(data.team_id))) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
-                        return
-                    }
-                    const team = await this.deps.teamManager.getTeam(data.team_id)
-                    if (!team) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
-                        return
-                    }
-                    events.push(convertClickhousePersonToWakeGlobals(data, team, this.config.SITE_URL))
-                } catch (e) {
-                    logger.error('Error parsing person message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+    private async parseMatcherBatch(
+        messages: Message[],
+        errorLog: string,
+        parse: ParseBatchOptions['parse']
+    ): Promise<HogFunctionInvocationGlobals[]> {
+        return await parseBatch(messages, {
+            errorLog,
+            parse,
+            onInvalidTeamId: () => counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc(),
+            // Do not catch a lookup error here. A skipped event leaves the wait or conversion goal that it
+            // should satisfy to time out.
+            loadTeam: async (teamId) => {
+                // The vast majority of messages belong to teams with no wait_until_condition step and
+                // no conversion goal. Bail on those via the in-memory hogflow cache before paying for
+                // getTeam + full globals conversion.
+                if (!(await this.teamIsActionable(teamId))) {
+                    counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
+                    return null
                 }
-            })
-        )
-
-        return events
+                const team = await this.deps.teamManager.getTeam(teamId)
+                if (!team) {
+                    counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
+                }
+                return team
+            },
+        })
     }
 
     // Step resumes name their job, so they skip the person and team gates the event parser applies.
@@ -865,34 +1012,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseInternalEventMessages')
     public async _parseInternalEventsBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
-                    if (!parsed.event.distinct_id && !parsed.person?.id) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
-                        return
-                    }
-                    if (!(await this.teamIsActionable(parsed.team_id))) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
-                        return
-                    }
-                    const team = await this.deps.teamManager.getTeam(parsed.team_id)
-                    if (!team) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
-                        return
-                    }
-                    events.push(convertInternalEventToHogFunctionInvocationGlobals(parsed, team, this.config.SITE_URL))
-                } catch (e) {
-                    logger.error('Error parsing internal event message', e)
-                    counterParseError.labels({ error: e.message }).inc()
-                }
-            })
-        )
-
-        return events
+        return await this.parseMatcherBatch(messages, 'Error parsing internal event message', (message) => {
+            const parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
+            if (!parsed.event.distinct_id && !parsed.person?.id) {
+                counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                return null
+            }
+            return {
+                teamId: parsed.team_id,
+                toGlobals: (team) =>
+                    convertInternalEventToHogFunctionInvocationGlobals(parsed, team, this.config.SITE_URL),
+            }
+        })
     }
 
     // Synchronous (no getTeam/globals conversion — a repoint only carries ids), so unlike the other
@@ -900,34 +1031,41 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     public _parsePersonDistinctIdBatch(messages: Message[]): PersonDistinctIdMove[] {
         const moves: PersonDistinctIdMove[] = []
         for (const message of messages) {
-            try {
-                const data = parseJSON(message.value!.toString()) as ClickHousePersonDistinctId2
-                // version > 0 is a repoint (identify/merge). version 0 is the distinct_id's first mapping
-                // to a person, which a wait parked before the person resolved needs to acquire its anchor:
-                // person wakes are keyed on person_id alone, so a job left with a null anchor is
-                // unwakeable by any person-property change. processMoveBatch scopes version 0 to exactly
-                // those jobs, which is what keeps this off the insert firehose.
-                if (data.version === undefined || data.version === null || data.version < 0) {
-                    continue
+            const move = skipIfMalformed(
+                'Error parsing person distinct id message',
+                (): PersonDistinctIdMove | null => {
+                    const data = parseJSON(message.value!.toString()) as ClickHousePersonDistinctId2
+                    // version > 0 is a repoint (identify/merge). version 0 is the distinct_id's first mapping
+                    // to a person, which a wait parked before the person resolved needs to acquire its anchor:
+                    // person wakes are keyed on person_id alone, so a job left with a null anchor is
+                    // unwakeable by any person-property change. processMoveBatch scopes version 0 to exactly
+                    // those jobs, which is what keeps this off the insert firehose.
+                    if (data.version === undefined || data.version === null || data.version < 0) {
+                        return null
+                    }
+                    // A distinct_id being deleted can't wake anything, and must never re-point a wait at a
+                    // person that is going away.
+                    if (data.is_deleted) {
+                        return null
+                    }
+                    if (!data.distinct_id || !data.person_id) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                        return null
+                    }
+                    if (!isValidTeamId(data.team_id)) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc()
+                        return null
+                    }
+                    return {
+                        teamId: data.team_id,
+                        distinctId: data.distinct_id,
+                        newPersonId: data.person_id,
+                        version: data.version,
+                    }
                 }
-                // A distinct_id being deleted can't wake anything, and must never re-point a wait at a
-                // person that is going away.
-                if (data.is_deleted) {
-                    continue
-                }
-                if (!data.distinct_id || !data.person_id) {
-                    counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
-                    continue
-                }
-                moves.push({
-                    teamId: data.team_id,
-                    distinctId: data.distinct_id,
-                    newPersonId: data.person_id,
-                    version: data.version,
-                })
-            } catch (e) {
-                logger.error('Error parsing person distinct id message', e)
-                counterParseError.labels({ error: e.message }).inc()
+            )
+            if (move) {
+                moves.push(move)
             }
         }
         return moves
@@ -1154,14 +1292,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         this.watcherTeamsRefreshTimer.unref()
         // Surface failures to each kafka consumer so the offset doesn't advance past a batch we
         // couldn't match. The pod will crash and replay; the SELECT is read-only and the UPDATE
-        // (with `status = 'available'` guards) is idempotent, so replay is safe. All three streams
+        // (with `status = 'available'` guards) is idempotent, so replay is safe. All the streams
         // funnel into the same input-agnostic wakeMatchingWorkflows via processBatch.
         await Promise.all([
-            this.kafkaConsumer.connect(async (messages) => {
-                return await instrumentFn('cdpHogflowSubscriptionMatcher.handleEachBatch', async () => {
-                    return { backgroundTask: this.processBatch(await this._parseKafkaBatch(messages), 'events') }
-                })
-            }),
+            this.kafkaConsumer.connect(this.eventsBatchHandler('cdpHogflowSubscriptionMatcher.handleEachBatch')),
             this.personKafkaConsumer.connect(async (messages) => {
                 return await instrumentFn('cdpHogflowSubscriptionMatcher.handlePersonBatch', async () => {
                     return { backgroundTask: this.processBatch(await this._parsePersonBatch(messages), 'person') }
@@ -1188,7 +1322,27 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     })
                 )
             }),
+            this.realtimeOnlyEventsKafkaConsumer?.connect(
+                this.eventsBatchHandler('cdpHogflowSubscriptionMatcher.handleRealtimeOnlyEventsBatch')
+            ),
+            this.cohortMembershipKafkaConsumer.connect(async (messages) => {
+                return await instrumentFn('cdpHogflowSubscriptionMatcher.handleCohortMembershipBatch', async () => ({
+                    backgroundTask: this.processBatch(
+                        await this._parseCohortMembershipBatch(messages),
+                        'cohort_membership'
+                    ),
+                }))
+            }),
         ])
+    }
+
+    private eventsBatchHandler(
+        instrumentKey: string
+    ): (messages: Message[]) => Promise<{ backgroundTask: Promise<void> }> {
+        return async (messages) =>
+            await instrumentFn(instrumentKey, async () => ({
+                backgroundTask: this.processBatch(await this._parseKafkaBatch(messages), 'events'),
+            }))
     }
 
     public override async stop(): Promise<void> {
@@ -1201,6 +1355,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.personKafkaConsumer.disconnect(),
             this.internalEventsKafkaConsumer.disconnect(),
             this.personDistinctIdKafkaConsumer.disconnect(),
+            this.realtimeOnlyEventsKafkaConsumer?.disconnect(),
+            this.cohortMembershipKafkaConsumer.disconnect(),
         ])
         await this.cyclotronPool.end()
         await super.stop()
@@ -1214,6 +1370,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.personKafkaConsumer.isHealthy(),
             this.internalEventsKafkaConsumer.isHealthy(),
             this.personDistinctIdKafkaConsumer.isHealthy(),
+            ...(this.realtimeOnlyEventsKafkaConsumer ? [this.realtimeOnlyEventsKafkaConsumer.isHealthy()] : []),
+            this.cohortMembershipKafkaConsumer.isHealthy(),
         ]
         return results.find((r) => r.status !== 'ok') ?? results[0]
     }
@@ -1280,17 +1438,48 @@ function exitsOnConversion(hogflow: HogFlow): boolean {
 // the `conversion` metric is tracked even for flows that don't exit on conversion — only the *wake*
 // decision (in wakeMatchingWorkflows) still depends on exitsOnConversion.
 function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
-    if (hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition')) {
-        return true
-    }
-    // Property goals count as actionable: their watchers are evaluated against person-property
-    // changes, and gating on `events` alone would skip the team before those watchers were ever read,
-    // leaving every property-only goal permanently at zero conversions.
+    return hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition') || hasConversionGoal(hogflow)
+}
+
+function hasConversionGoal(hogflow: HogFlow): boolean {
+    // Property goals count: their watchers are evaluated against person-property changes, and gating
+    // on `events` alone would skip the team before those watchers were ever read, leaving every
+    // property-only goal permanently at zero conversions.
     if (hogflow.conversion?.filters?.length) {
         return true
     }
     const conversionEvents = hogflow.conversion?.events
     return Array.isArray(conversionEvents) && conversionEvents.length > 0
+}
+
+function restrictToTeams(indexed: IndexedBatch, teams: Set<number>): IndexedBatch {
+    const keep = (teamIds: number[], ids: string[]): [number[], string[]] => {
+        const keptTeamIds: number[] = []
+        const keptIds: string[] = []
+        teamIds.forEach((teamId, i) => {
+            if (teams.has(teamId)) {
+                keptTeamIds.push(teamId)
+                keptIds.push(ids[i])
+            }
+        })
+        return [keptTeamIds, keptIds]
+    }
+    const [distinctTeamIds, distinctIds] = keep(indexed.distinctTeamIds, indexed.distinctIds)
+    const [personTeamIds, personIds] = keep(indexed.personTeamIds, indexed.personIds)
+    return {
+        ...indexed,
+        teamIds: indexed.teamIds.filter((teamId) => teams.has(teamId)),
+        distinctTeamIds,
+        distinctIds,
+        personTeamIds,
+        personIds,
+    }
+}
+
+// Compiled filters read `person.properties.<key>` by pushing the string 'person' as the root of the field
+// chain. A literal 'person' value in a filter also matches, which only drops that entry for membership changes.
+function readsPerson(bytecode: unknown): boolean {
+    return Array.isArray(bytecode) && bytecode.includes('person')
 }
 
 // A pinned goal converts when the property branch matches, or any event branch does. The two are
@@ -1464,6 +1653,16 @@ function applyMatchToState(stateBuffer: Buffer, m: MatchedJob): MatchOutcome | n
                 // we cannot tag the wake as an event match - skip the flag and continue, since the
                 // conversion handling above is independent of currentAction and may still apply.
                 logger.warn('Skipping eventMatched: no currentAction in state', { jobId: m.id })
+            }
+        }
+
+        // A wake the matcher could not decide: no eventMatched, so the worker evaluates the condition
+        // itself and re-parks when it still does not match.
+        if (m.recheckMatched && !m.stepMatched) {
+            if (updatedState.currentAction) {
+                updatedState.currentAction = { ...updatedState.currentAction, recheckWake: true }
+                changed = true
+                wake = true
             }
         }
 

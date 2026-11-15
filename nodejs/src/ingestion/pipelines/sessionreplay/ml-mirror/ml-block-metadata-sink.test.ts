@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import {
     SessionBlockMetadata,
     createNoopBlockMetadata,
@@ -46,6 +47,18 @@ describe('MlBlockMetadataSink', () => {
         ])
         const [, messages] = outputs.queueMessages.mock.calls[0]
         expect(messages).toHaveLength(1)
+    })
+
+    it('stamps a record with the capture time of the earliest message in its block', async () => {
+        await sink.storeSessionBlocks([
+            block('legacy-session', 1, { earliestCapturedAtMs: 1_700_000_000_000 }),
+            block('legacy-other', 1),
+        ])
+        const [, messages] = outputs.queueMessages.mock.calls[0]
+        expect(messages.map((message) => message.headers?.[CAPTURE_TIMESTAMP_HEADER])).toEqual([
+            '1700000000000',
+            undefined,
+        ])
     })
 
     it('still calls queueMessages for an all-skipped batch', async () => {

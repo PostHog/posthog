@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { wrapError } from '@/lib/errors'
+import { PinnedContextSwitchError, wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { ProjectSetActiveSchema } from '@/schema/tool-inputs'
 import type { CachedOrg, CachedProject, Context, ToolBase } from '@/tools/types'
@@ -17,6 +17,14 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
 ) => {
     const { projectId } = params
     const projectIdStr = projectId.toString()
+
+    // Without a session, the next request applies the pin again. Refuse up front
+    // rather than report a switch that the next tool call reverts.
+    const pinned = context.stateManager.pinnedContext
+    const pinLocksContext = pinned !== undefined && !pinned.sessionScoped
+    if (pinLocksContext && pinned.pin.projectId && pinned.pin.projectId !== projectIdStr) {
+        throw new PinnedContextSwitchError(pinned.pin)
+    }
 
     // Resolve the active org the same way every other org-scoped tool does
     // (`getOrgID` falls back to the API-key default and the cached project),
@@ -43,7 +51,16 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     }
 
     const project: CachedProject = projectResult.data
-    await context.cache.set('projectId', projectIdStr)
+    const projectOrgId = project.organization
+    if (pinLocksContext && pinned.pin.organizationId && projectOrgId && projectOrgId !== pinned.pin.organizationId) {
+        throw new PinnedContextSwitchError({ organizationId: pinned.pin.organizationId })
+    }
+
+    const orgChanged = Boolean(projectOrgId && projectOrgId !== activeOrgId)
+    await context.stateManager.setActiveContext({
+        projectId: projectIdStr,
+        ...(orgChanged ? { orgId: projectOrgId } : {}),
+    })
     await context.cache.set(`cachedProject:${projectIdStr}` as const, project)
     await context.cache.set(`cachedProjectFetchedAt:${projectIdStr}` as const, Date.now())
 
@@ -53,9 +70,7 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     let orgId = activeOrgId
     let org: CachedOrg | undefined
     let switchedOrg = false
-    const projectOrgId = project.organization
-    if (projectOrgId && projectOrgId !== activeOrgId) {
-        await context.cache.set('orgId', projectOrgId)
+    if (orgChanged) {
         orgId = projectOrgId
         // Only a genuine switch if a different org was already active; when no org
         // was resolved yet we're just establishing context, not switching away.
@@ -66,10 +81,6 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
         // place instead of being duplicated here and drifting.
         org = await context.stateManager.getCachedOrFetchOrg()
     }
-
-    // Record the switch on the MCP session so a pinned connection's resent pin
-    // doesn't revert it on the next request.
-    await context.setSessionActiveContext?.({ projectId: projectIdStr, ...(orgId ? { orgId } : {}) })
 
     // Read the cached org, when we didn't just fetch it, for the metadata block
     if (!org && orgId) {
