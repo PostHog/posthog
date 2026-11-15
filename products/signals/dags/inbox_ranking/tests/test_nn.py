@@ -49,7 +49,7 @@ from products.signals.dags.inbox_ranking.nn.model import (
     network_recipe,
     onnx_probabilities,
 )
-from products.signals.dags.inbox_ranking.tests.test_multihead import D0, DAYS, HOLDOUT_DAYS, _SyntheticInbox
+from products.signals.dags.inbox_ranking.tests.test_multihead import D0, DAYS, HOLDOUT_DAYS, TEAMS, _SyntheticInbox
 from products.signals.dags.inbox_ranking.training import recipe as recipe_module
 from products.signals.dags.inbox_ranking.training.dag import (
     METADATA_FILE,
@@ -355,6 +355,25 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
         auc = roc_auc_score(holdout.labels[rows, index], probabilities[head["head"]][rows])
         assert auc == pytest.approx(head["holdout_auc"], abs=1e-4)
         assert auc > 0.75
+
+
+def test_the_examples_asset_builds_from_the_embeddings_snapshot_without_the_labels_snapshot(monkeypatch):
+    inbox = _SyntheticInbox()
+    embeddings = inbox.embeddings()
+    day = (D0 + datetime.timedelta(days=DAYS - 1)).isoformat()
+    client = _S3({partition_object_key(PREFIX, EMBEDDINGS_TABLE, day): _parquet(embeddings)})
+    monkeypatch.setattr(nn_dag, "skip_unconfigured", lambda context: False)
+    monkeypatch.setattr(nn_dag, "s3_client", lambda: client)
+    monkeypatch.setattr(nn_dag, "load_snapshots", lambda *args, **kwargs: inbox.snapshots())
+    monkeypatch.setattr(nn_dag, "training_consent_team_ids", lambda: frozenset(TEAMS))
+    monkeypatch.setattr(settings, "INBOX_RANKING_TRAINING_HOLDOUT_DAYS", HOLDOUT_DAYS)
+
+    with dagster.build_asset_context(partition_key=day) as context:
+        nn_dag.inbox_ranking_nn_examples(context)
+
+    written = pq.read_table(io.BytesIO(client.objects[partition_object_key(PREFIX, nn_dag.NN_EXAMPLES_TABLE, day)]))
+    expected = build_examples(inbox.snapshots(), report_vectors(embeddings), holdout_days=HOLDOUT_DAYS)
+    assert written.equals(examples_arrow(expected), check_metadata=True)
 
 
 def test_a_priority_family_skips_an_examples_object_written_before_the_priority_column(no_side_effects):

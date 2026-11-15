@@ -91,13 +91,13 @@ def consenting_snapshots(
     return kept
 
 
+# The embeddings snapshot columns `report_vectors` reads.
+REPORT_VECTOR_COLUMNS = ("report_id", EMBEDDING_COLUMN, EMBEDDING_INSERTED_AT_COLUMN)
+
+
 def report_vectors(embeddings: pa.Table) -> Extras:
     """The `report_embeddings` side input, indexed by report_id."""
-    vectors = (
-        embeddings.select(["report_id", EMBEDDING_COLUMN, EMBEDDING_INSERTED_AT_COLUMN])
-        .to_pandas()
-        .set_index("report_id")
-    )
+    vectors = embeddings.select(list(REPORT_VECTOR_COLUMNS)).to_pandas().set_index("report_id")
     return {REPORT_EMBEDDINGS_EXTRA: vectors[~vectors.index.duplicated()]}
 
 
