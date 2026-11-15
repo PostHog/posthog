@@ -59,6 +59,39 @@ def _visual(text: str) -> ReportText:
 
 
 @pytest.mark.parametrize(
+    ("lines", "expected"),
+    [
+        (["First line", "Second line"], "First line\nSecond line"),
+        (["First line\n", "Second line\n"], "First line\nSecond line\n"),
+        (["First line", "\n", "Second line"], "First line\n\nSecond line"),
+        (["First line\n", "\n", "Second line"], "First line\n\nSecond line"),
+        (["First line", "", "Second line"], "First line\n\nSecond line"),
+        (["First line\n\nSecond line"], "First line\n\nSecond line"),
+        (["| Item | Count |", "| --- | --- |", "| Jobs | 7 |"], "| Item | Count |\n| --- | --- |\n| Jobs | 7 |"),
+    ],
+    ids=["per_line", "existing_newlines", "spacer", "existing_spacer", "empty_line", "multiline", "table_rows"],
+)
+def test_custom_layout_preserves_lines(lines: list[str], expected: str) -> None:
+    document = ReportDocument(topic=None, sections=[], custom_layout=[_visual(line) for line in lines])
+
+    assert document.render() == expected
+
+
+def test_custom_layout_keeps_styled_items_on_the_same_line() -> None:
+    document = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[
+            _visual("Daily totals"),
+            ReportText(items=[ReportTextItem(kind="text", text="Jobs: "), ReportTextItem(kind="value", text="7")]),
+            ReportText(items=[ReportTextItem(kind="text", text="Errors: "), ReportTextItem(kind="value", text="2")]),
+        ],
+    )
+
+    assert document.render() == "Daily totals\nJobs: `7`\nErrors: `2`"
+
+
+@pytest.mark.parametrize(
     ("visuals", "table_rows"),
     [
         (["| Alert type | Orgs |", "| --- | --- |", "| Trends threshold | 503 |", "| Logs threshold | 51 |"], [3]),

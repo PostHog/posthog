@@ -180,7 +180,12 @@ class ReportDocument(BaseModel):
 
     def render(self) -> str:
         if self.custom_layout:
-            return _join_table_rows("".join(part.render() for part in self.custom_layout))
+            parts: list[str] = []
+            for part in self.custom_layout:
+                if parts and not parts[-1].endswith("\n"):
+                    parts.append("\n")
+                parts.append(part.render())
+            return _join_table_rows("".join(parts))
         parts = [f"# {self.topic}"] if self.topic else []
         parts.extend(section.render() for section in self.sections)
         return _join_table_rows("\n\n".join(parts))
