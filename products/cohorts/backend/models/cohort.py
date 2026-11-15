@@ -165,6 +165,8 @@ COHORT_RECALCULATION_FIELDS = frozenset(
         "pending_population_mode",
         "population_marker",
         "population_claimed_at",
+        "last_replace_marker",
+        "last_replace_floor",
     }
 )
 
@@ -322,6 +324,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         null=True,
         blank=True,
         help_text="ClickHouse _timestamp of the current replace attempt. Every attempt stores a newer value, and an attempt that finds a different value stored stops writing. Null when no replace is in flight.",
+    )
+    last_replace_marker = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Marker of the newest replace that finished. With last_replace_floor, appends and adds ignore the rows that replace removes while its ClickHouse delete is still applying. Null if no replace has finished.",
+    )
+    last_replace_floor = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Request time of the newest replace that finished. Rows before it, and the rows that replace's earlier attempts wrote, are ignored by appends and adds. Null if no replace has finished.",
     )
     population_claimed_at = models.DateTimeField(
         null=True,
@@ -1266,16 +1278,24 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         table: str,
     ) -> set[str]:
         """Return the subset of person_uuids that already exist in the CH static cohort table."""
+        from posthog.models.person.sql import REPLACE_KEEPS_ROW, REPLACE_ROW_OFFSET
+
         if not person_uuids:
             return set()
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+        # After a replace, the rows it removes can linger until its ClickHouse delete applies. They don't count
+        # as membership: an add that saw one would skip its insert, and lose the person once the delete applied.
+        kept_filter = f" AND {REPLACE_KEEPS_ROW}" if self.last_replace_marker is not None else ""
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s GROUP BY person_id",
+            f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s{kept_filter} GROUP BY person_id",
             {
                 "team_id": team_id,
                 "cohort_id": self.pk,
                 "person_uuids": person_uuids,
+                "marker": self.last_replace_marker,
+                "floor": self.last_replace_floor or self.last_replace_marker,
+                "replace_offset": REPLACE_ROW_OFFSET,
             },
         )
         return {str(row[0]) for row in rows}

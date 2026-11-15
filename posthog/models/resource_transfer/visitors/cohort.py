@@ -36,6 +36,8 @@ class CohortVisitor(
         "pending_population_mode",
         "population_marker",
         "population_claimed_at",
+        "last_replace_marker",
+        "last_replace_floor",
         "people",
         "groups",
     ],

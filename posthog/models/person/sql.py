@@ -612,7 +612,7 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(t
 ) AS new_actors
 WHERE actor_id NOT IN (
     SELECT person_id FROM {cohort_table}
-    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
+    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s{kept_filter}
 )
 """
 

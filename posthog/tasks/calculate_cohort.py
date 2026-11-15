@@ -978,8 +978,15 @@ def _finalize_population_history(
     )
 
 
+def _replace_floor(cohort: Cohort, marker: datetime) -> datetime:
+    """The time a replace keeps added members from: its request time, or the marker for a claim from before the
+    request time was recorded."""
+    claimed_at = cohort.population_claimed_at
+    return min(claimed_at, marker) if claimed_at is not None else marker
+
+
 def _replace_static_members(
-    cohort: Cohort, *, team_id: int, marker: datetime, rows_written: int, log_prefix: str
+    cohort: Cohort, *, team_id: int, marker: datetime, floor: datetime, rows_written: int, log_prefix: str
 ) -> None:
     """Sync a replace's new members into Postgres, then prune the members it no longer matches.
 
@@ -1000,9 +1007,7 @@ def _replace_static_members(
     if not rows_written:
         raise PopulationEmptyResult(f"Cohort {cohort.pk}: the replace query matched nobody")
     # The replace keeps every member added since the request, across retries and sweep redispatches, and drops
-    # the rows its own earlier attempts wrote. A claim from before the request time was recorded keeps the marker.
-    claimed_at = cohort.population_claimed_at
-    floor = min(claimed_at, marker) if claimed_at is not None else marker
+    # the rows its own earlier attempts wrote.
     insert_cohort_people_into_pg(
         cohort, team_id=team_id, min_rows=rows_written, replace_marker=marker, replace_floor=floor
     )
@@ -1062,6 +1067,7 @@ def _populate_static_cohort(
     claimed_mode: str | None = None
     superseded: PopulationSuperseded | None = None
     marker: datetime | None = None
+    finished_replace: tuple[datetime, datetime] | None = None
     try:
         if team_id is not None:
             cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
@@ -1158,9 +1164,11 @@ def _populate_static_cohort(
 
         # Re-running the sync is safe because InsertCohortMembers ignores existing membership.
         if marker is not None:
+            floor = _replace_floor(cohort, marker)
             _replace_static_members(
-                cohort, team_id=team_id, marker=marker, rows_written=rows_written, log_prefix=log_prefix
+                cohort, team_id=team_id, marker=marker, floor=floor, rows_written=rows_written, log_prefix=log_prefix
             )
+            finished_replace = (marker, floor)
         else:
             # save_state=False is internal to insert_cohort_people_into_pg: releasing is_calculating inside the sync
             # would let a new claim land before this attempt finalizes, and the finalize would then release that claim.
@@ -1225,7 +1233,12 @@ def _populate_static_cohort(
             # Finalize only while this attempt still owns the cohort: its mode and marker are still the
             # stored ones. Otherwise a newer attempt took over at the last moment, and releasing
             # is_calculating would release that attempt's run.
-            if clear_population_run_fields(claimed, marker=claimed.population_marker, mode=claimed_mode):
+            if clear_population_run_fields(
+                claimed,
+                marker=claimed.population_marker,
+                mode=claimed_mode,
+                finished_replace=finished_replace if processing_error is None else None,
+            ):
                 claimed._refresh_count(team_id=claimed.team_id)
                 claimed._safe_save_cohort_state(team_id=claimed.team_id, processing_error=processing_error)
                 claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])

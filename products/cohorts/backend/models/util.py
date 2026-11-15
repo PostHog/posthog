@@ -1402,9 +1402,21 @@ def insert_actors_into_cohort_by_query(
         if replace_marker is not None
         else INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID
     )
+    # After a replace, the rows it removes can linger until its ClickHouse delete applies. An append must not
+    # read them as membership, or it would skip inserting a person the delete then removes.
+    kept_filter = f" AND {REPLACE_KEEPS_ROW}" if replace_marker is None and cohort.last_replace_marker else ""
     written = sync_execute(
-        insert_sql.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
+        insert_sql.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query, kept_filter=kept_filter),
         {
+            **(
+                {
+                    "marker": cohort.last_replace_marker,
+                    "floor": cohort.last_replace_floor or cohort.last_replace_marker,
+                    "replace_offset": REPLACE_ROW_OFFSET,
+                }
+                if kept_filter
+                else {}
+            ),
             "cohort_id": cohort.pk,
             "_timestamp": replace_marker if replace_marker is not None else population_timestamp_now(),
             "team_id": team_id,
@@ -1524,7 +1536,15 @@ def _copy_static_cohort_rows_to_pg(
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
 
     CH_PAGE_SIZE = 10_000
-    timestamp_filter = f" AND {REPLACE_KEEPS_ROW}" if replace_marker is not None else ""
+    # A replace reads the rows it keeps. An append after a replace reads the rows that replace kept: the ones it
+    # removes can linger until its ClickHouse delete applies, and copying them would put pruned members back.
+    keep_marker = replace_marker if replace_marker is not None else cohort.last_replace_marker
+    keep_floor = (
+        (replace_floor or replace_marker)
+        if replace_marker is not None
+        else (cohort.last_replace_floor or cohort.last_replace_marker)
+    )
+    timestamp_filter = f" AND {REPLACE_KEEPS_ROW}" if keep_marker is not None else ""
     counted = (
         "max(_offset = %(replace_offset)s AND _timestamp = %(marker)s)"
         if replace_marker is not None
@@ -1556,8 +1576,8 @@ def _copy_static_cohort_rows_to_pg(
                 "cursor": cursor,
                 "limit": batch_size,
                 "counted_since": counted_since,
-                "marker": replace_marker,
-                "floor": replace_floor or replace_marker,
+                "marker": keep_marker,
+                "floor": keep_floor,
                 "replace_offset": REPLACE_ROW_OFFSET,
             },
             settings=read_settings,
@@ -1687,7 +1707,13 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
     return marker
 
 
-def clear_population_run_fields(cohort: Cohort, *, marker: datetime | None, mode: str | None) -> bool:
+def clear_population_run_fields(
+    cohort: Cohort,
+    *,
+    marker: datetime | None,
+    mode: str | None,
+    finished_replace: tuple[datetime, datetime] | None = None,
+) -> bool:
     """Clear the pending mode and marker if ``mode`` and ``marker`` are still the stored ones.
 
     Returns whether that mode and marker were still stored, so no newer claim or attempt replaced them. A newer claim writes its own
@@ -1698,11 +1724,20 @@ def clear_population_run_fields(cohort: Cohort, *, marker: datetime | None, mode
     owned = Cohort.objects.filter(pk=cohort.pk, population_marker=marker, pending_population_mode=mode)
     if marker is None and mode is None:
         return owned.exists()
-    if not owned.update(pending_population_mode=None, population_marker=None, population_claimed_at=None):
+    # A replace that finished records its marker and floor in the same update, so appends and adds ignore the
+    # rows it removes from the moment it stops owning the cohort.
+    finished = (
+        {"last_replace_marker": finished_replace[0], "last_replace_floor": finished_replace[1]}
+        if finished_replace is not None
+        else {}
+    )
+    if not owned.update(pending_population_mode=None, population_marker=None, population_claimed_at=None, **finished):
         return False
     cohort.pending_population_mode = None
     cohort.population_marker = None
     cohort.population_claimed_at = None
+    for field, value in finished.items():
+        setattr(cohort, field, value)
     return True
 
 

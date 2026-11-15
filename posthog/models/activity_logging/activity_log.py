@@ -897,6 +897,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "pending_population_mode",
         "population_marker",
         "population_claimed_at",
+        "last_replace_marker",
+        "last_replace_floor",
     ],
     "HogFunction": [
         # Compiled output of `hog`, which the diff records on its own. For site functions the

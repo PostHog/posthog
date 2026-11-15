@@ -68,6 +68,7 @@ from products.cohorts.backend.models.util import (
     insert_cohort_query_actors_into_ch,
     insert_static_cohort,
     list_cohort_member_ids,
+    prune_static_cohort_rows_before_marker,
 )
 
 # The catalog drops a leaf with no bytecode, and `_calculate_realtime_support` grants
@@ -2037,6 +2038,65 @@ class TestCohortCalculationTasks(APIBaseTest):
             sorted((str(person_id), offset) for person_id, offset in rows),
             sorted([(str(a.uuid), REPLACE_ROW_OFFSET), (str(p.uuid), 0), (str(q.uuid), 0)]),
         )
+
+    def test_an_append_and_an_add_after_a_replace_ignore_the_rows_it_is_still_deleting(self) -> None:
+        # In production the replace's ClickHouse delete applies asynchronously, so the rows it removes can linger.
+        # An append or an add made before it applies must not read them as membership: the copy would put pruned
+        # members back in Postgres, and the append's insert and the add would skip people the delete then removes.
+        a, p, s = (
+            create_person(team=self.team, distinct_ids=[name], properties={"tag": name}, uuid=uuid4())
+            for name in ("a", "p", "s")
+        )
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'a'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+        with (
+            time_machine.travel(start, tick=False) as clock,
+            # The delete hasn't applied yet.
+            patch("products.cohorts.backend.models.util.prune_static_cohort_rows_before_marker"),
+        ):
+            cohort.insert_users_list_by_uuid([str(p.uuid), str(s.uuid)], team_id=self.team.pk)
+            clock.shift(10)
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_claimed_at=timezone.now(),
+            )
+            clock.shift(10)
+            insert_cohort_from_query(cohort.id, self.team.pk)
+            cohort.refresh_from_db()
+            self.assertIsNotNone(cohort.last_replace_marker)
+            self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {a.id})
+
+            # An append that matches p again, and an add of s, both before the replace's delete applies.
+            clock.shift(10)
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.APPEND,
+                query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag IN ('a', 'p')"},
+            )
+            insert_cohort_from_query(cohort.id, self.team.pk)
+            cohort.refresh_from_db()
+            # s was pruned and the append doesn't match it, so the copy must not bring it back.
+            self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {a.id, p.id})
+            clock.shift(10)
+            cohort.insert_users_list_by_uuid([str(s.uuid)], team_id=self.team.pk, save_state=False)
+
+        # Now the replace's delete applies. p and s were added again after it, so ClickHouse keeps them.
+        prune_static_cohort_rows_before_marker(
+            cohort.pk, team_id=self.team.pk, marker=cohort.last_replace_marker, floor=cohort.last_replace_floor
+        )
+        rows = sync_execute(
+            "SELECT DISTINCT person_id FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.pk, "cohort_id": cohort.pk},
+        )
+        self.assertEqual({str(row[0]) for row in rows}, {str(a.uuid), str(p.uuid), str(s.uuid)})
+        self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {a.id, p.id, s.id})
 
     def test_replace_retry_after_partial_postgres_prune_converges(self) -> None:
         # A retry after a partial Postgres prune converges both stores exact.
