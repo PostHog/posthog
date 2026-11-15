@@ -451,6 +451,19 @@ describe('RecordingService', () => {
             )
         })
 
+        it('aborts the S3 read for a ref once its deadline passes', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockS3Send.mockImplementation(
+                (_command, options: { abortSignal: AbortSignal }) =>
+                    new Promise((_resolve, reject) =>
+                        options.abortSignal.addEventListener('abort', () => reject(options.abortSignal.reason))
+                    )
+            )
+
+            await expect(service.getBlockByRef(1, 'sess-1', listed.ref, () => 'ok', 10)).rejects.toThrow()
+        })
+
         it('reads AccessDenied for a ref as a missing block', async () => {
             mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
             const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]

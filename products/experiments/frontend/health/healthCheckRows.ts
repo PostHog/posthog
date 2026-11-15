@@ -133,14 +133,45 @@ function changeEffect(row: HealthRow, units: string): string {
 }
 
 function flagChangesTable(rows: HealthRow[], units: string): HealthRowsTable {
+    // Only a change of the bucketing names its setting, because the split and the conditions are one setting each.
+    const namesSetting = rows.some((row) => stringOf(row, 'changed_setting') !== null)
     return {
         columns: [
             { key: 'saved', title: 'Saved' },
+            ...(namesSetting ? [{ key: 'setting', title: 'Setting' }] : []),
+            { key: 'before', title: 'Before' },
+            { key: 'after', title: 'After' },
             { key: 'effect', title: 'Effect' },
         ],
         rows: rows.map((row) => ({
             saved: { time: stringOf(row, 'changed_at') ?? '' },
+            ...(namesSetting ? { setting: text(stringOf(row, 'changed_setting') ?? '') } : {}),
+            before: text(stringOf(row, 'before') ?? ''),
+            after: text(stringOf(row, 'after') ?? ''),
             effect: text(changeEffect(row, units)),
+        })),
+    }
+}
+
+function receivedText(received: HealthRow[string]): string {
+    if (received === true) {
+        return 'Yes'
+    }
+    // PostHog keeps no record of the name, so it can't tell.
+    return received === false ? 'No' : 'Unknown'
+}
+
+function metricEventsTable(rows: HealthRow[]): HealthRowsTable {
+    return {
+        columns: [
+            { key: 'metric', title: 'Metric' },
+            { key: 'event', title: 'Event' },
+            { key: 'received', title: 'Received' },
+        ],
+        rows: rows.map((row) => ({
+            metric: text(metricLabel(row)),
+            event: text(stringOf(row, 'event') ?? ''),
+            received: text(receivedText(row.event_received)),
         })),
     }
 }
@@ -158,6 +189,8 @@ export function healthCheckRowsTable(check: HealthPanelCheck, units: string): He
             return forcedTable(rows, units)
         case 'metric_all_zero':
             return zeroMetricsTable(rows, units)
+        case 'metric_event_not_ingested':
+            return metricEventsTable(rows)
         case 'split_changed_mid_run':
         case 'bucketing_changed_mid_run':
         case 'release_conditions_changed_mid_run':

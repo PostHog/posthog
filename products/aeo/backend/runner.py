@@ -200,7 +200,7 @@ def run_citation_checks(
         rows_written=summary.rows_written,
         write_failures=summary.write_failures,
     )
-    if record and rows_written and settings.AEO_BRAND_SENTIMENT_ENABLED:
+    if record and rows_written:
         start_brand_sentiment_workflow(canonical_team_id, run_id)
     return summary, checks
 

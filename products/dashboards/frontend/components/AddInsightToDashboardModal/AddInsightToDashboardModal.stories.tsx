@@ -116,3 +116,14 @@ export const Empty: Story = {
         }),
     ],
 }
+
+export const Quill: Story = {
+    render: () => <ModalStory />,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: {
+            waitForSelector: '[data-attr="add-insight-to-dashboard-modal"]',
+            viewport: { width: 1300, height: 2000 },
+        },
+    },
+}

@@ -44,17 +44,25 @@ def affected_observations(
     tag: str | None = None,
     min_score: float | None = None,
     max_score: float | None = None,
+    observations: QuerySet[ReplayObservation] | None = None,
 ) -> QuerySet[ReplayObservation]:
-    """Succeeded observations matching the type's impact predicate; raises ValueError on invalid qualifiers."""
+    """Succeeded observations matching the type's impact predicate; raises ValueError on invalid qualifiers.
+
+    `observations` narrows the rows counted, e.g. to the ones the caller may read.
+    """
     since = timezone.now() - timedelta(days=window_days)
-    base = ReplayObservation.objects.annotate(
-        # Session time, not scan time: backfills must not count as current impact.
-        _affected_at=Coalesce("session_started_at", "created_at"),
-    ).filter(
-        scanner=scanner,
-        team_id=scanner.team_id,
-        status=ObservationStatus.SUCCEEDED,
-        _affected_at__gte=since,
+    base = (
+        (ReplayObservation.objects.all() if observations is None else observations)
+        .annotate(
+            # Session time, not scan time: backfills must not count as current impact.
+            _affected_at=Coalesce("session_started_at", "created_at"),
+        )
+        .filter(
+            scanner=scanner,
+            team_id=scanner.team_id,
+            status=ObservationStatus.SUCCEEDED,
+            _affected_at__gte=since,
+        )
     )
     scanner_type = scanner.scanner_type
     has_scores = min_score is not None or max_score is not None
@@ -102,9 +110,16 @@ def compute_scanner_impact(
     tag: str | None = None,
     min_score: float | None = None,
     max_score: float | None = None,
+    observations: QuerySet[ReplayObservation] | None = None,
 ) -> ScannerImpact:
     aggregates = affected_observations(
-        scanner, window_days, verdict=verdict, tag=tag, min_score=min_score, max_score=max_score
+        scanner,
+        window_days,
+        verdict=verdict,
+        tag=tag,
+        min_score=min_score,
+        max_score=max_score,
+        observations=observations,
     ).aggregate(
         affected_sessions=Count("session_id", distinct=True),
         affected_users=Count("distinct_id", filter=_HAS_USER, distinct=True),
@@ -139,10 +154,19 @@ def create_affected_cohort(
     tag: str | None = None,
     min_score: float | None = None,
     max_score: float | None = None,
+    observations: QuerySet[ReplayObservation] | None = None,
 ) -> tuple[Cohort, int]:
     """Static cohort of matched users; returns (cohort, real member count). Raises ValueError when not creatable."""
     distinct_ids = list(
-        affected_observations(scanner, window_days, verdict=verdict, tag=tag, min_score=min_score, max_score=max_score)
+        affected_observations(
+            scanner,
+            window_days,
+            verdict=verdict,
+            tag=tag,
+            min_score=min_score,
+            max_score=max_score,
+            observations=observations,
+        )
         .filter(_HAS_USER)
         .values_list("distinct_id", flat=True)
         .distinct()[: MAX_COHORT_DISTINCT_IDS + 1]

@@ -42,7 +42,6 @@ from products.canvas.backend.facade.api import (
     connector_listings,
     create_canvas_sandbox_document_url,
     has_errors,
-    in_canvas_experiment,
     native_connector_listings,
     render_canvas_artifact,
     render_canvas_sandbox_document,
@@ -285,6 +284,29 @@ def _wrong_kind_response(detail: str) -> Response:
     return Response({"detail": detail, "code": "wrong_canvas_kind"}, status=status.HTTP_400_BAD_REQUEST)
 
 
+def _authoring_task_rejection(outcome: str) -> Response | None:
+    if outcome == "not_found":
+        return Response(
+            {"detail": "The authoring task for this canvas no longer exists."},
+            status=status.HTTP_409_CONFLICT,
+        )
+    if outcome == "organization_deactivated":
+        return Response(
+            {
+                "detail": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake."
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+    if outcome == "quota_exhausted":
+        return Response(
+            {"detail": "The team's compute quota is exhausted; retry later."},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+    if outcome == "task_done":
+        return Response({"detail": str(tasks_facade.TaskDoneError())}, status=status.HTTP_409_CONFLICT)
+    return None
+
+
 class CanvasStateWriteThrottle(SimpleRateThrottle):
     """Per viewer per canvas. State writes are interaction-driven app data, so
     the ceiling is generous — it exists to stop a canvas render loop from
@@ -452,12 +474,9 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         if (
             isinstance(request.successful_authenticator, SessionAuthentication)
             and isinstance(request.user, User)
-            and blocks_session_action(
-                self.action, request.data if self.action in ("partial_update", "build_action") else None
-            )
-            and in_canvas_experiment(request.user, self.team)
+            and blocks_session_action(self.action, request.data if self.action == "partial_update" else None)
         ):
-            raise PermissionDenied("In the canvas experiment, create and edit canvases through the PostHog MCP server.")
+            raise PermissionDenied("Create and edit canvases through the PostHog MCP server.")
 
     def get_throttles(self) -> list[BaseThrottle]:
         # On top of the defaults, not instead of them: the per-canvas key must
@@ -1706,7 +1725,9 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 )
             ),
             404: OpenApiResponse(description="Build not found for this canvas."),
-            409: OpenApiResponse(description="The canvas has no authoring task to route the fix to."),
+            409: OpenApiResponse(
+                description="The canvas has no authoring task to route the fix to, or the authoring task is done."
+            ),
             429: OpenApiResponse(description="The team's compute quota is exhausted; retry later."),
         },
     )
@@ -1752,23 +1773,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 {"detail": "Only the authoring task's creator can dispatch a fix."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if outcome == "not_found":
-            return Response(
-                {"detail": "The authoring task for this canvas no longer exists."},
-                status=status.HTTP_409_CONFLICT,
-            )
-        if outcome == "organization_deactivated":
-            return Response(
-                {
-                    "detail": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake."
-                },
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-        if outcome == "quota_exhausted":
-            return Response(
-                {"detail": "The team's compute quota is exhausted; retry later."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+        if (rejection := _authoring_task_rejection(outcome)) is not None:
+            return rejection
         self._log_canvas_activity(
             canvas,
             "fix_requested",
@@ -1799,7 +1805,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={
             202: CanvasAgentRequestResultSerializer,
             403: OpenApiResponse(description="Agent requests are not declared or the caller is a sandbox."),
-            409: OpenApiResponse(description="The canvas has no authoring task."),
+            409: OpenApiResponse(description="The canvas has no authoring task, or the authoring task is done."),
             429: OpenApiResponse(
                 description=(
                     "The request was denied for compute: the team's quota is exhausted (retry later), "
@@ -1841,23 +1847,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             viewer_prompt=payload.validated_data["prompt"],
             acting_user_id=self._request_user_id(),
         )
-        if outcome == "not_found":
-            return Response(
-                {"detail": "The authoring task for this canvas no longer exists."},
-                status=status.HTTP_409_CONFLICT,
-            )
-        if outcome == "organization_deactivated":
-            return Response(
-                {
-                    "detail": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake."
-                },
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-        if outcome == "quota_exhausted":
-            return Response(
-                {"detail": "The team's compute quota is exhausted; retry later."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+        if (rejection := _authoring_task_rejection(outcome)) is not None:
+            return rejection
         self._log_canvas_activity(
             canvas,
             "agent_requested",

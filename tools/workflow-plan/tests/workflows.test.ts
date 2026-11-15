@@ -593,6 +593,36 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('CI workflow run plans', () => {
     it.each([
+        ['MCP-only PR', pullRequest(), 'false', 'false', '2', 2, 'success', false],
+        ['MCP-only fork PR', pullRequest({ fork: true }), 'false', 'false', '2', 2, 'success', false],
+        ['Rust CLI change', pullRequest(), 'true', 'false', '2', 2, 'success', true],
+        ['missing filter output', pullRequest(), '', '', '', 2, 'success', true],
+        ['missing unmatched output', pullRequest(), 'false', '', '2', 2, 'success', true],
+        ['newline input with rename', pullRequest(), 'false', 'true', '3', 3, 'success', true],
+        ['newline rename source', pullRequest(), 'false', 'true', '2', 2, 'success', true],
+        ['newline rename destination', pullRequest(), 'false', 'true', '2', 2, 'success', true],
+        ['incomplete file list', pullRequest(), 'false', 'false', '1', 2, 'success', true],
+        ['API file cap', pullRequest(), 'false', 'false', '3000', 3000, 'success', true],
+        ['failed detector', pullRequest(), '', '', '', 2, 'failure', true],
+        ['merge queue', mergeQueue(), 'true', 'false', '2', 2, 'success', false],
+    ] as const)('CLI Rust checks retain coverage (%s)', (name, github, rust, unmatched, count, changedFiles, outcome, runs) => {
+        const event = github.event as Record<string, JsonValue>
+        const plan = planWorkflow(workflow('ci-cli.yml'), {
+            name,
+            github: {
+                ...github,
+                event: { ...event, pull_request: { ...(event.pull_request as object), changed_files: changedFiles } },
+            },
+            steps: { changes: { filter: { outcome, outputs: { rust, unmatched_paths: unmatched, all_count: count } } } },
+        })
+        expect(plan.errors).toEqual([])
+        for (const job of ['tests', 'clippy', 'format']) {
+            expect(runningJobs(plan).includes(job)).toBe(runs)
+        }
+        expect(runningJobs(plan).includes('api-cli-release-bundle')).toBe(name !== 'merge queue')
+    })
+
+    it.each([
         ['success', 'true', 'success', 0],
         ['success', 'true', 'skipped', 1],
         ['success', 'true', 'failure', 1],
@@ -1182,6 +1212,29 @@ describe('CI workflow run plans', () => {
         })
         expect(plan.errors).toEqual([])
         expect(plan.jobs.affected?.steps.find((step) => step.name === 'Resolve the changed files')?.runs).toBe(runs)
+    })
+
+    it.each([
+        ['PR', pullRequest(), 'false', 'success', false],
+        ['fork', pullRequest({ fork: true }), 'false', 'success', false],
+        ['merge queue', mergeQueue(), 'false', 'success', false],
+        ['schedule cache miss', schedule(), 'false', 'success', true],
+        ['schedule cache hit', schedule(), 'true', 'success', false],
+        ['schedule formatting failure', schedule(), 'false', 'failure', false],
+    ] as const)('Node Prettier cache write on %s', (name, github, cacheHit, outcome, runs) => {
+        const plan = planWorkflow(workflow('ci-nodejs.yml'), {
+            name,
+            github,
+            steps: {
+                changes: { filter: pathsFilter({ nodejs: true }) },
+                lint: {
+                    'prettier-cache': { outputs: { 'cache-hit': cacheHit } },
+                    'Check formatting with prettier': { outcome },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.lint?.steps.find((step) => step.name === 'Save Prettier cache')?.runs).toBe(runs)
     })
 
     it.each([

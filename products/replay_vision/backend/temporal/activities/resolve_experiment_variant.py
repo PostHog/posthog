@@ -35,6 +35,10 @@ _MAX_DESCRIPTION_CHARS = 2_000
 @activity.defn
 @track_activity()
 async def resolve_experiment_variant_activity(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariantOutput:
+    return await resolve_experiment_variant(inputs)
+
+
+async def resolve_experiment_variant(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariantOutput:
     return await database_sync_to_async(_resolve, thread_sensitive=False)(inputs)
 
 

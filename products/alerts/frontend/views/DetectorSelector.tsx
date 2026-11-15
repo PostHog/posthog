@@ -13,6 +13,7 @@ import {
     EnsembleDetectorConfig,
     EnsembleOperator,
     EnsembleSubDetectorConfig,
+    ForecastDetectorConfig,
     HBOSDetectorConfig,
     IQRDetectorConfig,
     IsolationForestDetectorConfig,
@@ -309,7 +310,7 @@ function EnsembleConfig({
 
     const getEnsembleDefault = (type: string): EnsembleSubDetectorConfig => {
         const defaultConfig = defaults[type]
-        return defaultConfig && defaultConfig.type !== DetectorType.LLM
+        return defaultConfig && defaultConfig.type !== DetectorType.LLM && defaultConfig.type !== DetectorType.FORECAST
             ? defaultConfig
             : getDefaultZScoreDetectorConfig(getDefaultWindow(calculationInterval))
     }
@@ -398,7 +399,7 @@ function EnsembleConfig({
                     <SingleDetectorConfigSection
                         config={detector}
                         onChange={(updated) => {
-                            if (updated.type !== DetectorType.LLM) {
+                            if (updated.type !== DetectorType.LLM && updated.type !== DetectorType.FORECAST) {
                                 handleDetectorChange(index, updated)
                             }
                         }}
@@ -515,9 +516,9 @@ function SingleDetectorConfigSection({
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
                 />
             )}
-            {/* The AI detector reads the series as it is, so it has no preprocessing to configure:
-                differencing or smoothing would hide the shape it is meant to judge. */}
-            {config.type !== 'llm' && (
+            {/* The AI and forecast detectors read the series as it is, so they have no preprocessing to
+                configure: differencing or smoothing would hide the shape they are meant to read. */}
+            {config.type !== 'llm' && config.type !== 'forecast' && (
                 <PreprocessingSection
                     config={config}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
@@ -900,8 +901,8 @@ function PreprocessingSection({
     config,
     onChange,
 }: {
-    // The AI detector has no preprocessing to configure, so it never reaches this section.
-    config: Exclude<SingleDetectorConfig, LLMDetectorConfig>
+    // The AI and forecast detectors have no preprocessing to configure, so they never reach this section.
+    config: Exclude<SingleDetectorConfig, LLMDetectorConfig | ForecastDetectorConfig>
     onChange: (config: SingleDetectorConfig) => void
 }): JSX.Element {
     const preprocessing = config.preprocessing ?? {}

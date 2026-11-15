@@ -153,6 +153,34 @@ describe('catalogTablesLogic', () => {
         })
     })
 
+    describe('schema load', () => {
+        it('requests the schema without columns, because the tables list reads none', async () => {
+            const schemaQueries: Record<string, unknown>[] = []
+            useMocks(
+                catalogMocks({
+                    tables: {},
+                    checks: { results: [], count: 0 },
+                    extra: {
+                        post: {
+                            '/api/projects/:team_id/query/:query_kind/': async ({ request }) => {
+                                const body = (await request.json()) as { query: Record<string, unknown> }
+                                schemaQueries.push(body.query)
+                                return [200, { tables: {}, joins: [] }]
+                            },
+                        },
+                    },
+                })
+            )
+            initKeaTests()
+            logic = catalogTablesLogic()
+            logic.mount()
+
+            await waitFor(() => expect(logic.values.rowsLoaded).toBe(true))
+            expect(schemaQueries.length).toBeGreaterThan(0)
+            expect(new Set(schemaQueries.map((query) => query.includeFields))).toEqual(new Set([false]))
+        })
+    })
+
     describe('proposal review', () => {
         const sourceTable = (id: string, name: string): Record<string, unknown> => ({
             type: 'data_warehouse',
@@ -179,9 +207,16 @@ describe('catalogTablesLogic', () => {
             created_at: '2026-11-01T00:00:00Z',
         })
         let reviewRequests: string[]
+        let schemaQueries: Record<string, unknown>[]
 
         beforeEach(async () => {
             reviewRequests = []
+            schemaQueries = []
+            const tables = {
+                'stripe.charges': sourceTable('table-charges', 'stripe.charges'),
+                'stripe.refunds': sourceTable('table-refunds', 'stripe.refunds'),
+                'stripe.customers': sourceTable('table-customers', 'stripe.customers'),
+            }
             const proposals = [
                 proposal('cert-charges', 'table-charges', 'certified'),
                 proposal('cert-refunds', 'table-refunds', 'deprecated'),
@@ -194,11 +229,7 @@ describe('catalogTablesLogic', () => {
                 }
             useMocks(
                 catalogMocks({
-                    tables: {
-                        'stripe.charges': sourceTable('table-charges', 'stripe.charges'),
-                        'stripe.refunds': sourceTable('table-refunds', 'stripe.refunds'),
-                        'stripe.customers': sourceTable('table-customers', 'stripe.customers'),
-                    },
+                    tables,
                     checks: {
                         results: [
                             check('charges-check', 'table-charges', 'stripe.charges', 'passed'),
@@ -209,6 +240,11 @@ describe('catalogTablesLogic', () => {
                     certifications: proposals,
                     extra: {
                         post: {
+                            '/api/projects/:team_id/query/:query_kind/': async ({ request }) => {
+                                const body = (await request.json()) as { query: Record<string, unknown> }
+                                schemaQueries.push(body.query)
+                                return [200, { tables, joins: [] }]
+                            },
                             '/api/projects/:team_id/data_catalog/certifications/:id/certify/': record(
                                 'certify',
                                 'certified'
@@ -255,6 +291,9 @@ describe('catalogTablesLogic', () => {
 
             logic.actions.reviewProposals(['table:table-charges'], 'reject', 'inline')
             await waitFor(() => expect(certificationOf('table:table-charges')).toBeNull())
+
+            await waitFor(() => expect(schemaQueries.length).toBeGreaterThan(1))
+            expect(new Set(schemaQueries.map((query) => query.includeFields))).toEqual(new Set([false]))
         })
 
         it('bulk accept reviews only the selected rows that have a pending proposal', async () => {
@@ -288,6 +327,37 @@ describe('catalogTablesLogic', () => {
 
             await waitFor(() => expect(qualityLogic.values.checkedRows.map((row) => row.name)).toEqual(expectedNames))
             expect(router.values.searchParams.table).toEqual(table)
+            qualityLogic.unmount()
+        })
+
+        it('the data quality section narrows by search and by failing checks, and counts each scope', async () => {
+            router.actions.push(urls.dataCatalog(), { tab: 'data-quality' })
+            const qualityLogic = catalogDataQualityLogic()
+            qualityLogic.mount()
+            await waitFor(() => expect(qualityLogic.values.checkedRows).toHaveLength(2))
+
+            qualityLogic.actions.setScope('failing')
+            expect(qualityLogic.values.shownRows.map((row) => row.name)).toEqual(['mrr'])
+
+            qualityLogic.actions.setSearch('CHARGES')
+            expect(qualityLogic.values.scopeCounts).toEqual({ all: 1, failing: 0 })
+            expect(qualityLogic.values.shownRows).toEqual([])
+            qualityLogic.unmount()
+        })
+
+        it('the data quality section ignores search and Failing while a link shows one table', async () => {
+            router.actions.push(urls.dataCatalog(), { tab: 'data-quality' })
+            const qualityLogic = catalogDataQualityLogic()
+            qualityLogic.mount()
+            await waitFor(() => expect(qualityLogic.values.checkedRows).toHaveLength(2))
+            qualityLogic.actions.setSearch('mrr')
+            qualityLogic.actions.setScope('failing')
+
+            router.actions.push(urls.dataCatalog(), { tab: 'data-quality', table: 'stripe.charges' })
+
+            await waitFor(() =>
+                expect(qualityLogic.values.shownRows.map((row) => row.name)).toEqual(['stripe.charges'])
+            )
             qualityLogic.unmount()
         })
     })

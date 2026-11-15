@@ -12,7 +12,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
-from products.experiments.backend.health.context import HealthContext, load_health_context
+from products.experiments.backend.health.context import HealthContext, flag_calls_readable, load_health_context
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
@@ -123,7 +123,10 @@ def _health_context(
 ) -> HealthContext:
     flag_history = load_flag_history(experiment, reader_access=reader_access)
     context = load_health_context(
-        experiment, flag_history=flag_history, can_read_flag_history=reader_access.can_read_flag_history
+        experiment,
+        flag_history=flag_history,
+        can_read_flag_history=reader_access.can_read_flag_history,
+        can_read_flag_calls=flag_calls_readable(reader_access),
     )
     traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
     latest_calculation = load_latest_calculation(experiment)

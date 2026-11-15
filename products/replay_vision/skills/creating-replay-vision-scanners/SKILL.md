@@ -6,7 +6,7 @@ description: "Guides agents through creating and safely sizing a Replay Vision s
 # Creating Replay Vision scanners
 
 A scanner is a standing LLM probe over session recordings. Once created and enabled, it runs on a
-**Temporal schedule that sweeps every 5 minutes**, applying its prompt to each new matching recording and
+**Temporal schedule that sweeps as often as every 5 minutes**, applying its prompt to each new matching recording and
 recording the result as an observation (a queryable `$recording_observed` event). Each observation spends
 **credits** (1 credit = $0.01) from the org's budget for the current billing period, and an observation's
 price depends on the scanner's `model` — so size spend in credits, and convert any observation count a user gives you into credits at that model's price.
@@ -61,7 +61,7 @@ default — unknown keys are rejected too).
 
 If the user's intent makes the type and prompt obvious, just proceed — don't interrogate them.
 When they only have a goal ("find where users get stuck in onboarding"), `vision-scanners-draft` drafts the type, config, query, model and sampling for you to review; it saves nothing.
-Ask the user how much it should use, and offer both choices: free (`free_only: true`, runs only on the organization's free monthly credits and never adds to the bill) or a monthly credit budget they name. Never invent a budget. Pass the draft's `free_only` and `credit_limit` on to `vision-scanners-create`.
+Ask the user how much it should use, and offer both choices: free (`free_only: true`, runs only on the organization's free monthly credits and never adds to the bill, and stops when they run out) or a monthly credit budget they name. Never invent a budget. Pass the draft's `free_only` and `credit_limit` on to `vision-scanners-create`.
 
 ### Step 2: Which sessions?
 

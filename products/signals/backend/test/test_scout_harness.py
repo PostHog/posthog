@@ -42,6 +42,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.daily_limit import DailyReportLimitGate
@@ -138,7 +139,7 @@ async def aorganization():
         is_ai_data_processing_approved=True,
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -153,7 +154,7 @@ async def ateam(aorganization, request: pytest.FixtureRequest):
     # `canonical=True` skips the sync DB resolution lookup (illegal from async).
     with team_scope(team.id, canonical=True):
         yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest_asyncio.fixture
@@ -1346,6 +1347,8 @@ class TestPromptBuilder(BaseTest):
         # reference must survive in the signal tail.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        # A signal-channel scout authors no reports, so it has no discussions to read.
+        assert "scout-report-discussions-list" not in prompt
         # The fleet-seams section is shared across both channels, but each tail is assembled by
         # its own code path, so assert it on both to catch a drop from either list.
         assert "Working alongside the rest of the fleet" in prompt
@@ -1545,6 +1548,7 @@ class TestPromptBuilder(BaseTest):
         # Steering notes are prior context on the report channel too.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        assert "scout-report-discussions-list" in prompt
         # Fleet seams too — the report tail is built by `_report_tail_sections`, a separate list
         # from the signal tail, so it can lose the shared section independently.
         assert "Working alongside the rest of the fleet" in prompt
@@ -2978,10 +2982,10 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
                 model="claude-opus-5", runtime_adapter="claude", reasoning_effort="high", service_tier="priority"
             ),
             AgentRuntime(runtime_adapter="claude", model="claude-opus-5", reasoning_effort="high"),
-            "gpt-6-luna",
+            "gpt-5.6-luna",
             "codex",
             None,
-            None,
+            "flex",
             "active",
         ),
         (

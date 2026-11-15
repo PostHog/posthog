@@ -13,6 +13,7 @@ from posthog.dataclasses import frozen
 from products.messaging.backend.facade.transactional_email import (
     PIPELINE_ADDRESS_PATTERN,
     AttachmentNotUploaded,
+    EmailTracking,
     MessageTooLarge,
 )
 from products.messaging.backend.presentation.views.refusals import ExplainedRefusal
@@ -36,9 +37,13 @@ BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
         "vxd", "ws", "wsc", "wsf", "wsh", "xll", "xnk",
     }
 )  # fmt: skip
-MIME_TYPE_WITHOUT_PARAMETERS = re.compile(
-    r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}"
-)
+_MIME_TYPE = r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}"
+_TOKEN = r"[!#$%&'*+.0-9A-Z^_`a-z{|}~-]+"
+_QUOTED_STRING = r'"(?:[ !#-\[\]-~]|\\[ -~])*"'
+_PARAMETER = rf" *; *({_TOKEN}) *= *(?:{_TOKEN}|{_QUOTED_STRING})"
+MIME_TYPE_WITH_PARAMETERS = re.compile(rf"{_MIME_TYPE}(?:{_PARAMETER})*")
+MIME_PARAMETER = re.compile(_PARAMETER)
+FILE_NAME_PARAMETERS = frozenset({"name", "filename"})
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
 ADDRESS_FIELDS = ("cc", "bcc")
@@ -83,6 +88,61 @@ class AddressListField(serializers.ListField):
         return super().to_internal_value([data] if isinstance(data, str) else data)
 
 
+TRACKING_KINDS = ("opens", "clicks", "engagement")
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "boolean"},
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "opens": {
+                        "type": "boolean",
+                        "description": "Whether PostHog adds its open pixel to the email. Defaults to true.",
+                    },
+                    "clicks": {
+                        "type": "boolean",
+                        "description": "Whether the email's links go through a redirect that counts clicks. "
+                        "Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with "
+                        "`data-ph-no-track` keeps its own address.",
+                    },
+                    "engagement": {
+                        "type": "boolean",
+                        "description": "Whether the email's engagement events (sent, delivered, opened, clicked, "
+                        "bounced) are captured as analytics events of the recipient. Defaults to true.",
+                    },
+                },
+            },
+        ]
+    }
+)
+class EmailTrackingField(serializers.Field):
+    default_error_messages = {
+        "unknown_kind": "`tracking` takes `opens`, `clicks` and `engagement`.",
+        "clicks_need_opens": "Click tracking needs open tracking. Turn on `opens`, or turn off `clicks`.",
+    }
+
+    def to_internal_value(self, data: Any) -> EmailTracking:
+        if isinstance(data, Mapping):
+            if any(kind not in TRACKING_KINDS for kind in data):
+                self.fail("unknown_kind")
+            tracking = EmailTracking(
+                **{kind: serializers.BooleanField().to_internal_value(on) for kind, on in data.items()}
+            )
+        else:
+            on = serializers.BooleanField().to_internal_value(data)
+            tracking = EmailTracking(opens=on, clicks=on, engagement=on)
+        if tracking.clicks and not tracking.opens:
+            self.fail("clicks_need_opens")
+        return tracking
+
+    def to_representation(self, value: EmailTracking) -> dict[str, bool | None]:
+        return {"opens": value.opens, "clicks": value.clicks, "engagement": value.engagement}
+
+
 class EmailAttachmentSerializer(serializers.Serializer):
     sha256 = serializers.RegexField(
         SHA256_HEX,
@@ -96,7 +156,9 @@ class EmailAttachmentSerializer(serializers.Serializer):
     content_type = serializers.CharField(
         required=False,
         max_length=SES_ATTACHMENT_HEADER_MAX_LENGTH,
-        help_text="MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.",
+        help_text="MIME type of the file, such as `application/pdf`, with any parameters, such as "
+        "`text/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` "
+        "parameter is refused, because the file name comes from `filename`.",
     )
     content_id = serializers.CharField(
         required=False,
@@ -128,8 +190,14 @@ class EmailAttachmentSerializer(serializers.Serializer):
         return filename
 
     def validate_content_type(self, content_type: str) -> str:
-        if not MIME_TYPE_WITHOUT_PARAMETERS.fullmatch(content_type):
-            raise serializers.ValidationError("Enter a MIME type, such as `application/pdf`.", code="not_mime_type")
+        if not MIME_TYPE_WITH_PARAMETERS.fullmatch(content_type) or any(
+            parameter.group(1).lower().split("*")[0] in FILE_NAME_PARAMETERS
+            for parameter in MIME_PARAMETER.finditer(content_type)
+        ):
+            raise serializers.ValidationError(
+                "Enter a MIME type, such as `application/pdf` or `text/calendar; method=REQUEST`.",
+                code="not_mime_type",
+            )
         return content_type
 
     def validate_content_id(self, content_id: str) -> str:
@@ -227,8 +295,10 @@ _REASONS_BY_CODE = {
         fix="Send only the file name, such as `invoice.pdf`.",
     ),
     "not_mime_type": Reason(
-        why="The MIME type goes into the email's headers, so it must be a type and a subtype only.",
-        fix="Send a type such as `application/pdf`, or leave `content_type` out.",
+        why="The MIME type goes into the email's headers, so it must be a type and a subtype, optionally followed "
+        "by `; key=value` parameters, with no line breaks. The file name comes from `filename`, so a `name` or "
+        "`filename` parameter is refused.",
+        fix="Send a type such as `application/pdf` or `text/calendar; method=REQUEST`, or leave `content_type` out.",
     ),
     "unsafe_content_id": Reason(
         why="The Content-ID header wraps the ID in angle brackets, so brackets inside the ID break the `cid:` "

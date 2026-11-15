@@ -1,9 +1,10 @@
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo, useState } from 'react'
 
 import { IconFlag } from '@posthog/icons'
-import { Badge, Button, Card, DataTable, Skeleton, Text } from '@posthog/quill'
+import { Badge, Button, Card, DataTable, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -17,11 +18,13 @@ import { ReleaseAutoImport } from './ReleaseAutoImport'
 import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFilters'
 import { ReleaseImportFailedNotice } from './ReleaseImportFailedNotice'
 import { releaseImportLogic } from './releaseImportLogic'
+import { ReleaseListSkeleton } from './ReleaseListSkeleton'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleasesGate } from './ReleasesGate'
 import { ReleaseRow, STAGE_LABEL, STAGE_TONE } from './releaseUtils'
+import { useInfiniteRows } from './useInfiniteRows'
 
 export const scene: SceneExport = {
     component: ReleaseList,
@@ -120,9 +123,39 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
     },
 ]
 
+function sortValue(row: ReleaseRow, columnId: string): string {
+    const column = COLUMNS.find((item) => item.id === columnId)
+    if (column && 'accessorFn' in column && column.accessorFn) {
+        return String(column.accessorFn(row, 0) ?? '')
+    }
+    if (column && 'accessorKey' in column && column.accessorKey) {
+        return String(row[column.accessorKey as keyof ReleaseRow] ?? '')
+    }
+    return ''
+}
+
+function sortRows(rows: ReleaseRow[], sorting: SortingState): ReleaseRow[] {
+    if (!sorting.length) {
+        return rows
+    }
+    return [...rows].sort((a, b) => {
+        for (const sort of sorting) {
+            const order = sortValue(a, sort.id).localeCompare(sortValue(b, sort.id), undefined, { numeric: true })
+            if (order) {
+                return sort.desc ? -order : order
+            }
+        }
+        return 0
+    })
+}
+
 function ReleaseListContent(): JSX.Element {
     const { filteredRows, dataLoading, loadFailed, releases } = useValues(releaseLogic)
     const { showAutoImport } = useValues(releaseImportLogic)
+    const [sorting, setSorting] = useState<SortingState>([])
+    const sortedRows = useMemo(() => sortRows(filteredRows, sorting), [filteredRows, sorting])
+    const { visible, sentinel } = useInfiniteRows(sortedRows.length)
+    const shownRows = useMemo(() => sortedRows.slice(0, visible), [sortedRows, visible])
 
     return (
         <SceneContent>
@@ -145,13 +178,14 @@ function ReleaseListContent(): JSX.Element {
                 ) : showAutoImport ? (
                     <ReleaseAutoImport />
                 ) : dataLoading && !filteredRows.length ? (
-                    <Skeleton className="h-64 w-full" />
+                    <ReleaseListSkeleton />
                 ) : (
                     <Card size="sm" flush className="pt-0" data-attr="release-table">
                         <DataTable
                             columns={COLUMNS}
-                            pageSize={50}
-                            data={filteredRows}
+                            data={shownRows}
+                            sorting={sorting}
+                            onSortingChange={setSorting}
                             fullWidth
                             size="sm"
                             onRowClick={(row) => router.actions.push(urls.release(row.id))}
@@ -163,6 +197,7 @@ function ReleaseListContent(): JSX.Element {
                                 </Text>
                             }
                         />
+                        {visible < filteredRows.length && <div ref={sentinel} />}
                     </Card>
                 )}
                 <NewReleaseDialog />

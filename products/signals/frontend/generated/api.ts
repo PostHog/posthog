@@ -29,6 +29,7 @@ import type {
     ForgetRequestApi,
     ForgetResponseApi,
     InboxOnboardingDraftApi,
+    InboxOnboardingExposureApi,
     InboxOnboardingStateApi,
     InboxSummaryApi,
     LighthouseAuditRequestApi,
@@ -77,6 +78,7 @@ import type {
     ScoutMetadataApi,
     ScoutNoteApi,
     ScoutNoteCreateRequestApi,
+    ScoutReportDiscussionApi,
     ScoutRubricDocumentApi,
     ScoutRubricGenerateApi,
     ScoutRubricSaveApi,
@@ -184,6 +186,7 @@ import type {
     SignalsScoutProjectProfileGetParams,
     SignalsScoutReportCheckListParams,
     SignalsScoutReportChecksListParams,
+    SignalsScoutReportDiscussionsListParams,
     SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
     SignalsScoutRunsRecentEmissionsParams,
@@ -469,11 +472,14 @@ export const getSignalsOnboardingExposeCreateUrl = (projectId: string) => {
 
 export const signalsOnboardingExposeCreate = async (
     projectId: string,
+    inboxOnboardingExposureApi?: InboxOnboardingExposureApi,
     options?: RequestInit
 ): Promise<InboxOnboardingStateApi> => {
     return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingExposeCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboxOnboardingExposureApi),
     })
 }
 
@@ -2639,6 +2645,40 @@ export const signalsScoutProjectProfileGet = async (
     options?: RequestInit
 ): Promise<ProjectProfileApi> => {
     return apiMutator<ProjectProfileApi>(getSignalsScoutProjectProfileGetUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutReportDiscussionsListUrl = (
+    projectId: string,
+    params?: SignalsScoutReportDiscussionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/report_discussions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/report_discussions/`
+}
+
+/**
+ * Return the discussions people opened with Ask AI or in a report's Slack thread on inbox reports your scout emitted or edited, newest first, each with the latest summary of the conversation and its outcome. Callable only from a scout run, which is read from the run's credential.
+ * @summary List discussions on your scout's reports
+ */
+export const signalsScoutReportDiscussionsList = async (
+    projectId: string,
+    params?: SignalsScoutReportDiscussionsListParams,
+    options?: RequestInit
+): Promise<ScoutReportDiscussionApi[]> => {
+    return apiMutator<ScoutReportDiscussionApi[]>(getSignalsScoutReportDiscussionsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

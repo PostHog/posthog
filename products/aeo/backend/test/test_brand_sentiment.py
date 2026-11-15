@@ -88,11 +88,10 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
     await sync_to_async(_age)(checks["no_brand_backlog"], 20)
     await sync_to_async(_age)(checks["too_old"], 31)
     classify = MagicMock(
-        return_value=[
-            _result(positive=0.9, neutral=0.08, negative=0.02),
-            _result(positive=0.05, neutral=0.15, negative=0.8),
-            _result(positive=0.75, neutral=0.2, negative=0.05),
-            _result(positive=0.1, neutral=0.85, negative=0.05),
+        side_effect=[
+            [_result(positive=0.9, neutral=0.08, negative=0.02)],
+            [_result(positive=0.05, neutral=0.15, negative=0.8), _result(positive=0.75, neutral=0.2, negative=0.05)],
+            [_result(positive=0.1, neutral=0.85, negative=0.05)],
         ]
     )
 
@@ -107,9 +106,11 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
         )
 
     assert result == {"scored": 3, "answers": 3}
-    classify.assert_called_once_with(
-        ["Example is fast.", "Example is slow.", "Still, Example is cheap.", "Example elsewhere."]
-    )
+    assert [call.args[0] for call in classify.call_args_list] == [
+        ["Example is fast."],
+        ["Example is slow.", "Still, Example is cheap."],
+        ["Example elsewhere."],
+    ]
 
     def sentiments() -> dict[str, tuple[str | None, float | None]]:
         with team_scope(team.pk):
@@ -130,6 +131,57 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
         "too_old": (None, None),
         "stale_key": (None, None),
     }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_pass_without_a_run_scores_the_whole_recent_backlog(settings) -> None:
+    team = await sync_to_async(_team)()
+    await sync_to_async(create_own_brand)(team, "example.com")
+    _, checks = await sync_to_async(_seed_run)(team)
+    await sync_to_async(_age)(checks["other_run"], 10)
+    await sync_to_async(_age)(checks["too_old"], 31)
+    classify = MagicMock(side_effect=lambda texts: [_result(positive=0.6, neutral=0.3, negative=0.1) for _ in texts])
+
+    with patch("posthog.temporal.ai_observability.sentiment.model.classify", classify):
+        result = await ActivityEnvironment().run(
+            classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=None)
+        )
+
+    assert result == {"scored": 3, "answers": 3}
+    assert [sentence for call in classify.call_args_list for sentence in call.args[0]] == [
+        "Example elsewhere.",
+        "Example is fast.",
+        "Example is slow.",
+        "Still, Example is cheap.",
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_pass_that_runs_out_of_time_keeps_the_scores_it_finished(settings) -> None:
+    team = await sync_to_async(_team)()
+    await sync_to_async(create_own_brand)(team, "example.com")
+    _, checks = await sync_to_async(_seed_run)(team)
+    await sync_to_async(_age)(checks["other_run"], 10)
+    classify = MagicMock(side_effect=lambda texts: [_result(positive=0.6, neutral=0.3, negative=0.1) for _ in texts])
+
+    with (
+        patch("posthog.temporal.ai_observability.sentiment.model.classify", classify),
+        patch(f"{_MODULE}.SCORING_BUDGET", dt.timedelta(0)),
+    ):
+        result = await ActivityEnvironment().run(
+            classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=None)
+        )
+
+    assert result == {"scored": 1, "answers": 1}
+
+    def labels() -> dict[str, str | None]:
+        with team_scope(team.pk):
+            rows = AEOCitationCheck.objects.in_bulk([checks[name].id for name in ("other_run", "praise")])
+        return {name: rows[checks[name].id].brand_sentiment for name in ("other_run", "praise")}
+
+    assert await sync_to_async(labels)() == {"other_run": "positive", "praise": None}
 
 
 @pytest.mark.django_db(transaction=True)
@@ -188,14 +240,11 @@ class _StubEngine:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "enabled, record, expected_starts",
-    [(True, True, 1), (False, True, 0), (True, False, 0)],
-    ids=["on", "off", "dry_run"],
+    "record, expected_starts",
+    [(True, 1), (False, 0)],
+    ids=["recording", "dry_run"],
 )
-def test_runner_starts_the_sentiment_workflow_only_when_enabled_and_recording(
-    settings, enabled: bool, record: bool, expected_starts: int
-) -> None:
-    settings.AEO_BRAND_SENTIMENT_ENABLED = enabled
+def test_runner_starts_the_sentiment_workflow_only_when_recording(settings, record: bool, expected_starts: int) -> None:
     team = _team()
     create_own_brand(team, "example.com")
     upsert_prompts(team, [PromptCandidate(text="q?", source="imported")])
@@ -209,4 +258,4 @@ def test_runner_starts_the_sentiment_workflow_only_when_enabled_and_recording(
         start = connect.return_value.start_workflow
         start.assert_called_once()
         assert start.call_args.kwargs["id"] == f"aeo-brand-sentiment-{team.id}-{summary.run_id}"
-        assert start.call_args.kwargs["task_queue"] == settings.LLMA_EVALS_TASK_QUEUE
+        assert start.call_args.kwargs["task_queue"] == settings.AEO_TASK_QUEUE

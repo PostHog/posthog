@@ -145,7 +145,7 @@ export const dataCatalogAgentSyncLogic = kea<dataCatalogAgentSyncLogicType>([
             }
             certificationsLogic.actions.loadCertifications()
             if (reloadDatabase) {
-                certificationsLogic.actions.loadDatabase({ force: true })
+                certificationsLogic.actions.refreshDatabaseSchema()
             }
         },
         relationshipsChanged: async ({ toolName }, breakpoint) => {

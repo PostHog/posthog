@@ -27,6 +27,7 @@ from products.data_modeling.backend.facade.api import (
     MaterializationRanRecentlyError,
     MaterializationRunDirection,
     SavedQueryFrequencyBounds,
+    UnknownNodeError,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     apply_saved_query_frequency_target,
@@ -44,8 +45,10 @@ from products.data_modeling.backend.facade.api import (
     saved_query_pin_preview,
     saved_query_target_bounds,
     scheduled_cadences_by_node,
+    set_watching,
     suspension_state,
     unsuspend_nodes,
+    watched_node_ids,
     write_node_description,
 )
 from products.data_modeling.backend.facade.contracts import NodeDescription, NodeDescriptionTarget
@@ -78,6 +81,7 @@ CADENCE_CHOICES = [NEVER] + [
     sync_frequency_interval_to_sync_frequency(bucket) for bucket in sorted(SCHEDULABLE_BUCKETS)
 ]
 PIN_NEEDS_A_CADENCE = "Pick how often this view refreshes before pinning it."
+WATCH_DENIED = "You need access to this view or table to watch it."
 
 
 class NodeSuspensionSerializer(serializers.Serializer):
@@ -88,6 +92,10 @@ class NodeSuspensionSerializer(serializers.Serializer):
 
 class NodeResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the node was not suspended to begin with.")
+
+
+class NodeWatchingSerializer(serializers.Serializer):
+    watching = serializers.BooleanField(help_text="Whether you now get failure notifications for this node.")
 
 
 class NodeRunSerializer(serializers.Serializer):
@@ -201,6 +209,7 @@ class NodeListSerializer(serializers.ListSerializer):
         nodes = list(data.all() if isinstance(data, models.Manager) else data)
         # Load every description for the page at once, to avoid one annotation query per node.
         cast(NodeSerializer, self.child).preload_descriptions(nodes)
+        cast(NodeSerializer, self.child).preload_watching(nodes)
         return super().to_representation(nodes)
 
 
@@ -245,6 +254,7 @@ class NodeSerializer(serializers.ModelSerializer):
     lineage_issue = serializers.SerializerMethodField(read_only=True)
     origin = serializers.SerializerMethodField(read_only=True)
     warehouse_table_id = serializers.SerializerMethodField(read_only=True)
+    watching = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Node
@@ -274,6 +284,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "pinned",
             "suspended",
             "endpoint",
+            "watching",
         ]
         read_only_fields = [
             "description_source",
@@ -290,6 +301,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "lineage_issue",
             "origin",
             "warehouse_table_id",
+            "watching",
         ]
 
     @extend_schema_field(
@@ -382,6 +394,23 @@ class NodeSerializer(serializers.ModelSerializer):
     def get_warehouse_table_id(self, node: Node) -> str | None:
         table_id = parse_warehouse_table_id(node.properties)
         return str(table_id) if table_id else None
+
+    @extend_schema_field(
+        serializers.BooleanField(
+            help_text="Whether you get failure notifications for this node. The creator of a view watches it "
+            "until they unwatch it, and anyone else watches it after they watch it."
+        )
+    )
+    def get_watching(self, node: Node) -> bool:
+        if node.id not in getattr(self, "_watching_checked_node_ids", ()):
+            # A detail response has no list serializer to preload this one node.
+            self.preload_watching([node])
+        return node.id in self._watched
+
+    def preload_watching(self, nodes: list[Node]) -> None:
+        read_watched = self.context.get("read_watched_node_ids")
+        self._watched = read_watched([node.id for node in nodes]) if read_watched else frozenset()
+        self._watching_checked_node_ids = {node.id for node in nodes}
 
     def preload_descriptions(self, nodes: list[Node]) -> None:
         read_descriptions = self.context.get("read_node_descriptions")
@@ -597,6 +626,18 @@ def _node_queryset_with_latest_job() -> models.QuerySet:
     return _annotate_latest_job(Node.objects.select_related("saved_query", "dag").all())
 
 
+_LAST_RUN_FAILED = models.Q(_latest_job_status=DataModelingJob.Status.FAILED) | models.Q(
+    _latest_job_status__isnull=True, properties__system__last_run_status=DataModelingJob.Status.FAILED
+)
+_SERVING_SUSPENDED = models.Q(properties__system__suspended__has_key=DataModelingJobEngine.CLICKHOUSE)
+
+
+class NodeAttentionCountSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        help_text="Models whose last serving run failed or whose scheduled runs are suspended, each counted once."
+    )
+
+
 class LineageResponseSerializer(serializers.Serializer):
     nodes = NodeSerializer(many=True, help_text="Every node reachable from the requested one, plus the node itself.")
     edges = EdgeSerializer(many=True, help_text="Every edge between two of those nodes.")
@@ -624,7 +665,12 @@ class NodeViewSet(
             **super().get_serializer_context(),
             "hidden_node_types": self._hidden_node_types(),
             "read_node_descriptions": self._readable_node_descriptions,
+            "read_watched_node_ids": self._watched_among,
         }
+
+    def _watched_among(self, node_ids: list[UUID]) -> frozenset[UUID]:
+        """Which of these nodes the caller watches, in one query for the whole page."""
+        return watched_node_ids(self.team_id, self.request.user.pk, node_ids)
 
     def _readable_node_descriptions(self, nodes: list[Node]) -> dict[UUID, NodeDescription]:
         """Descriptions of the nodes this caller may read, by the same rule that names them."""
@@ -780,6 +826,10 @@ class NodeViewSet(
         return response.Response(serializer.data)
 
     def safely_get_queryset(self, queryset):
+        if self.action == "unwatch":
+            # Hidden nodes stay unwatchable, so someone who lost access to a metric or view can still opt out.
+            # `set_watching` rejects a deleted view.
+            return queryset.filter(team_id=self.team_id)
         return _annotate_latest_job(self._exclude_hidden_nodes(queryset.filter(team_id=self.team_id))).order_by(
             self.ordering
         )
@@ -906,6 +956,14 @@ class NodeViewSet(
             LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=self.get_serializer_context()).data
         )
 
+    @extend_schema(responses={200: NodeAttentionCountSerializer})
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def attention_count(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """How many of the models the list shows have failed their last run or are suspended."""
+        self._require_warehouse_access(level="viewer", message=_READ_DENIED)
+        count = self.get_queryset().filter(_LAST_RUN_FAILED | _SERVING_SUSPENDED).count()
+        return response.Response(NodeAttentionCountSerializer({"count": count}).data)
+
     @extend_schema(
         request=None,
         responses={
@@ -969,3 +1027,45 @@ class NodeViewSet(
         resumed = unsuspend_nodes([node], by="api")
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=None, responses={200: NodeWatchingSerializer})
+    @action(methods=["POST"], detail=True)
+    def watch(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """Get failure notifications for this node. Watching a node you already watch changes nothing."""
+        self._require_warehouse_access(level="viewer", message=_READ_DENIED)
+        node = self.get_object()
+        self._require_node_read_access(node)
+        return self._set_node_watching(node, req, watching=True)
+
+    @extend_schema(request=None, responses={200: NodeWatchingSerializer})
+    @action(methods=["POST"], detail=True)
+    def unwatch(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """Stop getting failure notifications for this node, including the ones you get as its creator."""
+        # No read check here, and `safely_get_queryset` keeps hidden nodes, so someone who lost access
+        # to a view or metric can still turn its notifications off.
+        node = self.get_object()
+        return self._set_node_watching(node, req, watching=False)
+
+    def _require_node_read_access(self, node: Node) -> None:
+        """Watching a view or table means getting its failure details, so it needs the same read access as naming it."""
+        target = _description_target(node)
+        if target.saved_query_id is None and target.warehouse_table_id is None:
+            return  # a metric or a PostHog table: any caller who can reach the node can read it
+        readable = self._readable_resources(
+            {str(target.saved_query_id)} if target.saved_query_id else set(),
+            {target.warehouse_table_id} if target.warehouse_table_id else set(),
+        )
+        if target.saved_query_id:
+            can_read = str(target.saved_query_id) in readable.saved_query_ids
+        else:
+            can_read = target.warehouse_table_id in readable.warehouse_table_ids
+        if not can_read:
+            raise PermissionDenied(WATCH_DENIED)
+
+    def _set_node_watching(self, node: Node, req: request.Request, *, watching: bool) -> response.Response:
+        try:
+            set_watching(self.team_id, node.id, cast(User, req.user).pk, watching)
+        except UnknownNodeError:
+            # The node's view was deleted, or the node was deleted, after this request found it.
+            raise NotFound()
+        return response.Response({"watching": watching}, status=status.HTTP_200_OK)

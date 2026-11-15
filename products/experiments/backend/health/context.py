@@ -26,6 +26,7 @@ from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.property import operator_is_negative
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
@@ -34,9 +35,11 @@ from products.event_definitions.backend.models import PropertyDefinition, effect
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthReaderAccess,
 )
 from products.experiments.backend.facade.daily_calculation import daily_calculation_end, is_past_daily_calculation
 from products.experiments.backend.facade.enums import ExposuresPath
+from products.experiments.backend.health.bucketing_changes import GroupTypeNames
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
@@ -71,7 +74,8 @@ from products.feature_flags.backend.facade.flags import get_organization_flag_ev
 
 # A change of the flag after launch that can move exposed people. A new kind needs its class in the flags facade
 # (`facade/edits.py`), its member in this union, an `ExperimentHealthFlagChangeKind`, its read and its set-back
-# question in `exposure_gate.py`, its row in `inputs_payload.py`, and its check.
+# question in `exposure_gate.py`, its row in `inputs_payload.py`, its words in `_described`
+# (`checks/flag_change_findings.py`), and its check.
 FlagChange = SplitChange | BucketingChange | ConditionsChange
 
 
@@ -103,6 +107,7 @@ class FlagHistory:
     team_timezone: str
     # Every change of every kind, in time order.
     changes: tuple[FlagChange, ...]
+    group_type_names: GroupTypeNames
     # The time of the first change, of any kind, with an exposure before it or an unknown answer. Every change
     # from then on counts. None when nobody was exposed before any change.
     counted_since: datetime | None
@@ -160,6 +165,7 @@ class FlagHistoryNotChecked:
     team_timezone: str
     # Every change since launch, in time order. Empty for NO_HISTORY_ACCESS, which does not read them.
     changes: tuple[FlagChange, ...]
+    group_type_names: GroupTypeNames
 
     def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
         return changes_of_kind(self.changes, kind)
@@ -225,6 +231,9 @@ class ConditionSetTraffic:
     # SDK, from the start of the flag-state check's grace period after `since`. Such a call comes from a bootstrap or
     # from the customer's own code, so it can serve a variant that the flag's release conditions don't.
     people_assigned_outside: int
+    # Whether the counts leave out the calls that the project's filter for internal and test users excludes, because
+    # the experiment applies that filter.
+    filters_test_accounts: bool = False
 
 
 @frozen
@@ -586,6 +595,9 @@ class HealthContext:
     archived: bool
     team_timezone: str
     flag: FlagState | None
+    # Whether the reader may read the flag's recorded calls, by `flag_calls_readable`. When False, the `flag_called*`
+    # fields and `flag_last_called_at` are None.
+    can_read_flag_calls: bool
     # Whether PostHog has recorded a call of the flag. None when the experiment has no flag, or when PostHog can't
     # record the calls of this organization's flags.
     flag_called: bool | None
@@ -606,6 +618,10 @@ class HealthContext:
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
+    # Whether capture drops the project's events now, because the organization reached its billing limit for events.
+    # None when not read: it is read only for a running experiment without exposures, because a limit in force now
+    # says nothing about an earlier run. Also None when the read fails.
+    events_billing_limited: bool | None
     # The baseline set in the experiment's settings. None when unset: the analysis then picks a variant of the flag.
     baseline_variant_key: str | None
     primary_metric_count: int
@@ -832,6 +848,24 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     if now - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
         return None
     return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _events_billing_limited(experiment: Experiment) -> bool | None:
+    # Deferred because ee is optional, and the billing module imports the usage report stack. A build without ee has
+    # no billing limits.
+    try:
+        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited  # noqa: PLC0415
+    except ImportError:
+        return False
+    try:
+        return is_team_limited(
+            experiment.team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+    except Exception as error:
+        # The exposure query builds this context, so a Redis error here would fail the exposure answer for a read
+        # that only explains one finding.
+        capture_exception(error)
+        return None
 
 
 def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
@@ -1120,16 +1154,23 @@ def _configured_baseline_variant_key(stats_config: object) -> str | None:
     return key if isinstance(key, str) and key else None
 
 
+def flag_calls_readable(reader_access: ExperimentHealthReaderAccess) -> bool:
+    # `last_called_at` and whether a flag was called come from the flag's `$feature_flag_called` events, which name
+    # the flag in `$feature_flag`. A reader gets them only when they could query those events themselves.
+    return reader_access.can_query_events and "$feature_flag" not in reader_access.denied_event_properties
+
+
 def load_health_context(
     experiment: Experiment,
     exposures: ExposureTotals | None = None,
     *,
     flag_history: FlagHistory | FlagHistoryNotChecked | None = None,
     can_read_flag_history: bool = False,
+    can_read_flag_calls: bool = False,
 ) -> HealthContext:
     links = saved_metric_links(experiment)
     shared_metric_roles = [saved_metric_link_role(link) for link in links]
-    flag_called = _flag_called(experiment)
+    flag_called = _flag_called(experiment) if can_read_flag_calls else None
     metric_events = _metric_events(experiment, links)
     exposure_events = _exposure_events(experiment)
     events_received, properties_received = _received(experiment, metric_events, exposure_events)
@@ -1143,13 +1184,21 @@ def load_health_context(
         archived=experiment.archived,
         team_timezone=experiment.team.timezone,
         flag=_load_flag_state(experiment),
+        can_read_flag_calls=can_read_flag_calls,
         flag_called=flag_called,
         flag_called_during_run=_flag_called_during_run(experiment, flag_called),
-        flag_called_after_end=_flag_called_after_end(experiment),
-        flag_last_called_at=experiment.feature_flag.last_called_at if experiment.feature_flag_id else None,
+        flag_called_after_end=_flag_called_after_end(experiment) if can_read_flag_calls else None,
+        flag_last_called_at=(
+            experiment.feature_flag.last_called_at if experiment.feature_flag_id and can_read_flag_calls else None
+        ),
         other_experiments_on_flag=_other_experiments_on_flag(experiment),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
+        ),
+        events_billing_limited=(
+            _events_billing_limited(experiment)
+            if experiment.is_running and exposures is not None and exposures.total == 0
+            else None
         ),
         baseline_variant_key=_configured_baseline_variant_key(experiment.stats_config),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),

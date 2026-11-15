@@ -246,14 +246,30 @@ def read_parquet(client, bucket: str, key: str, columns: list[str] | None = None
     return pq.read_table(pa.BufferReader(body), columns=columns)
 
 
+def _never_written(error: ClientError) -> bool:
+    return error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound")
+
+
 def read_parquet_if_exists(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table | None:
     """The object's rows, or None when it was never written."""
     try:
         return read_parquet(client, bucket, key, columns)
     except ClientError as error:
-        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+        if _never_written(error):
             return None
         raise
+
+
+def parquet_file_if_exists(client, bucket: str, key: str) -> pq.ParquetFile | None:
+    """The object for a reader that decodes it in batches, or None when it was never written. Only the
+    object's bytes are held, not its decoded rows."""
+    try:
+        body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
+    except ClientError as error:
+        if _never_written(error):
+            return None
+        raise
+    return pq.ParquetFile(pa.BufferReader(body))
 
 
 def ensure_utc(value: datetime.datetime | None) -> datetime.datetime | None:

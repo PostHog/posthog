@@ -107,6 +107,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     helpscout: IconHelpScout,
     'linkedin-ads': IconLinkedIn,
     email: IconMailjet,
+    email_sandbox: IconMailjet,
     linear: IconLinear,
     github: IconGitHub,
     gitlab: IconGitLab,
@@ -178,6 +179,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Pinterest Ads'
         case 'email':
             return 'email'
+        case 'email_sandbox':
+            return 'sandbox email'
         case 'github':
             return 'GitHub'
         case 'helpscout':

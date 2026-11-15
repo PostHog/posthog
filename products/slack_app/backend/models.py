@@ -108,6 +108,12 @@ class SlackThreadJoin(TeamScopedRootMixin, UUIDModel):
 # one-line change here, with no backfill.
 PRIVATE_CONVERSATION_TYPES = frozenset({SlackThreadTaskMapping.ConversationType.IM})
 
+# Narrower than "not private", for a reader that acts for no person, such as a Signals scout. What
+# a scout reads can reach the whole project, and only a public channel is open to every member of
+# the workspace. A private channel and a group DM have a closed membership, and a thread nobody
+# classified may be either, so only a thread known to be in a public channel qualifies.
+PUBLIC_CHANNEL_CONVERSATION_TYPES = frozenset({SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL})
+
 
 class SlackUserProfileCache(UUIDModel):
     integration = models.ForeignKey(
