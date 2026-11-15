@@ -1162,21 +1162,100 @@ class TestResponseSizeCaps:
     "stop reading at N bytes", and allocating 64 MiB per test to demonstrate it would be waste.
     """
 
-    def test_an_oversized_page_is_rejected_instead_of_buffered(self, logger: FilteringBoundLogger) -> None:
-        oversized = FakeResponse(body=b"x" * (_PAGE_CAP + 1))
+    @pytest.mark.parametrize("mode", ["full_refresh", "incremental", "collection_group"])
+    def test_an_oversized_page_is_retried_without_advancing_the_cursor(
+        self, mode: str, logger: FilteringBoundLogger
+    ) -> None:
+        documents = [firestore_document(name, {"version": {"integerValue": "42"}}) for name in ["a", "b", "c"]]
+        oversized = [FakeResponse(body=b"x" * (_PAGE_CAP + 1)) for _ in range(2)]
+        if mode == "full_refresh":
+            pages: list[Any] = [
+                {"documents": documents[:2], "nextPageToken": "page-2"},
+                {"documents": documents[2:]},
+            ]
+            resume = FirebaseResumeConfig(cursor="page-1")
+            next_resume = FirebaseResumeConfig(cursor="page-2")
+        else:
+            pages = [[{"document": document} for document in page] for page in [documents[:2], documents[2:]]]
+            value = json.dumps({"integerValue": "42"}) if mode == "incremental" else None
+            resume = FirebaseResumeConfig(cursor=firestore_document("previous")["name"], incremental_value=value)
+            next_resume = FirebaseResumeConfig(cursor=documents[1]["name"], incremental_value=value)
         session = FakeSession(
-            request_responses=[oversized],
+            request_responses=[*oversized, *(FakeResponse(payload=page) for page in pages)],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
+        manager = FakeResumeManager(resume)
+        if mode == "incremental":
+            batches = iter_firestore_documents_incremental(
+                session.as_session(),
+                token_provider(session),
+                credentials(),
+                "rooms",
+                "version",
+                IncrementalFieldType.Integer,
+                41,
+                manager,
+                logger,
+            )
+        else:
+            reader = iter_firestore_documents if mode == "full_refresh" else iter_firestore_collection_group
+            batches = reader(session.as_session(), token_provider(session), credentials(), "rooms", manager, logger)
 
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
-            with mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP):
-                with pytest.raises(FirebaseResponseTooLargeError, match=RESPONSE_TOO_LARGE_ERROR):
-                    list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
+        with (
+            mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP),
+            mock.patch(f"{_FIREBASE_MODULE}.FIRESTORE_PAGE_SIZE", 9),
+            mock.patch(f"{_FIREBASE_MODULE}.MAX_PAGES", 2),
+        ):
+            rows = next(batches)
+            assert (manager.saved, manager.cleared) == ([], False)
+            rows.extend(next(batches))
+            assert manager.saved == [next_resume]
+            with pytest.raises(StopIteration):
+                next(batches)
 
-        # Never more than one byte past the cap, and the connection is released either way.
-        assert oversized.raw.bytes_read == _PAGE_CAP + 1
-        assert oversized.closed is True
+        assert [row[FIRESTORE_ID_COLUMN] for row in rows] == ["a", "b", "c"]
+        assert manager.cleared is True
+        assert all(response.raw.bytes_read == _PAGE_CAP + 1 and response.closed for response in oversized)
+        if mode == "full_refresh":
+            requests = [kwargs["params"] for _, _, kwargs in session.requests]
+            assert [request["pageSize"] for request in requests] == [9, 4, 2, 9]
+            assert [request["pageToken"] for request in requests] == ["page-1", "page-1", "page-1", "page-2"]
+        else:
+            queries = [kwargs["json"]["structuredQuery"] for _, _, kwargs in session.requests]
+            assert [query["limit"] for query in queries] == [9, 4, 2, 9]
+            assert queries[:3] == [{**queries[0], "limit": size} for size in [9, 4, 2]]
+            assert queries[0]["startAt"]["values"][-1] == {"referenceValue": resume.cursor}
+            assert queries[3]["startAt"]["values"][-1] == {"referenceValue": next_resume.cursor}
+            if mode == "incremental":
+                assert all(query["startAt"]["values"][0] == {"integerValue": "42"} for query in queries)
+
+    def test_an_oversized_single_document_stops_retrying_without_clearing_the_checkpoint(
+        self, logger: FilteringBoundLogger
+    ) -> None:
+        oversized = [FakeResponse(body=b"x" * (_PAGE_CAP + 1)) for _ in range(2)]
+        session = FakeSession(
+            request_responses=oversized,
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        manager = FakeResumeManager(FirebaseResumeConfig(cursor="page-1"))
+
+        with (
+            mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP),
+            mock.patch(f"{_FIREBASE_MODULE}.FIRESTORE_PAGE_SIZE", 3),
+            pytest.raises(FirebaseResponseTooLargeError, match=RESPONSE_TOO_LARGE_ERROR),
+        ):
+            list(
+                iter_firestore_documents(
+                    session.as_session(), token_provider(session), credentials(), "rooms", manager, logger
+                )
+            )
+
+        assert [kwargs["params"] for _, _, kwargs in session.requests] == [
+            {"pageToken": "page-1", "pageSize": 3},
+            {"pageToken": "page-1", "pageSize": 1},
+        ]
+        assert manager.saved == []
+        assert manager.cleared is False
 
     def test_an_oversized_token_body_is_rejected(self) -> None:
         session = FakeSession(post_responses=[FakeResponse(body=b"x" * (_PAGE_CAP + 1))])

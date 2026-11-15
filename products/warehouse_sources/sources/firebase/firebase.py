@@ -627,6 +627,30 @@ def _document_cursor(document: dict[str, Any], field_name: str) -> Optional[tupl
     return value, name
 
 
+def _read_firestore_page(
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    url: str,
+    *,
+    params: Optional[dict[str, Any]] = None,
+    query: Optional[dict[str, Any]] = None,
+) -> tuple[Any, int]:
+    page_size = FIRESTORE_PAGE_SIZE
+    while True:
+        try:
+            if query is None:
+                payload = _request(session, tokens, "GET", url, params={**(params or {}), "pageSize": page_size})
+            else:
+                payload = _request(
+                    session, tokens, "POST", url, json_body={"structuredQuery": {**query, "limit": page_size}}
+                )
+            return payload, page_size
+        except FirebaseResponseTooLargeError:
+            if page_size == 1:
+                raise
+            page_size = max(1, page_size // 2)
+
+
 def iter_firestore_documents_incremental(
     session: requests.Session,
     tokens: AccessTokenProvider,
@@ -652,7 +676,6 @@ def iter_firestore_documents_incremental(
             {"field": {"fieldPath": field_name}, "direction": "ASCENDING"},
             {"field": {"fieldPath": FIRESTORE_DOCUMENT_ID_FIELD}, "direction": "ASCENDING"},
         ],
-        "limit": FIRESTORE_PAGE_SIZE,
     }
     cursor = _resume_incremental_cursor(resumable_source_manager, logger, collection_id)
 
@@ -661,18 +684,18 @@ def iter_firestore_documents_incremental(
         if cursor is not None:
             value, name = cursor
             page_query["startAt"] = {"values": [value, {"referenceValue": name}], "before": False}
-        payload = _request(session, tokens, "POST", url, json_body={"structuredQuery": page_query}) or []
+        payload, page_size = _read_firestore_page(session, tokens, url, query=page_query)
 
         # A `runQuery` stream also carries entries that only report read progress and hold no document.
         documents = [
             entry["document"]
-            for entry in payload
+            for entry in payload or []
             if isinstance(entry, dict) and isinstance(entry.get("document"), dict)
         ]
         if documents:
             yield [flatten_firestore_document(document) for document in documents]
 
-        if len(documents) < FIRESTORE_PAGE_SIZE:
+        if len(documents) < page_size:
             break
 
         cursor = _document_cursor(documents[-1], field_name)
@@ -716,10 +739,11 @@ def iter_firestore_documents(
     page_token = _resume_cursor(resumable_source_manager, logger, f"Firestore collection {collection_id}")
 
     for _ in range(MAX_PAGES):
-        params: dict[str, Any] = {"pageSize": FIRESTORE_PAGE_SIZE}
+        params: dict[str, Any] = {}
         if page_token:
             params["pageToken"] = page_token
-        payload = _request(session, tokens, "GET", url, params=params) or {}
+        payload, _ = _read_firestore_page(session, tokens, url, params=params)
+        payload = payload or {}
 
         documents = [doc for doc in payload.get("documents") or [] if isinstance(doc, dict)]
         if documents:
@@ -766,17 +790,16 @@ def iter_firestore_collection_group(
         query: dict[str, Any] = {
             "from": [{"collectionId": collection_id, "allDescendants": True}],
             "orderBy": [{"field": {"fieldPath": "__name__"}, "direction": "ASCENDING"}],
-            "limit": FIRESTORE_PAGE_SIZE,
         }
         if cursor:
             query["startAt"] = {"values": [{"referenceValue": cursor}], "before": False}
-        results = _request(session, tokens, "POST", url, json_body={"structuredQuery": query}) or []
+        results, page_size = _read_firestore_page(session, tokens, url, query=query)
 
-        documents = _run_query_documents(results)
+        documents = _run_query_documents(results or [])
         if documents:
             yield [flatten_firestore_document(document) for document in documents]
 
-        if len(documents) < FIRESTORE_PAGE_SIZE:
+        if len(documents) < page_size:
             break
         next_cursor = documents[-1].get("name")
         if not next_cursor:
