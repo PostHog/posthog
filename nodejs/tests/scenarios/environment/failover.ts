@@ -59,6 +59,17 @@ type CapacityData = { MetricDataResults: { Timestamps: string[]; Values: number[
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+// The aws CLI and the identity query can stall past any deadline, so a stop abandons the answer instead of awaiting it.
+const answerBefore = <T>(work: Promise<T>, stop: AbortSignal): Promise<T | undefined> =>
+    new Promise((resolve) => {
+        const abandon = (): void => resolve(undefined)
+        if (stop.aborted) {
+            return abandon()
+        }
+        stop.addEventListener('abort', abandon, { once: true })
+        work.then(resolve, abandon).finally(() => stop.removeEventListener('abort', abandon))
+    })
+
 export async function sqlIdentityOf(url: string): Promise<SqlIdentity> {
     const named = new URL(url)
     named.searchParams.set('application_name', `${SCENARIO_SESSION_PREFIX}failover`)
@@ -153,23 +164,23 @@ export async function failOver({
     ): Promise<boolean> => {
         const since = Date.parse(intentAt)
         const deadline = since + observeWithinMs
+        const timeout = AbortSignal.timeout(Math.max(deadline - Date.now(), 0))
+        const stop = signal ? AbortSignal.any([signal, timeout]) : timeout
         const seen = (name: ObservationName): boolean => into.some((observation) => observation.name === name)
         const record = (name: ObservationName, at: number): void => {
-            if (!seen(name) && at <= deadline) {
+            if (!seen(name) && at <= deadline && !stop.aborted) {
                 into.push({ name, at: new Date(at).toISOString() })
             }
         }
-        const timeout = AbortSignal.timeout(Math.max(deadline - Date.now(), 0))
-        const stop = signal ? AbortSignal.any([signal, timeout]) : timeout
         for (;;) {
             if (!seen('cluster_writer')) {
-                const current = await describe().catch(() => undefined)
+                const current = await answerBefore(describe(), stop)
                 if (current && writerOf(current) === to) {
                     record('cluster_writer', Date.now())
                 }
             }
             if (!seen('sql_writer')) {
-                const sql = await identity().catch(() => undefined)
+                const sql = await answerBefore(identity(), stop)
                 if (sql?.instance === to && !sql.inRecovery) {
                     record('sql_writer', Date.now())
                 }
@@ -192,15 +203,21 @@ export async function failOver({
         }
     }
 
-    const settled = async (): Promise<Cluster> => {
-        const deadline = Date.now() + observeWithinMs
-        for (;;) {
-            const current = await describe()
-            if (current.Status === 'available' || Date.now() > deadline) {
+    const settled = async (): Promise<Cluster | undefined> => {
+        const stop = AbortSignal.timeout(observeWithinMs)
+        let last: Cluster | undefined
+        while (!stop.aborted) {
+            const current = await answerBefore(describe(), stop)
+            if (stop.aborted) {
+                break
+            }
+            last = current ?? last
+            if (current?.Status === 'available') {
                 return current
             }
-            await sleep(pollMs)
+            await sleep(pollMs, undefined, { signal: stop }).catch(() => undefined)
         }
+        return last
     }
 
     const unobservedOf = (
@@ -242,8 +259,8 @@ export async function failOver({
             (released ??= (async () => {
                 try {
                     const current = await settled()
-                    if (current.Status !== 'available') {
-                        journal.releaseError = `${cluster} stayed ${current.Status} for ${observeWithinMs / 1000}s after the hold, so the fail-back did not start`
+                    if (current?.Status !== 'available') {
+                        journal.releaseError = `${cluster} stayed ${current?.Status ?? 'unanswered'} for ${observeWithinMs / 1000}s after the hold, so the fail-back did not start`
                         return
                     }
                     if (writerOf(current) === writer) {

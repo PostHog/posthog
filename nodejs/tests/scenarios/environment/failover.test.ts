@@ -4,7 +4,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
 import type { RunManifest } from '../cloud/lease'
 import type { WriterSample } from '../probe/writer-probe'
-import { FailoverOptions, failOver } from './failover'
+import { FailoverActuation, FailoverOptions, SqlIdentity, failOver } from './failover'
 
 const HOLD_MS = 30 * 60_000
 const OBSERVE_WITHIN_MS = 400
@@ -200,6 +200,56 @@ describe('pg.failover', () => {
             observations: [],
             unobserved: expect.stringMatching(/did not show cluster_writer, sql_writer, first_probe_commit/),
         })
+    })
+
+    it('counts no recovery stage seen once the hold was cancelled', async () => {
+        const run = runOf()
+        const hold = new AbortController()
+        const cancelledMidRequest = (): Promise<SqlIdentity> => {
+            const instance = run.cloud.writerOf(run.cluster)!
+            if (instance === run.reader) {
+                hold.abort()
+            }
+            return Promise.resolve({ instance, inRecovery: false })
+        }
+
+        const actuation = await failOverOn(run, { identity: cancelledMidRequest })
+
+        await expect(actuation.observed(hold.signal)).resolves.toBe(false)
+        expect(actuation.journal().observations!.map(({ name }) => name)).not.toContain('sql_writer')
+    })
+
+    it.each<[string, (actuation: FailoverActuation, stall: () => void) => Promise<unknown>, Record<string, unknown>]>([
+        [
+            'bounds an observation whose cluster read never answers',
+            (actuation, stall) => {
+                stall()
+                return actuation.observed()
+            },
+            { unobserved: expect.stringMatching(/did not show cluster_writer/) },
+        ],
+        [
+            'bounds a fail-back whose settle read never answers',
+            async (actuation, stall) => {
+                await actuation.observed(AbortSignal.abort())
+                stall()
+                await actuation.release()
+            },
+            { releaseError: expect.stringMatching(/stayed unanswered for 0\.4s after the hold/) },
+        ],
+    ])('%s', async (_story, act, journalled) => {
+        const run = runOf()
+        let stalled = false
+        const aws = {
+            call: (args: string[]): Promise<unknown> =>
+                stalled && args[1] === 'describe-db-clusters' ? new Promise(() => undefined) : run.cloud.call(args),
+            text: (args: string[]): Promise<string> => run.cloud.text(args),
+        }
+        const actuation = await failOverOn(run, { aws })
+
+        await act(actuation, () => (stalled = true))
+
+        expect(actuation.journal()).toMatchObject(journalled)
     })
 
     it.each<[string, boolean, string, Record<string, unknown>]>([
