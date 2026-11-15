@@ -40,6 +40,7 @@ from products.signals.dags.inbox_ranking.common import (
     dataset_bucket,
     dataset_unconfigured,
     owner_tags,
+    parquet_file_if_exists,
     partition_object_key,
     read_parquet_if_exists,
     s3_client,
@@ -55,7 +56,7 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
 )
 from products.signals.dags.inbox_ranking.dataset.project_vectors import CONTEXT_LABEL_COLUMNS, EMBEDDING_COLUMNS
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs, ProjectContext
-from products.signals.dags.inbox_ranking.multihead.local import REPORT_VECTOR_COLUMNS, report_vectors
+from products.signals.dags.inbox_ranking.multihead.local import report_vector_presence, report_vectors
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, project_context, report_matrix
 from products.signals.dags.inbox_ranking.nn.examples import (
     BIRTH_HORIZONS,
@@ -158,20 +159,14 @@ def _day_inputs(
 def _examples_extras(
     context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str
 ) -> Extras | None:
-    """The report vectors of dt=D for the examples step; None when the embeddings snapshot is missing.
-    The step builds no project vectors, so it reads no labels snapshot, and it keeps no Arrow table:
-    a vector column read in more than one chunk is copied into the frame, and the table would hold
-    every vector a second time."""
-    embeddings = read_parquet_if_exists(
-        client,
-        bucket,
-        partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key),
-        columns=list(REPORT_VECTOR_COLUMNS),
-    )
+    """The dt=D report-vector side input for the examples step; None when the embeddings snapshot is
+    missing. The step builds no project vectors, so it reads no labels snapshot. It only selects rows,
+    so it takes the light form that `buildable` reads and never holds the decoded vectors."""
+    embeddings = parquet_file_if_exists(client, bucket, partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key))
     if embeddings is None:
         context.log.warning(f"no {EMBEDDINGS_TABLE} snapshot for dt={partition_key}; nn skips this partition")
         return None
-    return report_vectors(embeddings)
+    return report_vector_presence(embeddings)
 
 
 @dagster.asset(
