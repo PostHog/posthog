@@ -60,13 +60,14 @@ function stackOf({
 
     const context: ValveContext = {
         teams: [OUR_TEAM],
+        commits: () => [],
         environment: {
             actuate: (action): Promise<Actuation> => {
                 if (finishesJobsFirst) {
                     jobs.splice(0)
                 }
-                if (action.kind === 'edge.fault') {
-                    return Promise.reject(new Error('this stack has no provider edge'))
+                if (action.kind === 'edge.fault' || action.kind === 'rds.failover') {
+                    return Promise.reject(new Error(`this stack does not model ${action.kind}`))
                 }
                 if (action.kind === 'pg.terminate') {
                     const dropped = Math.ceil(action.share * roleSessions)
@@ -200,6 +201,54 @@ const throttle = (rate: number, holdFor: string): ValveEntry => ({
 const RUNNING_ON_EMAIL = { name: 'running_on_queue' as const, params: { queue: 'email' as const, atLeast: 2 } }
 
 describe('valves', () => {
+    const FAILOVER: ValveEntry = { valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '0ms', for: '10ms' }
+    const PROMOTED_AT = '2026-01-05T10:15:00.000Z'
+
+    it.each<[string, () => Promise<Actuation>, Record<string, unknown>]>([
+        [
+            'records no intent for a failover its preconditions refused',
+            () => Promise.reject(new Error('pg.failover refused: the reader was above 1 ACU')),
+            { intentAt: undefined, error: 'pg.failover refused: the reader was above 1 ACU' },
+        ],
+        [
+            'takes the intent and each recovery stage from the failover it sent',
+            () =>
+                Promise.resolve({
+                    observed: () => Promise.resolve(false),
+                    release: () => Promise.resolve(),
+                    journal: () => ({
+                        intentAt: PROMOTED_AT,
+                        observations: [{ name: 'cluster_writer' as const, at: PROMOTED_AT }],
+                        unobserved: 'the reader did not show sql_writer',
+                        releaseError: 'the fail-back request was refused',
+                    }),
+                }),
+            {
+                intentAt: PROMOTED_AT,
+                observations: [{ name: 'cluster_writer', at: PROMOTED_AT }],
+                releaseError: 'the fail-back request was refused',
+                error: 'the reader did not show sql_writer',
+                appliedAt: expect.any(String),
+                releasedAt: expect.any(String),
+            },
+        ],
+    ])('%s', async (_story, actuate, recorded) => {
+        const valves = createValves({ pollMs: 5 })
+        const { context } = stackOf()
+
+        await valves.start([FAILOVER], { ...context, environment: { actuate } })
+
+        await waitForExpect(
+            () =>
+                expect(valves.timeline()).toEqual([
+                    { valve: 'pg.failover', target: 'cyclotron', requestedAt: expect.any(String), ...recorded },
+                ]),
+            2000,
+            5
+        )
+        await valves.releaseAll()
+    })
+
     it('kills the role an entry names once its offset passes, and records every step', async () => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()

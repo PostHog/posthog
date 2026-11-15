@@ -461,14 +461,17 @@ export interface Runner {
 }
 ```
 
+- **Run id.** A fresh UUID per run, or the `runId` of the run manifest at `SCENARIO_RUN_MANIFEST` on a run host, which then runs one card.
 - **One process per invocation.** The Environment is an in-memory object that supervises the role processes, so `up`, every `run` and `down` happen in the one `main.ts run` process. Runs on one stack are sequential.
 - **Order.** `run` calls `reset`, `seed`, `Judge.open`, then `drive` and `Valves.start` together, `Valves.releaseAll`, `converge`, `check` and `measure`, writes the evidence, and publishes the scorecard.
 - **A failed reset stops the environment.** Later cards of the same invocation are skipped; run the command again.
 - **Seeding is bounded.** `seed` runs on its own Postgres pool with a 5-second statement timeout and must finish within 60 seconds. When the bound passes or the run is interrupted, the runner destroys the pool's connections and requires a restart, as a write already sent may still land in the next card.
 - **Status rules.**
-  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, a valve was applied and never released, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so each of these outranks a failed invariant, except a valve that was never observed.
+  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), the Cyclotron writer was interrupted without a valve, a valve was never observed, a valve was applied and never released or did not fail back, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so each of these outranks a failed invariant, except a valve that was never observed.
   - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
     An unexplained exit, a failed invariant or a stack that did not converge outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
+    An exit while a database valve (`postgres` or `cyclotron`) was applied still fails the run, and its reason names that valve.
+  - **Cyclotron interrupted without a valve.** The writer probe failing 5 times in a row, or once with a SQLSTATE of class `08` or `57P01`, in a write that ended before the first valve's intent or began after the drive and every release ended. A failure inside a valve's phases belongs to the valve and is measured, not judged. An isolated timeout is not an interruption.
   - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back. A run interrupted after the capture keeps the status's code. Evidence files that could not be written make the run `invalid`, exit 2.
 
@@ -588,13 +591,15 @@ export type ValveContext = {
   environment: Pick<Environment, 'actuate'>
   probe: Pick<CyclotronProbe, 'runningJobs'>
   teams: number[]
+  commits: () => readonly WriterSample[] // the writer probe's samples so far
 }
 
 export type ValveDefinition = Definition & {
   // Definition holds the name and the params schema
   target: z.ZodType<string>
   strandsRunningJobs: boolean // re-check `when` after apply
-  apply(context: ValveContext, target: string, dose: unknown): Promise<Actuation>
+  journalsIntent?: true // the actuation records its own intent, right before its request
+  apply(context: ValveContext, target: string, dose: unknown, holdMs: number): Promise<Actuation>
 }
 
 export interface Valves {
@@ -609,6 +614,7 @@ export interface Valves {
 | `role.kill`           | a role              | none                                                 | `actuate`, `kill`         |
 | `role.freeze`         | a role              | none                                                 | `actuate`, `freeze`       |
 | `pg.drop_connections` | `postgres`          | `share`                                              | `actuate`, `pg.terminate` |
+| `pg.failover`         | `cyclotron`         | none                                                 | `actuate`, `rds.failover` |
 | `dest.status`         | `hooks.example.com` | `code` from 400 to 599, with a `count` or a `share`  | `actuate`, `edge.fault`   |
 | `ses.throttle`        | `ses`               | `rate` per second                                    | `actuate`, `edge.fault`   |
 | `ses.reject`          | `ses`               | `type` `rejected` or `bounce`; `share`, 1 by default | `actuate`, `edge.fault`   |
@@ -617,6 +623,11 @@ export interface Valves {
 - **Holds.** Every valve's `for` starts once `apply` returns, on one timer. The hold's signal aborts when that timer passes or the drive ends; observation waits on the same signal, and the valve releases once it aborts. So a `10s` hold lasts about 10 seconds however long observation took.
 - **Observation.** Each entry must be observed within its valve's window, or the timeline records an error and the run is `invalid`, unless an unexplained exit, a failed invariant or a stack that did not converge already fails it. A broken harness never reads as a passing engine. An edge fault counts as observed only when the edge answered a request with it inside its 10-second window, so a hold shorter than the window ends observation sooner.
 - **Release.** An applied entry that is never released makes the run `invalid`. An entry that was never applied has nothing to release.
+- **`pg.failover`** runs only on a run host: without `SCENARIO_RUN_MANIFEST` it throws, so the run is `invalid`. It acts only on the manifest's run cluster, `scn-<run id>`, through the `aws` port.
+  - **Preconditions.** The caller is in the manifest's account, the lease outlasts the hold plus the fail-back deadline, the cluster is `available`, carries `scenario-run=<run id>` and has exactly two members, the run's writer, still writing, and its reader, and the reader's last five complete one-minute `ServerlessDatabaseCapacity` maxima are each 1 ACU, the newest ended at most 3 minutes ago. A failed precondition throws before any request, so the timeline records no intent.
+  - **Apply.** It records `intentAt` right before one `failover-db-cluster` request to the reader, sent once with no retry. A response lost in transit is observed, never resent.
+  - **Observation.** Three instants, each in the entry's `observations`: the control plane shows the reader as writer (`cluster_writer`), the pooler's SQL session reaches the reader out of recovery (`sql_writer`), and the writer probe commits its first row on the reader (`first_probe_commit`). A commit that still lands on the old writer does not count. The card measures each as `seconds_to_<name>` from the intent.
+  - **Release.** A fail-back to the original writer under the same load, unless it already writes, with its own `releaseIntentAt` and `releaseObservations`. The fail-back phase starts at `releaseIntentAt`. A fail-back that is refused or not observed is recorded as `releaseError` and makes the run `invalid`.
 - **Adding a valve** is one `ValveDefinition`. Cards name valves, never backends.
 
 ### Generator

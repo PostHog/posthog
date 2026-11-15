@@ -21,6 +21,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { residentBacklogOf } from '../backlog/backlog'
 import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
+import { runManifestOf } from '../cloud/lease'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
 import { nameOf } from '../environment/identity'
@@ -99,10 +100,15 @@ type Outcome = Pick<
     'status' | 'statusReason' | 'units' | 'convergence' | 'invariants' | 'measurements' | 'admissions'
 >
 
-type Probes = { stop(): Promise<Probed> }
+type Probes = { commits(): readonly WriterSample[]; stop(): Promise<Probed> }
 
-async function startProbes(cyclotronUrl: string, probe: CyclotronProbe, teams: number[]): Promise<Probes> {
-    const writerProbe: WriterProbe = await createWriterProbe(cyclotronUrl)
+async function startProbes(
+    cyclotronUrl: string,
+    probe: CyclotronProbe,
+    teams: number[],
+    aurora: boolean
+): Promise<Probes> {
+    const writerProbe: WriterProbe = await createWriterProbe(cyclotronUrl, { aurora })
     const writer: Sampling<WriterSample> = sampleEvery(WRITER_PROBE_EVERY_MS, () => writerProbe.sample())
     const queue: Sampling<QueueSample> = sampleEvery(QUEUE_PROBE_EVERY_MS, async () => {
         const at = Date.now()
@@ -113,6 +119,7 @@ async function startProbes(cyclotronUrl: string, probe: CyclotronProbe, teams: n
     })
     let stopping: Promise<Probed> | undefined
     return {
+        commits: () => writer.taken(),
         stop: () =>
             (stopping ??= (async () => {
                 const [writerSamples, queueSamples] = await Promise.all([writer.stop(), queue.stop()])
@@ -281,7 +288,9 @@ export function createRunner(
     { seedWithinMs = SEED_WITHIN_MS }: RunnerOptions = {}
 ): Runner {
     const stateDir = defaultStateDir(env)
+    const manifest = runManifestOf(env)
     let restartRequired: Error | undefined
+    let ranManifest = false
 
     return {
         async up() {
@@ -293,7 +302,13 @@ export function createRunner(
                 throw restartRequired
             }
             const { card, profile } = loaded
-            const runId = randomUUID()
+            if (manifest && ranManifest) {
+                throw new Error(
+                    `This runner already ran run ${manifest.runId} from its run manifest; a run host runs one card per manifest.`
+                )
+            }
+            ranManifest = manifest !== undefined
+            const runId = manifest?.runId ?? randomUUID()
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
             const edgeUrl = environment.edgeUrl()
@@ -366,9 +381,14 @@ export function createRunner(
                 sampler = await startSampler(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
-                probes = await startProbes(cyclotronUrlOf(specs[0]), probe, seeded.teamIds)
+                probes = await startProbes(cyclotronUrlOf(specs[0]), probe, seeded.teamIds, manifest !== undefined)
                 const driveStartedAt = Date.now()
-                await valves.start(card.valves, { environment, probe, teams: seeded.teamIds })
+                await valves.start(card.valves, {
+                    environment,
+                    probe,
+                    teams: seeded.teamIds,
+                    commits: probes.commits,
+                })
                 const sesFeedback = await watchSesFeedback({
                     edgeUrl,
                     lag: () => environment.groupLag(SES_WEBHOOKS_GROUP),
@@ -411,6 +431,8 @@ export function createRunner(
                     invariants,
                     timeline: valves.timeline(),
                     exits: environment.exits().slice(exitsBefore),
+                    writer: probed.writer,
+                    drive: driveWindow,
                 })
                 outcome = { ...verdict, units, convergence, invariants, measurements, admissions }
                 if (signal.aborted) {

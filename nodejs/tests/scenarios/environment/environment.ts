@@ -7,7 +7,11 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { Profile, ROLE_RESTART_BACKOFF_MS } from '../cards'
+import { Aws, awsCli } from '../cloud/aws'
+import { runManifestOf } from '../cloud/lease'
+import type { WriterSample } from '../probe/writer-probe'
 import { FaultHold, FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
+import { FailoverJournal, failOver, sqlIdentityOf } from './failover'
 import { nameOf } from './identity'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import {
@@ -63,8 +67,9 @@ export type Action =
     | { kind: 'freeze'; role: Role }
     | { kind: 'pg.terminate'; share: number }
     | { kind: 'edge.fault'; rule: FaultRule }
+    | { kind: 'rds.failover'; holdMs: number; commits: () => readonly WriterSample[] }
 
-export type Actuation = FaultHold
+export type Actuation = FaultHold & { journal?(): FailoverJournal }
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
@@ -105,6 +110,7 @@ export type EnvironmentOptions = {
     postgresUrl: string
     sesRateLimiterValkey: { host: string; port: number }
     roleHealthyWithinMs: number
+    aws: Aws
 }
 
 export function createEnvironment({
@@ -113,6 +119,7 @@ export function createEnvironment({
     postgresUrl = STACK.postgresUrl,
     sesRateLimiterValkey = STACK.sesRateLimiterValkey,
     roleHealthyWithinMs = ROLE_HEALTHY_WITHIN_MS,
+    aws,
 }: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
     let stateDir = defaultStateDir(env)
@@ -127,6 +134,7 @@ export function createEnvironment({
     })
     let edge: ProviderEdge | undefined
     let postgresServers = [postgresUrl]
+    let cyclotronUrl = STACK.cyclotronNodeUrl
     let releaseLock: (() => Promise<void>) | undefined
     let running: RoleId[] = roleIdsOf()
 
@@ -187,6 +195,19 @@ export function createEnvironment({
                 }
                 case 'edge.fault':
                     return startedEdge('actuate').hold(action.rule)
+                case 'rds.failover': {
+                    const manifest = runManifestOf(env)
+                    if (manifest === undefined) {
+                        throw new Error('pg.failover runs only on a run host')
+                    }
+                    return failOver({
+                        aws: aws ?? awsCli(env),
+                        manifest,
+                        holdMs: action.holdMs,
+                        commits: action.commits,
+                        identity: () => sqlIdentityOf(cyclotronUrl),
+                    })
+                }
             }
         },
 
@@ -224,7 +245,8 @@ export function createEnvironment({
         )
         edge.clearFaults()
         postgresServers = postgresServersOf(specs[0], postgresUrl)
-        await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
+        cyclotronUrl = cyclotronUrlOf(specs[0])
+        await deleteUnfinishedJobs(cyclotronUrl)
         await forgetSesBucket(sesRateLimiterValkey)
         for (const group of groups) {
             await seekToEnd(group, docker)
@@ -313,6 +335,7 @@ export function createEnvironment({
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs
         postgresServers = postgresServersOf(specs[0], postgresUrl)
+        cyclotronUrl = cyclotronUrlOf(specs[0])
         const api = specs.filter((spec) => spec.role === 'cdp-api')
         const others = specs.filter((spec) => spec.role !== 'cdp-api')
         await supervisor.start(api)

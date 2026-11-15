@@ -206,6 +206,37 @@ describe('runner', () => {
         ])
     })
 
+    it('runs one card under the run id of its run manifest', async () => {
+        const runId = '6b0c8f4e-2d1a-4c55-9a7e-1f3b5d7e9a2c'
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: '2026-01-05T16:00:00.000Z',
+            })
+        )
+        const onHost = createRunner(environment, {
+            ...process.env,
+            XDG_CACHE_HOME: cacheHome,
+            DATABASE_URL: PROCESS_DATABASE_URL,
+            SCENARIO_RUN_MANIFEST: manifest,
+            ...api.credentials,
+        })
+        const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+
+        const result = await onHost.run(loaded, NEVER_ABORTED)
+
+        expect(result).toMatchObject({ runId, evidenceDir: path.join(stateDir, runId) })
+        expect(api.captured.map(({ properties }) => properties.run_id)).toEqual([runId])
+        await expect(onHost.run(loaded, NEVER_ABORTED)).rejects.toThrow(
+            `This runner already ran run ${runId} from its run manifest; a run host runs one card per manifest.`
+        )
+    })
+
     it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
         let onDisk: unknown
         api.onCapture = ({ properties }) => {

@@ -5,7 +5,9 @@ import type { Definition } from '../cards/definitions'
 import { CdpRole, ValveEntry } from '../cards/schema'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
+import type { Observation } from '../environment/failover'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
+import type { WriterSample } from '../probe/writer-probe'
 import { SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
 import { ruleOf } from '../provider-edge/faults'
 
@@ -13,12 +15,14 @@ export type ValveContext = {
     environment: Pick<Environment, 'actuate'>
     probe: Pick<CyclotronProbe, 'runningJobs'>
     teams: number[]
+    commits: () => readonly WriterSample[]
 }
 
 export type ValveDefinition = Definition & {
     target: z.ZodType<string>
     strandsRunningJobs: boolean
-    apply(context: ValveContext, target: string, dose: unknown): Promise<Actuation>
+    journalsIntent?: true
+    apply(context: ValveContext, target: string, dose: unknown, holdMs: number): Promise<Actuation>
 }
 
 export type ValveTimelineEntry = {
@@ -29,6 +33,10 @@ export type ValveTimelineEntry = {
     appliedAt?: string
     observedAt?: string
     releasedAt?: string
+    observations?: Observation[]
+    releaseIntentAt?: string
+    releaseObservations?: Observation[]
+    releaseError?: string
     error?: string
 }
 
@@ -111,7 +119,25 @@ export const sesReject: ValveDefinition = {
     },
 }
 
-export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections, destStatus, sesThrottle, sesReject]
+export const pgFailover: ValveDefinition = {
+    name: 'pg.failover',
+    params: z.object({}).strict(),
+    target: z.literal('cyclotron'),
+    strandsRunningJobs: false,
+    journalsIntent: true,
+    apply: ({ environment, commits }, _target, _dose, holdMs) =>
+        environment.actuate({ kind: 'rds.failover', holdMs, commits }),
+}
+
+export const VALVES: ValveDefinition[] = [
+    roleKill,
+    roleFreeze,
+    pgDropConnections,
+    pgFailover,
+    destStatus,
+    sesThrottle,
+    sesReject,
+]
 
 const POLL_MS = 1000
 
@@ -164,13 +190,25 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         }
         const definition = VALVES.find(({ name }) => name === entry.valve)!
         let actuation: Actuation | undefined
+        const journal = (): void => {
+            const { unobserved, ...journalled } = actuation?.journal?.() ?? {}
+            Object.assign(record, journalled)
+            if (unobserved !== undefined) {
+                record.error = unobserved
+            }
+        }
         try {
-            record.intentAt = now()
-            actuation = await definition.apply(context, entry.target, entry.dose)
+            if (!definition.journalsIntent) {
+                record.intentAt = now()
+            }
+            actuation = await definition.apply(context, entry.target, entry.dose, durationMs(entry.for))
             record.appliedAt = now()
+            journal()
             const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
-            if (!(await actuation.observed(held))) {
-                record.error = 'applied but not observed'
+            const observed = await actuation.observed(held)
+            journal()
+            if (!observed) {
+                record.error ??= 'applied but not observed'
             } else if (
                 entry.when &&
                 definition.strandsRunningJobs &&
@@ -192,6 +230,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                 try {
                     await actuation.release()
                     record.releasedAt = now()
+                    journal()
                 } catch (error) {
                     record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
                 }

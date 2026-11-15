@@ -186,3 +186,17 @@ export async function manifestOf(controller: Controller, evidenceBucket: string,
     }
     return parsed.data as unknown as Manifest
 }
+
+const HostManifest = StoredManifest.extend({ account: z.string() })
+
+export function runManifestOf(env: NodeJS.ProcessEnv): Manifest | undefined {
+    const file = env.SCENARIO_RUN_MANIFEST
+    if (!file) {
+        return undefined
+    }
+    const parsed = HostManifest.safeParse(parseJSON(readFileSync(file, 'utf8')))
+    if (!parsed.success || parsed.data.stackName !== stackNameOf(parsed.data.runId)) {
+        throw new LeaseError(`The run manifest at ${file} does not name a run and its stack, so it is not used.`)
+    }
+    return parsed.data as unknown as Manifest
+}

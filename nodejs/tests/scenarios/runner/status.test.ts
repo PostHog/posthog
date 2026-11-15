@@ -2,6 +2,7 @@ import type { Profile } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { Baseline } from '../judge/measurements'
+import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { Admission, Verdict, admissionsOf, statusOf } from './status'
 
@@ -14,6 +15,8 @@ const HELD: Verdict = {
     invariants: [{ name: 'at_least_once', passed: true, observed: 0, unitIds: [] }],
     timeline: [],
     exits: [],
+    writer: [],
+    drive: { startedAt: Date.UTC(2026, 0, 5, 10, 0, 0), endedAt: Date.UTC(2026, 0, 5, 10, 0, 50) },
 }
 
 const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email claims 1/s, not within 10% of 4/s' }
@@ -33,6 +36,26 @@ const killed = (role: string, applied: number, released?: number): ValveTimeline
     observedAt: at(applied),
     releasedAt: released === undefined ? undefined : at(released),
 })
+
+const failedOver: ValveTimelineEntry = {
+    valve: 'pg.failover',
+    target: 'cyclotron',
+    requestedAt: at(0),
+    intentAt: at(10),
+    appliedAt: at(10),
+    observedAt: at(12),
+    releaseIntentAt: at(30),
+    releasedAt: at(32),
+}
+
+const probed = (failing: (second: number) => string | false): WriterSample[] =>
+    Array.from({ length: 56 }, (_, second) => {
+        const failure = failing(second)
+        const sample = { at: Date.parse(at(second)), monoMs: second * 1000, latencyMs: 5 }
+        return failure === false
+            ? { ...sample, ok: true }
+            : { ...sample, ok: false, ...(failure === 'timeout' ? {} : { sqlstate: failure }) }
+    })
 
 const exited = (role: Role, second: number, byValve = false, replica = 0): RoleExit => ({
     role,
@@ -145,6 +168,46 @@ describe('statusOf', () => {
             { admissions: [{ name: 'load', passed: true, reason: 'every baseline rate within 10% of its target' }] },
             'passed',
             'every invariant held',
+        ],
+        [
+            'pg.failover could not fail back',
+            {
+                timeline: [{ ...failedOver, releaseError: 'the fail-back request was refused: InternalFailure' }],
+                invariants: [BROKEN],
+            },
+            'invalid',
+            'pg.failover on cyclotron did not fail back: the fail-back request was refused: InternalFailure',
+        ],
+        [
+            'the writer probe failed five times in a row before the failover',
+            {
+                timeline: [failedOver],
+                writer: probed((second) => (second >= 3 && second <= 7 ? 'timeout' : false)),
+                invariants: [BROKEN],
+            },
+            'invalid',
+            `Cyclotron interrupted without a valve: 5 writer probes failed in a row before any valve applied, at ${at(7)}`,
+        ],
+        [
+            'the writer probe lost its connection once after the drive and the fail-back',
+            { timeline: [failedOver], writer: probed((second) => (second === 52 ? '08006' : false)) },
+            'invalid',
+            `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 08006) after the drive and every valve ended, at ${at(52)}`,
+        ],
+        [
+            'the writer probe timed out once before the failover and lost its connection during it',
+            {
+                timeline: [failedOver],
+                writer: probed((second) => (second === 3 ? 'timeout' : second >= 10 && second <= 20 ? '57P01' : false)),
+            },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role exited during the failover',
+            { timeline: [failedOver], exits: [exited(HOGFLOW_WORKER, 15)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.failover on cyclotron was applied`,
         ],
         [
             'a dependency went away',
