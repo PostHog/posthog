@@ -1,6 +1,10 @@
 version: 1
 owners: []
 rules:
+    - match:
+          - '/entitlements/'
+          - '/models/organization_entitlement_applied_state.py'
+      owners: team-billing
     - match: '/caching/'
       owners: team-analytics-platform
     - match: '/clickhouse/hcl/'
