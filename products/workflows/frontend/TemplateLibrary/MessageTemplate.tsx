@@ -180,34 +180,30 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             tabs={[
                 // Unmounting the editor would drop a canvas edit it hasn't exported yet.
                 { key: 'design', label: 'Design', content: editor, keepMounted: true },
-                transactionalHogFlowId
-                    ? {
-                          key: 'metrics',
-                          label: 'Metrics',
-                          content: <WorkflowMetrics id={transactionalHogFlowId} />,
-                      }
-                    : null,
-                transactionalHogFlowId
-                    ? {
-                          key: 'sends',
-                          label: 'Sends',
-                          content: <TransactionalEmailLog workflowId={transactionalHogFlowId} />,
-                      }
-                    : null,
-                transactionalHogFlowId
-                    ? {
-                          key: 'runs',
-                          label: 'Run logs',
-                          content: <WorkflowInvocations id={transactionalHogFlowId} />,
-                      }
-                    : null,
-                transactionalHogFlowId
-                    ? {
-                          key: 'versions',
-                          label: 'Versions',
-                          content: <WorkflowRevisions id={transactionalHogFlowId} />,
-                      }
-                    : null,
+                ...(transactionalHogFlowId
+                    ? [
+                          {
+                              key: 'metrics' as const,
+                              label: 'Metrics',
+                              content: <WorkflowMetrics id={transactionalHogFlowId} />,
+                          },
+                          {
+                              key: 'sends' as const,
+                              label: 'Sends',
+                              content: <TransactionalEmailLog workflowId={transactionalHogFlowId} />,
+                          },
+                          {
+                              key: 'runs' as const,
+                              label: 'Run logs',
+                              content: <WorkflowInvocations id={transactionalHogFlowId} />,
+                          },
+                          {
+                              key: 'versions' as const,
+                              label: 'Versions',
+                              content: <WorkflowRevisions id={transactionalHogFlowId} />,
+                          },
+                      ]
+                    : []),
                 {
                     key: 'api',
                     label: 'API',

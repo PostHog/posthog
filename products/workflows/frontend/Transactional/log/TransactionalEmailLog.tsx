@@ -226,18 +226,33 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
                         render: (_, email) => <TZLabel time={email.created_at} className="whitespace-nowrap" />,
                     },
                 ]}
-                emptyState={
-                    pageFailed
-                        ? "The log couldn't load"
-                        : filters.page > 1
-                          ? 'No more sends past this page. Go back a page to see the rest.'
-                          : isFiltered
-                            ? 'No sends match these filters'
-                            : oneEmail
-                              ? 'This email had no sends in this period. New sends show up here within a few seconds.'
-                              : 'No transactional emails sent in this period. Sends from your code show up here within a few seconds.'
-                }
+                emptyState={emptySendsMessage({ pageFailed, page: filters.page, isFiltered, oneEmail })}
             />
         </div>
     )
+}
+
+function emptySendsMessage({
+    pageFailed,
+    page,
+    isFiltered,
+    oneEmail,
+}: {
+    pageFailed: boolean
+    page: number
+    isFiltered: boolean
+    oneEmail: boolean
+}): string {
+    if (pageFailed) {
+        return "The log couldn't load"
+    }
+    if (page > 1) {
+        return 'No more sends past this page. Go back a page to see the rest.'
+    }
+    if (isFiltered) {
+        return 'No sends match these filters'
+    }
+    return oneEmail
+        ? 'This email had no sends in this period. New sends show up here within a few seconds.'
+        : 'No transactional emails sent in this period. Sends from your code show up here within a few seconds.'
 }
