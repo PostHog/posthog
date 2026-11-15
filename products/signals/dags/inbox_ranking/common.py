@@ -28,11 +28,8 @@ S3_BUCKET_ENV = "INBOX_RANKING_DATASET_S3_BUCKET"
 
 PARQUET_PART_NAME = "part-00000.parquet"
 
-# The size of each copy from the object body to the spool, and of the read buffer for a column chunk.
-# With a read buffer, the reader decodes a column chunk page by page and never loads it whole.
 _READ_CHUNK_BYTES = 8 << 20
-# Rows per decoded record batch. An embeddings row holds 1536 float32 values (6 KiB), so a batch of
-# embeddings rows stays near 100 MiB.
+# An embeddings row holds 1536 float32 values (6 KiB), so a batch of them stays near 100 MiB.
 _READ_BATCH_ROWS = 16384
 
 # Earliest label event worth reading: report-attributed pr_created starts 2026-04-20, and the
@@ -258,7 +255,7 @@ def read_parquet(
     `write_parquet` spools: the embeddings snapshot carries a 1536-float vector per live report.
     A read from the object bytes holds those bytes, the pre-buffered row group and the decoded
     table at the same time, which costs several times the table. The batch read holds the table
-    and one batch only.
+    and one batch only, and its read buffer decodes a column chunk page by page.
 
     With `skip_absent_columns`, a requested column that the object's schema does not have is left
     out instead of failing the read, because older snapshots lack the columns added later."""
