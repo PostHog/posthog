@@ -384,6 +384,44 @@ describe('pg.failover', () => {
         await expectApplied(failOverOn(run, { aws, signal: stopped.signal, observeWithinMs }))
     })
 
+    it('observes a promotion AWS accepted from its intent, while the answer to the request never arrives', async () => {
+        const run = runOf()
+        const aws = {
+            call: (args: string[]): Promise<unknown> => {
+                const answer = run.cloud.call(args)
+                return args[1] === 'failover-db-cluster' ? new Promise(() => undefined) : answer
+            },
+            text: (args: string[]): Promise<string> => run.cloud.text(args),
+        }
+
+        const actuation = await failOverOn(run, { aws })
+
+        await expect(actuation.observed()).resolves.toBe(true)
+        const { intentAt, observations } = actuation.journal()
+        const clusterWriter = observations!.find(({ name }) => name === 'cluster_writer')!
+        expect(Date.parse(clusterWriter.at) - Date.parse(intentAt!)).toBeLessThan(OBSERVE_WITHIN_MS / 2)
+    })
+
+    it('sends no failover request once the apply stopped after its last precondition read', async () => {
+        const run = runOf()
+        const stopped = new AbortController()
+        const aws = {
+            call: (args: string[]): Promise<unknown> => {
+                const answer = run.cloud.call(args)
+                if (args[0] === 'cloudwatch') {
+                    void answer.then(() => queueMicrotask(() => stopped.abort()))
+                }
+                return answer
+            },
+            text: (args: string[]): Promise<string> => run.cloud.text(args),
+        }
+
+        await expect(failOverOn(run, { aws, signal: stopped.signal })).rejects.toThrow(
+            /^pg\.failover refused: the apply stopped before the failover request was sent/
+        )
+        expect(run.cloud.promotions).toEqual([])
+    })
+
     it('counts no probe commit that ended at the intent, as a stale sample on the new writer would', async () => {
         const run = runOf()
         const throughPooler = probeThroughPooler(run)
