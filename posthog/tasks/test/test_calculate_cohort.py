@@ -1926,7 +1926,17 @@ class TestCohortCalculationTasks(APIBaseTest):
             "Check the query for a typo, such as a misspelled property name.",
         )
 
-    def test_a_resync_that_starts_after_a_replace_was_requested_writes_nothing(self) -> None:
+    @parameterized.expand(
+        [
+            ("replace_running", True),
+            # The sweep released the run and its redispatch hasn't started: a re-sync claiming the cohort here would
+            # leave it calculating with nothing running.
+            ("replace_waiting_after_a_sweep_reset", False),
+        ]
+    )
+    def test_a_resync_that_starts_after_a_replace_was_requested_writes_nothing(
+        self, _name: str, is_calculating: bool
+    ) -> None:
         # The staff re-sync dispatches without a claim and only adds members. A replace requested after it was
         # queued belongs to its own task, so the re-sync must neither run it nor touch the run's fields.
         cohort = Cohort.objects.create(
@@ -1936,7 +1946,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT id FROM persons"},
         )
         Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
+            is_calculating=is_calculating, pending_population_mode=CohortPopulationMode.REPLACE
         )
 
         with patch("products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch") as mock_insert_ch:
@@ -1946,7 +1956,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         self.assertEqual(
             (cohort.is_calculating, cohort.pending_population_mode, cohort.errors_calculating),
-            (True, CohortPopulationMode.REPLACE, 0),
+            (is_calculating, CohortPopulationMode.REPLACE, 0),
         )
         self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort).exists())
 
