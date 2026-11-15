@@ -41,6 +41,7 @@ describe('CodeEmailTabs', () => {
     let logic: ReturnType<typeof codeEmailLogic.build>
 
     let sendRequests: Record<string, string>[]
+    let sends: Record<string, string>[]
 
     const mocks = (workflow: () => [number, unknown]): Parameters<typeof useMocks>[0] => ({
         get: {
@@ -48,28 +49,13 @@ describe('CodeEmailTabs', () => {
             '/api/environments/:team_id/hog_flows/:id/': workflow,
             '/api/projects/:team_id/transactional_email_log/': ({ request }) => {
                 sendRequests.push(Object.fromEntries(new URL(request.url).searchParams))
-                return [
-                    200,
-                    {
-                        results: [
-                            {
-                                message_id: 'msg-1',
-                                recipient: 'ada@example.com',
-                                status: 'bounced',
-                                created_at: '2026-03-14T10:00:00Z',
-                            },
-                        ],
-                        has_more: false,
-                    },
-                ]
+                return [200, { results: sends, has_more: false }]
             },
         },
         post: { '/api/environments/:team_id/query/': { results: [] } },
     })
 
-    const renderTabs = (): void => {
-        sendRequests = []
-        initKeaTests()
+    const mountTabs = (): void => {
         logic = codeEmailLogic({ id: 'email-id' })
         logic.mount()
         render(
@@ -79,6 +65,27 @@ describe('CodeEmailTabs', () => {
                 </BindLogic>
             </Provider>
         )
+    }
+
+    const renderTabs = (): void => {
+        sendRequests = []
+        sends = [
+            {
+                message_id: 'msg-1',
+                recipient: 'ada@example.com',
+                status: 'bounced',
+                created_at: '2026-03-14T10:00:00Z',
+            },
+        ]
+        initKeaTests()
+        mountTabs()
+    }
+
+    // Opening the page again keeps the URL, as a reload or a saved link does.
+    const reopenTabs = (): void => {
+        cleanup()
+        logic.unmount()
+        mountTabs()
     }
 
     afterEach(() => {
@@ -122,6 +129,19 @@ describe('CodeEmailTabs', () => {
         expect(recipient.closest('a')?.getAttribute('href')).toMatch(/\/transactional\/log\/msg-1\?status=bounced$/)
     })
 
+    it('tells the reader this email had no sends, not that no sends match a filter, once its status filter is cleared', async () => {
+        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        renderTabs()
+        sends = []
+        router.actions.push(urls.transactionalCodeEmail('email-id'), { tab: 'sends', status: 'bounced' })
+        expect(await screen.findByText('No sends match these filters')).toBeInTheDocument()
+
+        router.actions.push(urls.transactionalCodeEmail('email-id'), { tab: 'sends' })
+
+        expect(await screen.findByText(/This email had no sends in this period/)).toBeInTheDocument()
+        expect(sendRequests.at(-1)).toMatchObject({ workflow_id: 'flow-id' })
+    })
+
     it('opens the run logs behind a clicked email metric on this page, also from a link opened again or saved before the Sends list, until the reader picks Sends', async () => {
         useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
         renderTabs()
@@ -130,31 +150,24 @@ describe('CodeEmailTabs', () => {
 
         fireEvent.click(await screen.findByText('3 soft bounced'))
 
-        expect(logic.values.tab).toEqual('runs')
+        expect(await screen.findByText('Re-run…')).toBeInTheDocument()
         expect(router.values.location.pathname).toEqual(page)
         expect(router.values.searchParams).toMatchObject({ inv_search: 'Transient bounce' })
 
-        cleanup()
-        logic.unmount()
-        expect(codeEmailLogic.findMounted({ id: 'email-id' })).toBeNull()
-        logic = codeEmailLogic({ id: 'email-id' })
-        logic.mount()
-        expect(logic.values.tab).toEqual('runs')
+        reopenTabs()
+        expect(await screen.findByText('Re-run…')).toBeInTheDocument()
 
-        router.actions.push(page)
-        router.actions.push(page, { tab: 'sends', inv_search: 'Transient bounce' })
-        expect(logic.values.tab).toEqual('runs')
         router.actions.push(page, { tab: 'sends', inv_search: 'Permanent bounce' })
-        expect(logic.values.tab).toEqual('runs')
+        expect(await screen.findByText('Re-run…')).toBeInTheDocument()
+        expect(screen.queryByText('ada@example.com')).not.toBeInTheDocument()
 
-        logic.actions.setTab('sends')
-        logic.unmount()
-        logic = codeEmailLogic({ id: 'email-id' })
-        logic.mount()
-        expect(logic.values.tab).toEqual('sends')
+        fireEvent.click(screen.getByText('Sends'))
+        expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
+        reopenTabs()
+        expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
 
         router.actions.push(page, { tab: 'sends', inv_search: 'Transient bounce' })
-        expect(logic.values.tab).toEqual('runs')
+        expect(await screen.findByText('Re-run…')).toBeInTheDocument()
     })
 
     it('offers no re-run of a sensitive email, whose sends keep no content', async () => {
