@@ -5,12 +5,12 @@ import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { transactionalEmailUrl } from '../transactionalEmailUrl'
 import { TransactionalEmailActivity } from './TransactionalEmailActivity'
 import { TransactionalEmailDeliveryProgress } from './TransactionalEmailDeliveryProgress'
 import { TransactionalEmailDetails } from './TransactionalEmailDetails'
@@ -33,6 +33,9 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
     // The scene binds the logic to the message ID in the URL.
     const { email, emailLoading, emailFailed } = useValues(transactionalEmailLogEntryLogic)
     const { loadEmail } = useActions(transactionalEmailLogEntryLogic)
+    const emailUrl = email
+        ? transactionalEmailUrl({ codeEmailId: email.code_email_id, templateId: email.template_id })
+        : null
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -71,11 +74,11 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
                     resourceType={{ type: 'transactional' }}
                     isLoading={!email}
                     actions={
-                        email?.template_id ? (
+                        emailUrl ? (
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                to={urls.transactionalTemplate(email.template_id)}
+                                to={emailUrl}
                                 data-attr="transactional-email-log-entry-open-template"
                             >
                                 Open email

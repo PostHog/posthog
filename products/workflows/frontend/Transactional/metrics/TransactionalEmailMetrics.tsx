@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { transactionalEmailUrl } from '../transactionalEmailUrl'
 import { TransactionalEmailMetricsDateRange } from './TransactionalEmailMetricsDateRange'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailMetricTiles } from './TransactionalEmailMetricTiles'
@@ -50,7 +49,12 @@ export function TransactionalEmailMetrics(): JSX.Element {
                     rows={templateStats}
                     loading={templateStatsLoading}
                     groupTitle="Email"
-                    linkFor={(row) => (row.label ? urls.transactionalTemplate(row.key) : null)}
+                    linkFor={(row) =>
+                        transactionalEmailUrl({
+                            codeEmailId: row.code_email_id,
+                            templateId: row.label ? row.key : null,
+                        })
+                    }
                     emptyState={emptyState}
                     dataAttr="transactional-email-metrics-by-email"
                 />

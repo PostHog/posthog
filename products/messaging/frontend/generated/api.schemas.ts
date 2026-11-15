@@ -1306,6 +1306,11 @@ export interface TransactionalEmailLogEntryApi {
     template_id: string | null
     /** The template's name. Empty when it was deleted. */
     template_name: string
+    /**
+     * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+     * @nullable
+     */
+    code_email_id: string | null
     /** The domain the email was sent from. Empty before it was sent. */
     sending_domain: string
     /** Whether the recipient opened the email. */
@@ -1397,6 +1402,11 @@ export interface TransactionalEmailLogDetailApi {
     template_id: string | null
     /** The template's name. Empty when it was deleted. */
     template_name: string
+    /**
+     * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+     * @nullable
+     */
+    code_email_id: string | null
     /** The domain the email was sent from. Empty before it was sent. */
     sending_domain: string
     /** Whether the recipient opened the email. */
@@ -1495,6 +1505,11 @@ export interface TransactionalEmailStatsRowApi {
     key: string
     /** The template name or the sending domain. Empty for a deleted template. */
     label: string
+    /**
+     * The email sent from code under a `template_key`, for a row of sends that have no template. Null otherwise.
+     * @nullable
+     */
+    code_email_id: string | null
     /** Emails that reached the email provider. */
     sent: number
     /** Emails the recipient's mail server accepted. */

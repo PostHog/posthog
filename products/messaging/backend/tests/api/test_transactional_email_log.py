@@ -27,6 +27,7 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.services.transactional_email_log import _bucket_starts
 from products.workflows.backend.facade.testing import create_workflow_for_test
+from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import destroy_workflow
 
 # `run_failed` is the failure the whole run writes, which ranks below the email step's own failure.
@@ -618,18 +619,35 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert self.client.get(self._url(f"{message_id}/activity/")).status_code == status.HTTP_403_FORBIDDEN
 
-    def test_names_a_send_from_code_by_its_template_key(self, _flag):
-        workflow_id = create_workflow_for_test(team_id=self.team.id, name="order-shipped").id
-        TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).create(
+    def test_names_a_send_from_code_by_its_template_key_and_links_its_code_email(self, _flag):
+        workflow_id = str(create_code_email_workflow(team_id=self.team.id, key="order-shipped"))
+        code_email = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).create(
             team_id=self.team.id, key="order-shipped", hog_flow_id=workflow_id
         )
-        self._send(5, "jane@example.com", [("sent", 1, "")], workflow_id=workflow_id)
+        taken_workflow_id = str(create_code_email_workflow(team_id=self.team.id, key="welcome"))
+        TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).create(
+            team_id=self.team.id, key="welcome", hog_flow_id=taken_workflow_id
+        )
+        MessageTemplate.objects.create(team=self.team, name="Welcome", key="welcome")
+        message_id = self._send(5, "jane@example.com", [("sent", 1, "")], workflow_id=workflow_id)
+        self._send(10, "john@example.com", [("sent", 1, "")])
+        self._send(15, "joe@example.com", [("sent", 1, "")], workflow_id=taken_workflow_id)
 
         listed = self.client.get(self._url()).json()["results"]
+        detail = self.client.get(self._url(f"{message_id}/")).json()
         stats = self.client.get(self._url("stats/"), {"group_by": "template"}).json()["results"]
 
-        assert [r["template_name"] for r in listed] == ["order-shipped"]
-        assert [r["label"] for r in stats] == ["order-shipped"]
+        assert [(r["template_name"], r["code_email_id"]) for r in listed] == [
+            ("order-shipped", str(code_email.id)),
+            ("Password reset", None),
+            ("welcome", None),
+        ]
+        assert (detail["code_email_id"], detail["sensitive"]) == (str(code_email.id), True)
+        assert sorted((r["label"], r["code_email_id"]) for r in stats) == [
+            ("Password reset", None),
+            ("order-shipped", str(code_email.id)),
+            ("welcome", None),
+        ]
 
     def test_no_access_to_workflows_also_hides_the_sends_of_deleted_ones(self, _flag):
         deleted_workflow = create_workflow_for_test(team_id=self.team.id, name="Old").id
