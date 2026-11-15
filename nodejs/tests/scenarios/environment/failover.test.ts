@@ -204,7 +204,7 @@ describe('pg.failover', () => {
 
     it.each<[string, boolean, string, Record<string, unknown>]>([
         [
-            'fails back a promotion that lands after its observation ended',
+            'fails back a promotion that lands while the release waits for it to settle',
             true,
             'writer',
             { releaseIntentAt: expect.any(String), releaseObservations: OBSERVED },
@@ -221,7 +221,12 @@ describe('pg.failover', () => {
         const actuation = await failOverOn(run)
         await expect(actuation.observed(AbortSignal.abort())).resolves.toBe(false)
         if (lands) {
-            run.cloud.landPromotions()
+            let describes = 0
+            run.cloud.beforeCall('describe-db-clusters', () => {
+                if (describes++ === 1) {
+                    run.cloud.landPromotions()
+                }
+            })
         }
 
         await actuation.release()
@@ -233,6 +238,25 @@ describe('pg.failover', () => {
             endsOn === 'writer' ? [run.reader, run.writer] : [run.reader]
         )
         expect(actuation.journal()).toMatchObject(journalled)
+    })
+
+    it('counts no probe commit that ended at the intent, as a stale sample on the new writer would', async () => {
+        const run = runOf()
+        const throughPooler = probeThroughPooler(run)
+        const intent: { at?: string } = {}
+        const staleAtIntent = (): WriterSample[] => [
+            ...(intent.at
+                ? [{ at: Date.parse(intent.at), monoMs: 0, ok: true, latencyMs: 0, instance: run.reader }]
+                : []),
+            ...throughPooler(),
+        ]
+        const actuation = await failOverOn(run, { commits: staleAtIntent })
+        intent.at = actuation.journal().intentAt
+
+        await expect(actuation.observed()).resolves.toBe(true)
+
+        const commit = actuation.journal().observations!.find(({ name }) => name === 'first_probe_commit')!
+        expect(Date.parse(commit.at)).toBeGreaterThan(Date.parse(intent.at!))
     })
 
     it('records a refused fail-back instead of throwing it', async () => {
