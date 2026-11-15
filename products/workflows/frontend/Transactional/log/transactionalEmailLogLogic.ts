@@ -26,8 +26,14 @@ const EMAIL_PAGE_ROUTES = [
     '/workflows/library/templates/:id',
     '/broadcasts/library/templates/:id',
 ]
-/** The filters a send's detail page carries back to the email's Sends tab. */
-export const SEND_FILTER_PARAMS = ['status', 'reason', 'date_from', 'date_to'] as const
+// The filters a send's page carries back to the email's Sends tab, each read from the listing's filters.
+const SEND_FILTER_VALUES: Record<string, (filters: TransactionalEmailLogFilters) => string | null> = {
+    status: (filters) => filters.status,
+    reason: (filters) => filters.reason,
+    date_from: (filters) => (filters.dateFrom !== DEFAULT_LOG_FILTERS.dateFrom ? filters.dateFrom : null),
+    date_to: (filters) => filters.dateTo,
+}
+export const SEND_FILTER_PARAMS = Object.keys(SEND_FILTER_VALUES)
 
 export interface TransactionalEmailLogLogicProps {
     workflowId?: string
@@ -196,17 +202,11 @@ export const transactionalEmailLogLogic = kea<transactionalEmailLogLogicType>([
             (s) => [s.filters],
             (filters: TransactionalEmailLogFilters): Record<string, string> => {
                 const searchParams: Record<string, string> = {}
-                if (filters.status) {
-                    searchParams.status = filters.status
-                }
-                if (filters.reason) {
-                    searchParams.reason = filters.reason
-                }
-                if (filters.dateFrom !== DEFAULT_LOG_FILTERS.dateFrom) {
-                    searchParams.date_from = filters.dateFrom
-                }
-                if (filters.dateTo) {
-                    searchParams.date_to = filters.dateTo
+                for (const [param, value] of Object.entries(SEND_FILTER_VALUES)) {
+                    const filterValue = value(filters)
+                    if (filterValue) {
+                        searchParams[param] = filterValue
+                    }
                 }
                 return searchParams
             },

@@ -19,7 +19,6 @@ export function transactionalEmailUrl({ codeEmailId, templateId }: EmailPage): s
     return null
 }
 
-/** The email's Sends tab, with the send filters from `searchParams` that brought the reader to one of its sends. */
 export function transactionalEmailSendsUrl(email: EmailPage, searchParams: Record<string, unknown>): string | null {
     const url = transactionalEmailUrl(email)
     if (!url) {

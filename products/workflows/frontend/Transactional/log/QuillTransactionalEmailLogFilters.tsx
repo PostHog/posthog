@@ -26,7 +26,6 @@ export function QuillTransactionalEmailLogFilters({
     emailOptions,
     statusOptions,
 }: {
-    /** Left out on one email's own Sends tab, which lists only that email. */
     emailOptions?: readonly FilterOption[]
     statusOptions: readonly FilterOption<EmailDeliveryStatusEnumApi>[]
 }): JSX.Element {

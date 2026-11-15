@@ -52,7 +52,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
                     linkFor={(row) =>
                         transactionalEmailUrl({
                             codeEmailId: row.code_email_id,
-                            templateId: row.label ? row.key : null,
+                            templateId: row.template_id,
                         })
                     }
                     emptyState={emptyState}

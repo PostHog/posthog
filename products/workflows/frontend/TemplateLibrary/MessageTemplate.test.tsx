@@ -135,7 +135,10 @@ describe('MessageTemplate', () => {
         }
     )
 
-    it("opens the sends behind a clicked email metric on the template's own Sends tab", async () => {
+    it.each([
+        ['the transactional library', urls.transactionalTemplate(TEMPLATE_ID)],
+        ['the workflows library', urls.workflowsLibraryTemplate(TEMPLATE_ID)],
+    ])("opens the sends behind a clicked email metric on the template's own Sends tab, from %s", async (_, url) => {
         const sendRequests: Record<string, string>[] = []
         useMocks({
             get: {
@@ -150,7 +153,7 @@ describe('MessageTemplate', () => {
         })
         await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
 
-        router.actions.push(urls.transactionalTemplate(TEMPLATE_ID))
+        router.actions.push(url)
         const page = router.values.location.pathname
         fireEvent.click(screen.getByText('Metrics'))
         fireEvent.click(await screen.findByText('2 hard bounced'))

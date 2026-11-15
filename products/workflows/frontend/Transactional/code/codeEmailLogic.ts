@@ -417,7 +417,9 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
     }),
     urlToAction(({ actions, values, props }) => ({
         '/transactional/code-emails/:id': ({ id }, searchParams) => {
-            const tab = CODE_EMAIL_TABS.find((known) => known === searchParams.tab) ?? 'metrics'
+            const tab = opensRunLogs(searchParams, values.tab)
+                ? 'runs'
+                : (CODE_EMAIL_TABS.find((known) => known === searchParams.tab) ?? 'metrics')
             if (id === props.id && tab !== values.tab) {
                 actions.setTab(tab)
             }
@@ -425,3 +427,13 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
     })),
     afterMount(({ actions }) => actions.loadCodeEmail()),
 ])
+
+// `tab=sends` named the run logs before this page had a list of sends, and a metric drill added `inv_` filters to it.
+// A link like that still opens the run logs, unless the reader is already on the Sends tab.
+function opensRunLogs(searchParams: Record<string, any>, shownTab: CodeEmailTab): boolean {
+    return (
+        searchParams.tab === 'sends' &&
+        shownTab !== 'sends' &&
+        Object.keys(searchParams).some((param) => param.startsWith('inv_'))
+    )
+}
