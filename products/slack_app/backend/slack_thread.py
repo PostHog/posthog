@@ -28,6 +28,7 @@ from products.slack_app.backend.logic.reply_suggestions import (
     slack_reply_attribution,
 )
 from products.slack_app.backend.services.slack_messages import (
+    SLACK_PROGRESS_MESSAGE_TS_KEY,
     RunFooter,
     app_home_url,
     context_block,
@@ -96,6 +97,7 @@ _SECTION_TEXT_LIMIT = 3000
 _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
 # Slack closed the stream, so every later append and the stop call fail the same way.
 _STREAM_ENDED_ERROR_CODE = "message_not_in_streaming_state"
+_MESSAGE_NOT_FOUND_ERROR_CODE = "message_not_found"
 
 
 class ReplyKind(StrEnum):
@@ -298,6 +300,7 @@ class SlackThreadHandler:
         # Safe to keep for the handler's life: each activity call builds a fresh handler.
         self._muted_cache: dict[tuple[str | None, bool], bool] = {}
         self.stream_ended = False
+        self.progress_message_ts = self.run_footer.progress_message_ts
 
     @classmethod
     def for_run(
@@ -495,7 +498,9 @@ class SlackThreadHandler:
         )
 
     def _find_progress_message_ts(self) -> str | None:
-        """Find existing progress message in the thread."""
+        """The progress card's ``ts``: the stored one, or a search of the thread for runs that predate storing it."""
+        if self.progress_message_ts:
+            return self.progress_message_ts
         try:
             client = self._get_client()
             bot_user_id = self._get_bot_user_id()
@@ -766,14 +771,21 @@ class SlackThreadHandler:
             progress_ts = self._find_progress_message_ts()
 
             if progress_ts:
-                client.chat_update(
-                    channel=self.context.channel,
-                    ts=progress_ts,
-                    text=text,
-                    blocks=blocks,
-                )
-            else:
-                self._post_in_thread(text=text, blocks=blocks)
+                try:
+                    client.chat_update(
+                        channel=self.context.channel,
+                        ts=progress_ts,
+                        text=text,
+                        blocks=blocks,
+                    )
+                except SlackApiError as e:
+                    if e.response.get("error") != _MESSAGE_NOT_FOUND_ERROR_CODE:
+                        raise
+                    progress_ts = None
+            if not progress_ts:
+                response = self._post_in_thread(text=text, blocks=blocks)
+                progress_ts = response.get("ts") if response else None
+            self._remember_progress_ts(progress_ts)
         except Exception as e:
             logger.exception("slack_progress_update_failed", error=str(e))
 
@@ -1019,10 +1031,33 @@ class SlackThreadHandler:
         try:
             client = self._get_client()
             progress_ts = self._find_progress_message_ts()
-            if progress_ts:
+            if not progress_ts:
+                return
+            try:
                 client.chat_delete(channel=self.context.channel, ts=progress_ts)
+            except SlackApiError as e:
+                if e.response.get("error") != _MESSAGE_NOT_FOUND_ERROR_CODE:
+                    raise
+            self._remember_progress_ts(None)
         except Exception as e:
             logger.warning("slack_delete_progress_failed", error=str(e))
+
+    def _remember_progress_ts(self, ts: str | None) -> None:
+        if ts == self.progress_message_ts:
+            return
+        self.progress_message_ts = ts
+        if not self.task_run_id:
+            return
+        # Deferred, matching `load_run_footer`.
+        from products.tasks.backend.facade.api import update_task_run_state  # noqa: PLC0415
+
+        try:
+            if ts:
+                update_task_run_state(self.task_run_id, updates={SLACK_PROGRESS_MESSAGE_TS_KEY: ts})
+            else:
+                update_task_run_state(self.task_run_id, remove_keys=[SLACK_PROGRESS_MESSAGE_TS_KEY])
+        except Exception as e:
+            logger.warning("slack_progress_ts_store_failed", run_id=self.task_run_id, error=str(e))
 
     def _delete_progress_and_post(
         self,

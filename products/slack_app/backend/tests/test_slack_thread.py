@@ -255,6 +255,50 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         mock_client.chat_delete.assert_called_once_with(channel="C001", ts="1234.9999")
 
+    @patch("products.tasks.backend.facade.api.update_task_run_state")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_stored_progress_ts_is_deleted_without_searching_the_thread(self, mock_get_client, mock_update_state):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+
+        SlackThreadHandler(context, RunFooter(run_id="run-1", progress_message_ts="1234.9999")).delete_progress()
+
+        mock_client.conversations_replies.assert_not_called()
+        mock_client.chat_delete.assert_called_once_with(channel="C001", ts="1234.9999")
+        mock_update_state.assert_called_once_with("run-1", remove_keys=["slack_progress_message_ts"])
+
+    @parameterized.expand(
+        [
+            ("no_card_yet", None, None, 1),
+            (
+                "stored_card_was_deleted",
+                "1234.1111",
+                SlackApiError("gone", {"ok": False, "error": "message_not_found"}),
+                0,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.update_task_run_state")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_progress_card_ts_is_stored_and_reused(
+        self, _name, stored_ts, update_error, expected_searches, mock_get_client, mock_update_state
+    ):
+        mock_client = MagicMock()
+        mock_client.chat_postMessage.return_value = {"ok": True, "ts": "1234.9999"}
+        mock_client.chat_update.side_effect = [update_error, None] if update_error else None
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context, RunFooter(run_id="run-1", progress_message_ts=stored_ts))
+
+        handler.post_or_update_progress("Waking up the hedgehog", task_url=None)
+        handler.post_or_update_progress("Paws on the keyboard", task_url=None)
+
+        assert mock_client.conversations_replies.call_count == expected_searches
+        mock_client.chat_postMessage.assert_called_once()
+        assert mock_client.chat_update.call_args.kwargs["ts"] == "1234.9999"
+        mock_update_state.assert_called_once_with("run-1", updates={"slack_progress_message_ts": "1234.9999"})
+
     @parameterized.expand(
         [
             ("mention_is_thread_root", "1234.5678"),
