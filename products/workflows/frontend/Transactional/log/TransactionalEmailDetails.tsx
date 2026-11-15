@@ -1,4 +1,6 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -7,7 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { TransactionalEmailLogDetailApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { transactionalEmailUrl } from '../transactionalEmailUrl'
+import { transactionalEmailSendsUrl } from '../transactionalEmailUrl'
 import { EMAIL_STATUS_DESCRIPTION, EMAIL_STATUS_LABEL, EMAIL_STATUS_TAG } from './emailLogStatus'
 
 function DetailRow({
@@ -55,7 +57,11 @@ function CopyableId({
 }
 
 export function TransactionalEmailDetails({ email }: { email: TransactionalEmailLogDetailApi }): JSX.Element {
-    const emailUrl = transactionalEmailUrl({ codeEmailId: email.code_email_id, templateId: email.template_id })
+    const { searchParams } = useValues(router)
+    const emailUrl = transactionalEmailSendsUrl(
+        { codeEmailId: email.code_email_id, templateId: email.template_id },
+        searchParams
+    )
     return (
         <section className="border rounded bg-surface-primary p-4 flex flex-col gap-3">
             <h3 className="text-sm font-semibold m-0">Details</h3>

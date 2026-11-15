@@ -36,9 +36,10 @@ export interface CodeEmailLogicProps {
     id: string
 }
 
-export type CodeEmailTab = 'metrics' | 'sends' | 'api'
+export type CodeEmailTab = 'metrics' | 'sends' | 'runs' | 'api'
 
-const CODE_EMAIL_TABS: CodeEmailTab[] = ['metrics', 'sends', 'api']
+// pinned: values of the `tab` URL search param - renaming breaks shared links
+const CODE_EMAIL_TABS: CodeEmailTab[] = ['metrics', 'sends', 'runs', 'api']
 
 export type CodeEmailLoadState = 'loading' | 'loaded' | 'not-found' | 'failed'
 
@@ -117,7 +118,7 @@ export interface codeEmailLogicActions {
     setTab: (tab: CodeEmailTab) => {
         tab: CodeEmailTab
     }
-    showSends: (searchParams: Record<string, string>) => {
+    showRuns: (searchParams: Record<string, string>) => {
         searchParams: Record<string, string>
     }
     updateCodeEmail: (fields: PatchedCodeEmailUpdateApi) => {
@@ -175,7 +176,7 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
     })),
     actions({
         setTab: (tab: CodeEmailTab) => ({ tab }),
-        showSends: (searchParams: Record<string, string>) => ({ searchParams }),
+        showRuns: (searchParams: Record<string, string>) => ({ searchParams }),
         loadCodeEmail: true,
         codeEmailLoaded: (codeEmail: CodeEmailApi) => ({ codeEmail }),
         codeEmailNotFound: true,
@@ -202,7 +203,7 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
         ],
     })),
     reducers({
-        tab: ['metrics' as CodeEmailTab, { setTab: (_, { tab }) => tab, showSends: () => 'sends' }],
+        tab: ['metrics' as CodeEmailTab, { setTab: (_, { tab }) => tab, showRuns: () => 'runs' }],
         codeEmail: [
             null as CodeEmailApi | null,
             {
@@ -416,11 +417,11 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
                     router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
                 }
             },
-            showSends: ({ searchParams }) => {
-                // The Sends tab reads its filters from the URL, so the drilldown stays on this page.
+            showRuns: ({ searchParams }) => {
+                // The Run logs tab reads its filters from the URL, so the drilldown stays on this page.
                 router.actions.replace(
                     router.values.location.pathname,
-                    { ...searchParams, tab: 'sends' },
+                    { ...searchParams, tab: 'runs' },
                     router.values.hashParams
                 )
             },

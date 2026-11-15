@@ -39,7 +39,17 @@ import { omitNullDesign } from './omitNullDesign'
 import { TemplateSection, templateLibraryUrl, templateSectionFor, templateUrlInSection } from './templateSection'
 import { MessageTemplate } from './types'
 
-export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
+export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'runs' | 'versions' | 'api'
+
+// pinned: values of the `tab` URL search param - renaming breaks shared links
+const TRANSACTIONAL_TEMPLATE_TABS: TransactionalTemplateTab[] = [
+    'design',
+    'metrics',
+    'sends',
+    'runs',
+    'versions',
+    'api',
+]
 
 type TemplateContent = MessageTemplate['content']
 
@@ -760,6 +770,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
     })),
     listeners(({ actions, props, values }) => ({
+        setTransactionalTab: ({ tab }) => {
+            const { tab: shownTab, ...searchParams } = router.values.searchParams
+            if ((shownTab ?? 'design') !== tab) {
+                const next = tab === 'design' ? searchParams : { ...searchParams, tab }
+                router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
+            }
+        },
         resourceEdited: ({ event }) => {
             if (event.resource_type === 'MessageTemplate' && event.resource_id === props.id) {
                 actions.templateEditedElsewhere(event)
@@ -1075,7 +1092,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             })
         },
     })),
-    urlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props, values }) => ({
+        '/transactional/library/templates/:id': ({ id }, searchParams) => {
+            const tab = TRANSACTIONAL_TEMPLATE_TABS.find((known) => known === searchParams.tab) ?? 'design'
+            if (id === props.id && tab !== values.transactionalTab) {
+                actions.setTransactionalTab(tab)
+            }
+        },
         // The escape hatch from the AI composer changes only the search params, so this logic sees no remount.
         [urls.workflowsLibraryTemplateNew()]: (_, searchParams) => {
             if (props.id === 'new' && !props.messageId && searchParams[EDITOR_MODE_PARAM] === EDITOR_MODE_VALUE) {

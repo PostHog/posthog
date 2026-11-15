@@ -9,12 +9,13 @@ import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.sch
 import { WorkflowInvocations } from '../../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../../Workflows/WorkflowMetrics'
+import { TransactionalEmailLog } from '../log/TransactionalEmailLog'
 import { CodeEmailApiExample } from './CodeEmailApiExample'
 import { codeEmailLogic } from './codeEmailLogic'
 
 export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.Element {
     const { tab } = useValues(codeEmailLogic)
-    const { setTab, showSends } = useActions(codeEmailLogic)
+    const { setTab, showRuns } = useActions(codeEmailLogic)
     const workflowProps = { id: codeEmail.hog_flow_id }
     const { originalWorkflow, workflowLoading } = useValues(workflowLogic(workflowProps))
     const { loadWorkflow } = useActions(workflowLogic(workflowProps))
@@ -26,7 +27,7 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
             type="error"
             action={{ children: 'Try again', onClick: () => loadWorkflow(), 'data-attr': 'code-email-workflow-retry' }}
         >
-            This email's metrics and sends couldn't load. Check your connection and try again.
+            This email's metrics and run logs couldn't load. Check your connection and try again.
         </LemonBanner>
     )
 
@@ -43,12 +44,17 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
                         content: workflowFailed ? (
                             failedBanner
                         ) : (
-                            <WorkflowMetrics id={codeEmail.hog_flow_id} onShowInvocations={showSends} />
+                            <WorkflowMetrics id={codeEmail.hog_flow_id} onShowInvocations={showRuns} />
                         ),
                     },
                     {
                         key: 'sends',
                         label: 'Sends',
+                        content: <TransactionalEmailLog workflowId={codeEmail.hog_flow_id} />,
+                    },
+                    {
+                        key: 'runs',
+                        label: 'Run logs',
                         content: workflowFailed ? (
                             failedBanner
                         ) : (

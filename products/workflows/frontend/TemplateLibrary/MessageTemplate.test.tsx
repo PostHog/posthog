@@ -2,9 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
+import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -126,4 +128,23 @@ describe('MessageTemplate', () => {
             expect(screen.getByLabelText('Protect sensitive data').hasAttribute('disabled')).toBe(writeDisabled)
         }
     )
+
+    it("opens the Sends tab a send's page links back to, listing only this email's sends", async () => {
+        const sendRequests: Record<string, string>[] = []
+        useMocks({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': PASSWORD_RESET_WITH_DRAFT,
+                '/api/projects/:team_id/transactional_email_log/': ({ request }) => {
+                    sendRequests.push(Object.fromEntries(new URL(request.url).searchParams))
+                    return [200, { results: [], has_more: false }]
+                },
+            },
+        })
+        await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
+
+        router.actions.push(urls.transactionalTemplate(TEMPLATE_ID), { tab: 'sends', status: 'failed' })
+
+        await screen.findByText('No sends match these filters')
+        expect(sendRequests.at(-1)).toMatchObject({ workflow_id: 'flow-1', status: 'failed' })
+    })
 })

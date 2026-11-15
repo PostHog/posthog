@@ -32,6 +32,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { TransactionalEmailLog } from '../Transactional/log/TransactionalEmailLog'
 import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
@@ -190,6 +191,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     ? {
                           key: 'sends',
                           label: 'Sends',
+                          content: <TransactionalEmailLog workflowId={transactionalHogFlowId} />,
+                      }
+                    : null,
+                transactionalHogFlowId
+                    ? {
+                          key: 'runs',
+                          label: 'Run logs',
                           content: <WorkflowInvocations id={transactionalHogFlowId} />,
                       }
                     : null,

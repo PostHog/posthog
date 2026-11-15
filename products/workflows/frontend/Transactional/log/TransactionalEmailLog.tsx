@@ -1,5 +1,5 @@
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconCursorClick, IconEye, IconRefresh, IconSearch } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -43,22 +43,40 @@ const STATUS_OPTIONS = (['delivered', 'sent', 'queued', 'bounced', 'complained',
     label: EMAIL_STATUS_LABEL[status],
 }))
 
-export function TransactionalEmailLog(): JSX.Element {
-    const { emails, pageLoading, pageFailed, filters, isFiltered, pagination } = useValues(transactionalEmailLogLogic)
-    const { setFilters, setPage, refresh, loadEmails } = useActions(transactionalEmailLogLogic)
-    const { transactionalTemplates } = useValues(transactionalTemplatesLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+/** The sends of every transactional email, or with `workflowId` only the sends of that email, as its Sends tab shows them. */
+export function TransactionalEmailLog({ workflowId }: { workflowId?: string }): JSX.Element {
+    return (
+        <BindLogic logic={transactionalEmailLogLogic} props={{ workflowId }}>
+            {workflowId ? <EmailLogList /> : <AllEmailsLogList />}
+        </BindLogic>
+    )
+}
 
+function AllEmailsLogList(): JSX.Element {
+    const { transactionalTemplates } = useValues(transactionalTemplatesLogic)
     const emailOptions = transactionalTemplates
         .filter((template) => template.transactional_hog_flow_id)
         .map((template) => ({
             value: template.transactional_hog_flow_id as string,
             label: template.name || 'Unnamed email',
         }))
+    return <EmailLogList emailOptions={emailOptions} />
+}
+
+function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label: string }[] }): JSX.Element {
+    const { emails, pageLoading, pageFailed, filters, isFiltered, pagination, sendFilterSearchParams } =
+        useValues(transactionalEmailLogLogic)
+    const { setFilters, setPage, refresh, loadEmails } = useActions(transactionalEmailLogLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const oneEmail = !emailOptions
+
+    // The filters ride along to the send's page, whose link back to the email's Sends tab restores them.
+    const sendUrl = (email: TransactionalEmailLogEntryApi): string =>
+        combineUrl(urls.transactionalEmailLogEntry(email.message_id), sendFilterSearchParams).url
 
     return (
         <div className="flex flex-col gap-2">
-            <EmailDirectionToggle />
+            {!oneEmail && <EmailDirectionToggle />}
             {todayRailNav ? (
                 <QuillTransactionalEmailLogFilters emailOptions={emailOptions} statusOptions={STATUS_OPTIONS} />
             ) : (
@@ -77,14 +95,16 @@ export function TransactionalEmailLog(): JSX.Element {
                         />
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                        <LemonSelect
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            value={filters.workflowId}
-                            onChange={(workflowId) => setFilters({ workflowId })}
-                            options={[{ value: null, label: 'All emails' }, ...emailOptions]}
-                            data-attr="transactional-email-log-email-filter"
-                        />
+                        {emailOptions && (
+                            <LemonSelect
+                                size="small"
+                                dropdownMatchSelectWidth={false}
+                                value={filters.workflowId}
+                                onChange={(workflowId) => setFilters({ workflowId })}
+                                options={[{ value: null, label: 'All emails' }, ...emailOptions]}
+                                data-attr="transactional-email-log-email-filter"
+                            />
+                        )}
                         <LemonSelect
                             size="small"
                             dropdownMatchSelectWidth={false}
@@ -107,10 +127,12 @@ export function TransactionalEmailLog(): JSX.Element {
                     </div>
                 </div>
             )}
-            <TransactionalTemplatesLoadError
-                message="Your emails couldn't load, so you can't filter by email yet. Check your connection and try again."
-                dataAttr="transactional-email-log-templates-retry"
-            />
+            {!oneEmail && (
+                <TransactionalTemplatesLoadError
+                    message="Your emails couldn't load, so you can't filter by email yet. Check your connection and try again."
+                    dataAttr="transactional-email-log-templates-retry"
+                />
+            )}
             {pageFailed && (
                 <LemonBanner
                     type="error"
@@ -138,7 +160,7 @@ export function TransactionalEmailLog(): JSX.Element {
                 nouns={['send', 'sends']}
                 data-attr="transactional-email-log-table"
                 onRow={(email) => ({
-                    onClick: () => router.actions.push(urls.transactionalEmailLogEntry(email.message_id)),
+                    onClick: () => router.actions.push(sendUrl(email)),
                     className: 'cursor-pointer',
                 })}
                 columns={[
@@ -147,22 +169,26 @@ export function TransactionalEmailLog(): JSX.Element {
                         key: 'recipient',
                         render: (_, email) => (
                             <LemonTableLink
-                                to={urls.transactionalEmailLogEntry(email.message_id)}
+                                to={sendUrl(email)}
                                 title={<EmailAddress address={email.recipient} />}
                                 className="ph-no-capture"
                                 onClick={(event) => event.stopPropagation()}
                             />
                         ),
                     },
-                    {
-                        title: 'Email',
-                        key: 'template',
-                        render: (_, email) => (
-                            <span className="whitespace-nowrap">
-                                {email.template_name || <span className="text-secondary">Deleted email</span>}
-                            </span>
-                        ),
-                    },
+                    ...(oneEmail
+                        ? []
+                        : [
+                              {
+                                  title: 'Email',
+                                  key: 'template',
+                                  render: (_: unknown, email: TransactionalEmailLogEntryApi) => (
+                                      <span className="whitespace-nowrap">
+                                          {email.template_name || <span className="text-secondary">Deleted email</span>}
+                                      </span>
+                                  ),
+                              },
+                          ]),
                     {
                         title: 'Status',
                         key: 'status',
@@ -209,7 +235,9 @@ export function TransactionalEmailLog(): JSX.Element {
                           ? 'No more sends past this page. Go back a page to see the rest.'
                           : isFiltered
                             ? 'No sends match these filters'
-                            : 'No transactional emails sent in this period. Sends from your code show up here within a few seconds.'
+                            : oneEmail
+                              ? 'This email had no sends in this period. New sends show up here within a few seconds.'
+                              : 'No transactional emails sent in this period. Sends from your code show up here within a few seconds.'
                 }
             />
         </div>
