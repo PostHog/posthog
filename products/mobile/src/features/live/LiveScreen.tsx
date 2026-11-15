@@ -251,19 +251,19 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                                       key: 'users-online',
                                       label: 'Users online',
                                       value: feed.usersOnline,
-                                      about: 'People active in your mobile app right now.',
+                                      about: 'Users active right now.',
                                   },
                                   {
                                       key: 'active-users',
                                       label: 'Active users',
                                       value: activity?.uniqueVisitors ?? null,
-                                      about: 'Distinct users in the last 30 minutes.',
+                                      about: 'Unique users in the last 30 minutes.',
                                   },
                                   {
                                       key: 'screenviews',
                                       label: 'Screen views',
                                       value: activity?.screenviews ?? null,
-                                      about: 'Total mobile screens viewed in the last 30 minutes.',
+                                      about: 'Screens viewed in the last 30 minutes.',
                                   },
                               ]
                             : undefined
