@@ -13,7 +13,7 @@ export type { Controller } from './admission'
 
 const USAGE = [
     'Usage:',
-    '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile>',
+    '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile> <card id>',
     '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> <run id>',
 ].join('\n')
 
@@ -84,14 +84,13 @@ async function cleanup(controller: Controller, profile: CloudProfile, target: st
 
 export async function main(argv: string[], controller: Controller = defaultController()): Promise<number> {
     const [command, file, target, ...rest] = argv
-    const usable =
-        (command === 'run' && file && !target) || (command === 'cleanup' && file && target && rest.length === 0)
+    const usable = ['run', 'cleanup'].includes(command) && file && target && rest.length === 0
     if (!usable) {
         controller.warn(USAGE)
         return EXIT_CODE.invalid
     }
     try {
-        const loaded = command === 'run' ? loadRunInputs(file) : undefined
+        const loaded = command === 'run' ? loadRunInputs(file, target) : undefined
         const profile = loaded?.profile ?? loadCloudProfile(file)
         await refuseOutsideDev(controller, profile.account)
         return loaded ? await run(controller, loaded) : await cleanup(controller, profile, target)

@@ -39,6 +39,7 @@ state="$XDG_CACHE_HOME/posthog-scenarios"
 run="$state/${RUNNER_RUN_ID}"
 mkdir -p "$run" "$state/edge-ca"
 echo '{"phase":"drive"}' >"$run/result.json"
+printf '%s\\n' "$@" >"$run/args"
 echo 'private key' >"$state/edge-ca/ca.key"
 [ -z "\${FAKE_CARD_BLOCKS_COPY:-}" ] || touch "$SCENARIO_HOST_ROOT/evidence/run"
 if [ -n "\${FAKE_CARD_HANGS:-}" ]; then
@@ -73,6 +74,7 @@ describe('host-run-card.sh', () => {
                 HOME: dir,
                 SCENARIO_RUN_ID: RUN_ID,
                 SCENARIO_EVIDENCE_BUCKET: BUCKET,
+                SCENARIO_CARD: 'cyclotron-scale',
                 SCENARIO_HOST_ROOT: path.join(dir, 'host'),
                 FAKE_S3: path.join(dir, 's3'),
                 ...env,
@@ -110,8 +112,19 @@ describe('host-run-card.sh', () => {
         expect(existsSync(s3('evidence/run/edge-ca'))).toBe(false)
     })
 
-    it('never starts the card when it cannot mark it started', async () => {
-        await exited(start({ FAKE_MARK_FAILS: 'started' }))
+    it('runs the card the controller named', async () => {
+        await exited(start({}))
+
+        expect(readFileSync(s3(`evidence/run/${RUNNER_RUN_ID}/args`), 'utf8')).toMatch(
+            /^--import\ntsx\ntests\/scenarios\/main\.ts\nrun\ncyclotron-scale\n--profile\n/
+        )
+    })
+
+    it.each([
+        ['it cannot mark it started', { FAKE_MARK_FAILS: 'started' }],
+        ['the controller named no card', { SCENARIO_CARD: '' }],
+    ])('never starts the card when %s', async (_story, env) => {
+        await exited(start(env))
 
         expect(parseJSON(readFileSync(s3('host/done'), 'utf8'))).toMatchObject({ exitCode: 2 })
         expect(existsSync(path.join(dir, 'host', 'cache', 'posthog-scenarios'))).toBe(false)

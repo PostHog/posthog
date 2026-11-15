@@ -18,7 +18,6 @@ type Minute = { at: number; max?: number; avg?: number }
 
 type Capacity = { minutes: Minute[]; gaps: number[] }
 
-const CARD = 'cyclotron-failover-under-load'
 const FAILOVER_VALVE = 'pg.failover'
 const ENVIRONMENT_KIND = 'run-host'
 const TARGET = 'cloud'
@@ -199,7 +198,7 @@ async function attempt<T>(reasons: string[], what: string, work: () => Promise<T
 
 export async function report(
     controller: Controller,
-    { profile }: RunInputs,
+    { profile, card }: RunInputs,
     manifest: Manifest,
     end: RunEnd
 ): Promise<number> {
@@ -214,7 +213,7 @@ export async function report(
         reasons.push(`the runner exited ${end.exitCode} after it saved a ${host.event.status} scorecard`)
     }
     const t0 = host?.timeline.find(({ valve }) => valve === FAILOVER_VALVE)?.intentAt
-    if (host?.event.status === 'passed' && !t0) {
+    if (card.failsOver && host?.event.status === 'passed' && !t0) {
         reasons.push(`the runner recorded no ${FAILOVER_VALVE} request (intentAt), so the reader was not judged`)
     }
     const capacity = await attempt(reasons, 'could not read the reader capacity', () =>
@@ -250,7 +249,7 @@ export async function report(
     const environment = environmentOf(profile, manifest, host?.event.fingerprint)
     const properties: ScorecardProperties = {
         schema_version: SCHEMA_VERSION,
-        card_id: CARD,
+        card_id: card.id,
         ...host?.event,
         ...environment,
         run_id: runId,

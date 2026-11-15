@@ -39,6 +39,7 @@ type Command = {
 }
 
 type Card = {
+    id: string
     runId: string
     instanceId: string
     startedAt: number
@@ -83,6 +84,7 @@ const EXIT_INVALID = 2
 const INVOCATION_LAG_MS = 20_000
 const STOP_TIMEOUT_MS = 5 * MINUTE_MS
 const DEFAULT_DELIVERY_TIMEOUT_S = 3600
+const FAILOVER_CARD = 'cyclotron-failover-under-load'
 const FAILOVER_AFTER_MS = 15 * MINUTE_MS
 const STATUSES = ['passed', 'failed', 'invalid', 'passed']
 const DEFAULT_READER_ACU: ReaderMinute[] = [
@@ -443,7 +445,7 @@ export class FakeCloud implements Aws {
             return
         }
         const failoverAt = card.startedAt + FAILOVER_AFTER_MS
-        if (this.options.now().getTime() >= failoverAt) {
+        if (card.id === FAILOVER_CARD && this.options.now().getTime() >= failoverAt) {
             this.failovers.set(card.runId, failoverAt)
         }
         const uploaded = !this.options.card?.uploadFails
@@ -494,7 +496,7 @@ export class FakeCloud implements Aws {
             event: {
                 schema_version: 1,
                 run_id: runnerRunId,
-                card_id: 'cyclotron-failover-under-load',
+                card_id: card.id,
                 origin: 'local-agent',
                 target: 'local',
                 fingerprint: 'f'.repeat(64),
@@ -588,6 +590,7 @@ export class FakeCloud implements Aws {
         const script = commands.join('\n')
         const timeoutMs = Number(executionTimeout[0]) * 1000
         const runId = /SCENARIO_RUN_ID='?([\w-]+)/.exec(script)?.[1]
+        const cardId = /SCENARIO_CARD='?([\w-]+)/.exec(script)?.[1] ?? ''
         const command: Command = {
             id: randomUUID(),
             instanceId,
@@ -618,8 +621,17 @@ export class FakeCloud implements Aws {
             this.objects.set(`runs/${runId}/host/started`, '{}')
             this.card =
                 diesAfterMs === undefined
-                    ? { runId, instanceId, startedAt: now, endsAt: now + takesMs, exitCode, reportsDone: true }
+                    ? {
+                          id: cardId,
+                          runId,
+                          instanceId,
+                          startedAt: now,
+                          endsAt: now + takesMs,
+                          exitCode,
+                          reportsDone: true,
+                      }
                     : {
+                          id: cardId,
                           runId,
                           instanceId,
                           startedAt: now,
