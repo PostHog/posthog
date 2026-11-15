@@ -1,18 +1,28 @@
+import { EMAIL_METRIC_INVOCATION_FILTERS, EmailMetricName } from '../../Workflows/workflowMetricsSummaryLogic'
 import { emailMetricSendFilters } from './emailMetricSends'
 
+const NOW = '2026-03-15T12:00:00.000Z'
+
 describe('emailMetricSendFilters', () => {
-    test.each([
-        ['every bounce', 'email_bounced', { dateFrom: '-30d' }, { status: 'bounced', date_from: '-30d' }],
-        [
-            'a soft bounce',
-            'email_bounced_transient',
-            { dateFrom: '2026-03-01', dateTo: '2026-03-14' },
-            { status: 'bounced', reason: 'soft', date_from: '2026-03-01', date_to: '2026-03-14' },
-        ],
-        ['a spam report', 'email_blocked', {}, { status: 'complained' }],
-        ['a skip while paused', 'email_paused', {}, { status: 'failed', reason: 'sending_paused' }],
-        ['an open, which the log keeps no filter for', 'email_opened', { dateFrom: '-7d' }, null],
-    ] as const)('lists the sends behind %s', (_, metric, range, expected) => {
-        expect(emailMetricSendFilters(metric, range)).toEqual(expected)
+    beforeEach(() => jest.useFakeTimers({ now: new Date(NOW) }))
+    afterEach(() => jest.useRealTimers())
+
+    it.each(Object.keys(EMAIL_METRIC_INVOCATION_FILTERS) as EmailMetricName[])(
+        'lists the sends behind %s, which the metrics summary offers as a click',
+        (metric) => {
+            expect(emailMetricSendFilters(metric, { dateFrom: '2026-03-14T00:00:00.000Z', dateTo: NOW })).toMatchObject(
+                { date_from: '2026-03-14T00:00:00.000Z', date_to: NOW }
+            )
+        }
+    )
+
+    it('lists the sends of the days the log keeps when the metrics range reaches further back', () => {
+        expect(
+            emailMetricSendFilters('email_bounced_hard', { dateFrom: '2025-12-15T00:00:00.000Z', dateTo: NOW })
+        ).toEqual({ status: 'bounced', reason: 'hard', date_from: '2026-02-13T12:00:00.000Z', date_to: NOW })
+    })
+
+    it('lists nothing for an open, which the log keeps no filter for', () => {
+        expect(emailMetricSendFilters('email_opened', { dateFrom: '2026-03-14T00:00:00.000Z', dateTo: NOW })).toBeNull()
     })
 })

@@ -92,7 +92,7 @@ export interface WorkflowMetricsProps extends WorkflowLogicProps {
      * Set on a page outside the workflow editor, which takes email metric clicks instead of the Invocations tab.
      * The step picker is hidden because it opens the workflow.
      */
-    onEmailMetricClick?: (metric: EmailMetricName, range: { dateFrom?: string; dateTo?: string }) => void
+    onEmailMetricClick?: (metric: EmailMetricName, range: { dateFrom: string; dateTo: string }) => void
 }
 
 function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
@@ -178,14 +178,14 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
 
     // Drill an email metric into the invocations behind it over the current window.
     const drillIntoEmailMetric = (metricKey: EmailMetricName): void => {
+        const { dateFrom, dateTo } = getDateRangeAbsolute()
         if (props.onEmailMetricClick) {
-            props.onEmailMetricClick(metricKey, { dateFrom: params.dateFrom, dateTo: params.dateTo })
+            props.onEmailMetricClick(metricKey, { dateFrom: dateFrom.toISOString(), dateTo: dateTo.toISOString() })
             return
         }
         if (!props.id) {
             return
         }
-        const { dateFrom, dateTo } = getDateRangeAbsolute()
         const invocationSearchParams = buildEmailMetricInvocationSearchParams(
             metricKey,
             dateFrom.toISOString(),

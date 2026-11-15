@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import type { EmailDeliveryStatusEnumApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import type { EmailMetricName } from '../../Workflows/workflowMetricsSummaryLogic'
+import { logWindow } from './transactionalEmailLogLogic'
 
 // Kept in sync with EmailStatusReason in nodejs/src/cdp/services/messaging/email-status.service.ts.
 const EMAIL_METRIC_SENDS: Partial<Record<EmailMetricName, { status: EmailDeliveryStatusEnumApi; reason?: string }>> = {
@@ -11,7 +12,6 @@ const EMAIL_METRIC_SENDS: Partial<Record<EmailMetricName, { status: EmailDeliver
     email_bounced_transient: { status: 'bounced', reason: 'soft' },
     email_bounced_undetermined: { status: 'bounced', reason: 'unknown' },
     email_blocked: { status: 'complained' },
-    email_failed: { status: 'failed' },
     email_bounce_prevented: { status: 'failed', reason: 'recipient_unreachable' },
     email_missing_recipient: { status: 'failed', reason: 'missing_recipient' },
     message_frequency_capped: { status: 'failed', reason: 'frequency_capped' },
@@ -21,21 +21,23 @@ const EMAIL_METRIC_SENDS: Partial<Record<EmailMetricName, { status: EmailDeliver
 
 export function emailMetricSendFilters(
     metric: EmailMetricName,
-    range: { dateFrom?: string; dateTo?: string }
+    range: { dateFrom: string; dateTo: string }
 ): Record<string, string> | null {
     const sends = EMAIL_METRIC_SENDS[metric]
     if (!sends) {
         return null
     }
+    // The log keeps fewer days than a metrics range can span, so the date filter shows the days the list covers.
+    const window = logWindow(range)
     return {
         status: sends.status,
         ...(sends.reason ? { reason: sends.reason } : {}),
-        ...(range.dateFrom ? { date_from: range.dateFrom } : {}),
-        ...(range.dateTo ? { date_to: range.dateTo } : {}),
+        date_from: window.dateFrom,
+        date_to: window.dateTo,
     }
 }
 
-export function openEmailMetricSends(metric: EmailMetricName, range: { dateFrom?: string; dateTo?: string }): void {
+export function openEmailMetricSends(metric: EmailMetricName, range: { dateFrom: string; dateTo: string }): void {
     const filters = emailMetricSendFilters(metric, range)
     if (filters) {
         router.actions.push(router.values.location.pathname, { ...filters, tab: 'sends' }, router.values.hashParams)
