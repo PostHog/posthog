@@ -358,6 +358,11 @@ This changes setup recommendations and diagnostic actions, not report attributio
 
 ## Validating ad source metric imports
 
+X Ads retries a stats request rejected with `INVALID_PARAMETER (entity)` for each entity separately, then for each account-local day if needed.
+Successful responses can still be imported, but the resume checkpoint advances only after every entity and placement in the window succeeds.
+If X rejects a single entity and day, the sync reports that some stats could not be imported and asks the user to contact support.
+The sync retries before it is disabled; this error does not mean that the first failure disables it immediately.
+
 Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
 Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.
 See [hourly restrictions](https://fivetran.com/docs/connectors/applications/facebook-ads/custom-reports#breakdowns) and [creative-asset metric restrictions](https://docs.streamkap.com/facebook-ads-source#custom-insights).

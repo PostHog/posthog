@@ -38,6 +38,7 @@ from products.warehouse_sources.sources.twitter_ads.settings import (
     MISSING_INTEGRATION,
     PRIMARY_KEYS,
     REVOKED_GRANT,
+    STATS_ENTITY_REJECTED,
     STATS_TABLES,
     VIDEO_AND_CONVERSION_FLAG,
 )
@@ -118,6 +119,7 @@ class TwitterAdsSource(ResumableSource[TwitterAdsSourceConfig, TwitterAdsResumeC
         return {
             "401 Client Error": REVOKED_GRANT,
             "403 Client Error": ACCOUNT_ACCESS_DENIED,
+            STATS_ENTITY_REJECTED: STATS_ENTITY_REJECTED,
             "Integration not found": MISSING_INTEGRATION,
             "Missing integration ID": MISSING_INTEGRATION,
             MISSING_INTEGRATION: MISSING_INTEGRATION,

@@ -28,6 +28,7 @@ from products.warehouse_sources.sources.twitter_ads.settings import (
     PARTITION_KEYS,
     PLACEMENTS,
     PRIMARY_KEYS,
+    STATS_ENTITY_REJECTED,
     STATS_METRIC_GROUPS,
     STATS_TABLES,
     UNSORTABLE_TABLES,
@@ -43,6 +44,13 @@ class TwitterAdsResumeConfig:
     next_date: str | None = None
     end_date: str | None = None
     complete: bool = False
+
+
+@frozen
+class _StatsPage:
+    payload: dict[str, Any]
+    start: date
+    end: date
 
 
 # X caps a stats window at 7 days but rejects some exact weeks: one with a fall-back hour, and every week on a
@@ -125,6 +133,25 @@ def _error_detail(response: requests.Response) -> str:
     return "; ".join(part for part in parts if part)[:_MAX_ERROR_DETAIL]
 
 
+def _is_entity_rejection(response: requests.Response | None) -> bool:
+    if response is None or response.status_code != 400:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    if not isinstance(body, dict):
+        return False
+    errors = body.get("errors") or body.get("operation_errors")
+    return (
+        isinstance(errors, list)
+        and len(errors) == 1
+        and isinstance(errors[0], dict)
+        and errors[0].get("code") == "INVALID_PARAMETER"
+        and errors[0].get("parameter") == "entity"
+    )
+
+
 class TwitterAdsClient:
     def __init__(self, integration: IntegrationRecord, api_version: str = API_VERSION) -> None:
         if api_version != API_VERSION:
@@ -174,6 +201,51 @@ class TwitterAdsClient:
 
     def entities(self, account_id: str, table: str) -> list[dict[str, Any]]:
         return [row for page in self.pages(f"accounts/{quote(account_id, safe='')}/{table}") for row in page["data"]]
+
+    def stats_pages(
+        self,
+        path: str,
+        params: dict[str, str | int],
+        start: date,
+        end: date,
+        account_timezone: ZoneInfo,
+        logger: FilteringBoundLogger,
+    ) -> Iterator[_StatsPage]:
+        try:
+            payload = self.get(path, params)
+        except requests.HTTPError as error:
+            response = error.response
+            if response is not None:
+                logger.warning("twitter_ads_stats_rejected", params=params, body=response.text[:_MAX_LOGGED_BODY])
+            if not _is_entity_rejection(response):
+                raise
+            entity_ids = str(params["entity_ids"]).split(",")
+            if len(entity_ids) > 1:
+                for entity_id in entity_ids:
+                    yield from self.stats_pages(
+                        path, {**params, "entity_ids": entity_id}, start, end, account_timezone, logger
+                    )
+            elif end - start > timedelta(days=1):
+                day = start
+                while day < end:
+                    next_day = day + timedelta(days=1)
+                    yield from self.stats_pages(
+                        path,
+                        {
+                            **params,
+                            "start_time": _utc_param(_account_midnight(day, account_timezone)),
+                            "end_time": _utc_param(_account_midnight(next_day, account_timezone)),
+                        },
+                        day,
+                        next_day,
+                        account_timezone,
+                        logger,
+                    )
+                    day = next_day
+            else:
+                raise ValueError(STATS_ENTITY_REJECTED) from error
+            return
+        yield _StatsPage(payload=payload, start=start, end=end)
 
     @staticmethod
     def stats_rows(
@@ -273,33 +345,25 @@ class TwitterAdsClient:
                         "placement": placement,
                         "metric_groups": metric_groups,
                     }
-                    try:
-                        payload = self.get(f"stats/{account_path}", params)
-                    except requests.HTTPError as error:
-                        if error.response is not None:
-                            # The exception message keeps a short summary; the body also echoes how X parsed the request.
-                            logger.warning(
-                                "twitter_ads_stats_rejected",
-                                params=params,
-                                body=error.response.text[:_MAX_LOGGED_BODY],
-                            )
-                        raise
-                    rows = self.stats_rows(
-                        payload,
-                        start,
-                        window_end,
-                        placement,
-                        currencies,
-                        account_id,
-                        include_video_and_conversions,
-                    )
-                    if batch_start + 20 >= len(entity_ids) and placement == PLACEMENTS[-1]:
-                        manager.save_state(
-                            TwitterAdsResumeConfig(
-                                next_date=window_end.isoformat(), end_date=end.isoformat(), complete=window_end == end
-                            )
+                    for page in self.stats_pages(
+                        f"stats/{account_path}", params, start, window_end, account_timezone, logger
+                    ):
+                        yield self.stats_rows(
+                            page.payload,
+                            page.start,
+                            page.end,
+                            placement,
+                            currencies,
+                            account_id,
+                            include_video_and_conversions,
                         )
-                    yield rows
+            # A failed subrequest must not move the checkpoint past missing stats.
+            manager.save_state(
+                TwitterAdsResumeConfig(
+                    next_date=window_end.isoformat(), end_date=end.isoformat(), complete=window_end == end
+                )
+            )
+            yield []
             start = window_end
 
 

@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
@@ -15,8 +15,10 @@ import requests
 from requests_oauthlib import OAuth1
 
 from products.warehouse_sources.sources.sdk import SourceResponse
-from products.warehouse_sources.sources.sdk.testing import Integration
-from products.warehouse_sources.sources.twitter_ads.settings import PLACEMENTS
+from products.warehouse_sources.sources.sdk.testing import Integration, RecordedRequest, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.twitter_ads._config import TwitterAdsSourceConfig
+from products.warehouse_sources.sources.twitter_ads.settings import PLACEMENTS, STATS_ENTITY_REJECTED
+from products.warehouse_sources.sources.twitter_ads.source import TwitterAdsSource
 from products.warehouse_sources.sources.twitter_ads.twitter_ads import (
     TwitterAdsClient,
     TwitterAdsResumeConfig,
@@ -288,3 +290,142 @@ def test_error_without_a_parsable_body_keeps_the_bare_status(client: TwitterAdsC
             client.get("accounts/account")
 
     assert "503 Server Error" in str(raised.value)
+
+
+@pytest.fixture
+def stats_driver() -> Iterator[SourceDriver]:
+    source = TwitterAdsSource()
+    integration = Integration(
+        kind="twitter-ads", sensitive_config={"oauth_token": "fake-access", "oauth_token_secret": "fake-secret"}
+    )
+    with (
+        override_settings(TWITTER_ADS_CONSUMER_KEY="fake-key", TWITTER_ADS_CONSUMER_SECRET="fake-secret"),
+        patch.object(source, "get_oauth_integration", return_value=integration),
+        patch(
+            "products.warehouse_sources.sources.twitter_ads.source._is_video_and_conversion_enabled", return_value=False
+        ),
+    ):
+        yield SourceDriver(source, TwitterAdsSourceConfig(account_id="account", twitter_ads_integration_id=1))
+
+
+def stats_metadata(request: RecordedRequest, timezone: str) -> ScriptedResponse | None:
+    if request.path.endswith("/funding_instruments"):
+        return ScriptedResponse(json={"data": [{"id": "funding", "currency": "EUR"}]})
+    if request.path.endswith("/campaigns"):
+        return ScriptedResponse(
+            json={"data": [{"id": entity, "funding_instrument_id": "funding"} for entity in ("one", "two")]}
+        )
+    if request.path.endswith("/line_items"):
+        return ScriptedResponse(json={"data": [{"id": entity, "campaign_id": entity} for entity in ("one", "two")]})
+    if "/stats/" not in request.path:
+        return ScriptedResponse(json={"data": {"timezone": timezone, "created_at": "2025-10-01T00:00:00Z"}})
+    return None
+
+
+def stats_success(request: RecordedRequest, timezone: str) -> ScriptedResponse:
+    start = datetime.fromisoformat(str(request.param("start_time"))).astimezone(ZoneInfo(timezone))
+    end = datetime.fromisoformat(str(request.param("end_time"))).astimezone(ZoneInfo(timezone))
+    assert start.hour == end.hour == start.minute == end.minute == 0
+    return ScriptedResponse(
+        json={
+            "data": [
+                {"id": entity, "id_data": [{"metrics": {"impressions": [7] * (end.date() - start.date()).days}}]}
+                for entity in str(request.param("entity_ids")).split(",")
+            ]
+        }
+    )
+
+
+@pytest.mark.parametrize("table", ["campaign_stats", "line_item_stats"])
+@pytest.mark.parametrize("narrowing", ["entity", "day"])
+@pytest.mark.parametrize("timezone", ["Asia/Kolkata", "America/Los_Angeles"])
+def test_stats_rejection_recovers_all_rows_and_resumes(
+    stats_driver: SourceDriver, table: str, narrowing: str, timezone: str
+) -> None:
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        metadata = stats_metadata(request, timezone)
+        if metadata is not None:
+            return metadata
+        start = datetime.fromisoformat(str(request.param("start_time"))).astimezone(ZoneInfo(timezone)).date()
+        end = datetime.fromisoformat(str(request.param("end_time"))).astimezone(ZoneInfo(timezone)).date()
+        if "," in str(request.param("entity_ids")) or (narrowing == "day" and (end - start).days > 1):
+            return ScriptedResponse(status=400, json={"errors": [{"code": "INVALID_PARAMETER", "parameter": "entity"}]})
+        return stats_success(request, timezone)
+
+    with time_machine.travel("2025-11-12T12:00:00Z", tick=False):
+        result = stats_driver.run(table, answer, incremental_field="date", db_incremental_field_last_value="2025-10-31")
+        assert result.raised is None
+        assert len(result.rows) == 2 * 12 * len(PLACEMENTS)
+        assert len({(row["entity_id"], row["date"], row["placement"]) for row in result.rows}) == len(result.rows)
+        assert {row["impressions"] for row in result.rows} == {7}
+        assert {row["currency"] for row in result.rows} == {"EUR"}
+        assert result.final_state.complete
+        checkpoint = result.committed_states[0]
+        assert checkpoint.next_date == "2025-11-06"
+        resumed = stats_driver.run(table, answer, resume_state=checkpoint)
+    assert resumed.raised is None
+    assert resumed.rows == [row for row in result.rows if row["date"] >= date(2025, 11, 6)]
+    stats_requests = [request for request in result.requests if "/stats/" in request.path]
+    assert len(stats_requests) == 2 * len(PLACEMENTS) * (15 if narrowing == "day" else 3)
+
+
+@pytest.mark.parametrize(
+    "failure,expected_requests,permanent,partial_entity",
+    [
+        (
+            ScriptedResponse(status=400, json={"errors": [{"code": "INVALID_PARAMETER", "parameter": "entity"}]}),
+            3,
+            True,
+            False,
+        ),
+        (
+            ScriptedResponse(status=400, json={"errors": [{"code": "INVALID_PARAMETER", "parameter": "entity"}]}),
+            4,
+            True,
+            True,
+        ),
+        (
+            ScriptedResponse(status=400, json={"errors": [{"code": "INVALID_PARAMETER", "parameter": "start_time"}]}),
+            1,
+            False,
+            False,
+        ),
+        (ScriptedResponse(status=400, body=b"invalid entity"), 1, False, False),
+        (
+            ScriptedResponse(status=403, json={"errors": [{"code": "INVALID_PARAMETER", "parameter": "entity"}]}),
+            1,
+            False,
+            False,
+        ),
+    ],
+)
+def test_stats_rejection_preserves_rows_and_does_not_skip_failure(
+    stats_driver: SourceDriver, failure: ScriptedResponse, expected_requests: int, permanent: bool, partial_entity: bool
+) -> None:
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        metadata = stats_metadata(request, "Asia/Kolkata")
+        if metadata is not None:
+            return metadata
+        start = datetime.fromisoformat(str(request.param("start_time"))).astimezone(ZoneInfo("Asia/Kolkata")).date()
+        if (
+            start < date(2025, 11, 6)
+            or request.param("placement") == PLACEMENTS[0]
+            or (partial_entity and request.param("entity_ids") == "one")
+        ):
+            return stats_success(request, "Asia/Kolkata")
+        return failure
+
+    with time_machine.travel("2025-11-12T12:00:00Z", tick=False):
+        result = stats_driver.run(
+            "campaign_stats", answer, incremental_field="date", db_incremental_field_last_value="2025-10-31"
+        )
+    assert len(result.rows) == (54 if partial_entity else 48)
+    assert len([row for row in result.rows if row["placement"] == PLACEMENTS[0]]) == 24
+    assert result.final_state.next_date == "2025-11-06"
+    assert not result.final_state.complete
+    assert len([request for request in result.requests if "/stats/" in request.path]) == expected_requests + 4
+    if permanent:
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == STATS_ENTITY_REJECTED
+    else:
+        assert isinstance(result.raised, requests.HTTPError)
