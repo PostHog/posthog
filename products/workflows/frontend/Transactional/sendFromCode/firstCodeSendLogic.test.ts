@@ -5,7 +5,8 @@ import { initKeaTests } from '~/test/init'
 
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { firstCodeSendLogic } from './firstCodeSendLogic'
+import { transactionalEmailsLogic } from '../transactionalEmailsLogic'
+import { SendFromCodeSurface, firstCodeSendLogic } from './firstCodeSendLogic'
 
 const TEAM_ID = 42
 
@@ -35,6 +36,7 @@ describe('firstCodeSendLogic', () => {
             get: {
                 [`/api/projects/${TEAM_ID}/transactional_code_emails/`]: () =>
                     listFails ? [500, { detail: 'A server error occurred.' }] : [200, stored],
+                [`/api/projects/${TEAM_ID}/messaging_templates/`]: { results: [] },
             },
         })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: TEAM_ID })
@@ -45,8 +47,8 @@ describe('firstCodeSendLogic', () => {
         jest.useRealTimers()
     })
 
-    const mount = async (): Promise<void> => {
-        logic = firstCodeSendLogic({ surface: 'email_domain' })
+    const mount = async (surface: SendFromCodeSurface = 'email_domain'): Promise<void> => {
+        logic = firstCodeSendLogic({ surface })
         logic.mount()
         await jest.advanceTimersByTimeAsync(0)
     }
@@ -59,6 +61,21 @@ describe('firstCodeSendLogic', () => {
         await jest.advanceTimersByTimeAsync(10_000)
 
         expect(logic.values.firstCodeSend).toEqual({ status: 'arrived', codeEmail: codeEmail('welcome') })
+    })
+
+    it('counts a send as first when the tab already found no emails, even if its own first check fails', async () => {
+        const tab = transactionalEmailsLogic()
+        tab.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        listFails = true
+        await mount('transactional')
+
+        stored = [codeEmail('welcome')]
+        listFails = false
+        await jest.advanceTimersByTimeAsync(10_000)
+
+        expect(logic.values.firstCodeSend).toEqual({ status: 'arrived', codeEmail: codeEmail('welcome') })
+        tab.unmount()
     })
 
     it('does not call an email first when the project already sent from code', async () => {

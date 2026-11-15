@@ -62,6 +62,9 @@ export interface firstCodeSendLogicActions {
     schedulePoll: () => {
         value: true
     }
+    setSentBeforeMount: (sentBeforeMount: boolean) => {
+        sentBeforeMount: boolean
+    }
     startPolling: () => {
         value: true
     }
@@ -97,6 +100,7 @@ export const firstCodeSendLogic = kea<firstCodeSendLogicType>([
         schedulePoll: true,
         stopPolling: true,
         checkAgain: true,
+        setSentBeforeMount: (sentBeforeMount: boolean) => ({ sentBeforeMount }),
     }),
     loaders(({ values }) => ({
         codeEmails: [
@@ -110,6 +114,7 @@ export const firstCodeSendLogic = kea<firstCodeSendLogicType>([
         sentBeforeMount: [
             null as boolean | null,
             {
+                setSentBeforeMount: (_, { sentBeforeMount }) => sentBeforeMount,
                 checkForFirstCodeSendSuccess: (state, { codeEmails }) => state ?? codeEmails.length > 0,
             },
         ],
@@ -188,6 +193,11 @@ export const firstCodeSendLogic = kea<firstCodeSendLogicType>([
         },
     })),
     afterMount(({ actions }) => {
+        // The tab already loaded its list, so a failed first check must not lose that baseline.
+        const tabCodeEmails = transactionalEmailsLogic.findMounted()?.values.codeEmails
+        if (tabCodeEmails) {
+            actions.setSentBeforeMount(tabCodeEmails.length > 0)
+        }
         actions.startPolling()
         actions.checkForFirstCodeSend()
     }),
