@@ -9,13 +9,14 @@ import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.sch
 import { WorkflowInvocations } from '../../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../../Workflows/WorkflowMetrics'
+import { openEmailMetricSends } from '../log/emailMetricSends'
 import { TransactionalEmailLog } from '../log/TransactionalEmailLog'
 import { CodeEmailApiExample } from './CodeEmailApiExample'
 import { codeEmailLogic } from './codeEmailLogic'
 
 export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.Element {
     const { tab } = useValues(codeEmailLogic)
-    const { setTab, showRuns } = useActions(codeEmailLogic)
+    const { setTab } = useActions(codeEmailLogic)
     const workflowProps = { id: codeEmail.hog_flow_id }
     const { originalWorkflow, workflowLoading } = useValues(workflowLogic(workflowProps))
     const { loadWorkflow } = useActions(workflowLogic(workflowProps))
@@ -44,7 +45,7 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
                         content: workflowFailed ? (
                             failedBanner
                         ) : (
-                            <WorkflowMetrics id={codeEmail.hog_flow_id} onShowInvocations={showRuns} />
+                            <WorkflowMetrics id={codeEmail.hog_flow_id} onEmailMetricClick={openEmailMetricSends} />
                         ),
                     },
                     {

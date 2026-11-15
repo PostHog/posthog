@@ -186,6 +186,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("page_size", {"limit": 1}, ["bob@example.com"], True),
             ("second_page", {"limit": 1, "offset": 1}, ["jane@example.com"], False),
             ("search_and_status", {"search": "bob", "status": "failed"}, ["bob@example.com"], False),
+            ("status_and_reason", {"status": "failed", "reason": "provider_error"}, ["bob@example.com"], False),
+            ("reason_no_send_stopped_for", {"status": "failed", "reason": "sending_paused"}, [], False),
             ("search_with_no_match_for_the_status", {"search": "jane", "status": "failed"}, [], False),
             ("status_past_its_last_send", {"status": "sent", "offset": 1}, [], False),
         ]

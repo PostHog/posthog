@@ -14,6 +14,12 @@ import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/typ
 
 import { MessageTemplate } from './MessageTemplate'
 
+jest.mock('../Workflows/WorkflowMetricsSummary', () => ({
+    WorkflowMetricsSummary: ({ onMetricClick }: { onMetricClick?: (metric: string) => void }) => (
+        <button onClick={() => onMetricClick?.('email_bounced_hard')}>2 hard bounced</button>
+    ),
+}))
+
 const TEMPLATE_ID = 'tmpl-1'
 
 const ORDER_RECEIPT = {
@@ -129,7 +135,7 @@ describe('MessageTemplate', () => {
         }
     )
 
-    it("opens the Sends tab a send's page links back to, listing only this email's sends", async () => {
+    it("opens the sends behind a clicked email metric on the template's own Sends tab", async () => {
         const sendRequests: Record<string, string>[] = []
         useMocks({
             get: {
@@ -138,13 +144,19 @@ describe('MessageTemplate', () => {
                     sendRequests.push(Object.fromEntries(new URL(request.url).searchParams))
                     return [200, { results: [], has_more: false }]
                 },
+                '/api/environments/:team_id/hog_flows/:id/': { id: 'flow-1', actions: [] },
             },
+            post: { '/api/environments/:team_id/query/': { results: [] } },
         })
         await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
 
-        router.actions.push(urls.transactionalTemplate(TEMPLATE_ID), { tab: 'sends', status: 'failed' })
+        router.actions.push(urls.transactionalTemplate(TEMPLATE_ID))
+        const page = router.values.location.pathname
+        fireEvent.click(screen.getByText('Metrics'))
+        fireEvent.click(await screen.findByText('2 hard bounced'))
 
         await screen.findByText('No sends match these filters')
-        expect(sendRequests.at(-1)).toMatchObject({ workflow_id: 'flow-1', status: 'failed' })
+        expect(router.values.location.pathname).toEqual(page)
+        expect(sendRequests.at(-1)).toMatchObject({ workflow_id: 'flow-1', status: 'bounced', reason: 'hard' })
     })
 })

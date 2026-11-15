@@ -122,7 +122,7 @@ describe('CodeEmailTabs', () => {
         expect(recipient.closest('a')?.getAttribute('href')).toMatch(/\/transactional\/log\/msg-1\?status=bounced$/)
     })
 
-    it('opens the run logs behind a clicked email metric on this page, also when the link is opened again', async () => {
+    it('opens the sends behind a clicked email metric on this page, also when the link is opened again', async () => {
         useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
         renderTabs()
         router.actions.push(urls.transactionalCodeEmail('email-id'))
@@ -130,16 +130,17 @@ describe('CodeEmailTabs', () => {
 
         fireEvent.click(await screen.findByText('3 soft bounced'))
 
-        expect(logic.values.tab).toEqual('runs')
+        expect(logic.values.tab).toEqual('sends')
         expect(router.values.location.pathname).toEqual(page)
-        expect(router.values.searchParams).toMatchObject({ inv_search: 'Transient bounce' })
+        await waitFor(() => expect(sendRequests.at(-1)).toMatchObject({ status: 'bounced', reason: 'soft' }))
+        expect(screen.getByText(/Showing sends for one reason. Soft bounce/)).toBeInTheDocument()
 
         cleanup()
         logic.unmount()
         expect(codeEmailLogic.findMounted({ id: 'email-id' })).toBeNull()
         logic = codeEmailLogic({ id: 'email-id' })
         logic.mount()
-        expect(logic.values.tab).toEqual('runs')
+        expect(logic.values.tab).toEqual('sends')
     })
 
     it('offers no re-run of a sensitive email, whose sends keep no content', async () => {

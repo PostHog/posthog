@@ -197,6 +197,7 @@ def list_transactional_emails(
     *,
     search: str | None = None,
     status: EmailDeliveryStatus | None = None,
+    reason: str | None = None,
     workflow_id: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -233,6 +234,9 @@ def list_transactional_emails(
     if status:
         having.append("delivery_status = %(status)s")
         params["status"] = status.value
+    if reason:
+        having.append("delivery_reason = %(reason)s")
+        params["reason"] = reason
     if workflow_id:
         queued_filters.append("function_id = %(workflow_id)s")
         having.append("message_function_id = %(workflow_id)s")
@@ -245,7 +249,7 @@ def list_transactional_emails(
     candidates = f"SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {queued}"
     if message_id:
         scope = "AND message_id = %(message_id)s"
-    elif status:
+    elif status or reason:
         # A delivery status comes from all of a message's rows, so this reads every message in the period.
         settings.update(_GROUP_AS_READ)
         scope = f"AND (created_at, message_id) IN ({candidates})" if search or workflow_id else ""

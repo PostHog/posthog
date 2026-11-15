@@ -108,10 +108,11 @@ describe('transactionalEmailLogLogic', () => {
         expect(logic.values.emails.map((e) => e.message_id)).toEqual(['msg-0'])
     })
 
-    it('writes every filter but the search to the URL, keeping params it does not own', async () => {
+    it('writes every filter but the search to the URL, keeping params it does not own, and a new status drops the reason', async () => {
         logic.actions.setFilters({
             search: 'ada@example.com',
             status: 'bounced',
+            reason: 'soft',
             workflowId: 'flow-1',
             dateFrom: '-14d',
             dateTo: '2026-03-14',
@@ -120,6 +121,7 @@ describe('transactionalEmailLogLogic', () => {
         expect(router.values.searchParams).toEqual({
             tab: 'sends',
             status: 'bounced',
+            reason: 'soft',
             email: 'flow-1',
             date_from: '-14d',
             date_to: '2026-03-14',
@@ -168,13 +170,14 @@ describe('transactionalEmailLogLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         router.actions.push(
-            `/transactional/log?status=failed&email=flow-2&date_from=-3d&date_to=2026-03-14&${pageParam}`
+            `/transactional/log?status=failed&reason=sending_paused&email=flow-2&date_from=-3d&date_to=2026-03-14&${pageParam}`
         )
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requests.at(-1)).toEqual({
             search: 'ada',
             status: 'failed',
+            reason: 'sending_paused',
             workflow_id: 'flow-2',
             date_from: '2026-03-12T00:00:00.000Z',
             date_to: '2026-03-14T00:00:00.000Z',

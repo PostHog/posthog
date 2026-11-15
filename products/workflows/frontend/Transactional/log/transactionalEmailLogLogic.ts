@@ -18,9 +18,16 @@ export const LOG_PAGE_SIZE = 50
 export const LOG_RETENTION_DAYS = 30
 
 // pinned: URL search params of the Log tab and of an email's Sends tab - renaming breaks shared links
-const URL_PARAMS = ['search', 'status', 'email', 'date_from', 'date_to', 'page'] as const
+const URL_PARAMS = ['search', 'status', 'reason', 'email', 'date_from', 'date_to', 'page'] as const
+/** The pages with an email's own Sends tab. A template opens from the transactional, workflows or broadcasts library. */
+const EMAIL_PAGE_ROUTES = [
+    '/transactional/code-emails/:id',
+    '/transactional/library/templates/:id',
+    '/workflows/library/templates/:id',
+    '/broadcasts/library/templates/:id',
+]
 /** The filters a send's detail page carries back to the email's Sends tab. */
-export const SEND_FILTER_PARAMS = ['status', 'date_from', 'date_to'] as const
+export const SEND_FILTER_PARAMS = ['status', 'reason', 'date_from', 'date_to'] as const
 
 export interface TransactionalEmailLogLogicProps {
     /** Lists only the sends of this email's workflow, as the email's own Sends tab does. */
@@ -30,6 +37,8 @@ export interface TransactionalEmailLogLogicProps {
 export interface TransactionalEmailLogFilters {
     search: string
     status: EmailDeliveryStatusEnumApi | null
+    /** Why a send ended in its status, such as `soft` for a soft bounce. A click on an email metric sets it. */
+    reason: string | null
     // The workflow behind the transactional email, which the log filters on.
     workflowId: string | null
     dateFrom: string
@@ -40,6 +49,7 @@ export interface TransactionalEmailLogFilters {
 export const DEFAULT_LOG_FILTERS: TransactionalEmailLogFilters = {
     search: '',
     status: null,
+    reason: null,
     workflowId: null,
     dateFrom: '-7d',
     dateTo: null,
@@ -147,7 +157,8 @@ export const transactionalEmailLogLogic = kea<transactionalEmailLogLogicType>([
             { ...DEFAULT_LOG_FILTERS, workflowId: props.workflowId ?? null } as TransactionalEmailLogFilters,
             {
                 // Any other filter change starts the listing over from its first page.
-                setFilters: (state, { filters }) => inScope({ ...state, page: 1, ...filters }, props),
+                setFilters: (state, { filters }) =>
+                    inScope({ ...state, page: 1, ...('status' in filters ? { reason: null } : {}), ...filters }, props),
                 setFiltersFromUrl: (_, { filters }) => inScope(filters, props),
                 setPage: (state, { page }) => ({ ...state, page }),
                 refresh: (state) => ({ ...state, page: 1 }),
@@ -178,7 +189,10 @@ export const transactionalEmailLogLogic = kea<transactionalEmailLogLogicType>([
         isFiltered: [
             (s) => [s.filters, (_, props: TransactionalEmailLogLogicProps) => props.workflowId],
             (filters: TransactionalEmailLogFilters, scopedWorkflowId: string | undefined): boolean =>
-                !!filters.search.trim() || !!filters.status || (!scopedWorkflowId && !!filters.workflowId),
+                !!filters.search.trim() ||
+                !!filters.status ||
+                !!filters.reason ||
+                (!scopedWorkflowId && !!filters.workflowId),
         ],
         sendFilterSearchParams: [
             (s) => [s.filters],
@@ -186,6 +200,9 @@ export const transactionalEmailLogLogic = kea<transactionalEmailLogLogicType>([
                 const searchParams: Record<string, string> = {}
                 if (filters.status) {
                     searchParams.status = filters.status
+                }
+                if (filters.reason) {
+                    searchParams.reason = filters.reason
                 }
                 if (filters.dateFrom !== DEFAULT_LOG_FILTERS.dateFrom) {
                     searchParams.date_from = filters.dateFrom
@@ -241,6 +258,7 @@ export const transactionalEmailLogLogic = kea<transactionalEmailLogLogicType>([
                 {
                     search: values.filters.search,
                     status: (searchParams.status as EmailDeliveryStatusEnumApi | undefined) ?? null,
+                    reason: searchParams.reason ? String(searchParams.reason) : null,
                     workflowId: searchParams.email ? String(searchParams.email) : null,
                     dateFrom: searchParams.date_from ? String(searchParams.date_from) : DEFAULT_LOG_FILTERS.dateFrom,
                     dateTo: searchParams.date_to ? String(searchParams.date_to) : null,
@@ -253,12 +271,11 @@ export const transactionalEmailLogLogic = kea<transactionalEmailLogLogicType>([
             }
         }
         // An email's Sends tab mounts its own listing, which reads the filters from the email's page.
+        const read = (_: Record<string, string | undefined>, searchParams: Record<string, any>): void =>
+            readFilters(searchParams)
         return props.workflowId
-            ? {
-                  '/transactional/library/templates/:id': (_, searchParams) => readFilters(searchParams),
-                  '/transactional/code-emails/:id': (_, searchParams) => readFilters(searchParams),
-              }
-            : { '/transactional/log': (_, searchParams) => readFilters(searchParams) }
+            ? Object.fromEntries(EMAIL_PAGE_ROUTES.map((route) => [route, read]))
+            : { '/transactional/log': read }
     }),
     afterMount(({ actions, values }) => {
         if (values.page === null) {
@@ -304,6 +321,7 @@ async function fetchPage(
     const response = await transactionalEmailLogList(String(projectId), {
         search: filters.search.trim() || undefined,
         status: filters.status ?? undefined,
+        reason: filters.reason ?? undefined,
         workflow_id: filters.workflowId ?? undefined,
         date_from: dateFrom,
         date_to: dateTo,

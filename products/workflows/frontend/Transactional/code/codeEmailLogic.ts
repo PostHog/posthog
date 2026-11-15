@@ -118,9 +118,6 @@ export interface codeEmailLogicActions {
     setTab: (tab: CodeEmailTab) => {
         tab: CodeEmailTab
     }
-    showRuns: (searchParams: Record<string, string>) => {
-        searchParams: Record<string, string>
-    }
     updateCodeEmail: (fields: PatchedCodeEmailUpdateApi) => {
         fields: PatchedCodeEmailUpdateApi
     }
@@ -176,7 +173,6 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
     })),
     actions({
         setTab: (tab: CodeEmailTab) => ({ tab }),
-        showRuns: (searchParams: Record<string, string>) => ({ searchParams }),
         loadCodeEmail: true,
         codeEmailLoaded: (codeEmail: CodeEmailApi) => ({ codeEmail }),
         codeEmailNotFound: true,
@@ -203,7 +199,7 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
         ],
     })),
     reducers({
-        tab: ['metrics' as CodeEmailTab, { setTab: (_, { tab }) => tab, showRuns: () => 'runs' }],
+        tab: ['metrics' as CodeEmailTab, { setTab: (_, { tab }) => tab }],
         codeEmail: [
             null as CodeEmailApi | null,
             {
@@ -416,14 +412,6 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
                     const next = tab === 'metrics' ? searchParams : { ...searchParams, tab }
                     router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
                 }
-            },
-            showRuns: ({ searchParams }) => {
-                // The Run logs tab reads its filters from the URL, so the drilldown stays on this page.
-                router.actions.replace(
-                    router.values.location.pathname,
-                    { ...searchParams, tab: 'runs' },
-                    router.values.hashParams
-                )
             },
         }
     }),

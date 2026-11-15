@@ -133,6 +133,18 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
                     dataAttr="transactional-email-log-templates-retry"
                 />
             )}
+            {filters.reason && (
+                <LemonBanner
+                    type="info"
+                    action={{
+                        children: 'Show every reason',
+                        onClick: () => setFilters({ reason: null }),
+                        'data-attr': 'transactional-email-log-clear-reason',
+                    }}
+                >
+                    Showing sends for one reason. {emailReasonText(filters.reason)}.
+                </LemonBanner>
+            )}
             {pageFailed && (
                 <LemonBanner
                     type="error"
