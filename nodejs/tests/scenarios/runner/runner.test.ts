@@ -1145,6 +1145,18 @@ describe('runner through seed, drive and judge', () => {
         30_000
     )
 
+    it('calls the failover card invalid at its valve on a host without a run manifest', async () => {
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+
+        const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: 'pg.failover on cyclotron was not observed: pg.failover runs only on a run host',
+            timeline: [{ valve: 'pg.failover', target: 'cyclotron', error: 'pg.failover runs only on a run host' }],
+        })
+    }, 30_000)
+
     it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {
         const slowIntake = http.createServer((_request, response) => {
             setTimeout(() => response.writeHead(503).end(), 3_000)
