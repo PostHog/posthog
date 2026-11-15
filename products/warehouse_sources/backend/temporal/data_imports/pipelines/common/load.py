@@ -1,3 +1,4 @@
+import sys
 import asyncio
 import decimal
 import functools
@@ -113,7 +114,15 @@ def get_incremental_field_value(
     ):
         # Python aggregation also accepts values wider than Arrow's decimal256 limit.
         numeric_values = (decimal.Decimal(val) for val in values if val is not None)
-        return max(numeric_values, default=None) if aggregate == "max" else min(numeric_values, default=None)
+        numeric_value = max(numeric_values, default=None) if aggregate == "max" else min(numeric_values, default=None)
+        # Decimal-to-int bypasses Python's integer text limit; bound expansion before watermark serialization.
+        max_digits = sys.get_int_max_str_digits() or sys.int_info.default_max_str_digits
+        if numeric_value is not None and numeric_value.adjusted() >= max_digits:
+            raise ValueError(
+                "Incremental numeric cursor exceeds the supported integer digit limit. "
+                "Choose a different incremental field."
+            )
+        return numeric_value
 
     processed_column = pa.array(values)
 

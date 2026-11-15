@@ -507,7 +507,28 @@ class TestGetIncrementalFieldValue:
 
         assert value == expected
         cursor_schema = ExternalDataSchema(sync_type_config={"incremental_field_type": field_type})
-        assert cursor_schema.serialize_incremental_value(value) == (int(expected) if expected is not None else None)
+        if expected is None or expected == expected.to_integral_value():
+            assert cursor_schema.serialize_incremental_value(value) == (int(expected) if expected is not None else None)
+
+    @parameterized.expand(
+        [
+            ("integer", "max", "1e640", 640),
+            ("numeric", "min", "-1e640", 640),
+            ("numeric", "max", "1e10000", 0),
+        ]
+    )
+    def test_numeric_text_cursor_rejects_values_beyond_integer_text_limit(
+        self, field_type: str, aggregate: Literal["max", "min"], value: str, digit_limit: int
+    ):
+        schema = self._schema("created")
+        schema.incremental_field_type = field_type
+        table = pa.table({"created": [value]})
+
+        with (
+            patch("sys.get_int_max_str_digits", return_value=digit_limit),
+            pytest.raises(ValueError, match="supported integer digit limit"),
+        ):
+            get_incremental_field_value(schema, table, aggregate=aggregate)
 
     def test_missing_column_raises_actionable_error_matched_by_non_retryable_map(self):
         # A label like "created_at" persisted instead of the real field must fail with guidance
