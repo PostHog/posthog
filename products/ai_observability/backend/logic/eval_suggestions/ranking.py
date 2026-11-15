@@ -23,6 +23,8 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import cards, catalog
 from .adapters import AdaptedCheck
+from .call_review import ReviewCard
+from .call_review_queries import CallTypeRow
 from .coverage import EvalFix, fix_dedupe_key
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
 from .prices import MODEL_PRICES
@@ -60,7 +62,12 @@ SEVERITY: dict[str, float] = {
     "structured_output_gap": 0.8,
 }
 FIX_SEVERITY = 1.0
-
+# A reviewed card names a failure the review model saw several times against a rule in the team's own prompt, which
+# makes it worth more than a judge picked from the catalog.
+REVIEW_SEVERITY = 1.0
+REVIEW_TEMPLATE_KEY = "review"
+# The property that names each kind of call type on a live generation. A call type named by its input has none.
+CALL_TYPE_PROPERTIES = {"prompt_name": "$ai_prompt_name", "span_name": "$ai_span_name"}
 
 # What a judge runs on when the team has no provider key yet: the evaluator's OpenAI default.
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
@@ -473,6 +480,58 @@ def screened_proposal(
         mean_input_tokens=round(unit_tokens) if unit_tokens else None,
         judge_model=judge_model if is_judge else "",
         similar_evaluation_id=similar_evaluation_id,
+    )
+
+
+def call_type_filters(call_types: Sequence[CallTypeRow]) -> list[dict[str, Any]]:
+    """An exact filter on the property that names the call types, or [] for every generation when one property
+    does not name them all."""
+    sources = {call_type.source for call_type in call_types}
+    key = CALL_TYPE_PROPERTIES.get(next(iter(sources))) if len(sources) == 1 else None
+    if key is None:
+        return []
+    return [{"key": key, "value": sorted(c.name for c in call_types), "operator": "exact", "type": "event"}]
+
+
+def review_proposal(card: ReviewCard, profile: TeamProfile, *, judge_model: str) -> Proposal:
+    """A judge on the generations of the card's call types, with the review's own counts and examples."""
+    filters = call_type_filters(card.call_types)
+    # Call types are counted over the last day. Without a filter the judge runs on every generation of the week.
+    weekly_units = 7 * sum(c.calls for c in card.call_types) if filters else profile.generations
+    cost = judge_cost(weekly_units, profile.mean_input_tokens, judge_model)
+    text = cards.review_text(card, cards.cost_clause(cost.weekly_cost_usd, free=False))
+    keys = ",".join(sorted(c.key for c in card.call_types))
+    return Proposal(
+        kind=EvalSuggestionKind.NEW_LLM_JUDGE,
+        template_key=REVIEW_TEMPLATE_KEY,
+        dedupe_key=bounded_key(f"review:{keys}:{card.title.lower()}"),
+        headline=text.headline,
+        outcome=text.outcome,
+        reason=text.reason,
+        draft={
+            "name": card.title[: Evaluation._meta.get_field("name").max_length],
+            "description": card.checks,
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": card.judge_prompt},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "target": "generation",
+        },
+        filters=filters,
+        rollout_percentage=cost.rollout_percentage,
+        measured_failure_rate=card.failed / card.of,
+        sample_size=card.of,
+        evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
+        score=_score(
+            REVIEW_SEVERITY,
+            wilson_interval(card.failed, card.of).low * weekly_units,
+            judge=True,
+            similar=False,
+        ),
+        estimated_weekly_runs=cost.weekly_runs,
+        estimated_weekly_cost_usd=cost.weekly_cost_usd,
+        mean_input_tokens=round(profile.mean_input_tokens) if profile.mean_input_tokens else None,
+        judge_model=judge_model,
     )
 
 
