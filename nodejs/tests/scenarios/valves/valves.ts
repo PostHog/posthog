@@ -24,7 +24,7 @@ export type ValveDefinition = Definition & {
     target: z.ZodType<string>
     strandsRunningJobs: boolean
     journalsIntent?: true
-    apply(context: ValveContext, target: string, dose: unknown, holdMs: number): Promise<Actuation>
+    apply(context: ValveContext, target: string, dose: unknown, holdMs: number, signal: AbortSignal): Promise<Actuation>
 }
 
 export type ValveTimelineEntry = {
@@ -127,10 +127,10 @@ export const pgFailover: ValveDefinition = {
     target: z.literal('cyclotron'),
     strandsRunningJobs: false,
     journalsIntent: true,
-    apply: ({ environment, commits, manifest }, _target, _dose, holdMs) =>
+    apply: ({ environment, commits, manifest }, _target, _dose, holdMs, signal) =>
         manifest === undefined
             ? Promise.reject(new Error('pg.failover runs only on a run host'))
-            : environment.actuate({ kind: 'rds.failover', manifest, holdMs, commits }),
+            : environment.actuate({ kind: 'rds.failover', manifest, holdMs, commits, signal }),
 }
 
 export const VALVES: ValveDefinition[] = [
@@ -205,7 +205,13 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             if (!definition.journalsIntent) {
                 record.intentAt = now()
             }
-            actuation = await definition.apply(context, entry.target, entry.dose, durationMs(entry.for))
+            actuation = await definition.apply(
+                context,
+                entry.target,
+                entry.dose,
+                durationMs(entry.for),
+                released.signal
+            )
             record.appliedAt = now()
             journal()
             const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
