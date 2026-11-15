@@ -379,11 +379,24 @@ class TestAdaptedChecks:
             ("address_in_underscores", adapters.sensitive_data(), [_answer("Contact _jane@acme.io_")], False),
             ("address_before_an_em_dash", adapters.sensitive_data(), [_answer("Write to jane@acme.io—today")], False),
             (
-                "placeholder_domain_in_another_language",
+                "translated_example_domain_is_registrable",
                 adapters.sensitive_data(),
                 [_answer("Write to ana@exemplo.com.br")],
+                False,
+            ),
+            (
+                "example_label_under_a_real_domain",
+                adapters.sensitive_data(),
+                [_answer("Write to ana@example.att.com")],
+                False,
+            ),
+            (
+                "subdomain_of_a_reserved_domain",
+                adapters.sensitive_data(),
+                [_answer("Write to ana@mail.example.org")],
                 True,
             ),
+            ("reserved_top_level_domain", adapters.sensitive_data(), [_answer("Write to ana@shop.test")], True),
             (
                 "domain_that_only_contains_example",
                 adapters.sensitive_data(),

@@ -48,11 +48,10 @@ REFUSAL_OPENERS: tuple[str, ...] = (
 REFUSAL_ACTIONS = "help|assist|do that|share|provide|comply|answer|fulfill|complete|give"
 # Placeholder domains that documentation and test data use, so an address on them leaks nothing.
 IGNORED_EMAIL_DOMAINS: tuple[str, ...] = ("example.com", "example.org", "example.net", "test.com", "localhost")
-# A domain that is only a word for "example" and a public suffix, such as `exemplo.com.br`, is a placeholder in any
-# language. Any other label makes it a domain someone can register, so `customer-example.com` still counts.
-PLACEHOLDER_DOMAIN_PATTERN = (
-    "^(example|exemplo|ejemplo|exemple|esempio|beispiel|voorbeeld|przyklad)([.][a-z]{2,3}){1,2}$"
-)
+# Only names that RFC 2606 and RFC 6761 reserve can never belong to anyone: subdomains of example.com, .net and
+# .org, and the example, test, invalid and localhost top-level domains. Look-alikes such as `example.att.com` or
+# `exemplo.com.br` are registrable, so an address on them still counts.
+PLACEHOLDER_DOMAIN_PATTERN = "^([a-z0-9-]+[.])*(example[.](com|net|org)|example|test|invalid|localhost)$"
 
 
 @frozen
