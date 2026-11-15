@@ -1,4 +1,5 @@
 import re
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -57,7 +58,15 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PROGRESS_MESSAGE_MARKER = "*Hedgehog on the job* :hedgehog:"
+# One header per run, so a card that updates in place keeps its header while threads still see variety.
+PROGRESS_MESSAGE_HEADERS = (
+    "*Hedgehog on the job* :hedgehog:",
+    "*The hedgehog is on it* :hedgehog:",
+    "*Spikes up, getting to work* :hedgehog:",
+    "*Hedgehog mode: on* :hedgehog:",
+    "*One hedgehog, coming right up* :hedgehog:",
+    "*Quills out, let's go* :hedgehog:",
+)
 # Cards posted before the copy change still carry this text and must stay editable.
 LEGACY_PROGRESS_MESSAGE_MARKER = "Working on task..."
 UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
@@ -70,6 +79,14 @@ DEFAULT_FAILURE_RECOVERY_HINT = (
     "or add the missing details and I'll re-plan before continuing."
 )
 _TASK_FIELD_LIMIT = 256
+
+
+def pick_variant(variants: tuple[str, ...], seed: str | None) -> str:
+    if not seed:
+        return variants[0]
+    return variants[zlib.crc32(seed.encode()) % len(variants)]
+
+
 _MARKDOWN_CHUNK_LIMIT = 12000
 _SECTION_TEXT_LIMIT = 3000
 
@@ -495,7 +512,7 @@ class SlackThreadHandler:
             for msg in messages:
                 text = msg.get("text", "")
                 if msg.get("user") == bot_user_id and (
-                    PROGRESS_MESSAGE_MARKER in text or LEGACY_PROGRESS_MESSAGE_MARKER in text
+                    any(header in text for header in PROGRESS_MESSAGE_HEADERS) or LEGACY_PROGRESS_MESSAGE_MARKER in text
                 ):
                     return msg.get("ts")
         except Exception as e:
@@ -735,7 +752,7 @@ class SlackThreadHandler:
         running on and against is a property of the task, and the thread already has
         one place that describes it while it works.
         """
-        text = f"{PROGRESS_MESSAGE_MARKER}\n{stage}"
+        text = f"{pick_variant(PROGRESS_MESSAGE_HEADERS, self.task_run_id)}\n{stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
