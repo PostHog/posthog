@@ -135,6 +135,11 @@ class TransactionalEmailStatsRowSerializer(serializers.Serializer):
     label = serializers.CharField(  # type: ignore[assignment]
         help_text="The template name or the sending domain. Empty for a deleted template."
     )
+    template_id = serializers.CharField(
+        allow_null=True,
+        help_text="The template that sent this row's emails. Null for a deleted template, emails sent from code, "
+        "and a sending domain.",
+    )
     code_email_id = serializers.CharField(
         allow_null=True,
         help_text="The email sent from code under a `template_key`, for a row of sends that have no template. "

@@ -320,11 +320,6 @@ def get_transactional_email(
     assets = fetch_message_assets_for_invocations(team_id, [entry.message_id], after=queued - _CLOCK_SKEW)
     asset = assets[0] if assets else None
     template = _templates_by_workflow(team_id, [entry.workflow_id]).get(entry.workflow_id)
-    code_email = (
-        code_emails_by_workflow(team_id, [UUID(entry.workflow_id)]).get(entry.workflow_id)
-        if not template and entry.code_email_id
-        else None
-    )
     return TransactionalEmailLogDetail(
         entry=entry,
         timeline=timeline,
@@ -332,7 +327,9 @@ def get_transactional_email(
         distinct_id=asset.distinct_id if asset else "",
         # The stored copy opens through its workflow, so a deleted workflow's copy can't be shown.
         action_id=asset.action_id if asset and (access is None or entry.workflow_id in access.viewable_ids) else "",
-        sensitive=bool(template.sensitive) if template else bool(code_email and code_email.sensitive),
+        # A send from code can override its code email's sensitive setting, and its stored copy follows the send, so
+        # the copy itself shows whether the content was withheld.
+        sensitive=bool(template and template.sensitive),
     )
 
 
@@ -389,9 +386,10 @@ def transactional_email_stats(
     stats = []
     for key, sent, delivered, bounced, complained, opened, clicked, failed in rows:
         template = templates.get(key)
+        live_template = template if template and not template.deleted else None
         if group_by == EmailStatsGroupBy.TEMPLATE:
-            label = template.name if template and not template.deleted else code_sends.keys.get(key, "")
-            code_email_id = None if template else code_sends.code_email_ids.get(key)
+            label = live_template.name if live_template else code_sends.keys.get(key, "")
+            code_email_id = None if live_template else code_sends.code_email_ids.get(key)
             key = str(template.id) if template else key
         else:
             label = key
@@ -400,6 +398,7 @@ def transactional_email_stats(
             TransactionalEmailStatsRow(
                 key=key,
                 label=label,
+                template_id=str(live_template.id) if live_template else None,
                 code_email_id=code_email_id,
                 sent=sent,
                 delivered=delivered,

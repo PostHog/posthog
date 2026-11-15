@@ -431,6 +431,7 @@ class TransactionalEmailStatsRow:
     # The template id or the sending domain.
     key: str
     label: str
+    template_id: str | None
     code_email_id: str | None
     sent: int
     delivered: int
