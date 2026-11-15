@@ -17,6 +17,7 @@ const HELD: Verdict = {
     exits: [],
     writer: [],
     drive: { startedAt: Date.UTC(2026, 0, 5, 10, 0, 0), endedAt: Date.UTC(2026, 0, 5, 10, 0, 50) },
+    bars: [],
 }
 
 const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email claims 1/s, not within 10% of 4/s' }
@@ -117,6 +118,36 @@ describe('statusOf', () => {
             },
             'failed',
             `role.kill on ${EMAIL_WORKER} was not observed: never applied; at_least_once failed: run-1 email: lost`,
+        ],
+        [
+            'a bar broke at a ramp step while every invariant held',
+            {
+                bars: [
+                    {
+                        name: 'pickup_p99_under',
+                        unit: 's',
+                        passed: false,
+                        breakingPoint: { scale: 10, at: at(30), offeredPerSecond: 12.34, key: 'hogflow', value: 10 },
+                    },
+                ],
+            },
+            'failed',
+            'pickup_p99_under broke at the 10x step, 12.3 units/s offered: hogflow 10 s',
+        ],
+        [
+            'a bar could not be judged',
+            {
+                bars: [
+                    {
+                        name: 'writer_cpu_under',
+                        unit: '%',
+                        passed: false,
+                        unjudged: 'no writer CPU reading off a run host in the 1x step',
+                    },
+                ],
+            },
+            'invalid',
+            'writer_cpu_under was not judged: no writer CPU reading off a run host in the 1x step',
         ],
         [
             'a valve was observed but not released',

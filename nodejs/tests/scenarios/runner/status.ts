@@ -2,6 +2,7 @@ import type { Profile } from '../cards/schema'
 import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
+import type { BarResult } from '../judge/bars'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS, phasesOf } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
@@ -96,6 +97,7 @@ export type Verdict = {
     exits: RoleExit[]
     writer: readonly WriterSample[]
     drive: DriveWindow
+    bars: BarResult[]
 }
 
 const DATABASE_TARGETS = new Set(['postgres', 'cyclotron'])
@@ -157,6 +159,7 @@ export function statusOf({
     exits,
     writer,
     drive,
+    bars,
 }: Verdict): {
     status: Status
     statusReason: string
@@ -182,9 +185,14 @@ export function statusOf({
         return { status: 'invalid', statusReason: interrupted }
     }
     const crashes = exits.filter(({ byValve }) => !byValve).map((exit) => unexpectedExit(exit, timeline))
-    const unobserved = timeline
-        .filter(({ observedAt }) => observedAt === undefined)
-        .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`)
+    const unobserved = [
+        ...timeline
+            .filter(({ observedAt }) => observedAt === undefined)
+            .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`),
+        ...bars.flatMap(({ name, unjudged }) =>
+            unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
+        ),
+    ]
     const failures = [
         ...(convergence.converged
             ? []
@@ -194,6 +202,13 @@ export function statusOf({
         ...invariants
             .filter(({ passed }) => !passed)
             .map(({ name, violation }) => `${name} failed${violation ? `: ${violation}` : ''}`),
+        ...bars.flatMap(({ name, unit, breakingPoint: broke }) =>
+            broke === undefined
+                ? []
+                : [
+                      `${name} broke at the ${broke.scale}x step, ${broke.offeredPerSecond.toFixed(1)} units/s offered: ${broke.key ? `${broke.key} ` : ''}${broke.value} ${unit}`,
+                  ]
+        ),
     ]
     if (crashes.length === 0 && failures.length === 0 && unobserved.length > 0) {
         return { status: 'invalid', statusReason: unobserved.join('; ') }
