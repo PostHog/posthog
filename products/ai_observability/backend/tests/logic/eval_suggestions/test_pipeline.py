@@ -204,6 +204,8 @@ def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[s
         "judged_passes": 24,
         "false_alarms": false_alarms,
         "unjudged": 0,
+        "na_on_fails": 0,
+        "na_on_passes": 0,
     }
     return {"status": "ok", "model": "gpt-5-mini", "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
 

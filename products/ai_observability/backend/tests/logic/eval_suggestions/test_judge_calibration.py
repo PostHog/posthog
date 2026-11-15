@@ -25,20 +25,24 @@ REQUEST = httpx.Request("POST", "https://gateway.example.com")
 
 @parameterized.expand(
     [
-        ("catches_three_in_five", 5, 3, 0, 30, True),
-        ("catches_two_in_five", 5, 2, 0, 30, False),
-        ("one_false_alarm_per_two_fails", 10, 6, 5, 30, True),
-        ("one_false_alarm_too_many", 10, 6, 6, 30, False),
-        ("one_false_alarm_always_allowed", 3, 2, 1, 30, True),
-        ("two_false_alarms_on_three_fails", 3, 2, 2, 30, False),
-        ("nothing_to_catch", 0, 0, 0, 30, False),
-        ("enough_passes_judged", 5, 3, 0, 5, True),
-        ("passes_unjudged_are_not_clean", 5, 3, 0, 4, False),
+        ("catches_three_in_five", 5, 3, 0, 30, 30, True),
+        ("catches_two_in_five", 5, 2, 0, 30, 30, False),
+        ("one_false_alarm_per_two_fails", 10, 6, 5, 30, 30, True),
+        ("one_false_alarm_too_many", 10, 6, 6, 30, 30, False),
+        ("one_false_alarm_always_allowed", 3, 2, 1, 30, 30, True),
+        ("two_false_alarms_on_three_fails", 3, 2, 2, 30, 30, False),
+        ("nothing_to_catch", 0, 0, 0, 30, 30, False),
+        ("enough_passes_judged", 5, 3, 0, 5, 30, True),
+        ("passes_unjudged_are_not_clean", 5, 3, 0, 4, 30, False),
+        ("false_alarms_scale_to_every_review_pass", 20, 12, 10, 20, 50, False),
     ]
 )
 def test_a_card_is_kept_only_when_its_judge_agrees_with_the_review(
-    _name: str, review_fails: int, caught: int, false_alarms: int, judged_passes: int, kept: bool
+    _name: str, review_fails: int, caught: int, false_alarms: int, judged_passes: int, passes: int, kept: bool
 ) -> None:
+    labels = dict.fromkeys(range(1, review_fails + 1), "fail") | dict.fromkeys(
+        range(review_fails + 1, review_fails + passes + 1), "pass"
+    )
     calibration = Calibration(
         review_fails=review_fails,
         caught=caught,
@@ -46,9 +50,11 @@ def test_a_card_is_kept_only_when_its_judge_agrees_with_the_review(
         judged_passes=judged_passes,
         false_alarms=false_alarms,
         unjudged=30 - judged_passes,
+        na_on_fails=0,
+        na_on_passes=0,
     )
 
-    assert judge_calibration.keeps(calibration) is kept
+    assert judge_calibration.keeps(MagicMock(labels=labels, of=review_fails + passes), calibration) is kept
 
 
 @parameterized.expand(
@@ -144,7 +150,7 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
         number = int(match.group(1))
         if number == 3:
             raise connection_reset
-        return reply("fail" if number in (1, 2, 4, 6, 7) else "pass")
+        return reply("fail" if number in (1, 2, 4, 6) else "na" if number == 40 else "pass")
 
     client = MagicMock(spec=sdk)
     create = client.messages.create if provider == "anthropic" else client.chat.completions.create
@@ -159,11 +165,20 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
     assert sorted(set(prompts)) == sorted(rendering.calls[number].text for number in numbers)
     assert all(JUDGE_PROMPT in request.system for request in requests)
     assert calibration == Calibration(
-        review_fails=5, caught=3, review_passes=35, judged_passes=35, false_alarms=2, unjudged=1
+        review_fails=5,
+        caught=3,
+        review_passes=35,
+        judged_passes=35,
+        false_alarms=1,
+        unjudged=1,
+        na_on_fails=0,
+        na_on_passes=1,
     )
-    assert judge_calibration.keeps(calibration)
-    # The judge's 2 false alarms in 35 passes stand for all 45: 3 + 2 * 45 / 35 rounds to 6 of 50.
-    assert (judge_calibration.measured(card, calibration).failed, card.of) == (6, 50)
+    assert judge_calibration.keeps(card, calibration)
+    # The false alarm and the na in 35 judged passes each stand for 45 / 35 of the review's 45 passes, so the judge
+    # fails 3 + 1.3 calls, rounded to 4, of the 50 - 1.3 it would grade.
+    measured = judge_calibration.measured(card, calibration)
+    assert (measured.failed, measured.of) == (4, 49)
     # The reset call used every attempt and counts at its most, since a reset may have billed.
     price = MODEL_PRICES[model]
     served = 1000 * price.input_per_token + 50 * price.output_per_token

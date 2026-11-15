@@ -203,12 +203,12 @@ def _calibrate(
         for card, card_numbers in zip(cards, numbers)
     ]
     return _Calibrated(
-        kept=[(card, c) for card, c in zip(cards, calibrations) if judge_calibration.keeps(c)],
+        kept=[(card, c) for card, c in zip(cards, calibrations) if judge_calibration.keeps(card, c)],
         record={
             "status": "ok",
             "model": judge_model,
             "cards": [
-                {"title": card.title, **asdict(c), "kept": judge_calibration.keeps(c)}
+                {"title": card.title, **asdict(c), "kept": judge_calibration.keeps(card, c)}
                 for card, c in zip(cards, calibrations)
             ],
         },

@@ -37,7 +37,8 @@ TIMEOUT_SECONDS = 30.0
 MAX_OUTPUT_TOKENS = 2048
 # A judge that misses more than 2 in 5 of the review's fails would hide the failure its card is about.
 MIN_CAUGHT_SHARE = 0.6
-# One false alarm per two review fails at most, so the real failures stay the bulk of what the judge flags.
+# One false alarm per two review fails at most, counted over every call the review labelled, so the real failures
+# stay the bulk of what the judge flags.
 FAILS_PER_FALSE_ALARM = 2
 # A judge is trusted on calls it should pass only after it returned a verdict on this many, so a judge that fails
 # everything, or whose requests on passes all failed, cannot look clean.
@@ -103,6 +104,19 @@ class Calibration:
     false_alarms: int
     # Calls without a verdict: the request failed, the reply held none, or the deadline left no time to start it.
     unjudged: int
+    # Review fails and passes the judge answered na on. A runtime fail rate leaves na answers out.
+    na_on_fails: int
+    na_on_passes: int
+
+
+@frozen
+class _Projection:
+    """The judge's verdicts on the calibration calls, scaled to every applicable call the review labelled."""
+
+    review_fails: int
+    caught: float
+    false_alarms: float
+    na: float
 
 
 def provider(model: str | None) -> Literal["openai", "anthropic"] | None:
@@ -255,24 +269,39 @@ def calibrate(card: ReviewCard, numbers: Sequence[int], verdicts: Sequence[Verdi
         judged_passes=sum(1 for label, verdict in pairs if label == "pass" and verdict is not None),
         false_alarms=sum(1 for label, verdict in pairs if label == "pass" and verdict == "fail"),
         unjudged=sum(1 for _, verdict in pairs if verdict is None),
+        na_on_fails=sum(1 for label, verdict in pairs if label == "fail" and verdict == "na"),
+        na_on_passes=sum(1 for label, verdict in pairs if label == "pass" and verdict == "na"),
     )
 
 
-def keeps(calibration: Calibration) -> bool:
+def _project(card: ReviewCard, calibration: Calibration) -> _Projection:
+    """The judge's verdicts scaled to the card's applicable calls. When the review passed more calls than the judge
+    returned verdicts on, its verdicts on those stand for the rest too."""
+    fails = sum(1 for verdict in card.labels.values() if verdict == "fail")
+    fail_scale = fails / calibration.review_fails if calibration.review_fails else 0.0
+    pass_scale = (card.of - fails) / calibration.judged_passes if calibration.judged_passes else 0.0
+    return _Projection(
+        review_fails=fails,
+        caught=calibration.caught * fail_scale,
+        false_alarms=calibration.false_alarms * pass_scale,
+        na=calibration.na_on_fails * fail_scale + calibration.na_on_passes * pass_scale,
+    )
+
+
+def keeps(card: ReviewCard, calibration: Calibration) -> bool:
     fails = calibration.review_fails
+    projected = _project(card, calibration)
     return (
         fails > 0
         and calibration.judged_passes >= MIN_JUDGED_PASSES
         and calibration.caught / fails >= MIN_CAUGHT_SHARE
-        and calibration.false_alarms <= max(1, fails // FAILS_PER_FALSE_ALARM)
+        and projected.false_alarms <= max(1, projected.review_fails // FAILS_PER_FALSE_ALARM)
     )
 
 
 def measured(card: ReviewCard, calibration: Calibration) -> ReviewCard:
-    """The card with the judge's own fail count over the review's applicable calls. When the review passed more
-    calls than the judge returned verdicts on, its false alarms among those stand for the rest too."""
-    fails = sum(1 for verdict in card.labels.values() if verdict == "fail")
-    caught = calibration.caught * fails / calibration.review_fails if calibration.review_fails else 0.0
-    passes = card.of - fails
-    false_alarms = calibration.false_alarms * passes / calibration.judged_passes if calibration.judged_passes else 0.0
-    return replace(card, failed=round(caught + false_alarms))
+    """The card with the judge's own counts over the review's applicable calls: its fails, out of the calls it did
+    not answer na on, as the evaluation's runtime rate counts them."""
+    projected = _project(card, calibration)
+    failed = round(projected.caught + projected.false_alarms)
+    return replace(card, failed=failed, of=max(failed, round(card.of - projected.na)))
