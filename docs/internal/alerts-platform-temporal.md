@@ -534,15 +534,15 @@ python manage.py backfill_platform_insight_alert_configurations
 
 It copies every insight alert, on every cadence.
 A real-time check gets production's real-time budget: a 7-minute evaluation with one retry inside it.
-An AI detector check runs on the AI queue, whose worker holds the model credentials, with production's retries: a check whose model call reaches no verdict is retried, and only its last attempt records the error.
-A paused AI detector check, refused for a withdrawn rollout or consent or for no AI credits left, is not retried. It records an errored check and leaves the alert enabled, as production does.
+An AI or forecast detector check runs on the AI queue, whose worker holds the AI gateway credentials, with production's retries: a check whose gateway call reaches no result is retried, and only its last attempt records the error.
+A paused check is not retried. An AI detector check pauses for a withdrawn rollout or consent, or for no AI credits left. A forecast detector check pauses for a withdrawn rollout or consent, a gateway 402 or 403, or no usable gateway. A paused check records an errored check and leaves the alert enabled, as production does.
 An AI detector alert runs `AI_DETECTOR_ALERT_POLICY` on both stacks, so it announces a firing once and stays quiet until a clear check ends the firing.
 Production marks each quiet firing check with `firing_not_renotified`, so the investigation safety net and the cutover do not treat it as a held notification.
 Every other check gets one 12-minute attempt.
-An AI detector check calls the model on both stacks while both run, and each call is billed to the project, so the backfill leaves AI detector alerts out.
-Pass `--include-ai-detector` to copy them, with `--team-id` or `--ids-file` for an internal project, until the insight cutover.
-An AI detector alert created or turned back on later waits for the next backfill run with the flag.
-A copy made without the flag is switched off at its next check when its alert has since moved to the AI detector.
+AI and forecast detector checks call the AI gateway on both stacks while both run, and each call is billed to the project, so the backfill leaves those alerts out.
+Pass `--include-ai-detector` to copy both kinds, with `--team-id` or `--ids-file` for an internal project, until the insight cutover.
+An AI or forecast detector alert created or turned back on later waits for the next backfill run with the flag.
+A copy made without the flag is switched off at its next check when its alert has since moved to the AI or forecast detector.
 The AI queue's worker needs `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file too, or those checks query as the worker's own ClickHouse user.
 Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
 Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
