@@ -47,7 +47,12 @@ from products.signals.dags.inbox_ranking.common import (
     write_parquet,
 )
 from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
-from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE, STATE_TABLE
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    EMBEDDINGS_TABLE,
+    LABELS_TABLE,
+    STATE_TABLE,
+    peak_rss_metadata,
+)
 from products.signals.dags.inbox_ranking.dataset.project_vectors import CONTEXT_LABEL_COLUMNS, EMBEDDING_COLUMNS
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs, ProjectContext
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
@@ -185,6 +190,7 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
     observed = ~np.isnan(table.labels)
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "snapshots": dagster.MetadataValue.int(len(snapshots)),
             "rows": dagster.MetadataValue.int(len(table.rows)),
             "network_train_rows": dagster.MetadataValue.int(len(table.network_train_rows())),
