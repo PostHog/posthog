@@ -1,7 +1,7 @@
 """Canonical, documentation-sourced descriptions for Webflow endpoints and columns.
 
 Sourced from the official Webflow Data API v2 reference (https://developers.webflow.com/data/reference).
-Keyed by the static endpoint names in `settings.py` `WEBFLOW_ENDPOINTS`, which match the
+Keyed by the static endpoint names in `settings.py` (`WEBFLOW_ENDPOINTS` and `ANALYZE_REPORTS`), which match the
 `ExternalDataSchema.name` of a synced Webflow table. The per-site `collection_<slug>` schemas are
 user-defined CMS collections discovered at sync time, so they intentionally have no canonical entry
 and fall back to LLM enrichment. Columns absent here also fall back to LLM enrichment.
@@ -110,6 +110,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "responseSettings": "Settings controlling how form responses are handled.",
             "createdOn": "Time at which the form was created.",
             "lastUpdated": "Time at which the form was last updated.",
+        },
+    },
+    "form_submissions": {
+        "description": "A submission of a form on a Webflow site, with the data the visitor entered.",
+        "docs_url": "https://developers.webflow.com/data/reference/forms/form-submissions/list-submissions-by-site",
+        "columns": {
+            "id": "Unique identifier for the form submission.",
+            "displayName": "Name of the form, as displayed on the site.",
+            "siteId": "ID of the site the form belongs to.",
+            "workspaceId": "ID of the workspace the site belongs to.",
+            "dateSubmitted": "Time at which the form was submitted.",
+            "formResponse": "The data submitted in the form, keyed by field name.",
+            "localeId": "ID of the locale the form was submitted from. Null for the primary locale.",
+        },
+    },
+    "analyze_traffic": {
+        "description": "Daily site traffic from Webflow Analyze: sessions, unique users and page views per UTC day.",
+        "docs_url": "https://developers.webflow.com/data/reference/analyze/traffic",
+        "columns": {
+            "timestamp": "Start of the UTC day the counts cover.",
+            "sessionCount": "Number of sessions on the day.",
+            "userCount": "Number of unique users on the day.",
+            "pageviewCount": "Number of page views on the day.",
+        },
+    },
+    "analyze_top_pages": {
+        "description": "The most visited pages of the site per UTC day from Webflow Analyze, up to 250 pages a day ranked by sessions.",
+        "docs_url": "https://developers.webflow.com/data/reference/analyze/top-pages",
+        "columns": {
+            "timestamp": "Start of the UTC day the counts cover.",
+            "pageId": "ID of the Webflow page.",
+            "title": "Display title of the page, or the CMS item name for a CMS-templated page.",
+            "sessionCount": "Sessions attributed to the page on the day.",
+            "userCount": "Unique users that visited the page on the day.",
+            "pageviewCount": "Page views recorded for the page on the day.",
+            "collectionId": "ID of the CMS collection of a CMS-templated page.",
+            "itemSlug": "Slug of the CMS item for a CMS-templated page. Empty for other pages.",
+        },
+    },
+    "analyze_time_on_page": {
+        "description": "Daily average time on page across the whole site from Webflow Analyze, per UTC day.",
+        "docs_url": "https://developers.webflow.com/data/reference/analyze/time-on-page",
+        "columns": {
+            "timestamp": "Start of the UTC day the averages cover.",
+            "averageSecondsPerSession": "Average time on page per session, in seconds.",
+            "averageSecondsPerUser": "Average time on page per unique user, in seconds.",
+            "averageSecondsPerPageview": "Average time on page per page view, in seconds.",
         },
     },
 }

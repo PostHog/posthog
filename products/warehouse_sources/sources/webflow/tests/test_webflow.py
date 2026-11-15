@@ -1,7 +1,9 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import requests
@@ -17,7 +19,11 @@ from products.warehouse_sources.sources.sdk.testing import (
     scripted_network,
 )
 from products.warehouse_sources.sources.webflow._config import WebflowSourceConfig
-from products.warehouse_sources.sources.webflow.settings import ALL_WEBHOOK_EVENTS, WEBFLOW_ENDPOINTS
+from products.warehouse_sources.sources.webflow.settings import (
+    ALL_WEBHOOK_EVENTS,
+    ANALYZE_INCREMENTAL_FIELD,
+    WEBFLOW_ENDPOINTS,
+)
 from products.warehouse_sources.sources.webflow.source import WebflowSource
 from products.warehouse_sources.sources.webflow.webflow import (
     WebflowResumeConfig,
@@ -123,6 +129,19 @@ class TestGetRows:
 
         assert result.params("offset") == ["0"]
 
+    def test_form_submissions_reads_the_submissions_envelope_across_pages(self) -> None:
+        result = _driver().run(
+            "form_submissions",
+            [
+                _page({"formSubmissions": [{"id": f"s{i}"} for i in range(100)], "pagination": {"total": 101}}),
+                _page({"formSubmissions": [{"id": "last"}], "pagination": {"total": 101}}),
+            ],
+        )
+
+        assert len(result.rows) == 101
+        assert result.paths == ["/v2/sites/site-1/form_submissions"] * 2
+        assert result.params("offset") == ["0", "100"]
+
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -170,6 +189,7 @@ class TestWebflowSource:
             ("pages", "pages", ["id"]),
             ("products", "products", ["id"]),
             ("orders", "orders", ["orderId"]),
+            ("form_submissions", "form_submissions", ["id"]),
         ]
     )
     def test_source_response_primary_keys(self, _name: str, schema_name: str, expected_pks: list[str]) -> None:
@@ -180,6 +200,217 @@ class TestWebflowSource:
         assert result.response.primary_keys == expected_pks
         assert result.response.partition_mode == "datetime"
         assert result.response.partition_keys == [WEBFLOW_ENDPOINTS[schema_name].partition_key]
+
+
+# Today 00:00 UTC is the exclusive end of every Analyze run, so only complete days sync.
+ANALYZE_NOW = "2026-11-15T12:00:00Z"
+ANALYZE_END = "2026-11-15T00:00:00Z"
+FULL_HISTORY_WINDOWS = [
+    ("2025-04-09T00:00:00Z", "2025-07-18T00:00:00Z"),
+    ("2025-07-18T00:00:00Z", "2025-10-26T00:00:00Z"),
+    ("2025-10-26T00:00:00Z", "2026-02-03T00:00:00Z"),
+    ("2026-02-03T00:00:00Z", "2026-05-14T00:00:00Z"),
+    ("2026-05-14T00:00:00Z", "2026-08-22T00:00:00Z"),
+    ("2026-08-22T00:00:00Z", ANALYZE_END),
+]
+
+
+def _analyze_api(data_for: Callable[[RecordedRequest], list[dict[str, Any]]]) -> Callable[[RecordedRequest], Any]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        return _page({"report": request.path.rsplit("/", 1)[-1], "data": data_for(request)})
+
+    return respond
+
+
+def _no_data(_request: RecordedRequest) -> list[dict[str, Any]]:
+    return []
+
+
+def _ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+class TestAnalyzeReports:
+    @pytest.fixture(autouse=True)
+    def _freeze_time(self):
+        with time_machine.travel(ANALYZE_NOW, tick=False):
+            yield
+
+    @parameterized.expand(
+        [
+            (
+                "full_refresh_from_history_floor_in_100_day_windows",
+                {},
+                None,
+                FULL_HISTORY_WINDOWS,
+            ),
+            (
+                "incremental_refetches_the_last_synced_day",
+                {
+                    "incremental_field": ANALYZE_INCREMENTAL_FIELD,
+                    "db_incremental_field_last_value": "2026-11-10T00:00:00Z",
+                },
+                None,
+                [("2026-11-10T00:00:00Z", ANALYZE_END)],
+            ),
+            (
+                "incremental_with_datetime_watermark_floors_to_the_day",
+                {
+                    "incremental_field": ANALYZE_INCREMENTAL_FIELD,
+                    "db_incremental_field_last_value": datetime(2026, 11, 12, 7, 30, tzinfo=UTC),
+                },
+                None,
+                [("2026-11-12T00:00:00Z", ANALYZE_END)],
+            ),
+            (
+                "incremental_watermark_before_history_floor_is_clamped",
+                {
+                    "incremental_field": ANALYZE_INCREMENTAL_FIELD,
+                    "db_incremental_field_last_value": "2024-01-01T00:00:00Z",
+                },
+                None,
+                FULL_HISTORY_WINDOWS,
+            ),
+            (
+                "full_refresh_ignores_the_watermark",
+                {
+                    "incremental_field": ANALYZE_INCREMENTAL_FIELD,
+                    "should_use_incremental_field": False,
+                    "db_incremental_field_last_value": "2026-11-10T00:00:00Z",
+                },
+                None,
+                FULL_HISTORY_WINDOWS,
+            ),
+            (
+                "resume_continues_from_the_saved_window",
+                {},
+                WebflowResumeConfig(analyze_window_start="2026-08-22T00:00:00Z"),
+                [("2026-08-22T00:00:00Z", ANALYZE_END)],
+            ),
+        ]
+    )
+    def test_traffic_windows(
+        self,
+        _name: str,
+        inputs: dict[str, Any],
+        resume_state: WebflowResumeConfig | None,
+        expected_windows: list[tuple[str, str]],
+    ) -> None:
+        result = _driver().run("analyze_traffic", _analyze_api(_no_data), resume_state=resume_state, **inputs)
+
+        assert result.raised is None
+        # One request per metric scope for each window.
+        windows = list(zip(result.params("startTime"), result.params("endTime")))
+        assert windows == [window for window in expected_windows for _scope in range(3)]
+        assert result.params("metricScope") == ["session", "user", "pageview"] * len(expected_windows)
+
+    def test_windows_without_rows_still_commit_the_next_window(self) -> None:
+        result = _driver().run("analyze_traffic", _analyze_api(_no_data))
+
+        assert result.rows == []
+        # The last window stages nothing: no window is left after it.
+        assert result.committed_states == [
+            WebflowResumeConfig(analyze_window_start=end) for _start, end in FULL_HISTORY_WINDOWS[:-1]
+        ]
+
+    def test_traffic_merges_the_three_scopes_into_one_ascending_row_per_day(self) -> None:
+        counts = {"session": 10, "user": 20, "pageview": 30}
+
+        def data_for(request: RecordedRequest) -> list[dict[str, Any]]:
+            scope = request.param("metricScope") or ""
+            # Out of order on purpose: the rows must still arrive ascending.
+            return [
+                {"timestamp": "2026-11-14T00:00:00.000Z", "count": counts[scope] + 1},
+                {"timestamp": "2026-11-13T00:00:00.000Z", "count": counts[scope]},
+            ]
+
+        result = _driver().run(
+            "analyze_traffic",
+            _analyze_api(data_for),
+            incremental_field=ANALYZE_INCREMENTAL_FIELD,
+            db_incremental_field_last_value="2026-11-13T00:00:00Z",
+        )
+
+        assert result.params("bucketTimeZone") == ["UTC"] * 3
+        assert result.paths[0] == "/v2/sites/site-1/analyze/reports/traffic"
+        assert result.rows == [
+            {"timestamp": _ts("2026-11-13T00:00:00Z"), "sessionCount": 10, "userCount": 20, "pageviewCount": 30},
+            {"timestamp": _ts("2026-11-14T00:00:00Z"), "sessionCount": 11, "userCount": 21, "pageviewCount": 31},
+        ]
+        assert result.response is not None
+        assert result.response.sort_mode == "asc"
+        assert result.response.primary_keys == ["timestamp"]
+
+    def test_time_on_page_requests_a_daily_series_per_scope(self) -> None:
+        seconds = {"session": 12.5, "user": 40.0, "pageview": 8.25}
+
+        def data_for(request: RecordedRequest) -> list[dict[str, Any]]:
+            return [
+                {"timestamp": "2026-11-14T00:00:00.000Z", "averageSeconds": seconds[request.param("metricScope") or ""]}
+            ]
+
+        result = _driver().run(
+            "analyze_time_on_page",
+            _analyze_api(data_for),
+            incremental_field=ANALYZE_INCREMENTAL_FIELD,
+            db_incremental_field_last_value="2026-11-14T00:00:00Z",
+        )
+
+        assert result.paths == ["/v2/sites/site-1/analyze/reports/time_on_page"] * 3
+        assert result.params("timeseries[granularityPeriod]") == ["day"] * 3
+        assert result.params("timeseries[bucketTimeZone]") == ["UTC"] * 3
+        assert result.rows == [
+            {
+                "timestamp": _ts("2026-11-14T00:00:00Z"),
+                "averageSecondsPerSession": 12.5,
+                "averageSecondsPerUser": 40.0,
+                "averageSecondsPerPageview": 8.25,
+            }
+        ]
+        assert result.response is not None
+        assert result.response.sort_mode == "asc"
+
+    def test_top_pages_fetches_one_day_per_request_and_keys_rows_by_day(self) -> None:
+        def data_for(request: RecordedRequest) -> list[dict[str, Any]]:
+            return [
+                {"pageId": "p1", "title": "Home", "sessionCount": 5, "userCount": 4, "pageviewCount": 9},
+                {"pageId": "p2", "title": "Post", "collectionId": "c1", "itemSlug": "hello", "sessionCount": 1},
+            ]
+
+        result = _driver().run(
+            "analyze_top_pages",
+            _analyze_api(data_for),
+            incremental_field=ANALYZE_INCREMENTAL_FIELD,
+            db_incremental_field_last_value="2026-11-13T00:00:00Z",
+        )
+
+        assert list(zip(result.params("startTime"), result.params("endTime"))) == [
+            ("2026-11-13T00:00:00Z", "2026-11-14T00:00:00Z"),
+            ("2026-11-14T00:00:00Z", ANALYZE_END),
+        ]
+        assert result.params("limit") == ["250", "250"]
+        assert [(row["timestamp"], row["pageId"], row["itemSlug"]) for row in result.rows] == [
+            (_ts("2026-11-13T00:00:00Z"), "p1", ""),
+            (_ts("2026-11-13T00:00:00Z"), "p2", "hello"),
+            (_ts("2026-11-14T00:00:00Z"), "p1", ""),
+            (_ts("2026-11-14T00:00:00Z"), "p2", "hello"),
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == ["timestamp", "pageId", "itemSlug"]
+        assert result.response.sort_mode is None
+
+    @parameterized.expand([("analyze_traffic",), ("analyze_top_pages",), ("analyze_time_on_page",)])
+    def test_missing_analyze_add_on_fails_with_the_non_retryable_403(self, schema_name: str) -> None:
+        result = _driver().run(
+            schema_name,
+            always(_page({"code": "forbidden", "message": "Forbidden"}, 403)),
+            incremental_field=ANALYZE_INCREMENTAL_FIELD,
+            db_incremental_field_last_value="2026-11-14T00:00:00Z",
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "403 Client Error" in str(result.raised)
+        assert "403 Client Error" in WebflowSource().get_non_retryable_errors()
 
 
 WEBHOOK_URL = "https://webhooks.example/dwh/1"

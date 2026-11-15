@@ -13220,12 +13220,12 @@ Today (7): `collections`, `forms`, `orders`, `pages`, `products`, `sites`, `user
 
 Diffed against: <https://developers.webflow.com/data/reference/cms/collections/list>
 
-- [ ] `GET /v2/sites/{site_id}/form_submissions` — form submission rows — we sync form definitions but none of the submissions, which is the actual lead data (high)
-- [ ] `GET /v2/sites/{site_id}/analyze/reports/traffic` — site traffic time series, Webflow's headline analytics metric, entirely absent (high)
-- [ ] `GET /v2/sites/{site_id}/analyze/reports/top_pages` — per-page traffic breakdown that joins directly to the pages table we already sync (high)
+- [x] `GET /v2/sites/{site_id}/form_submissions` — form submission rows — we sync form definitions but none of the submissions, which is the actual lead data (high) → `form_submissions` (full refresh)
+- [x] `GET /v2/sites/{site_id}/analyze/reports/traffic` — site traffic time series, Webflow's headline analytics metric, entirely absent (high) → `analyze_traffic` (incremental on `timestamp`, one row per UTC day)
+- [x] `GET /v2/sites/{site_id}/analyze/reports/top_pages` — per-page traffic breakdown that joins directly to the pages table we already sync (high) → `analyze_top_pages` (incremental on `timestamp`, top 250 pages per UTC day)
 - [ ] `GET /v2/sites/{site_id}/analyze/reports/top_events` — conversion and interaction event counts per site (medium)
 - [ ] `GET /v2/sites/{site_id}/analyze/reports/top_dimensions` — traffic broken down by referrer, device, country and other dimensions (medium)
-- [ ] `GET /v2/sites/{site_id}/analyze/reports/time_on_page` — engagement metric per page, complements top_pages (medium)
+- [x] `GET /v2/sites/{site_id}/analyze/reports/time_on_page` — engagement metric per page, complements top_pages (medium) → `analyze_time_on_page` (incremental on `timestamp`; the report is a site-wide average per UTC day, not per page)
 - [ ] `GET /v2/collections/{sku_collection_id}/items/{sku_id}/inventory` — stock levels per SKU for the products we already sync (medium)
 - [ ] `GET /v2/sites/{site_id}/comments` — design review comment threads, an activity/collaboration table with no equivalent (medium)
 - [ ] `GET /v2/sites/{site_id}/activity_logs` — site change history — who published or edited what and when (medium)

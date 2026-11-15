@@ -1,5 +1,6 @@
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -26,6 +27,11 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.sdk.internals import table_from_py_list
 from products.warehouse_sources.sources.webflow.settings import (
     ALL_WEBHOOK_EVENTS,
+    ANALYZE_HISTORY_START,
+    ANALYZE_METRIC_SCOPES,
+    ANALYZE_REPORT_PATH,
+    ANALYZE_REPORTS,
+    ANALYZE_TOP_PAGES_LIMIT,
     COLLECTION_SCHEMA_PREFIX,
     DEFAULT_PAGE_SIZE,
     WEBFLOW_BASE_URL,
@@ -33,6 +39,7 @@ from products.warehouse_sources.sources.webflow.settings import (
     WEBHOOK_DELETE_PATH,
     WEBHOOK_PATH,
     WEBHOOK_SCHEMA_NAMES,
+    WebflowAnalyzeReportConfig,
     WebflowEndpointConfig,
     collection_items_endpoint_config,
 )
@@ -42,7 +49,9 @@ REQUEST_TIMEOUT_SECONDS = 30
 
 @dataclasses.dataclass
 class WebflowResumeConfig:
-    offset: int
+    offset: int = 0
+    # Start of the next Analyze report window, as an ISO 8601 UTC timestamp.
+    analyze_window_start: Optional[str] = None
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -359,6 +368,171 @@ def webhook_table_transformer(table: pa.Table) -> pa.Table:
     return table_from_py_list([payload for _, payload in latest_by_id.values()])
 
 
+def _format_time(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_time(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    if isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
+
+
+def _start_of_day(value: datetime) -> datetime:
+    value = value.astimezone(UTC)
+    return datetime(value.year, value.month, value.day, tzinfo=UTC)
+
+
+def _analyze_start(should_use_incremental_field: bool, last_value: Any) -> datetime:
+    last = _parse_time(last_value) if should_use_incremental_field else None
+    if last is None:
+        return ANALYZE_HISTORY_START
+    # Fetch the last synced day again, because late events can still change its numbers.
+    return max(ANALYZE_HISTORY_START, _start_of_day(last))
+
+
+def _analyze_windows(start: datetime, end: datetime, days: int) -> Iterator[tuple[datetime, datetime]]:
+    while start < end:
+        window_end = min(start + timedelta(days=days), end)
+        yield start, window_end
+        start = window_end
+
+
+def _get_report(session: requests.Session, url: str, params: dict[str, Any]) -> dict[str, Any]:
+    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    body = response.json()
+    return body if isinstance(body, dict) else {}
+
+
+def _daily_series_rows(
+    session: requests.Session,
+    url: str,
+    params: dict[str, Any],
+    value_key: str,
+    column_for_scope: Callable[[str], str],
+) -> list[dict[str, Any]]:
+    """Merge the per-scope series of a report into one row per day.
+
+    The report returns one metric scope per request, so each scope is a separate call.
+    """
+    rows: dict[datetime, dict[str, Any]] = {}
+    for scope in ANALYZE_METRIC_SCOPES:
+        body = _get_report(session, url, {**params, "metricScope": scope})
+        for point in body.get("data") or []:
+            if not isinstance(point, dict):
+                continue
+            timestamp = _parse_time(point.get("timestamp"))
+            if timestamp is None:
+                continue
+            rows.setdefault(timestamp, {"timestamp": timestamp})[column_for_scope(scope)] = point.get(value_key)
+    return [rows[timestamp] for timestamp in sorted(rows)]
+
+
+def _analyze_window_rows(
+    session: requests.Session,
+    url: str,
+    config: WebflowAnalyzeReportConfig,
+    window_start: datetime,
+    window_end: datetime,
+) -> list[dict[str, Any]]:
+    window = {"startTime": _format_time(window_start), "endTime": _format_time(window_end)}
+
+    if config.report == "traffic":
+        return _daily_series_rows(
+            session, url, {**window, "bucketTimeZone": "UTC"}, "count", lambda scope: f"{scope}Count"
+        )
+
+    if config.report == "time_on_page":
+        return _daily_series_rows(
+            session,
+            url,
+            {**window, "timeseries[granularityPeriod]": "day", "timeseries[bucketTimeZone]": "UTC"},
+            "averageSeconds",
+            lambda scope: f"averageSecondsPer{scope.capitalize()}",
+        )
+
+    if config.report == "top_pages":
+        body = _get_report(session, url, {**window, "limit": ANALYZE_TOP_PAGES_LIMIT})
+        # A non-CMS page has no itemSlug. The key column cannot be null, because null never
+        # matches in a merge.
+        return [
+            {**item, "timestamp": window_start, "itemSlug": item.get("itemSlug") or ""}
+            for item in body.get("data") or []
+            if isinstance(item, dict)
+        ]
+
+    raise ValueError(f"Unknown Webflow Analyze report '{config.report}'")
+
+
+def _analyze_rows(
+    api_token: str,
+    site_id: str,
+    config: WebflowAnalyzeReportConfig,
+    resumable_source_manager: ResumableSourceManager[WebflowResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
+    url = WEBFLOW_BASE_URL + ANALYZE_REPORT_PATH.format(site_id=_encode_path_segment(site_id), report=config.report)
+
+    start = _analyze_start(should_use_incremental_field, db_incremental_field_last_value)
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        resumed_start = _parse_time(resume.analyze_window_start) if resume else None
+        if resumed_start is not None:
+            start = resumed_start
+
+    # Only complete UTC days, so a synced day is never a partial count.
+    end = _start_of_day(datetime.now(UTC))
+
+    # Analyze allows one request in flight per token, so the windows are fetched in sequence.
+    for window_start, window_end in _analyze_windows(start, end, config.window_days):
+        rows = _analyze_window_rows(session, url, config, window_start, window_end)
+        if window_end < end:
+            resumable_source_manager.save_state(WebflowResumeConfig(analyze_window_start=_format_time(window_end)))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _analyze_source_response(
+    api_token: str,
+    site_id: str,
+    config: WebflowAnalyzeReportConfig,
+    resumable_source_manager: ResumableSourceManager[WebflowResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=lambda: _analyze_rows(
+            api_token,
+            site_id,
+            config,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        ),
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=["timestamp"],
+        sort_mode=config.sort_mode,
+    )
+
+
 def webflow_source(
     api_token: str,
     site_id: str,
@@ -367,7 +541,19 @@ def webflow_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[WebflowResumeConfig],
     webhook_source_manager: Optional[WebhookSourceManager] = None,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
+    if schema_name in ANALYZE_REPORTS:
+        return _analyze_source_response(
+            api_token,
+            site_id,
+            ANALYZE_REPORTS[schema_name],
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+
     config = _endpoint_config_for_schema(api_token, site_id, schema_name)
 
     path = config.path.format(site_id=_encode_path_segment(site_id)) if config.requires_site else config.path
