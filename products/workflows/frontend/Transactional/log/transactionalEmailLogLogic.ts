@@ -30,7 +30,6 @@ const EMAIL_PAGE_ROUTES = [
 export const SEND_FILTER_PARAMS = ['status', 'reason', 'date_from', 'date_to'] as const
 
 export interface TransactionalEmailLogLogicProps {
-    /** Lists only the sends of this email's workflow, as the email's own Sends tab does. */
     workflowId?: string
 }
 
@@ -270,7 +269,6 @@ export const transactionalEmailLogLogic = kea<transactionalEmailLogLogicType>([
                 actions.setFiltersFromUrl(filters)
             }
         }
-        // An email's Sends tab mounts its own listing, which reads the filters from the email's page.
         const read = (_: Record<string, string | undefined>, searchParams: Record<string, any>): void =>
             readFilters(searchParams)
         return props.workflowId
