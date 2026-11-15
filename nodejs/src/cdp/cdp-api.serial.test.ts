@@ -3123,12 +3123,32 @@ describe('CDP API', () => {
                     expect(await jobsOfFlow()).toEqual([])
                 })
 
-                it('queues one job for two first requests with the same key that both pass Valkey', async () => {
-                    // Both reservations find the key absent, so only the claim can stop a second job.
-                    const useClient = valkey().useClient.bind(valkey())
-                    jest.spyOn(valkey(), 'useClient').mockImplementation((options, callback) =>
-                        options.name === 'idempotency-reserve' ? Promise.resolve(null) : useClient(options, callback)
-                    )
+                it.each([
+                    [
+                        'both pass Valkey',
+                        () => {
+                            // Both reservations find the key absent.
+                            const useClient = valkey().useClient.bind(valkey())
+                            jest.spyOn(valkey(), 'useClient').mockImplementation((options, callback) =>
+                                options.name === 'idempotency-reserve'
+                                    ? Promise.resolve(null)
+                                    : useClient(options, callback)
+                            )
+                        },
+                    ],
+                    [
+                        'Valkey is switched off',
+                        () => {
+                            const keys = new IdempotencyKeys(valkey(), 'transactional-email', false)
+                            jest.replaceProperty(
+                                api as unknown as { transactionalEmailIdempotencyKeys: IdempotencyKeys },
+                                'transactionalEmailIdempotencyKeys',
+                                keys
+                            )
+                        },
+                    ],
+                ])('queues one job for two first requests with the same key when %s', async (_, setUp) => {
+                    setUp()
 
                     const responses = await Promise.all([sendKeyed(), sendKeyed()])
 
