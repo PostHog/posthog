@@ -6173,7 +6173,7 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         report = self._create_report()
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
-        comments = [
+        comments: list[dict[str, object]] = [
             {
                 "id": "1",
                 "author": "alice",
