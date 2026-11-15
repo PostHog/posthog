@@ -285,14 +285,21 @@ export async function failOver({
         observed: (signal) =>
             (observing ??= (async () => {
                 const refusal = new AbortController()
-                void promoting.then(({ refused }) => {
-                    if (refused !== undefined) {
+                let answered: Awaited<typeof promoting> | undefined
+                void promoting.then((promoted) => {
+                    answered = promoted
+                    if (promoted.refused !== undefined) {
                         refusal.abort()
                     }
                 })
                 const stop = signal ? AbortSignal.any([signal, refusal.signal]) : refusal.signal
                 const ok = await observe(reader, intentAt, journal.observations!, stop)
-                const promoted = await promoting
+                // The hold ends observation even while the answer to the request is still pending.
+                const promoted = answered ??
+                    (signal ? await answerBefore(promoting, signal) : await promoting) ?? {
+                        intentAt,
+                        ambiguous: 'AWS had not answered when the hold ended',
+                    }
                 if (promoted.refused !== undefined || !ok) {
                     journal.unobserved = unobservedOf('failover', reader, journal.observations!, promoted)
                     return false
