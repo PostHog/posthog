@@ -130,7 +130,7 @@ describe('CodeEmailTabs', () => {
         expect(recipient.closest('a')?.getAttribute('href')).toMatch(/\/transactional\/log\/msg-1\?status=bounced$/)
     })
 
-    it('opens the sends behind a clicked email metric on this page, also when the link is opened again, but the run logs from a link saved before the Sends list', async () => {
+    it('opens the sends behind a clicked email metric on this page, also when the link is opened again, but the run logs from a link saved before the Sends list until the reader picks Sends', async () => {
         useMocks(
             mocks(() => [
                 200,
@@ -161,6 +161,12 @@ describe('CodeEmailTabs', () => {
         router.actions.push(page)
         router.actions.push(page, { tab: 'sends', inv_search: 'Transient bounce' })
         expect(logic.values.tab).toEqual('runs')
+
+        logic.actions.setTab('sends')
+        logic.unmount()
+        logic = codeEmailLogic({ id: 'email-id' })
+        logic.mount()
+        expect(logic.values.tab).toEqual('sends')
     })
 
     it('offers no re-run of a sensitive email, whose sends keep no content', async () => {

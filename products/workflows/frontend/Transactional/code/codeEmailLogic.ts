@@ -409,7 +409,14 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
             setTab: ({ tab }) => {
                 const { tab: shownTab, ...searchParams } = router.values.searchParams
                 if ((shownTab ?? 'metrics') !== tab) {
-                    const next = tab === 'metrics' ? searchParams : { ...searchParams, tab }
+                    // A link to the Sends tab with run log filters opens the run logs, so Sends drops those filters.
+                    const kept =
+                        tab === 'sends'
+                            ? Object.fromEntries(
+                                  Object.entries(searchParams).filter(([param]) => !isRunLogFilter(param))
+                              )
+                            : searchParams
+                    const next = tab === 'metrics' ? kept : { ...kept, tab }
                     router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
                 }
             },
@@ -417,7 +424,7 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
     }),
     urlToAction(({ actions, values, props }) => ({
         '/transactional/code-emails/:id': ({ id }, searchParams) => {
-            const tab = opensRunLogs(searchParams, values.tab)
+            const tab = opensRunLogs(searchParams)
                 ? 'runs'
                 : (CODE_EMAIL_TABS.find((known) => known === searchParams.tab) ?? 'metrics')
             if (id === props.id && tab !== values.tab) {
@@ -429,11 +436,11 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
 ])
 
 // `tab=sends` named the run logs before this page had a list of sends, and a metric drill added `inv_` filters to it.
-// A link like that still opens the run logs, unless the reader is already on the Sends tab.
-function opensRunLogs(searchParams: Record<string, any>, shownTab: CodeEmailTab): boolean {
-    return (
-        searchParams.tab === 'sends' &&
-        shownTab !== 'sends' &&
-        Object.keys(searchParams).some((param) => param.startsWith('inv_'))
-    )
+// A link like that still opens the run logs.
+function opensRunLogs(searchParams: Record<string, any>): boolean {
+    return searchParams.tab === 'sends' && Object.keys(searchParams).some(isRunLogFilter)
+}
+
+function isRunLogFilter(param: string): boolean {
+    return param.startsWith('inv_')
 }

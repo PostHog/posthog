@@ -4,15 +4,15 @@ describe('transactionalEmailUrl', () => {
     test.each([
         [
             'a send from code opens its code email',
-            { codeEmailId: 'code-1', templateId: null },
+            { code_email_id: 'code-1', template_id: null },
             '/transactional/code-emails/code-1',
         ],
         [
             'a template send opens its template',
-            { codeEmailId: null, templateId: 'tpl-1' },
+            { code_email_id: null, template_id: 'tpl-1' },
             '/transactional/library/templates/tpl-1',
         ],
-        ['a send of a deleted email opens nothing', { codeEmailId: null, templateId: null }, null],
+        ['a send of a deleted email opens nothing', { code_email_id: null, template_id: null }, null],
     ])('%s', (_name, email, expected) => {
         expect(transactionalEmailUrl(email)).toBe(expected)
     })
@@ -29,6 +29,6 @@ describe('transactionalEmailUrl', () => {
             '/transactional/code-emails/code-1?tab=sends',
         ],
     ])('%s', (_name, searchParams, expected) => {
-        expect(transactionalEmailSendsUrl({ codeEmailId: 'code-1', templateId: null }, searchParams)).toBe(expected)
+        expect(transactionalEmailSendsUrl({ code_email_id: 'code-1', template_id: null }, searchParams)).toBe(expected)
     })
 })

@@ -35,9 +35,7 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
     const { email, emailLoading, emailFailed } = useValues(transactionalEmailLogEntryLogic)
     const { loadEmail } = useActions(transactionalEmailLogEntryLogic)
     const { searchParams } = useValues(router)
-    const emailUrl = email
-        ? transactionalEmailSendsUrl({ codeEmailId: email.code_email_id, templateId: email.template_id }, searchParams)
-        : null
+    const emailUrl = transactionalEmailSendsUrl(email, searchParams)
 
     if (!showTransactional) {
         return <NotFound object="page" />
