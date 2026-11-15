@@ -42,6 +42,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_PUBSUB = "google-pubsub"
     GOOGLE_SEARCH_CONSOLE = "google-search-console"
     GOOGLE_SHEETS = "google-sheets"
+    GOOGLE_TAG_MANAGER = "google-tag-manager"
     HELPSCOUT = "helpscout"
     HUBSPOT = "hubspot"
     INSTAGRAM = "instagram"
@@ -226,6 +227,12 @@ class GoogleSheetsKind(KindAccessor):
     oauth = OAuthAccessor(kind="google-sheets")  # the default
     credentials = AuthAccessor(kind="google-sheets", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"google-sheets"}))
+
+
+class GoogleTagManagerKind(KindAccessor):
+    kind = "google-tag-manager"
+    oauth = OAuthAccessor(kind="google-tag-manager")  # the default
+    any = IntegrationReader(kinds=frozenset({"google-tag-manager"}))
 
 
 class HelpscoutKind(KindAccessor):
@@ -419,6 +426,7 @@ class GeneratedIntegrationManager(IntegrationManagerBase):
     google_pubsub = GooglePubsubKind()
     google_search_console = GoogleSearchConsoleKind()
     google_sheets = GoogleSheetsKind()
+    google_tag_manager = GoogleTagManagerKind()
     helpscout = HelpscoutKind()
     hubspot = HubspotKind()
     instagram = InstagramKind()

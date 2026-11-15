@@ -579,6 +579,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "google-postmaster-tools": "credentials",
     "google-search-console": "oauth",
     "google-sheets": "credentials",
+    "google-tag-manager": "oauth",
     "google-tasks": "credentials",
     "google-webfonts": "token",
     "google-workspace-admin-reports": "credentials",

@@ -223,6 +223,7 @@ class GoogleTagManagerSource(SimpleSource[GoogleTagManagerSourceConfig], OAuthMi
                     ),
                     SourceFieldInputConfig(
                         name="account_ids",
+                        account_selector=True,
                         label="Account IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

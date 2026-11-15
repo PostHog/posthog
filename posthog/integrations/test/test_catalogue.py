@@ -51,6 +51,7 @@ FROZEN_KIND_DEFAULTS: dict[str, str] = {
     "google-pubsub": "credentials",
     "google-search-console": "oauth",
     "google-sheets": "oauth",
+    "google-tag-manager": "oauth",
     "helpscout": "oauth",
     "hubspot": "oauth",
     "instagram": "oauth",

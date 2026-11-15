@@ -568,7 +568,7 @@ GooglePlayConsole,key_file app_package_names,,,,,google-play-console
 GooglePostmasterTools,,,,,,google-postmaster-tools
 GoogleSearchConsole,,google_search_console_integration_id,site_url,search_types,,google-search-console
 GoogleSheets,spreadsheet_url,,,,,google-sheets
-GoogleTagManager,account_ids,google_tag_manager_integration_id,,,,google-tag-manager
+GoogleTagManager,,google_tag_manager_integration_id,account_ids,,,google-tag-manager
 GoogleTasks,,,,,,google-tasks
 GoogleWebfonts,api_key,,,,,google-webfonts
 GoogleWorkspaceAdminReports,,,,,,google-workspace-admin-reports

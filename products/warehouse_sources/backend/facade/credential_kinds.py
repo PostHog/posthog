@@ -576,6 +576,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "GooglePostmasterTools": "google-postmaster-tools",
     "GoogleSearchConsole": "google-search-console",
     "GoogleSheets": "google-sheets",
+    "GoogleTagManager": "google-tag-manager",
     "GoogleTasks": "google-tasks",
     "GoogleWebfonts": "google-webfonts",
     "GoogleWorkspaceAdminReports": "google-workspace-admin-reports",
