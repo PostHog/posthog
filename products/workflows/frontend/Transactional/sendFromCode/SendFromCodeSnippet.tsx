@@ -79,7 +79,7 @@ export function SendFromCodeSnippet({
                 Use a <Link to={urls.settings('environment-secret-api-keys')}>project secret API key</Link> with the{' '}
                 <code>transactional_email:write</code> scope, and keep it on your server. The template key names the
                 email: each key shows up in Transactional emails with its own metrics. The idempotency key makes a retry
-                safe: use a new key for each email, and the same key when you retry it.
+                safe: use a new key for each email, and the same key when you retry it within 24 hours.
             </p>
         </div>
     )
