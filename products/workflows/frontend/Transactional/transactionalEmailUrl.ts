@@ -43,7 +43,8 @@ export function transactionalEmailSendsUrl(
 
 export function transactionalEmailStatsRowUrl(row: StatsRow): string | null {
     // During a deploy, a Django pod without `template_id` can still answer. It keys a template's row by the template's
-    // id and leaves the label empty for any other row.
+    // id and a code email's row by its workflow id, and labels both, so the two can't be told apart. Every labeled
+    // row then links to a template page, as before code email rows had their own link.
     if (row.template_id === undefined) {
         return row.label ? urls.transactionalTemplate(row.key) : null
     }

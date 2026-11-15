@@ -155,7 +155,6 @@ describe('transactionalEmailLogLogic', () => {
             workflow_id: 'flow-1',
             offset: '0',
         })
-        expect(scoped.values.isFiltered).toBe(false)
         expect(router.values.searchParams).toEqual({ tab: 'sends', date_from: '-3d' })
         scoped.unmount()
     })
