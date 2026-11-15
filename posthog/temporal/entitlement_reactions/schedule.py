@@ -33,6 +33,6 @@ async def create_entitlement_repair_schedule(client: Client) -> None:
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, SCHEDULE_ID):
-        await a_update_schedule(client, SCHEDULE_ID, schedule)
+        await a_update_schedule(client, SCHEDULE_ID, schedule, keep_paused=True)
     else:
         await a_create_schedule(client, SCHEDULE_ID, schedule, trigger_immediately=False)
