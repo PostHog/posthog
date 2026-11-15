@@ -140,13 +140,6 @@ export async function failOver({
     if (Account !== manifest.account) {
         refuse(`the caller is in account ${Account}, not the run's account ${manifest.account}`)
     }
-    const leaseLeftMs = Date.parse(manifest.expiresAt) - Date.now()
-    const neededMs = holdMs + 2 * observeWithinMs
-    if (leaseLeftMs < neededMs) {
-        refuse(
-            `the lease has ${Math.floor(leaseLeftMs / 1000)}s left, under the ${neededMs / 1000}s the hold, settle and fail-back need`
-        )
-    }
     const described = await required(describe())
     const tagged = described.TagList?.some(({ Key, Value }) => Key === RUN_TAG && Value === manifest.runId)
     const members = (described.DBClusterMembers ?? []).map(({ DBInstanceIdentifier }) => DBInstanceIdentifier).sort()
@@ -301,6 +294,14 @@ export async function failOver({
 
     if (applying.aborted) {
         refuse('the apply stopped before the failover request was sent')
+    }
+    // Checked last, because the precondition reads can take until the apply deadline.
+    const leaseLeftMs = Date.parse(manifest.expiresAt) - Date.now()
+    const neededMs = holdMs + 2 * observeWithinMs
+    if (leaseLeftMs < neededMs) {
+        refuse(
+            `the lease has ${Math.floor(leaseLeftMs / 1000)}s left, under the ${neededMs / 1000}s the hold, settle and fail-back need`
+        )
     }
     const intentAt = new Date().toISOString()
     const promoting = promote(reader, applying, intentAt)
