@@ -257,6 +257,7 @@ from products.signals.backend.report_search import (
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
     INBOX_REPORT_ACTION_EVENT,
+    PULL_REQUEST_ACTION_KINDS,
     PULL_REQUEST_RUN_ACTIVE_DETAIL,
     ReportActionState,
     ReportTaskActionContext,
@@ -4096,7 +4097,10 @@ class SignalReportViewSet(
         description=(
             "List the actions on this report that start an agent run, read from the report's current state. "
             "`get_it_merged` is available only while the report has an open, approved pull request. "
-            "`make_it_green` is available only while CI fails on the report's open pull request. "
+            "`make_it_green` is available only while CI fails on the report's open pull request, or while it "
+            "conflicts with its base branch. "
+            "`resolve_conflicts` is available only while the report's open pull request conflicts with its base "
+            "branch. "
             "`suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint."
         ),
         operation_id="signals_reports_actions_list",
@@ -4212,7 +4216,7 @@ class SignalReportViewSet(
             )
             return self._task_action_error("report_action_unavailable", report_action.disabled_reason, error_status)
 
-        if kind in (ReportTaskActionKind.GET_IT_MERGED, ReportTaskActionKind.MAKE_IT_GREEN) and (
+        if kind in PULL_REQUEST_ACTION_KINDS and (
             active := active_pull_request_run(team_id=self.team.id, report_id=str(report.id))
         ):
             capture("limited", "report_action_run_active")
@@ -5480,7 +5484,7 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="pr_checks", required_scopes=["inbox:read"])
     def pr_checks(self, request: Request, *args, **kwargs) -> Response:
         return self._pr_github_passthrough(
-            cast(SignalReport, self.get_object()), "get_pull_request_checks", "checks", "checks"
+            cast(SignalReport, self.get_object()), "get_pull_request_checks", ("checks", "has_conflict"), "checks"
         )
 
     @extend_schema(
@@ -5586,7 +5590,7 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="pr_comments", required_scopes=["inbox:read"])
     def pr_comments(self, request: Request, *args, **kwargs) -> Response:
         return self._pr_github_passthrough(
-            cast(SignalReport, self.get_object()), "get_pull_request_comments", "comments", "comments"
+            cast(SignalReport, self.get_object()), "get_pull_request_comments", ("comments",), "comments"
         )
 
     @extend_schema(
@@ -5943,9 +5947,11 @@ class SignalReportViewSet(
             )
         return result
 
-    def _pr_github_passthrough(self, report: SignalReport, fetch_name: str, key: str, noun: str) -> Response:
+    def _pr_github_passthrough(
+        self, report: SignalReport, fetch_name: str, keys: tuple[str, ...], noun: str
+    ) -> Response:
         """Shared body for the ``pr_checks`` / ``pr_comments`` actions: resolve the report's PR and the
-        GitHub integration that can read it, call ``fetch_name`` on the client, and return ``{key: ...}``.
+        GitHub integration that can read it, call ``fetch_name`` on the client, and return ``keys`` of its result.
         A missing PR/integration maps to 404, a rate limit to its response, and any other upstream GitHub
         failure to 502 — an upstream hiccup never 500s the endpoint."""
         reference = self._resolve_report_pr_reference(report)
@@ -5957,8 +5963,9 @@ class SignalReportViewSet(
         repository, pr_number = reference
         cache_key = f"signals:pr-github:{self.team.id}:{repository}:{pr_number}:{fetch_name}"
         cached_result = cache.get(cache_key)
-        if isinstance(cached_result, dict) and key in cached_result:
-            return Response({key: cached_result[key]})
+        # A cached result that lacks a key was written in an earlier format, so it reads as a miss.
+        if isinstance(cached_result, dict) and all(key in cached_result for key in keys):
+            return Response({key: cached_result[key] for key in keys})
 
         github, repository, pr_number, error = self._github_for_report_pr(report, reference=reference)
         if error is not None:
@@ -6005,7 +6012,7 @@ class SignalReportViewSet(
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         cache.set(cache_key, result, timeout=PR_GITHUB_CACHE_SECONDS)
-        return Response({key: result[key]})
+        return Response({key: result[key] for key in keys})
 
     def _github_for_report_pr(
         self,

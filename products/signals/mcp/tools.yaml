@@ -184,8 +184,10 @@ tools:
         description: >
             List the actions on an inbox report that start an agent run, the same ones the inbox shows as buttons:
             `get_it_merged` (fix CI on the report's open, approved pull request and merge it), `make_it_green` (fix
-            failing CI on the report's open pull request and stop without merging it), and one `suggested_prompt` entry
-            per prompt the report suggests. Every action comes back, available or not. `available` says whether a run
+            failing CI and merge conflicts on the report's open pull request and stop without merging it),
+            `resolve_conflicts` (update the report's open pull request from its base branch, resolve the conflicts, and
+            stop without merging it or fixing unrelated CI), and one `suggested_prompt` entry per prompt the report
+            suggests. Every action comes back, available or not. `available` says whether a run
             can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request.
             Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run. The list
             does not include `ask`, which takes your own `message`: use it on inbox-report-actions-run to ask about the
@@ -213,7 +215,7 @@ tools:
             suggestion in the report. Each successful call creates a new task, so do not retry after a 201. Starts one
             action from inbox-report-actions-list as a background agent run linked to the report. For every action
             except `ask`, pick one with `available: true` from the list. `get_it_merged` approves merging the report's
-            pull request; `make_it_green` never merges it. Use `ask` for anything else instead of creating a task by
+            pull request; `make_it_green` and `resolve_conflicts` never merge it. Use `ask` for anything else instead of creating a task by
             hand; it does requested work only while the report has work left and no pull request. The response has
             `task_id`, `run_id`, and `task_url`; follow the run with tasks-runs-retrieve. If `run_error` is set, the
             task exists but its run did not start. The run cannot ask questions, so it writes a note to the report's

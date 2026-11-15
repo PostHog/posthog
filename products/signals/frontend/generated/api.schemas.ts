@@ -3575,6 +3575,7 @@ export interface SignalReportDeletionStatusApi {
 /**
  * * `get_it_merged` - Get it merged
  * * `make_it_green` - Make it green
+ * * `resolve_conflicts` - Resolve conflicts
  * * `suggested_prompt` - Suggested prompt
  * * `ask` - Ask
  */
@@ -3583,6 +3584,7 @@ export type ReportTaskActionKindEnumApi = (typeof ReportTaskActionKindEnumApi)[k
 export const ReportTaskActionKindEnumApi = {
     GetItMerged: 'get_it_merged',
     MakeItGreen: 'make_it_green',
+    ResolveConflicts: 'resolve_conflicts',
     SuggestedPrompt: 'suggested_prompt',
     Ask: 'ask',
 } as const
@@ -3591,10 +3593,11 @@ export const ReportTaskActionKindEnumApi = {
  * One report action that starts an agent run, with whether the report offers it now.
  */
 export interface SignalReportTaskActionApi {
-    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI on the report's open pull request and stops without merging it. `suggested_prompt` sends one of the prompts the report suggests.
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3624,6 +3627,7 @@ export interface SignalReportTaskActionRunRequestApi {
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3633,7 +3637,7 @@ export interface SignalReportTaskActionRunRequestApi {
      */
     suggested_prompt_index?: number
     /**
-     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
      * @maxLength 2000
      */
     message?: string
@@ -3787,6 +3791,8 @@ export interface PullRequestCheckApi {
  */
 export interface PullRequestChecksResponseApi {
     readonly checks: readonly PullRequestCheckApi[]
+    /** True when GitHub reports that the pull request conflicts with its base branch. False while GitHub is still computing it. */
+    readonly has_conflict: boolean
 }
 
 /**
