@@ -201,6 +201,15 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert [r["recipient"] for r in response.json()["results"]] == expected_recipients
         assert response.json()["has_more"] == expected_has_more
 
+    def test_finds_sends_by_reason_alone_past_the_newest_page(self, _flag):
+        self._send(60, "bob@example.com", [("failed", 1, "provider_error")])
+        for minutes in range(10, 15):
+            self._send(minutes, f"newer-{minutes}@example.com", [("sent", 1, "")])
+
+        response = self.client.get(self._url(), {"reason": "provider_error", "limit": 1})
+
+        assert [r["recipient"] for r in response.json()["results"]] == ["bob@example.com"]
+
     @parameterized.expand(
         [("uuidt", False, False), ("keyed", True, False), ("keyed_status_consumer_behind", True, True)]
     )

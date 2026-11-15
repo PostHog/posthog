@@ -249,6 +249,9 @@ function SendReasonBanner(): JSX.Element | null {
             }}
         >
             Showing sends for one reason. {emailReasonText(filters.reason)}.
+            {filters.status === 'bounced'
+                ? ' Bounce metrics count every bounce report, including those for cc and bcc copies, so they can be higher than the number of sends listed here.'
+                : null}
         </LemonBanner>
     )
 }
