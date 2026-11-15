@@ -13236,14 +13236,14 @@ Note: The source already discovers CMS collection items dynamically: source.py/s
 
 ## WeightsAndBiases — gaps
 
-Today (5): `artifacts`, `projects`, `reports`, `runs`, `sweeps`
+Today (10): `artifact_collections`, `artifact_types`, `artifacts`, `members`, `projects`, `reports`, `run_artifacts`, `run_history`, `runs`, `sweeps`
 
 Diffed against: <https://api.wandb.ai/graphql>
 
-- [ ] `Run.history / Run.sampledHistory / Run.parquetHistory` — the logged metric time series per step — W&B's core dataset; today only the final summary metrics on runs are synced (high)
-- [ ] `Run.outputArtifacts and Run.inputArtifacts` — run-to-artifact lineage join table connecting the two largest tables already synced (high)
-- [ ] `Entity.members / Project.teamMembers` — lookup resolving the userId carried on every run, sweep and report (high)
-- [ ] `Project.artifactCollections and Project.artifactTypes` — lookup naming the collection and type each artifact version belongs to; the source already walks these to reach versions but never emits them (high)
+- [x] `Run.history / Run.sampledHistory / Run.parquetHistory` — the logged metric time series per step — W&B's core dataset; today only the final summary metrics on runs are synced (high). Added as `run_history` from `Run.history(minStep, maxStep, samples)`, one row per step with the logged values in a JSON `metrics` column; `sampledHistory` is a downsample and `parquetHistory` returns file URLs, so neither is a separate table
+- [x] `Run.outputArtifacts and Run.inputArtifacts` — run-to-artifact lineage join table connecting the two largest tables already synced (high). Added as `run_artifacts`
+- [x] `Entity.members / Project.teamMembers` — lookup resolving the userId carried on every run, sweep and report (high). Added as `members` from `Entity.members`; runs, sweeps and reports carry `user.username`, not a user id, so the join is on username
+- [x] `Project.artifactCollections and Project.artifactTypes` — lookup naming the collection and type each artifact version belongs to; the source already walks these to reach versions but never emits them (high). Added as `artifact_collections` and `artifact_types`
 - [ ] `Run.systemMetrics / Run.events` — GPU, CPU and memory utilization time series per run, the basis for compute-efficiency analysis (medium)
 - [ ] `Run.files` — per-run output file inventory with sizes, useful for storage attribution (medium)
 - [ ] `usage / usageByPeriod (Query root)` — account compute and storage consumption by period, the headline cost metric (medium)
