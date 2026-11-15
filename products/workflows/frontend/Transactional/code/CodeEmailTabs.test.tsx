@@ -144,12 +144,17 @@ describe('CodeEmailTabs', () => {
         router.actions.push(page)
         router.actions.push(page, { tab: 'sends', inv_search: 'Transient bounce' })
         expect(logic.values.tab).toEqual('runs')
+        router.actions.push(page, { tab: 'sends', inv_search: 'Permanent bounce' })
+        expect(logic.values.tab).toEqual('runs')
 
         logic.actions.setTab('sends')
         logic.unmount()
         logic = codeEmailLogic({ id: 'email-id' })
         logic.mount()
         expect(logic.values.tab).toEqual('sends')
+
+        router.actions.push(page, { tab: 'sends', inv_search: 'Transient bounce' })
+        expect(logic.values.tab).toEqual('runs')
     })
 
     it('offers no re-run of a sensitive email, whose sends keep no content', async () => {
