@@ -30,6 +30,7 @@ import type {
     PatchedCodeEmailUpdateApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
+import { opensRunLogs, withoutRunLogFilters } from '../runLogLinks'
 import { agentPrompt } from './agentPrompt'
 import { parseSourceFile } from './sourceFile'
 
@@ -413,12 +414,7 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
             },
             setTab: ({ tab }) => {
                 const { tab: _shownTab, ...searchParams } = router.values.searchParams
-                // A link to the Sends tab with run log filters opens the run logs, so Sends drops those filters, also
-                // when the URL already names the Sends tab.
-                const kept =
-                    tab === 'sends'
-                        ? Object.fromEntries(Object.entries(searchParams).filter(([param]) => !isRunLogFilter(param)))
-                        : searchParams
+                const kept = tab === 'sends' ? withoutRunLogFilters(searchParams) : searchParams
                 const next = tab === 'metrics' ? kept : { ...kept, tab }
                 if (!objectsEqual(next, router.values.searchParams)) {
                     router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
@@ -446,13 +442,3 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
     })),
     afterMount(({ actions }) => actions.loadCodeEmail()),
 ])
-
-// `tab=sends` named the run logs before this page had a list of sends, and a metric drill added `inv_` filters to it.
-// A link like that still opens the run logs.
-function opensRunLogs(searchParams: Record<string, any>): boolean {
-    return searchParams.tab === 'sends' && Object.keys(searchParams).some(isRunLogFilter)
-}
-
-function isRunLogFilter(param: string): boolean {
-    return param.startsWith('inv_')
-}

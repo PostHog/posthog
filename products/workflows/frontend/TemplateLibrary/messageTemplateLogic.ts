@@ -32,6 +32,7 @@ import {
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
 import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../../../frontend/src/types'
 import type { IntegrationType } from '../../../../frontend/src/types'
+import { opensRunLogs, withoutRunLogFilters } from '../Transactional/runLogLinks'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
@@ -776,9 +777,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     })),
     listeners(({ actions, props, values }) => ({
         setTransactionalTab: ({ tab }) => {
-            const { tab: shownTab, ...searchParams } = router.values.searchParams
-            if ((shownTab ?? 'design') !== tab) {
-                const next = tab === 'design' ? searchParams : { ...searchParams, tab }
+            const { tab: _shownTab, ...searchParams } = router.values.searchParams
+            const kept = tab === 'sends' ? withoutRunLogFilters(searchParams) : searchParams
+            const next = tab === 'design' ? kept : { ...kept, tab }
+            if (!objectsEqual(next, router.values.searchParams)) {
                 router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
             }
         },
@@ -1099,7 +1101,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     })),
     urlToAction(({ actions, props, values }) => {
         const readTab = ({ id }: { id?: string }, searchParams: Record<string, any>): void => {
-            const tab = TRANSACTIONAL_TEMPLATE_TABS.find((known) => known === searchParams.tab) ?? 'design'
+            const tab = opensRunLogs(searchParams)
+                ? 'runs'
+                : (TRANSACTIONAL_TEMPLATE_TABS.find((known) => known === searchParams.tab) ?? 'design')
             if (id === props.id && tab !== values.transactionalTab) {
                 actions.setTransactionalTab(tab)
             }
