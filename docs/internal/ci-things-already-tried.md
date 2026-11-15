@@ -520,6 +520,7 @@ Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.
 The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.
 Sparse checkout enables a blobless fetch by default, which adds on-demand fetching when the collector still needs the broad `products/` tree.
 The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
+The LLM Analytics image publisher uses Depot's remote Git build context, so its local checkout needs only `.github/actions/get-pr-labels/` and Git commit metadata.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
 The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.

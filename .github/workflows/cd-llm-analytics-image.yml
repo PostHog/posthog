@@ -85,6 +85,8 @@ jobs:
               uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 2
+                  sparse-checkout: /.github/actions/get-pr-labels/
+                  sparse-checkout-cone-mode: false
 
             - name: Set up Depot CLI
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
