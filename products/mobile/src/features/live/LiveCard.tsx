@@ -1,7 +1,8 @@
 import type { ReactElement, ReactNode } from 'react'
 import { Text, View } from 'react-native'
 
-import { createStyles } from '@/ui/theme'
+import { Pressable44 } from '@/ui/Pressable44'
+import { createStyles, useColors } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
 
 interface LiveCardProps {
@@ -10,13 +11,25 @@ interface LiveCardProps {
     children: ReactNode
     /** Rows that run to the card's edges, such as the events feed. */
     flush?: boolean
+    /** Makes the whole card one button, such as the map card that opens Visitors by country. */
+    onPress?: () => void
+    accessibilityLabel?: string
     testID?: string
 }
 
-export function LiveCard({ title, meta, children, flush = false, testID }: LiveCardProps): ReactElement {
+export function LiveCard({
+    title,
+    meta,
+    children,
+    flush = false,
+    onPress,
+    accessibilityLabel,
+    testID,
+}: LiveCardProps): ReactElement {
+    const colors = useColors()
     const styles = useStyles()
-    return (
-        <View style={[styles.card, flush && styles.flush]} testID={testID}>
+    const content = (
+        <>
             {title ? (
                 <View style={[styles.head, flush && styles.flushHead]}>
                     <Text style={styles.title} accessibilityRole="header" numberOfLines={2}>
@@ -26,6 +39,26 @@ export function LiveCard({ title, meta, children, flush = false, testID }: LiveC
                 </View>
             ) : null}
             {children}
+        </>
+    )
+    const style = [styles.card, flush && styles.flush]
+    if (onPress) {
+        return (
+            <Pressable44
+                onPress={onPress}
+                accessibilityLabel={accessibilityLabel}
+                pressedBackground={colors.pressed}
+                hitSlop={0}
+                style={style}
+                testID={testID}
+            >
+                {content}
+            </Pressable44>
+        )
+    }
+    return (
+        <View style={style} testID={testID}>
+            {content}
         </View>
     )
 }

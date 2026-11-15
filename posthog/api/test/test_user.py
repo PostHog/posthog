@@ -16,7 +16,7 @@ from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
@@ -39,6 +39,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant,
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -425,6 +426,122 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is False
         assert response.json()["is_impersonated"] is False
 
+    @parameterized.expand(
+        [
+            ("one_organization", "organization", None, True),
+            ("one_team", "team", None, True),
+            ("two_teams", "two_teams", None, False),
+            ("one_team_in_an_ip_blocked_organization", "team", "ip_restrictions", False),
+            ("one_team_in_a_domain_enforcing_organization", "team", "verified_domains", False),
+            ("one_team_where_member_keys_are_off", "team", "member_personal_api_keys_off", False),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_me_with_a_scoped_key_hides_other_organizations_and_names_a_sole_reachable_project(
+        self, _name: str, scope: str, restriction: str | None, names_the_reachable_project: bool
+    ) -> None:
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = other_team
+        self.user.current_organization = other_organization
+        self.user.save()
+        if restriction == "ip_restrictions":
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+            )
+        elif restriction == "verified_domains":
+            self.organization.enforce_verified_domains = True
+            self.organization.save()
+            OrganizationDomain.objects.create(
+                domain="verified.example.com", organization=self.organization, verified_at=timezone.now()
+            )
+        elif restriction == "member_personal_api_keys_off":
+            self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}]
+            self.organization.members_can_use_personal_api_keys = False
+            self.organization.save()
+        scope_fields: dict[str, dict[str, list]] = {
+            "organization": {"scoped_organizations": [str(self.organization.id)]},
+            "team": {"scoped_teams": [self.team.id]},
+            "two_teams": {"scoped_teams": [self.team.id, self.new_project.id]},
+        }
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Scoped key",
+            secure_value=hash_key_value(token),
+            scopes=["user:read"],
+            **scope_fields[scope],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            "/api/users/@me/", headers={"authorization": f"Bearer {token}"}, REMOTE_ADDR="198.51.100.7"
+        )
+
+        assert response.status_code == 200, response.content
+        body = response.json()
+        if names_the_reachable_project:
+            assert body["team"]["id"] == self.team.id
+            assert body["organization"]["id"] == str(self.organization.id)
+        else:
+            assert body["team"] is None
+            assert body["organization"] is None
+        assert str(other_organization.id) not in [organization["id"] for organization in body["organizations"]]
+
+    def _authenticate_with_scoped_key(self, **scope: list) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Scoped key",
+            secure_value=hash_key_value(token),
+            scopes=["user:read", "user:write"],
+            **scope,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_team_scoped_key_cannot_reach_a_sibling_project(self) -> None:
+        sibling_team = Team.objects.create(organization=self.organization, name="Sibling")
+        self._authenticate_with_scoped_key(scoped_teams=[self.team.id])
+
+        switch = self.client.patch("/api/users/@me/", {"set_current_team": sibling_team.id}, format="json")
+        self.user.current_team = sibling_team
+        self.user.save()
+        me = self.client.get("/api/users/@me/")
+
+        assert switch.status_code == 400, switch.content
+        assert me.status_code == 200, me.content
+        assert me.json()["team"]["id"] == self.team.id
+        assert [team["id"] for team in me.json()["organization"]["teams"]] == [self.team.id]
+
+    def test_switching_organization_with_a_team_scoped_key_picks_a_scoped_project(self) -> None:
+        other_organization, _, first_team = Organization.objects.bootstrap(self.user)
+        scoped_team = Team.objects.create(organization=other_organization, name="Scoped")
+        self._authenticate_with_scoped_key(scoped_teams=[self.team.id, scoped_team.id])
+
+        response = self.client.patch(
+            "/api/users/@me/", {"set_current_organization": str(other_organization.id)}, format="json"
+        )
+
+        assert response.status_code == 200, response.content
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == scoped_team.id
+        assert first_team.id != scoped_team.id
+
+    def test_scoped_key_of_a_staff_user_reaches_only_itself(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        other_user = create_user("other@example.com", "password12345", self.new_org)
+        self._authenticate_with_scoped_key(scoped_organizations=[str(self.organization.id)])
+
+        other = self.client.get(f"/api/users/{other_user.uuid}/")
+        listed = self.client.get("/api/users/")
+        integrations = self.client.get(f"/api/users/{other_user.uuid}/integrations/")
+
+        assert other.status_code == 403, other.content
+        assert integrations.status_code == 403, integrations.content
+        assert listed.status_code == 200, listed.content
+        assert [user["uuid"] for user in listed.json()["results"]] == [str(self.user.uuid)]
+
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
         # session can register a credential without ever completing verification.
@@ -760,6 +877,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Dashboard must belong to the user's current team."
 
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture):
@@ -769,6 +887,7 @@ class TestUserAPI(APIBaseTest):
             {"user": 12345, "team": 12345, "dashboard": 12345, "scene": "Person"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Dashboard must belong to the user's current team."
 
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture):
@@ -2899,6 +3018,18 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("unknown_analytics_list_key", {"version": 1, "analytics_list": {"columns": ["owner"]}}),
             ("non_boolean_hide_insights", {"version": 1, "analytics_list": {"hide_insights": "nope"}}),
             ("non_list_ticket_sidebar_order", {"version": 1, "ticket_sidebar": {"order": "activity"}}),
+            (
+                "non_boolean_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": "nope"}},
+            ),
+            (
+                "coercible_string_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": "false"}},
+            ),
+            (
+                "coercible_int_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": 1}},
+            ),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2916,6 +3047,7 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
                 "analytics_list",
                 {"version": 1, "analytics_list": {"hide_insights": True, "default_sort": "-created_at"}},
             ),
+            ("session_replay", {"version": 1, "session_replay": {"filter_test_accounts": False}}),
             (
                 # A layout can name a widget that a later release removed. Rejecting it would block every later save.
                 "ticket_sidebar_with_removed_widget",

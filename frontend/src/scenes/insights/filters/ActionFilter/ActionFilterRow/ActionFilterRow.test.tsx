@@ -1046,7 +1046,7 @@ describe('ActionFilterRow', () => {
                 mathAvailability: MathAvailability.None,
                 dataWarehousePopoverFields: undefined,
                 expected: { kind: NodeKind.EventsNode, event: '$feature_flag_called' },
-                description: /queries on this event will stop returning results/,
+                description: /Insights and most SQL queries on this event switch tables with no/,
             },
         ])(
             'describes and picks Feature flag called for $insight',

@@ -49,7 +49,12 @@ describe('analyticsListLogic', () => {
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     if (params.get('parent')) {
-                        return { results: [entry('insight/trends', 'i2', 'Growth/I2')], users: [ADA], next: null }
+                        const row = entry('insight/trends', 'i2', 'Growth/I2')
+                        // Like the API, tags come back only when the read asks for them.
+                        if (params.get('include_tags') === 'true') {
+                            row.meta = { created_by: ADA.id, tags: ['weekly'] }
+                        }
+                        return { results: [row], users: [ADA], next: null }
                     }
                     const type = params.get('type') ?? params.get('type__startswith') ?? ''
                     const results =
@@ -98,6 +103,15 @@ describe('analyticsListLogic', () => {
             ['i3', null],
             ['n1', null],
         ])
+    })
+
+    it('reads the tags of rows inside a folder, so the tag editor starts from them', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        router.actions.push(urls.analyticsList({ folder: 'Growth' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.items.map((item) => [item.id, item.tags])).toEqual([['i2', ['weekly']]])
     })
 
     it('lets a sort chosen in the menu replace a header click', async () => {

@@ -1,8 +1,6 @@
 import time
 from typing import ClassVar
 
-from django.db import models
-
 from prometheus_client import Counter, Histogram
 
 from posthog.hogql import ast
@@ -15,11 +13,11 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
 
+# Migrations of this product name the field by this module path.
+from posthog.models.utils import LabelTreeField  # noqa: F401
+
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.incremental_filter import parse_model_query
-
-LabelPath = list[str]
-
 
 DEFAULT_RESOLUTION_MAX_VIEW_DEPTH = 100
 DEFAULT_RESOLUTION_DEADLINE_SECONDS = 60.0
@@ -218,37 +216,6 @@ def bounded_resolver_factory_for_view(
         )
 
     return factory
-
-
-class LabelTreeField(models.Field):
-    """A Django model field for a PostgreSQL label tree.
-
-    We represent label trees in Python as a list of strings, each item
-    in the list being one of the labels of the underlying ltree.
-    """
-
-    description = "A PostgreSQL label tree field provided by the ltree extension"
-
-    def db_type(self, connection):
-        return "ltree"
-
-    def from_db_value(self, value, expression, connection) -> None | LabelPath:
-        if value is None:
-            return value
-
-        return value.split(".")
-
-    def to_python(self, value) -> None | LabelPath:
-        if value is None:
-            return value
-
-        if isinstance(value, list):
-            return value
-
-        return value.split(".")
-
-    def get_prep_value(self, value: LabelPath) -> str:
-        return ".".join(value)
 
 
 # enclosing WITH clauses, innermost first — a name resolves against the closest one

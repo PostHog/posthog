@@ -30,7 +30,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.utils import prepare_and_print_ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -98,6 +100,21 @@ def _retention(start_event: EventsNode | ExperimentExposureNode = PAGEVIEW, **kw
     return ExperimentRetentionMetric(
         start_event=start_event, completion_event=EventsNode(event="purchase"), **RETENTION_WINDOW, **kwargs
     )
+
+
+def _metric_events_subqueries(printed: str) -> list[str]:
+    subqueries = []
+    for tail in printed.split(f"FROM {METRIC_EVENTS_TABLE} AS t")[1:]:
+        depth = 0
+        for index, char in enumerate(tail):
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                if depth == 0:
+                    subqueries.append(tail[:index])
+                    break
+                depth -= 1
+    return subqueries
 
 
 CASES = [
@@ -337,3 +354,59 @@ class TestExperimentQueryBuilderSnapshots(BaseTest, QueryMatchingTest):
                 LazyComputationQuery(query=query, table=job_table, timezone=self.team.timezone)
             )
             assert job_hash == self.snapshot
+
+    @parameterized.expand(
+        [
+            param("funnel", metric=_funnel(**SEVEN_DAYS), metric_events_reads=1),
+            param("mean", metric=ExperimentMeanMetric(source=PURCHASE, **SEVEN_DAYS), metric_events_reads=1),
+            param(
+                "ratio",
+                metric=ExperimentRatioMetric(numerator=PURCHASE, denominator=PAGEVIEW),
+                metric_events_reads=2,
+            ),
+            param("retention", metric=_retention(**SEVEN_DAYS), metric_events_reads=2),
+            param(
+                "funnel_direct_scan",
+                metric=_funnel(**SEVEN_DAYS),
+                metric_events_reads=0,
+                metric_events_job_ids=None,
+            ),
+        ],
+        name_func=lambda func, _num, p: f"{func.__name__}_{p.args[0]}",
+    )
+    @time_machine.travel(NOW, tick=False)
+    def test_metric_events_reads_use_random_load_balancing(
+        self,
+        _name: str,
+        metric: Metric,
+        metric_events_reads: int,
+        metric_events_job_ids: list[str] | None = METRIC_EVENTS_JOB_IDS,
+    ) -> None:
+        builder = self._builder(
+            metric,
+            breakdowns=None,
+            matured=False,
+            cuped=False,
+            activation=False,
+            entity_key="person_id",
+            multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
+        )
+        query = builder.build_query(
+            ExperimentPrecomputationContext(
+                exposure_job_ids=EXPOSURE_JOB_IDS,
+                metric_events_job_ids=metric_events_job_ids,
+                numerator_job_ids=metric_events_job_ids,
+                denominator_job_ids=metric_events_job_ids,
+            )
+        )
+
+        printed, _ = prepare_and_print_ast(
+            query, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse"
+        )
+
+        metric_events_reads_sql = _metric_events_subqueries(printed)
+        assert len(metric_events_reads_sql) == metric_events_reads
+        for read_sql in metric_events_reads_sql:
+            assert read_sql.rstrip().endswith("SETTINGS load_balancing='random'")
+        outer_settings = printed.rsplit("SETTINGS", 1)[1]
+        assert "load_balancing='in_order'" in outer_settings

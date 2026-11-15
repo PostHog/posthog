@@ -95,7 +95,7 @@ def _catalog_rows(session: Session, endpoint_config: TwelveDataEndpointConfig) -
 
 
 def _symbol_rows(session: Session, endpoint_config: TwelveDataEndpointConfig, symbol: str) -> list[dict]:
-    """One-shot per-symbol endpoints (quote, dividends, splits, earnings)."""
+    """One-shot per-symbol endpoints (quote, profile, statistics, dividends, splits, earnings, statements)."""
     params = {"symbol": symbol, **endpoint_config.params}
     body = _fetch(session, endpoint_config.path, params)
     if not body:
@@ -106,8 +106,12 @@ def _symbol_rows(session: Session, endpoint_config: TwelveDataEndpointConfig, sy
         return [row] if row else []
 
     meta = body.get("meta") or {}
+    row_meta = {key: meta.get(key) for key in endpoint_config.meta_fields}
+    row_meta["symbol"] = meta.get("symbol", symbol)
     rows = body.get(endpoint_config.data_key) or []
-    return [{"symbol": meta.get("symbol", symbol), **row} for row in rows]
+    if isinstance(rows, dict):
+        rows = [rows]
+    return [{**row_meta, **row} for row in rows]
 
 
 def _time_series_pages(

@@ -209,7 +209,7 @@ from `incremental-fields-create`.
 1. `incremental-fields-create` to confirm `supports_webhooks: true` for the table.
 2. `partial-update`: `{sync_type: "webhook"}`.
 3. If the source doesn't already have a webhook registered (check with `webhook-info-retrieve`), call
-   `external-data-sources-create-webhook-create({source_id})` to register it.
+   `external-data-sources-create-webhook-create({id})` to register it.
 4. No resync required — the schema's existing bulk-synced data stays, and the webhook becomes the primary ingestion
    path once the next reconciliation finishes.
 5. Keep `sync_frequency` set (e.g. `24hour`) — it acts as a safety-net reconciliation in case any webhook delivery
@@ -220,7 +220,7 @@ from `incremental-fields-create`.
 1. `partial-update`: `{sync_type: "incremental"}` (or whatever bulk type is appropriate) with the required
    `incremental_field` + `incremental_field_type`.
 2. If **no other schemas** on the source are still using `sync_type: "webhook"`, call
-   `external-data-sources-delete-webhook-create({source_id})` to unregister. Leaving an orphaned webhook
+   `external-data-sources-delete-webhook-create({id})` to unregister. Leaving an orphaned webhook
    registered on the source side just means events will be received and dropped — not harmful, but messy.
 3. If other schemas on the source are still on webhook, leave the webhook registered — it's shared across all
    webhook-type schemas on the source.
@@ -231,7 +231,7 @@ The source's signing secret (e.g. Stripe's `whsec_...`) was rotated, and payload
 verification.
 
 1. Grab the new secret from the source's dashboard.
-2. `external-data-sources-update-webhook-inputs-create({source_id}, {inputs: {signing_secret: "whsec_..."}})`.
+2. `external-data-sources-update-webhook-inputs-create({id}, {inputs: {signing_secret: "whsec_..."}})`.
 3. No reload needed — the next inbound webhook payload will verify against the new secret.
 
 ### Pausing a schema

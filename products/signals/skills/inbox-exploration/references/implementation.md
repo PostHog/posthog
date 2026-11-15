@@ -94,7 +94,9 @@ so resolve those reports manually after the work lands. Also reference the repor
 in the PR description so the loop is traceable from either side.
 
 **Don't resolve a report because you opened a PR.** A report resolves when all linked PRs are closed
-or merged and at least one merged. If all closed without merging, it is suppressed. Any open, draft,
+or merged and at least one merged.
+Where the organization has Monitoring on and the report has open follow-up checks, it enters `monitoring` instead (see [Monitoring](report-state.md#monitoring)).
+If all closed without merging, it is suppressed. Any open, draft,
 or unknown PR prevents automatic completion. Resolving by hand at PR-open
 time asserts work that hasn't landed, and a reviewer looking at the inbox can't tell the difference.
 Manual resolve is for fixes a PR merge will never cover — a skill-body change, a config change, a

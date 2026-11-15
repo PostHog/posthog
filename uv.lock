@@ -6159,6 +6159,7 @@ dependencies = [
     { name = "protobuf" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg2-binary" },
+    { name = "pwned-passwords-django" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pydantic-avro" },
@@ -6459,10 +6460,11 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.44.2" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.87.0" },
+    { name = "posthoganalytics", specifier = "==7.90.0" },
     { name = "protobuf", specifier = "~=6.33.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.13" },
     { name = "psycopg2-binary", specifier = "==2.9.13" },
+    { name = "pwned-passwords-django", specifier = "==5.2.0" },
     { name = "pyarrow", specifier = "==23.0.1" },
     { name = "pydantic", specifier = "~=2.14.2" },
     { name = "pydantic-avro", specifier = "~=0.9.3" },
@@ -6628,7 +6630,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.87.0"
+version = "7.90.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6636,9 +6638,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d6/91/0cf6a1d0ef086e417371abed94de3591734898f4151b38e77d2bd988bddc/posthoganalytics-7.87.0.tar.gz", hash = "sha256:9c5c1c4294d42afd73ce3a2de43ad4cfea2f13f22499dfc5e7e00deea11f290a", size = 936682, upload-time = "2026-11-11T08:40:49.791Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/60/8b/20628ecf82fe4e39cf37648e392113abfa78171737505b396deead59bc85/posthoganalytics-7.90.0.tar.gz", hash = "sha256:16708f9968b45e9237b39edc329df24180433fc5bcac74d05673d864d61bb934", size = 953192, upload-time = "2026-11-13T01:41:21.677Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/0b/a9796d2a02bfd3c7de312f640dc08339c2be5db26c1badc3c3f2d23da2c1/posthoganalytics-7.87.0-py3-none-any.whl", hash = "sha256:1db1fe1ca66a966fa93e5fd3c27bebec761bece71bbf89ad8d4107a55f725f22", size = 1087575, upload-time = "2026-11-11T08:40:47.36Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/1f/ac19b5ccf330311662a5ff8bdad8942817e4b91d384a15009d497ea35a74/posthoganalytics-7.90.0-py3-none-any.whl", hash = "sha256:a79cc94b3cae60509118e4dadff9579e6b08ffaa86a31fab24ba5f208e77afa7", size = 1105389, upload-time = "2026-11-13T01:41:18.871Z" },
 ]
 
 [[package]]
@@ -6835,6 +6837,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cd/05/0a34433a064256a578f1783a10da6df098ceaa4a57bbeaa96a6c0352786b/pure_eval-0.2.3.tar.gz", hash = "sha256:5f4e983f40564c576c7c8635ae88db5956bb2229d7e9237d03b3c0b0190eaf42", size = 19752, upload-time = "2024-07-21T12:58:21.801Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8e/37/efad0257dc6e593a18957422533ff0f87ede7c9c6ea010a2177d738fb82f/pure_eval-0.2.3-py3-none-any.whl", hash = "sha256:1db8e35b67b3d218d818ae653e27f06c3aa420901fa7b081ca98cbedc874e0d0", size = 11842, upload-time = "2024-07-21T12:58:20.04Z" },
+]
+
+[[package]]
+name = "pwned-passwords-django"
+version = "5.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ae/f5/242f5ceb391832d284c815135f99872ad2f109aaa8b398bcf9cbe3665bd6/pwned_passwords_django-5.2.0.tar.gz", hash = "sha256:dfa7c4fc8879396b8304759260c5fb8b6055c07ed9241010e5bc319f195d5197", size = 43089, upload-time = "2025-04-06T07:58:17.973Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/9b/dbbeb3e72501190584847e5d6b119b5e4f1e15b11a804c4e2ccbca438f2f/pwned_passwords_django-5.2.0-py3-none-any.whl", hash = "sha256:a8666fb427479796ee9940e92df834a188ca7246905e4b9dc7be6248415ff5df", size = 11712, upload-time = "2025-04-06T07:58:16.599Z" },
 ]
 
 [[package]]

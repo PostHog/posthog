@@ -238,7 +238,7 @@ class GatewayAgentAccessSerializer(serializers.Serializer):
 def _installation_pending_oauth(installation: MCPServerInstallation) -> bool:
     if installation.auth_type != "oauth":
         return False
-    return not (installation.sensitive_configuration or {}).get("access_token")
+    return not installation.upstream_access_token()
 
 
 def _installation_needs_reauth(installation: MCPServerInstallation) -> bool:
@@ -975,7 +975,10 @@ class MCPGatewayServerViewSet(
             .prefetch_related(
                 Prefetch(
                     "installations",
-                    queryset=MCPServerInstallation.objects.select_related("user").order_by("created_at"),
+                    # The token resolver reads the template of a link-backed installation.
+                    queryset=MCPServerInstallation.objects.select_related(
+                        "user", "template", "linked_user_integration"
+                    ).order_by("created_at"),
                 ),
                 Prefetch(
                     "agent_access",

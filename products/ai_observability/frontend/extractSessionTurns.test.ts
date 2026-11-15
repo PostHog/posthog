@@ -1,12 +1,6 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import {
-    buildInputSourceIndices,
-    extractSessionTurns,
-    getToolNamesCalled,
-    pickUserVisibleTurn,
-    SessionTurnError,
-} from './extractSessionTurns'
+import { extractSessionTurns, getToolNamesCalled, pickUserVisibleTurn, SessionTurnError } from './extractSessionTurns'
 
 function makeGeneration(
     id: string,
@@ -62,39 +56,6 @@ describe('pickUserVisibleTurn', () => {
         }
         const trace = makeTrace('t1', [g1, traceEvent])
         expect(pickUserVisibleTurn(trace)?.id).toBe('g1')
-    })
-})
-
-describe('buildInputSourceIndices', () => {
-    it('returns an empty array for non-array inputs', () => {
-        expect(buildInputSourceIndices('not an array', undefined)).toEqual([])
-    })
-
-    it('prepends -1 when tools are present', () => {
-        const indices = buildInputSourceIndices([{ role: 'user', content: 'hi' }], [{ name: 'lookup' }])
-        expect(indices[0]).toBe(-1)
-    })
-
-    it('emits one index per normalized message, repeating when one raw entry expands', () => {
-        // A single raw entry with typed parts may normalize to multiple CompatMessages.
-        const raw = [
-            { role: 'user', content: 'Hi' },
-            {
-                role: 'assistant',
-                content: [
-                    { type: 'thinking', thinking: 'pondering' },
-                    { type: 'text', text: 'Hello' },
-                ],
-            },
-        ]
-        const indices = buildInputSourceIndices(raw, undefined)
-        // First entry maps to 0; second entry expands to 2 messages, both mapping to 1.
-        expect(indices[0]).toBe(0)
-        // We don't assert on the rest of the shape — `normalizeMessage`'s expansion is
-        // covered by utils.test.ts — but every emitted index should be in {0, 1}.
-        for (const i of indices) {
-            expect([0, 1]).toContain(i)
-        }
     })
 })
 

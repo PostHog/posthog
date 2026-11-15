@@ -793,6 +793,7 @@ const metricList = (): ToolBase<
                     'is_drifted',
                     'unit',
                     'definition_kind',
+                    'match_reason',
                 ])
             ),
         } as typeof result

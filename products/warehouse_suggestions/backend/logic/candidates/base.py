@@ -77,6 +77,7 @@ def inlining_could_deny_a_reader(team_id: int, saved_query_id: UUID) -> bool:
 class QueryCost:
     seconds: float
     read_bytes: float
+    capped: bool = False
 
 
 @frozen

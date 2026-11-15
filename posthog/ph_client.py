@@ -48,6 +48,42 @@ def suppress_last_seen_updates(message: dict[str, Any]) -> dict[str, Any]:
 BeforeSend = Callable[[dict[str, Any]], dict[str, Any] | None]
 
 
+def _query_without_sql_filters(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _query_without_sql_filters(item)
+            for key, item in value.items()
+            if not (value.get("kind") == "HogQLQuery" and key == "filters")
+        }
+    if isinstance(value, list):
+        return [_query_without_sql_filters(item) for item in value]
+    return value
+
+
+def has_filtered_sql_query(value: Any) -> bool:
+    if isinstance(value, dict):
+        return (value.get("kind") == "HogQLQuery" and bool(value.get("filters"))) or any(
+            has_filtered_sql_query(item) for item in value.values()
+        )
+    if isinstance(value, list):
+        return any(has_filtered_sql_query(item) for item in value)
+    return False
+
+
+def filter_sql_query_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+    properties = message.get("properties", {})
+    has_filtered_sql = has_filtered_sql_query(properties)
+    # Exception chains and stack context can include expanded SQL beyond the query metadata.
+    if message.get("event") == "$exception" and (has_filtered_sql or has_filtered_sql_query(get_query_tags().query)):
+        return None
+    if has_filtered_sql:
+        properties = _query_without_sql_filters(properties)
+    if properties.get("query_type") == "HogQLQuery":
+        # ClickHouse errors can embed the compiled SQL with filter values substituted.
+        properties = {key: value for key, value in properties.items() if key != "error_message"}
+    return {**message, "properties": properties}
+
+
 def self_hosted_capture_reaches_posthog() -> bool:
     return is_hobby() and not settings.TEST and not settings.SELF_CAPTURE
 
@@ -60,9 +96,8 @@ def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> Be
         hooks.append(filter_scout_experiment_capture)
     if self_hosted:
         hooks.append(drop_exception_capture)
+    hooks.append(filter_sql_query_capture)
     hooks.append(suppress_last_seen_updates)
-    if len(hooks) == 1:
-        return hooks[0]
 
     def chained(message: dict[str, Any]) -> dict[str, Any] | None:
         for hook in hooks:
@@ -284,7 +319,8 @@ def get_client(region: str = "US", **kwargs: Any):
             if next_message is None:
                 return None
             message = next_message
-        return suppress_last_seen_updates(message)
+        filtered_message = filter_sql_query_capture(message)
+        return suppress_last_seen_updates(filtered_message) if filtered_message is not None else None
 
     kwargs["before_send"] = capture_filter
 

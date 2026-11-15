@@ -25,8 +25,10 @@ from temporalio.client import (
 )
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
+from posthog.cloud_utils import is_cloud
 from posthog.dns_utils import async_dnssec_resolver
 from posthog.models import ProxyRecord
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule
@@ -122,6 +124,11 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
 
     if not await record_exists(inputs.proxy_record_id):
         raise RecordDeletedException("proxy record was deleted while waiting for DNS records")
+
+    if is_cloud() and (oob_domain := matched_oob_domain(inputs.domain)) is not None:
+        logger.info("security.oob_domain_seen", host=inputs.domain, domain=oob_domain, guard="proxy_create_dns")
+        # Waiting cannot change the answer, so the workflow stops instead of retrying.
+        raise ApplicationError(OOB_DOMAIN_REFUSAL, non_retryable=True)
 
     try:
         resolver = async_dnssec_resolver()

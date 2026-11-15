@@ -9,7 +9,9 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { formatDate } from 'lib/utils/datetime'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
@@ -26,7 +28,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
-import { alertsSimulateCreate, alertsTakeOwnershipCreate } from 'products/alerts/frontend/generated/api'
+import {
+    alertsPartialUpdate,
+    alertsSimulateCreate,
+    alertsTakeOwnershipCreate,
+} from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
@@ -50,6 +56,7 @@ import { canCheckOngoingInterval, getAlertFormValidationErrors } from './alertFo
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { ALERT_NOTIFICATION_TYPE_PAGERDUTY } from './alertNotifications'
+import { alertsLogic } from './alertsLogic'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
 import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
@@ -623,6 +630,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 const payload: AlertTypeWrite = {
                     ...alert,
+                    // The snooze control saves on its own, so the form's copy can be stale and would undo it.
+                    snoozed_until: undefined,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
                     // can only skip weekends for sub-daily alerts
@@ -683,7 +692,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
                     if (notifLogic.values.pendingNotifications.length > 0) {
-                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, alert.name)
+                        await notifLogic.asyncActions.createPendingDestinations(savedAlertId)
                     }
                 }
 
@@ -936,6 +945,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             return undefined
         }
 
+        const updateAlertsPageList = (updatedAlert: AlertType): void => {
+            if (alertsLogic.isMounted()) {
+                alertsLogic.actions.updateAlertInList(updatedAlert)
+            }
+        }
+
         return {
             deleteAlert: async () => {
                 if (!values.alertForm.id) {
@@ -954,16 +969,32 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: resolveSnoozeUntil(snoozeUntil),
-                })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
-                const parent = getParentLogic()
-                if (parent) {
-                    parent.actions.upsertAlert(updatedAlert)
-                    parent.actions.loadAlerts()
+                const resolvedSnoozeUntil = resolveSnoozeUntil(snoozeUntil)
+                try {
+                    const updatedAlert = (await alertsPartialUpdate(
+                        String(ApiConfig.getCurrentTeamId()),
+                        values.alertForm.id,
+                        { snoozed_until: resolvedSnoozeUntil }
+                    )) as unknown as AlertType
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
+                    const parent = getParentLogic()
+                    if (parent) {
+                        parent.actions.upsertAlert(updatedAlert)
+                        parent.actions.loadAlerts()
+                    }
+                    updateAlertsPageList(updatedAlert)
+                    const snoozedUntilLabel = formatDate(
+                        dayjs(updatedAlert.snoozed_until ?? resolvedSnoozeUntil),
+                        'MMM D, HH:mm'
+                    )
+                    lemonToast.success(`Alert snoozed until ${snoozedUntilLabel}.`)
+                } catch (error) {
+                    lemonToast.error("We couldn't snooze this alert. Please try again.")
+                    posthog.captureException(error, {
+                        action: 'snooze alert',
+                        alertId: values.alertForm.id,
+                    })
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             clearSnooze: async () => {
                 if (!values.alertForm.id) {
@@ -980,6 +1011,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         parent.actions.upsertAlert(updatedAlert)
                         parent.actions.loadAlerts()
                     }
+                    updateAlertsPageList(updatedAlert)
+                    lemonToast.success('Alert unsnoozed.')
                 } catch (error) {
                     lemonToast.error("We couldn't unsnooze this alert. Please try again.")
                     posthog.captureException(error, {

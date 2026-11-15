@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
+import { formatAuc } from '../modelQuality'
 import { AccuracyTrend, AccuracyTrendMetric, AccuracyTrendPoint, formatTrendValue } from '../onlinePerformance'
 import { trendLineStyles } from './accuracyTrendStyle'
 
@@ -79,7 +80,7 @@ export function AccuracyTrendChart({
                     {reference != null && (
                         <span>
                             <span className="inline-block w-3 align-middle mr-1 border-t border-dashed border-current" />
-                            Holdout AUC {reference.toFixed(2)}
+                            Holdout AUC {formatAuc(reference)}
                         </span>
                     )}
                 </div>

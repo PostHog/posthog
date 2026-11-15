@@ -53,6 +53,7 @@ const buildMetric = (id: string, name: string, definitionKind: string | null): D
     referenced_table_names: [],
     status: 'approved',
     is_drifted: false,
+    match_reason: null,
     approved_at: null,
     approved_by: null,
     last_run_at: null,

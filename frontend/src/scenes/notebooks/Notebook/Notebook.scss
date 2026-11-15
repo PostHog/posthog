@@ -791,3 +791,102 @@ body.has-markdown-v2-notebook .TodayAppLayout .main-content-container > main,
         border-radius: 3px 3px 3px 0;
     }
 }
+
+.Notebook:has(.Notebook__print-controls) {
+    width: min(100%, 180mm);
+    margin-inline: auto;
+}
+
+// Important utilities otherwise override the print layout's visibility and sizing.
+@layer base {
+    @media print {
+        .NotebookPrintAncestor {
+            position: static !important;
+            display: block !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+            background: var(--color-bg-surface-primary) !important;
+            print-color-adjust: exact;
+            border: 0 !important;
+            box-shadow: none !important;
+            transform: none !important;
+
+            > :not(.NotebookPrintAncestor, .Notebook--printing) {
+                display: none !important;
+            }
+        }
+
+        .Notebook--printing {
+            display: block !important;
+            width: 180mm !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            background: var(--color-bg-surface-primary) !important;
+            print-color-adjust: exact;
+
+            .Notebook_content,
+            .MarkdownNotebook__debug-layout,
+            .MarkdownNotebook__main,
+            .MarkdownNotebook__canvas {
+                display: block !important;
+                width: 100% !important;
+                max-width: none !important;
+                height: auto !important;
+                padding: 0 !important;
+                overflow: visible !important;
+                background: var(--color-bg-surface-primary) !important;
+                border: 0 !important;
+                box-shadow: none !important;
+            }
+
+            .NotebookColumn,
+            .DataVisualization__controls,
+            .MarkdownNotebook__jupyter-output-area button,
+            .MarkdownNotebook__jupyter-input,
+            .MarkdownNotebook__jupyter-prompt,
+            .MarkdownNotebook__line-insert-menu-button,
+            .MarkdownNotebook__insert-boundary-button,
+            .Notebook__print-controls,
+            .MarkdownNotebook__debug-toolbar,
+            .MarkdownNotebook__debug-drawer,
+            .MarkdownNotebook__drag-handle,
+            .MarkdownNotebook__block-comment-button,
+            .MarkdownNotebook__jupyter-add-cell,
+            .MarkdownNotebook__canvas-header,
+            .MarkdownNotebook__component-actions,
+            .MarkdownNotebook__component-mode-actions,
+            .MarkdownNotebook__component-toolbar-controls,
+            .MarkdownNotebook__component-panel--filters,
+            .MarkdownNotebook__real-node-resize-handle,
+            .MarkdownNotebook__real-node-settings,
+            .MarkdownNotebook__jupyter-cell-actions,
+            .NotebookNode__settings,
+            .NotebookNode__resize-handle,
+            .NotebookNode__meta button {
+                display: none !important;
+            }
+
+            .MarkdownNotebook__real-node-content:has([data-attr='notebook-node-python-v2']),
+            [data-attr='notebook-node-python-v2'],
+            [data-attr='notebook-node-python-v2'] > div {
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+            }
+
+            .NotebookNode,
+            .MarkdownNotebook__row {
+                break-inside: avoid;
+            }
+
+            .MarkdownNotebook__row:has([data-attr='notebook-node-python-v2']) {
+                break-inside: auto;
+            }
+        }
+    }
+}

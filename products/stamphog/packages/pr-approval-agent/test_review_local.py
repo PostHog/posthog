@@ -23,6 +23,8 @@ from github import CommitProvenance  # noqa: E402
 from policy import DenyException  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
+_MIGRATION_RISK_APP_ID = 2492437
+
 
 def _review(login: str, state: str, head_sha: str, body: str = "") -> dict:
     return {
@@ -898,6 +900,7 @@ def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
         [
             {
                 "name": "Migration risk",
+                "app": {"id": _MIGRATION_RISK_APP_ID},
                 "status": "completed",
                 "conclusion": "success",
                 "output": {"summary": f"<!-- stamphog:v1 {json.dumps(safe_migrations)} -->"},
