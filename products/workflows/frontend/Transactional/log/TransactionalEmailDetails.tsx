@@ -55,7 +55,7 @@ function CopyableId({
 }
 
 export function TransactionalEmailDetails({ email }: { email: TransactionalEmailLogDetailApi }): JSX.Element {
-    const emailUrl = transactionalEmailUrl({ codeEmailId: email.code_email_id, templateId: email.template_id })
+    const emailUrl = transactionalEmailUrl(email)
     return (
         <section className="border rounded bg-surface-primary p-4 flex flex-col gap-3">
             <h3 className="text-sm font-semibold m-0">Details</h3>

@@ -1,17 +1,17 @@
 import { urls } from 'scenes/urls'
 
-export function transactionalEmailUrl({
-    codeEmailId,
-    templateId,
-}: {
-    codeEmailId: string | null
-    templateId: string | null
-}): string | null {
-    if (codeEmailId) {
-        return urls.transactionalCodeEmail(codeEmailId)
+// A send and a metrics row both name the email behind them with these two fields.
+interface EmailPage {
+    code_email_id: string | null
+    template_id: string | null
+}
+
+export function transactionalEmailUrl(email: EmailPage | null | undefined): string | null {
+    if (email?.code_email_id) {
+        return urls.transactionalCodeEmail(email.code_email_id)
     }
-    if (templateId) {
-        return urls.transactionalTemplate(templateId)
+    if (email?.template_id) {
+        return urls.transactionalTemplate(email.template_id)
     }
     return null
 }
