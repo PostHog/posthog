@@ -357,3 +357,18 @@ export async function fetchLiveStats(liveHost: string, token: string, signal?: A
         signal?.removeEventListener('abort', abort)
     }
 }
+
+export async function fetchLiveEventProperties(
+    eventId: string,
+    scope: ProjectScope,
+    signal?: AbortSignal
+): Promise<Record<string, unknown>> {
+    const body = await apiJson<unknown>(scopedPath(scope, `events/${encodeURIComponent(eventId)}/`), {
+        signal,
+        budgetFamily: 'live',
+    })
+    if (!isRecord(body) || !isRecord(body.properties)) {
+        throw new Error("Couldn't load properties.")
+    }
+    return body.properties
+}
