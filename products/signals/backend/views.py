@@ -5484,7 +5484,11 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="pr_checks", required_scopes=["inbox:read"])
     def pr_checks(self, request: Request, *args, **kwargs) -> Response:
         return self._pr_github_passthrough(
-            cast(SignalReport, self.get_object()), "get_pull_request_checks", ("checks", "has_conflict"), "checks"
+            cast(SignalReport, self.get_object()),
+            "get_pull_request_checks",
+            ("checks", "has_conflict"),
+            "checks",
+            PullRequestChecksResponseSerializer,
         )
 
     @extend_schema(
@@ -5590,7 +5594,11 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="pr_comments", required_scopes=["inbox:read"])
     def pr_comments(self, request: Request, *args, **kwargs) -> Response:
         return self._pr_github_passthrough(
-            cast(SignalReport, self.get_object()), "get_pull_request_comments", ("comments",), "comments"
+            cast(SignalReport, self.get_object()),
+            "get_pull_request_comments",
+            ("comments",),
+            "comments",
+            PullRequestCommentsResponseSerializer,
         )
 
     @extend_schema(
@@ -5948,10 +5956,16 @@ class SignalReportViewSet(
         return result
 
     def _pr_github_passthrough(
-        self, report: SignalReport, fetch_name: str, keys: tuple[str, ...], noun: str
+        self,
+        report: SignalReport,
+        fetch_name: str,
+        keys: tuple[str, ...],
+        noun: str,
+        response_serializer: type[serializers.Serializer],
     ) -> Response:
         """Shared body for the ``pr_checks`` / ``pr_comments`` actions: resolve the report's PR and the
-        GitHub integration that can read it, call ``fetch_name`` on the client, and return ``keys`` of its result.
+        GitHub integration that can read it, call ``fetch_name`` on the client, and render ``keys`` of its
+        result through ``response_serializer``, so the wire shape matches the declared schema.
         A missing PR/integration maps to 404, a rate limit to its response, and any other upstream GitHub
         failure to 502 — an upstream hiccup never 500s the endpoint."""
         reference = self._resolve_report_pr_reference(report)
@@ -5965,7 +5979,7 @@ class SignalReportViewSet(
         cached_result = cache.get(cache_key)
         # A cached result that lacks a key was written in an earlier format, so it reads as a miss.
         if isinstance(cached_result, dict) and all(key in cached_result for key in keys):
-            return Response({key: cached_result[key] for key in keys})
+            return Response(response_serializer(cached_result).data)
 
         github, repository, pr_number, error = self._github_for_report_pr(report, reference=reference)
         if error is not None:
@@ -6012,7 +6026,7 @@ class SignalReportViewSet(
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         cache.set(cache_key, result, timeout=PR_GITHUB_CACHE_SECONDS)
-        return Response({key: result[key] for key in keys})
+        return Response(response_serializer(result).data)
 
     def _github_for_report_pr(
         self,

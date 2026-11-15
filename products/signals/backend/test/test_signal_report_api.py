@@ -6183,6 +6183,13 @@ class TestSignalReportPrEndpoints(APIBaseTest):
                 "url": "https://gh/c/1",
                 "comment_type": "conversation",
                 "path": None,
+                "line": None,
+                "start_line": None,
+                "side": None,
+                "diff_hunk": None,
+                "in_reply_to_id": None,
+                "commit_id": None,
+                "reactions": [],
             }
         ]
         github.return_value.get_pull_request_comments.return_value = {"success": True, "comments": comments}

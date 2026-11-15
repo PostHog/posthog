@@ -383,10 +383,10 @@ export interface inboxReportDetailLogicValues {
     prChecksError: GitHubLoadError | null
     prChecksFailing: boolean
     prChecksLoading: boolean
-    prConflictReported: boolean
     prComments: readonly PullRequestCommentApi[] | null
     prCommentsError: GitHubLoadError | null
     prCommentsLoading: boolean
+    prConflictReported: boolean
     prHasConflict: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
@@ -711,9 +711,6 @@ export interface inboxReportDetailLogicActions {
     setDetailTab: (tab: ReportDetailTab) => {
         tab: ReportDetailTab
     }
-    setPrConflictReported: (hasConflict: boolean) => {
-        hasConflict: boolean
-    }
     setEditingCommentId: (commentId: string | null) => {
         commentId: string | null
     }
@@ -728,6 +725,9 @@ export interface inboxReportDetailLogicActions {
     }
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
+    }
+    setPrConflictReported: (hasConflict: boolean) => {
+        hasConflict: boolean
     }
     setPrioritySaving: (saving: boolean) => {
         saving: boolean
@@ -1193,7 +1193,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     if (values.selectedPullRequest.url !== pr.url) {
                         return null
                     }
-                    actions.setPrConflictReported(response.has_conflict)
+                    // A backend from before this field omits it, and kea rejects an undefined reducer value.
+                    actions.setPrConflictReported(response.has_conflict === true)
                     return response.checks
                 },
             },
