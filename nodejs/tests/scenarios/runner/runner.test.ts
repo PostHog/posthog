@@ -1145,10 +1145,10 @@ describe('runner through seed, drive and judge', () => {
         30_000
     )
 
-    it('calls a pg.failover run without a run manifest invalid at the valve, as the failover card runs locally', async () => {
-        const result = await run('all', [
-            { valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '1s', for: '500ms' },
-        ])
+    it('calls the failover card invalid at its valve on a host without a run manifest', async () => {
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+
+        const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
 
         expect(result).toMatchObject({
             status: 'invalid',
