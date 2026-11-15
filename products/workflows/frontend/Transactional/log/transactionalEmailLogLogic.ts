@@ -19,11 +19,17 @@ export const LOG_RETENTION_DAYS = 30
 
 // pinned: URL search params of the Log tab and of an email's Sends tab - renaming breaks shared links
 const URL_PARAMS = ['search', 'status', 'email', 'date_from', 'date_to', 'page'] as const
+/** The pages with an email's own Sends tab. A template opens from the transactional, workflows or broadcasts library. */
+const EMAIL_PAGE_ROUTES = [
+    '/transactional/code-emails/:id',
+    '/transactional/library/templates/:id',
+    '/workflows/library/templates/:id',
+    '/broadcasts/library/templates/:id',
+]
 /** The filters a send's detail page carries back to the email's Sends tab. */
 export const SEND_FILTER_PARAMS = ['status', 'date_from', 'date_to'] as const
 
 export interface TransactionalEmailLogLogicProps {
-    /** Lists only the sends of this email's workflow, as the email's own Sends tab does. */
     workflowId?: string
 }
 
@@ -252,13 +258,11 @@ export const transactionalEmailLogLogic = kea<transactionalEmailLogLogicType>([
                 actions.setFiltersFromUrl(filters)
             }
         }
-        // An email's Sends tab mounts its own listing, which reads the filters from the email's page.
+        const read = (_: Record<string, string | undefined>, searchParams: Record<string, any>): void =>
+            readFilters(searchParams)
         return props.workflowId
-            ? {
-                  '/transactional/library/templates/:id': (_, searchParams) => readFilters(searchParams),
-                  '/transactional/code-emails/:id': (_, searchParams) => readFilters(searchParams),
-              }
-            : { '/transactional/log': (_, searchParams) => readFilters(searchParams) }
+            ? Object.fromEntries(EMAIL_PAGE_ROUTES.map((route) => [route, read]))
+            : { '/transactional/log': read }
     }),
     afterMount(({ actions, values }) => {
         if (values.page === null) {

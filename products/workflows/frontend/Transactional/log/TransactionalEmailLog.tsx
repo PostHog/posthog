@@ -43,7 +43,6 @@ const STATUS_OPTIONS = (['delivered', 'sent', 'queued', 'bounced', 'complained',
     label: EMAIL_STATUS_LABEL[status],
 }))
 
-/** The sends of every transactional email, or with `workflowId` only the sends of that email, as its Sends tab shows them. */
 export function TransactionalEmailLog({ workflowId }: { workflowId?: string }): JSX.Element {
     return (
         <BindLogic logic={transactionalEmailLogLogic} props={{ workflowId }}>
@@ -70,7 +69,6 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const oneEmail = !emailOptions
 
-    // The filters ride along to the send's page, whose link back to the email's Sends tab restores them.
     const sendUrl = (email: TransactionalEmailLogEntryApi): string =>
         combineUrl(urls.transactionalEmailLogEntry(email.message_id), sendFilterSearchParams).url
 
