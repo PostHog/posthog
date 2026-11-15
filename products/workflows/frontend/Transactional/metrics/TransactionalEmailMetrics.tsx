@@ -5,7 +5,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { transactionalEmailUrl } from '../transactionalEmailUrl'
+import { transactionalEmailStatsRowUrl } from '../transactionalEmailUrl'
 import { TransactionalEmailMetricsDateRange } from './TransactionalEmailMetricsDateRange'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailMetricTiles } from './TransactionalEmailMetricTiles'
@@ -49,7 +49,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
                     rows={templateStats}
                     loading={templateStatsLoading}
                     groupTitle="Email"
-                    linkFor={transactionalEmailUrl}
+                    linkFor={transactionalEmailStatsRowUrl}
                     emptyState={emptyState}
                     dataAttr="transactional-email-metrics-by-email"
                 />
