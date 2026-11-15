@@ -14,12 +14,6 @@ import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/typ
 
 import { MessageTemplate } from './MessageTemplate'
 
-jest.mock('../Workflows/WorkflowMetricsSummary', () => ({
-    WorkflowMetricsSummary: ({ onMetricClick }: { onMetricClick?: (metric: string) => void }) => (
-        <button onClick={() => onMetricClick?.('email_bounced_hard')}>2 hard bounced</button>
-    ),
-}))
-
 const TEMPLATE_ID = 'tmpl-1'
 
 const ORDER_RECEIPT = {
@@ -147,16 +141,36 @@ describe('MessageTemplate', () => {
                     sendRequests.push(Object.fromEntries(new URL(request.url).searchParams))
                     return [200, { results: [], has_more: false }]
                 },
-                '/api/environments/:team_id/hog_flows/:id/': { id: 'flow-1', actions: [] },
+                '/api/environments/:team_id/hog_flows/:id/': {
+                    id: 'flow-1',
+                    actions: [{ id: 'email-step', name: 'Password reset email', type: 'function_email', config: {} }],
+                },
             },
-            post: { '/api/environments/:team_id/query/': { results: [] } },
+            post: {
+                '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+                    const { query } = (await request.json()).query
+                    const isEmailTotals =
+                        query.includes('instance_id, metric_name') && query.includes('email_bounced_hard')
+                    return [
+                        200,
+                        {
+                            results: isEmailTotals
+                                ? [
+                                      [10, 'email-step', 'email_sent'],
+                                      [2, 'email-step', 'email_bounced_hard'],
+                                  ]
+                                : [],
+                        },
+                    ]
+                },
+            },
         })
         await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
 
         router.actions.push(url)
         const page = router.values.location.pathname
         fireEvent.click(screen.getByText('Metrics'))
-        fireEvent.click(await screen.findByText('2 hard bounced'))
+        fireEvent.click(await screen.findByText(/^2 hard bounced/))
 
         await screen.findByText('No sends match these filters')
         expect(router.values.location.pathname).toEqual(page)
