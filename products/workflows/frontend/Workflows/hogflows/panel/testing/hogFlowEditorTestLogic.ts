@@ -17,10 +17,12 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
+import { apiMutator } from 'lib/api-orval-mutator'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { escapePropertyAsHogQLIdentifier, hogql } from 'lib/utils/hogql'
@@ -48,6 +50,8 @@ import {
     TeamType,
 } from '~/types'
 
+import { getHogFlowsInvocationsCreateUrl } from 'products/workflows/frontend/generated/api'
+
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import type { TriggerAction } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
@@ -56,6 +60,7 @@ import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTrigge
 import { HogflowTestResult } from '../../steps/types'
 import { createExampleEvent, createExampleEventForTrigger } from '../../testEventFactory'
 import type { HogFlow } from '../../types'
+import { parseTestVariables, testVariablesError } from './testVariables'
 
 // Time range constants for event search
 const STANDARD_SEARCH_DAYS = 7
@@ -66,6 +71,7 @@ const EXTENDED_SEARCH_RANGE = `-${EXTENDED_SEARCH_DAYS}d`
 export interface HogflowTestInvocation {
     globals: string
     mock_async_functions: boolean
+    variables?: string
 }
 
 // HogQL tuple columns appended to the events query so we can resolve each group type's
@@ -1499,31 +1505,52 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         testInvocation: {
             defaults: {
                 mock_async_functions: true,
+                variables: '{}',
             } as HogflowTestInvocation,
             errors: (data: HogflowTestInvocation) => {
                 const errors: Record<string, string> = {}
+                const variablesError = testVariablesError(data.variables)
+                if (variablesError) {
+                    errors.variables = variablesError
+                }
                 try {
-                    JSON.parse(JSON.stringify(data.globals))
+                    JSON.parse(data.globals)
                 } catch {
                     errors.globals = 'Invalid JSON'
                 }
                 return errors
             },
             submit: async (testInvocation: HogflowTestInvocation) => {
+                const action = values.workflow.actions.find((action) => action.id === values.selectedNodeId)
+                const properties = {
+                    template_id: action && 'template_id' in action.config ? action.config.template_id : undefined,
+                    mocked: testInvocation.mock_async_functions,
+                    has_variable_overrides: Object.keys(parseTestVariables(testInvocation.variables)).length > 0,
+                }
+                posthog.capture('workflow step test started', properties)
                 try {
-                    const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
-                        configuration: values.workflowSanitized,
-                        globals: {
-                            ...JSON.parse(testInvocation.globals),
-                            // Merge order: defaults < accumulated (variables set by previous test steps take precedence)
-                            variables: {
-                                ...values.workflowVariableDefaults,
-                                ...values.accumulatedVariables,
-                            },
-                        },
-                        mock_async_functions: testInvocation.mock_async_functions,
-                        current_action_id: values.selectedNodeId ?? undefined,
-                    })
+                    const globals = JSON.parse(testInvocation.globals)
+                    // The generated invocation client returns void, so use its URL with the test response type.
+                    const apiResponse = await apiMutator<HogflowTestResult>(
+                        getHogFlowsInvocationsCreateUrl(String(ApiConfig.getCurrentTeamId()), values.workflow.id),
+                        {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                configuration: values.workflowSanitized,
+                                globals: {
+                                    ...globals,
+                                    variables: {
+                                        ...values.workflowVariableDefaults,
+                                        ...values.accumulatedVariables,
+                                        ...globals.variables,
+                                        ...parseTestVariables(testInvocation.variables),
+                                    },
+                                },
+                                mock_async_functions: testInvocation.mock_async_functions,
+                                current_action_id: values.selectedNodeId ?? undefined,
+                            }),
+                        }
+                    )
 
                     const result: HogflowTestResult = {
                         ...apiResponse,
@@ -1535,6 +1562,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     }
 
                     actions.setTestResult(result)
+                    posthog.capture('workflow step tested', { ...properties, status: result.status })
                     actions.setNextActionId(
                         result.nextActionId && result.nextActionId !== values.selectedNodeId
                             ? result.nextActionId
@@ -1543,6 +1571,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                     return values.testInvocation
                 } catch (error: any) {
+                    posthog.capture('workflow step tested', { ...properties, status: 'error' })
                     console.error('Workflow test error:', error)
                     lemonToast.error('Error testing workflow')
                     throw error

@@ -9,6 +9,7 @@ import { CyclotronJobInvocationGlobals, PersonType } from '~/types'
 import { workflowLogic } from '../../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
+import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 
 jest.mock('~/queries/query', () => {
     const actual = jest.requireActual('~/queries/query')
@@ -414,6 +415,44 @@ describe('hogFlowEditorNotificationTestLogic', () => {
     })
 
     describe('next step after a test run', () => {
+        it('sends email tests with defaults, earlier results and explicit overrides, then carries results forward', async () => {
+            let sentVariables: Record<string, any> | undefined
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                        sentVariables = ((await request.json()) as any).globals.variables
+                        return [200, { status: 'success', logs: [], variables: { count: 5 } }]
+                    },
+                },
+            })
+            await expectLogic(workflowLogicInstance).toDispatchActions(['loadWorkflowSuccess'])
+            workflowLogicInstance.actions.setWorkflowValue('variables', [
+                { key: 'count', type: 'number', default: 1 },
+                { key: 'untouched', type: 'string', default: 'default' },
+            ])
+            const stepTests = hogFlowEditorTestLogic({ id: 'test-workflow-id' })
+            stepTests.actions.setTestResult({
+                status: 'success',
+                nextActionId: null,
+                variables: { count: 2, prior: true },
+            })
+            logic.actions.setTestInvocationValues({
+                globals: '{"variables":{"from_globals":true}}',
+                variables: '{"count":0,"task_output":{"summary":"A sample result"}}',
+            })
+            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+                'submitTestInvocationSuccess',
+            ])
+            expect(sentVariables).toEqual({
+                count: 0,
+                untouched: 'default',
+                prior: true,
+                from_globals: true,
+                task_output: { summary: 'A sample result' },
+            })
+            expect(stepTests.values.accumulatedVariables.count).toBe(5)
+        })
+
         it.each([
             ['an unmet wait returns the selected step', 'wait_step', null],
             ['a skipped run returns no step', null, null],
