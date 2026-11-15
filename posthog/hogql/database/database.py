@@ -710,6 +710,30 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
     return TableNode(children=children)
 
 
+# Built-in tables that hold a product's own data, by the access-control resource of that product. A
+# member with "none" for the resource can't read these tables, matching the product's own API.
+PRODUCT_RESOURCE_TABLES: Mapping[APIScopeObject, tuple[str, ...]] = MappingProxyType(
+    {
+        "logs": (
+            "logs",
+            "log_attributes",
+            "posthog.logs",
+            "posthog.log_attributes",
+            "posthog.logs_volume_buckets",
+            "posthog.logs_pattern_buckets",
+        ),
+        "tracing": ("posthog.trace_spans", "posthog.trace_attributes"),
+        "metrics": (
+            "posthog.metrics",
+            "posthog.metric_samples",
+            "posthog.metric_names",
+            "posthog.metric_series",
+            "posthog.metric_attributes",
+        ),
+    }
+)
+
+
 @cache
 def _scoped_system_tables() -> Mapping[str, PostgresTable]:
     """Table name -> the access-controlled Postgres system table itself.
@@ -1465,6 +1489,27 @@ class Database(BaseModel):
                         removed.add(name)
 
         self._denied_tables = {f"system.{name}" for name in removed}
+        self._apply_product_table_access(user_access_control)
+
+    def _apply_product_table_access(self, user_access_control: Optional[UserAccessControl]) -> None:
+        """Remove a product's tables for a user with no access to that product. Builds without a real
+        user have no UserAccessControl here and keep every table, as internal product queries need them."""
+        if user_access_control is None or user_access_control.is_organization_admin:
+            return
+
+        from products.access_control.backend.facade.user_access_control import NO_ACCESS_LEVEL  # noqa: PLC0415
+
+        for resource, table_names in PRODUCT_RESOURCE_TABLES.items():
+            access = user_access_control.access_level_for_resource(resource)
+            if access and access.access_level != NO_ACCESS_LEVEL:
+                continue
+            for table_name in table_names:
+                *parent_path, name = table_name.split(".")
+                parent: TableNode | None = self.tables
+                for part in parent_path:
+                    parent = parent.children.get(part) if parent is not None else None
+                if parent is not None and parent.children.pop(name, None) is not None:
+                    self._denied_tables.add(table_name)
 
     def _is_warehouse_table_denied(self, table: DataWarehouseTable) -> bool:
         """
