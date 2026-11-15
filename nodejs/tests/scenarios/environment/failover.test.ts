@@ -386,7 +386,7 @@ describe('pg.failover', () => {
         await expectApplied(failOverOn(run, { aws, signal: stopped.signal, observeWithinMs }))
     })
 
-    it('observes a promotion AWS accepted while its answer is pending, and ends with the hold', async () => {
+    it('observes a promotion and its fail-back while AWS answers neither request, and ends with the hold', async () => {
         const run = runOf()
         const aws = {
             call: (args: string[]): Promise<unknown> => {
@@ -403,6 +403,10 @@ describe('pg.failover', () => {
         hold.abort()
 
         await expect(observed).resolves.toBe(true)
+        await actuation.release()
+        expect(run.cloud.writerOf(run.cluster)).toBe(run.writer)
+        expect(actuation.journal()).toMatchObject({ releaseObservations: OBSERVED })
+        expect(actuation.journal().releaseError).toBeUndefined()
     })
 
     it('sends no failover request once the apply stopped after its last precondition read', async () => {
