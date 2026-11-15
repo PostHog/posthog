@@ -1,5 +1,5 @@
 import { spawnSync } from 'child_process'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { Client } from 'pg'
@@ -92,7 +92,6 @@ describe('host-prepare.sh', () => {
                 SCENARIO_RUN_ID: RUN_ID,
                 SCENARIO_EVIDENCE_BUCKET: BUCKET,
                 SCENARIO_HOST_ROOT: path.join(dir, 'host'),
-                XDG_CACHE_HOME: path.join(dir, 'cache'),
                 FAKE_S3: path.join(dir, 's3'),
                 REAL_SQLX: realSqlx,
                 REAL_PNPM: realPnpm,
@@ -126,8 +125,10 @@ describe('host-prepare.sh', () => {
         await onPostgres(ADMIN_URL, (client) => client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`))
     })
 
-    it('migrates and seeds the run cluster with its encoded credentials', async () => {
+    it('migrates and seeds the run cluster with its encoded credentials, recording the backlog where the card reads it', async () => {
         expect(prepareHost({})).toBe(0)
+
+        expect(existsSync(path.join(dir, 'host', 'cache', 'posthog-scenarios', 'backlog.json'))).toBe(true)
 
         const { applied, seeded } = await onPostgres(
             `postgres://posthog:posthog@localhost:5432/${database}`,

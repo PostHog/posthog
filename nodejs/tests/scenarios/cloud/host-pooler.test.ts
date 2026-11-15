@@ -253,6 +253,26 @@ describe('host-pooler', () => {
         expect(statSync(path.join(dir, 'pooler')).mode & 0o077).toBe(0)
     })
 
+    it('records one URL per replica that reaches the run cluster through that replica', async () => {
+        await expect(poolOnHost(PUBLIC_IMAGE)).resolves.toBe(0)
+
+        const urls = readFileSync(path.join(dir, 'pooler', 'urls'), 'utf8')
+            .trim()
+            .split(',')
+            .map((url) => new URL(url))
+        expect(urls.map(({ hostname, port }) => `${hostname}:${port}`)).toEqual(['127.0.0.1:6432', '127.0.0.1:6433'])
+        for (const url of urls) {
+            await expect(
+                host.select1({
+                    port: Number(url.port),
+                    user: decodeURIComponent(url.username),
+                    password: decodeURIComponent(url.password),
+                    database: url.pathname.slice(1),
+                })
+            ).resolves.toBeUndefined()
+        }
+    })
+
     it('fails naming the replica that never answers and what it logged, once the readiness deadline passes', async () => {
         host.crashOutput.set(6433, 'FATAL unrecognized parameter: pool_mod')
 

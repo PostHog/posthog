@@ -153,6 +153,9 @@ export async function startPoolers(host: PoolerHost, pooler: Pooler, runId: stri
             )
         }
     }
+    const credentials = `${encodeURIComponent(username)}:${encodeURIComponent(password)}`
+    const urls = ports.map((port) => `postgres://${credentials}@127.0.0.1:${port}/${DATABASE}`)
+    writeFileSync(path.join(configs, 'urls'), `${urls.join(',')}\n`, { mode: 0o600 })
     return ports
 }
 
