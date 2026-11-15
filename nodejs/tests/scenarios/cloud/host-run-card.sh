@@ -50,7 +50,7 @@ mkdir -p "$evidence"
 trap stop TERM INT
 trap finish EXIT
 mark started "{\"at\":\"$(now)\"}" || exit
-card_id=$(jq -r '.card // empty' "$SCENARIO_RUN_MANIFEST") && [ -n "$card_id" ] || exit
+card_id=$(jq -r '.card // empty' "$SCENARIO_RUN_MANIFEST") && [[ $card_id =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || exit
 SCENARIO_POOLER_URLS=$(cat "$root/pooler/urls") || exit
 export SCENARIO_POOLER_URLS
 (cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$card_id" --profile "$input/runner-profile.yaml") >"$evidence/card.log" 2>&1 &

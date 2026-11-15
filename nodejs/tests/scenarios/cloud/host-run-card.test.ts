@@ -147,6 +147,12 @@ describe('host-run-card.sh', () => {
     it.each<[string, NodeJS.ProcessEnv, object, string | null]>([
         ['it cannot mark it started', { FAKE_MARK_FAILS: 'started' }, { card: 'cyclotron-scale' }, POOLER_URLS],
         ['the run manifest names no card', {}, {}, POOLER_URLS],
+        [
+            'the run manifest names a file in place of a card',
+            {},
+            { card: '/opt/scenario/input/other.yaml' },
+            POOLER_URLS,
+        ],
         ['the host started no pooler', {}, { card: 'cyclotron-scale' }, null],
     ])('never starts the card when %s', async (_story, env, manifest, poolerUrls) => {
         await exited(start(env, manifest, FAKE_RUNNER, poolerUrls))
