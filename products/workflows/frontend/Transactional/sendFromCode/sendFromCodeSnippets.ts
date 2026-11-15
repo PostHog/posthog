@@ -27,27 +27,24 @@ const EXAMPLE = {
     html: '<p>Hi Jane, thanks for signing up.</p>',
 }
 
-const jsString = (value: string): string =>
-    `'${JSON.stringify(value).slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'")}'`
-const pyString = (value: string): string => JSON.stringify(value)
 const shellSingleQuoted = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
 
 function nodeSnippet({ projectToken, host, appHost, from }: SendFromCodeSnippetInput): string {
     return `import { PostHog } from 'posthog-node'
 
-const posthog = new PostHog(${jsString(projectToken)}, {
-    host: ${jsString(host)},${appHost ? `\n    appHost: ${jsString(appHost)},` : ''}
+const posthog = new PostHog(${JSON.stringify(projectToken)}, {
+    host: ${JSON.stringify(host)},${appHost ? `\n    appHost: ${JSON.stringify(appHost)},` : ''}
     secretKey: process.env.POSTHOG_PROJECT_SECRET_API_KEY,
     // Sends email only, so skip polling flag definitions
     enableLocalEvaluation: false,
 })
 
 const { data, error } = await posthog.emails.send({
-    templateKey: ${jsString(EXAMPLE.templateKey)},
-    to: ${jsString(EXAMPLE.to)},
-    distinctId: ${jsString(EXAMPLE.distinctId)},${from ? `\n    from: ${jsString(from)},` : ''}
-    subject: ${jsString(EXAMPLE.subject)},
-    html: ${jsString(EXAMPLE.html)},
+    templateKey: ${JSON.stringify(EXAMPLE.templateKey)},
+    to: ${JSON.stringify(EXAMPLE.to)},
+    distinctId: ${JSON.stringify(EXAMPLE.distinctId)},${from ? `\n    from: ${JSON.stringify(from)},` : ''}
+    subject: ${JSON.stringify(EXAMPLE.subject)},
+    html: ${JSON.stringify(EXAMPLE.html)},
 })
 if (error) {
     throw error
@@ -61,17 +58,17 @@ function pythonSnippet({ projectToken, host, appHost, from }: SendFromCodeSnippe
 from posthog import Posthog
 
 posthog = Posthog(
-    ${pyString(projectToken)},
-    host=${pyString(host)},${appHost ? `\n    app_host=${pyString(appHost)},` : ''}
+    ${JSON.stringify(projectToken)},
+    host=${JSON.stringify(host)},${appHost ? `\n    app_host=${JSON.stringify(appHost)},` : ''}
     secret_key=os.environ["POSTHOG_PROJECT_SECRET_API_KEY"],
 )
 
 result = posthog.emails.send(
-    template_key=${pyString(EXAMPLE.templateKey)},
-    to=${pyString(EXAMPLE.to)},
-    distinct_id=${pyString(EXAMPLE.distinctId)},${from ? `\n    from_=${pyString(from)},` : ''}
-    subject=${pyString(EXAMPLE.subject)},
-    html=${pyString(EXAMPLE.html)},
+    template_key=${JSON.stringify(EXAMPLE.templateKey)},
+    to=${JSON.stringify(EXAMPLE.to)},
+    distinct_id=${JSON.stringify(EXAMPLE.distinctId)},${from ? `\n    from_=${JSON.stringify(from)},` : ''}
+    subject=${JSON.stringify(EXAMPLE.subject)},
+    html=${JSON.stringify(EXAMPLE.html)},
 )
 print(result.id)`
 }

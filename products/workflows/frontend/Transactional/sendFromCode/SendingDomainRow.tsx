@@ -1,8 +1,9 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconCircleDashed } from '@posthog/icons'
+import { IconCheckCircle, IconCircleDashed, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
 import { openEmailDomainSetupPage } from '../../Channels/EmailDomain/openEmailDomainSetupPage'
@@ -10,9 +11,26 @@ import { sendingDomainLogic } from './sendingDomainLogic'
 
 export function SendingDomainRow(): JSX.Element | null {
     const { sendingDomain, integrationsFailed } = useValues(sendingDomainLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
 
+    if (integrationsFailed) {
+        return (
+            <LemonCard hoverEffect={false} className="flex flex-wrap items-center gap-2 px-4 py-3">
+                <IconWarning className="text-warning text-lg shrink-0" />
+                <span className="flex-1 min-w-0">Couldn't load your sending domain.</span>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => loadIntegrations()}
+                    data-attr="send-from-code-reload-domain"
+                >
+                    Try again
+                </LemonButton>
+            </LemonCard>
+        )
+    }
     if (!sendingDomain) {
-        return integrationsFailed ? null : <LemonSkeleton className="h-14" />
+        return <LemonSkeleton className="h-14" />
     }
 
     return (

@@ -10,7 +10,7 @@ import { SendFromCodeSurface, firstCodeSendLogic } from './firstCodeSendLogic'
 
 const TEAM_ID = 42
 
-const codeEmail = (key: string): CodeEmailApi => ({
+const codeEmail = (key: string, createdAt = '2026-11-15T10:00:00Z'): CodeEmailApi => ({
     id: `id-${key}`,
     key,
     hog_flow_id: `flow-${key}`,
@@ -19,7 +19,7 @@ const codeEmail = (key: string): CodeEmailApi => ({
     sensitive: true,
     source_url: null,
     source_origin: null,
-    created_at: '2026-11-15T10:00:00Z',
+    created_at: createdAt,
     user_access_level: 'editor',
 })
 
@@ -76,6 +76,21 @@ describe('firstCodeSendLogic', () => {
 
         expect(logic.values.firstCodeSend).toEqual({ status: 'arrived', codeEmail: codeEmail('welcome') })
         tab.unmount()
+    })
+
+    it.each([
+        ['the first email when it is newer than the page', '2026-11-15T10:00:01Z', 'arrived'],
+        ['no first email when it is older than the page', '2026-11-15T09:59:59Z', 'already_sending'],
+    ])('after a failed first check, reports %s', async (_case, createdAt, status) => {
+        jest.setSystemTime(new Date('2026-11-15T10:00:00Z'))
+        listFails = true
+        await mount()
+
+        stored = [codeEmail('welcome', createdAt)]
+        listFails = false
+        await jest.advanceTimersByTimeAsync(10_000)
+
+        expect(logic.values.firstCodeSend.status).toEqual(status)
     })
 
     it('does not call an email first when the project already sent from code', async () => {

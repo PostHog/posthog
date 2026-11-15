@@ -1,13 +1,29 @@
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { transactionalEmailsLogic } from '../transactionalEmailsLogic'
 import { ProjectSenderSnippet } from './ProjectSenderSnippet'
 import { SendingDomainRow } from './SendingDomainRow'
 
-export function SendFromCodeBanner(): JSX.Element {
+export function SendFromCodeBanner(): JSX.Element | null {
+    const { codeEmails, transactionalTemplatesLoading, transactionalTemplatesFailed } =
+        useValues(transactionalEmailsLogic)
+    const sendFromCodeEnabled = useFeatureFlag('WORKFLOWS_EMAIL_FROM_CODE')
     const [guideOpen, setGuideOpen] = useState(false)
+
+    if (
+        !sendFromCodeEnabled ||
+        codeEmails?.length !== 0 ||
+        transactionalTemplatesLoading ||
+        transactionalTemplatesFailed
+    ) {
+        return null
+    }
 
     return (
         <>
@@ -25,8 +41,8 @@ export function SendFromCodeBanner(): JSX.Element {
                     },
                 }}
             >
-                Your code can send any email with one API call, no template needed. Each one shows up in this list with
-                its own metrics.
+                Your code can send any email with one API call, without designing it in PostHog first. Each one shows up
+                in this list with its own metrics.
             </LemonBanner>
             <LemonModal
                 isOpen={guideOpen}

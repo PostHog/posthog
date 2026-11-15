@@ -40,7 +40,6 @@ export function TransactionalEmailsTable(): JSX.Element {
         transactionalTemplatesFailed,
         filteredTransactionalEmails,
         transactionalTemplatesLoading,
-        codeEmails,
         codeEmailsLoading,
         filters,
         isFiltered,
@@ -85,9 +84,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                 message="Your emails couldn't load. Check your connection and try again."
                 dataAttr="transactional-emails-templates-retry"
             />
-            {sendFromCodeEnabled && codeEmails?.length === 0 && !transactionalTemplatesFailed ? (
-                <SendFromCodeBanner />
-            ) : null}
+            <SendFromCodeBanner />
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"

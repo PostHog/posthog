@@ -36,27 +36,33 @@ export function FirstSendStatus({ surface }: { surface: SendFromCodeSurface }): 
         )
     }
 
-    const checking = firstCodeSend.status === 'waiting' || firstCodeSend.status === 'unknown'
-    if (!checking || (firstCodeSend.status === 'unknown' && !pollingStopped)) {
+    if (firstCodeSend.status === 'already_sending') {
         return null
     }
-    const stoppedMessage = lastCheckFailed
-        ? "Couldn't check for emails from your code."
-        : 'No email from your code yet.'
-
-    return (
-        <LemonCard hoverEffect={false} className="flex flex-wrap items-center gap-2 px-4 py-3">
-            {pollingStopped ? null : <Spinner textColored />}
-            <span className="flex-1 min-w-0 text-secondary">
-                {pollingStopped
-                    ? stoppedMessage
-                    : 'Waiting for your first send. This updates by itself when it arrives.'}
-            </span>
-            {pollingStopped ? (
+    if (pollingStopped) {
+        return (
+            <LemonCard hoverEffect={false} className="flex flex-wrap items-center gap-2 px-4 py-3">
+                <span className="flex-1 min-w-0 text-secondary">
+                    {lastCheckFailed ? "Couldn't check for emails from your code." : 'No email from your code yet.'}
+                </span>
                 <LemonButton type="secondary" size="small" onClick={checkAgain} data-attr="send-from-code-check-again">
                     Check again
                 </LemonButton>
-            ) : null}
+            </LemonCard>
+        )
+    }
+    if (firstCodeSend.status === 'unknown' && !lastCheckFailed) {
+        return null
+    }
+
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-wrap items-center gap-2 px-4 py-3">
+            <Spinner textColored />
+            <span className="flex-1 min-w-0 text-secondary">
+                {lastCheckFailed
+                    ? "Couldn't check for emails from your code. Trying again."
+                    : 'Waiting for your first send. This updates by itself when it arrives.'}
+            </span>
         </LemonCard>
     )
 }

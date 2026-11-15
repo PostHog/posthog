@@ -6,6 +6,7 @@ import { LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { getBackendHost } from 'lib/utils/oauthClient'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -33,12 +34,14 @@ export function SendFromCodeSnippet({
 }): JSX.Element {
     const { currentTeam, currentTeamIdStrict } = useValues(teamLogic)
     const [sdk, setSdk] = useState<SendFromCodeSdk>('node')
-    const host = apiHostOrigin()
+    // In OAuth mode this app runs against a remote region, which is where the user's server has to send.
+    const appOrigin = getBackendHost() ?? window.location.origin
+    const host = apiHostOrigin(appOrigin)
     const snippet = sendFromCodeSnippet(sdk, {
         projectToken: currentTeam?.api_token ?? '<ph_project_api_key>',
         host,
-        appHost: host === window.location.origin ? host : null,
-        sendUrl: `${window.location.origin}/api/projects/${currentTeamIdStrict}/messaging/send/email/`,
+        appHost: host === appOrigin ? host : null,
+        sendUrl: `${appOrigin}/api/projects/${currentTeamIdStrict}/messaging/send/email/`,
         from,
     })
 

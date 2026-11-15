@@ -115,7 +115,6 @@ export const firstCodeSendLogic = kea<firstCodeSendLogicType>([
             null as boolean | null,
             {
                 setSentBeforeMount: (_, { sentBeforeMount }) => sentBeforeMount,
-                checkForFirstCodeSendSuccess: (state, { codeEmails }) => state ?? codeEmails.length > 0,
             },
         ],
         lastCheckFailed: [
@@ -155,7 +154,15 @@ export const firstCodeSendLogic = kea<firstCodeSendLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
-        checkForFirstCodeSendSuccess: () => {
+        checkForFirstCodeSendSuccess: ({ codeEmails }) => {
+            if (values.sentBeforeMount === null) {
+                // After a failed first check, a send may have landed before this one, so only older emails count.
+                actions.setSentBeforeMount(
+                    cache.baselineMissed
+                        ? codeEmails.some((codeEmail) => Date.parse(codeEmail.created_at) < cache.mountedAt)
+                        : codeEmails.length > 0
+                )
+            }
             const { firstCodeSend } = values
             if (firstCodeSend.status === 'arrived' || firstCodeSend.status === 'already_sending') {
                 cache.disposables.dispose('poll')
@@ -163,13 +170,15 @@ export const firstCodeSendLogic = kea<firstCodeSendLogicType>([
             if (firstCodeSend.status === 'arrived') {
                 // pinned: analytics event name
                 posthog.capture('first code send arrived', { surface: props.surface })
-                transactionalEmailsLogic.findMounted()?.actions.loadCodeEmails()
             }
             if (firstCodeSend.status === 'waiting') {
                 actions.schedulePoll()
             }
         },
         checkForFirstCodeSendFailure: () => {
+            if (values.sentBeforeMount === null) {
+                cache.baselineMissed = true
+            }
             if (values.sentBeforeMount !== true) {
                 actions.schedulePoll()
             }
@@ -192,7 +201,8 @@ export const firstCodeSendLogic = kea<firstCodeSendLogicType>([
             actions.checkForFirstCodeSend()
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
+        cache.mountedAt = Date.now()
         // The tab already loaded its list, so a failed first check must not lose that baseline.
         const tabCodeEmails = transactionalEmailsLogic.findMounted()?.values.codeEmails
         if (tabCodeEmails) {
