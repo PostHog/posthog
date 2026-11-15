@@ -11,6 +11,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -407,16 +408,15 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
                 }
             },
             setTab: ({ tab }) => {
-                const { tab: shownTab, ...searchParams } = router.values.searchParams
-                if ((shownTab ?? 'metrics') !== tab) {
-                    // A link to the Sends tab with run log filters opens the run logs, so Sends drops those filters.
-                    const kept =
-                        tab === 'sends'
-                            ? Object.fromEntries(
-                                  Object.entries(searchParams).filter(([param]) => !isRunLogFilter(param))
-                              )
-                            : searchParams
-                    const next = tab === 'metrics' ? kept : { ...kept, tab }
+                const { tab: _shownTab, ...searchParams } = router.values.searchParams
+                // A link to the Sends tab with run log filters opens the run logs, so Sends drops those filters, also
+                // when the URL already names the Sends tab.
+                const kept =
+                    tab === 'sends'
+                        ? Object.fromEntries(Object.entries(searchParams).filter(([param]) => !isRunLogFilter(param)))
+                        : searchParams
+                const next = tab === 'metrics' ? kept : { ...kept, tab }
+                if (!objectsEqual(next, router.values.searchParams)) {
                     router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
                 }
             },
