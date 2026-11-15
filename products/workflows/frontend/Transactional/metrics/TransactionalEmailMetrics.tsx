@@ -49,12 +49,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
                     rows={templateStats}
                     loading={templateStatsLoading}
                     groupTitle="Email"
-                    linkFor={(row) =>
-                        transactionalEmailUrl({
-                            codeEmailId: row.code_email_id,
-                            templateId: row.template_id,
-                        })
-                    }
+                    linkFor={transactionalEmailUrl}
                     emptyState={emptyState}
                     dataAttr="transactional-email-metrics-by-email"
                 />
