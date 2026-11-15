@@ -206,7 +206,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         for minutes in range(10, 15):
             self._send(minutes, f"newer-{minutes}@example.com", [("sent", 1, "")])
 
-        response = self.client.get(self._url(), {"reason": "provider_error", "limit": 1})
+        response = self.client.get(self._url(), {"reason": "provider_error", "limit": "1"})
 
         assert [r["recipient"] for r in response.json()["results"]] == ["bob@example.com"]
 
