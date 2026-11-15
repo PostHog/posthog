@@ -28,7 +28,7 @@ describe('host boot', () => {
         SCENARIO_RUN_ID: RUN_ID,
         SCENARIO_EVIDENCE_BUCKET: BUCKET,
         SCENARIO_BOOTSTRAP_LOG: path.join(dir, 'bootstrap.log'),
-        SCENARIO_INPUT_DIR: path.join(dir, 'input'),
+        SCENARIO_HOST_ROOT: path.join(dir, 'host'),
     })
 
     const poweredOff = (): boolean => existsSync(path.join(dir, 'powered-off'))
@@ -103,7 +103,7 @@ describe('host boot', () => {
                 .replaceAll('/opt/posthog', path.join(dir, 'checkout'))
         )
         tool('shutdown', 'exit 0')
-        tool('git', 'exit 128')
+        tool('git', '[ "$1" = init ] && exit 0\nexit 128')
 
         const result = spawnSync('bash', [script], { env: env(), encoding: 'utf8' })
 

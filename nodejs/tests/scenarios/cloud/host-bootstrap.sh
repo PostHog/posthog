@@ -17,7 +17,7 @@ export HOME="${HOME:-/root}"
 export DEBIAN_FRONTEND=noninteractive
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 prefix="s3://${SCENARIO_EVIDENCE_BUCKET}/runs/${SCENARIO_RUN_ID}"
-input=${SCENARIO_INPUT_DIR:-/opt/scenario/input}
+input=${SCENARIO_HOST_ROOT:-/opt/scenario}/input
 log=${SCENARIO_BOOTSTRAP_LOG:-/var/log/scenario-bootstrap.log}
 exec > >(tee -a "$log") 2>&1
 
