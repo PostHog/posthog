@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 import httpx
+import openai
 from anthropic import APIConnectionError
 from anthropic.types import ToolUseBlock, Usage
 from parameterized import parameterized
@@ -192,6 +193,27 @@ def _support_traffic(team: Team, end: datetime) -> None:
         )
 
 
+REVIEW_TITLE = "Replies promise refund dates"
+
+
+def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[str, Any]:
+    counts = {"review_fails": 6, "caught": caught, "review_passes": 24, "false_alarms": false_alarms, "unjudged": 0}
+    return {"status": "ok", "model": "gpt-5-mini", "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
+
+
+def _judge_replies(judge_fails: set[int]) -> Callable[..., MagicMock]:
+    def reply(**kwargs: Any) -> MagicMock:
+        number = re.search(r'<call number="(\d+)"', kwargs["messages"][-1]["content"])
+        assert number is not None
+        verdict = "fail" if int(number.group(1)) in judge_fails else "pass"
+        return MagicMock(
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"reasoning": "r", "verdict": verdict})))],
+            usage=MagicMock(prompt_tokens=1000, completion_tokens=50),
+        )
+
+    return reply
+
+
 def _tool_reply(name: str, tool_input: dict[str, Any]) -> MagicMock:
     return MagicMock(
         content=[ToolUseBlock(id="toolu_1", name=name, input=tool_input, type="tool_use")],
@@ -267,7 +289,17 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         run.refresh_from_db()
         assert run.stages["applicability"]["status"] == "skipped"
 
-    def test_the_review_publishes_a_judge_scoped_to_its_call_type(self) -> None:
+    @parameterized.expand(
+        [
+            # The judge catches 5 of the review's 6 fails and flags 1 of its 24 passes.
+            ("judge_agrees", {1, 2, 3, 4, 5, 7}, None, _calibration_record(caught=5, false_alarms=1, kept=True)),
+            ("judge_misses_half", {1, 2, 3}, None, _calibration_record(caught=3, false_alarms=0, kept=False)),
+            ("over_budget", {1, 2, 3, 4, 5, 7}, 10**7, {"status": "skipped", "detail": "budget used up"}),
+        ]
+    )
+    def test_a_reviewed_judge_publishes_only_when_the_team_model_agrees(
+        self, _name: str, judge_fails: set[int], max_output_tokens: int | None, record: dict[str, Any]
+    ) -> None:
         now = timezone.now()
         _support_traffic(self.team, now - timedelta(minutes=30))
         self.organization.is_ai_data_processing_approved = True
@@ -278,12 +310,11 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
             {"trace_id": "support-7", "what_went_wrong": "Promised the refund by Friday"},
         ]
         card = {
-            "title": "Replies promise refund dates",
+            "title": REVIEW_TITLE,
             "checks": "Checks whether a reply promises a refund date",
             "why": "The prompt says never to promise a refund date",
             "call_types": ["T1"],
-            "failed": 4,
-            "of": 20,
+            "labels": [{"call": n, "verdict": "fail" if n <= 6 else "pass"} for n in range(1, 31)],
             "examples": examples,
             "judge_prompt": JUDGE_PROMPT,
         }
@@ -292,8 +323,18 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
             _tool_reply("pick_call_types", {"exclude": False, "picked": [{"id": "T1", "why": "answers users"}]}),
             _tool_reply("propose_cards", {"product": "a shop", "themes": [], "cards": [card]}),
         ]
+        judge = MagicMock(spec=openai.OpenAI)
+        judge.chat.completions.create.side_effect = _judge_replies(judge_fails)
 
-        with patch.object(call_review, "build_client", return_value=client):
+        with (
+            patch.object(pipeline.call_review, "build_client", return_value=client),
+            patch.object(pipeline.judge_calibration, "build_client", return_value=judge),
+            patch.object(
+                pipeline.judge_calibration,
+                "MAX_OUTPUT_TOKENS",
+                max_output_tokens or pipeline.judge_calibration.MAX_OUTPUT_TOKENS,
+            ),
+        ):
             suggestions = _run_stages(
                 self.team,
                 run,
@@ -302,21 +343,35 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
                 settings=SuggestionSettings(jeeves=False, llm_drafting=True),
             )
 
-        [reviewed] = [s for s in suggestions if s.template_key == "review"]
-        assert reviewed.draft["evaluation_config"] == {"prompt": JUDGE_PROMPT}
-        assert reviewed.draft["target"] == "generation"
-        assert reviewed.filters == [
+        run.refresh_from_db()
+        assert run.stages["drafting"]["status"] == "ok"
+        assert run.stages["drafting"]["calibration"] == record
+        assert run.cost_usd > 0
+        reviewed = [s for s in suggestions if s.template_key == "review"]
+        if not (record["status"] == "ok" and record["cards"][0]["kept"]):
+            assert reviewed == []
+            return
+        [suggestion] = reviewed
+        assert suggestion.draft["evaluation_config"] == {"prompt": JUDGE_PROMPT}
+        assert suggestion.draft["target"] == "generation"
+        assert suggestion.draft["calibration"] == {
+            k: v for k, v in record["cards"][0].items() if k not in ("title", "kept")
+        }
+        assert suggestion.filters == [
             {"key": "$ai_prompt_name", "value": ["support-reply"], "operator": "exact", "type": "event"}
         ]
-        assert reviewed.evidence == [{"trace_id": e["trace_id"], "reason": e["what_went_wrong"]} for e in examples]
-        assert (reviewed.headline, reviewed.measured_failure_rate, reviewed.sample_size) == (card["title"], 0.2, 20)
-        # The review read every sampled call, with the call type's system prompt shown once.
+        assert suggestion.evidence == [{"trace_id": e["trace_id"], "reason": e["what_went_wrong"]} for e in examples]
+        # The judge's own fails: 5 caught and 1 false alarm of the 30 calls the review found the question applies to.
+        assert (suggestion.headline, suggestion.measured_failure_rate, suggestion.sample_size) == (
+            REVIEW_TITLE,
+            0.2,
+            30,
+        )
+        # The review read every sampled call, with the call type's system prompt shown once, and the judge read each.
         review_prompt = client.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
         assert review_prompt.count(SUPPORT_PROMPT) == 1
         assert review_prompt.count("<call ") == 30
-        run.refresh_from_db()
-        assert run.stages["drafting"]["status"] == "ok"
-        assert run.cost_usd > 0
+        assert judge.chat.completions.create.call_count == 30
 
     def test_an_agent_whose_turns_end_on_a_tool_call_is_not_gated(self) -> None:
         now = timezone.now()
@@ -530,6 +585,15 @@ class TestRunRecords(BaseTest):
                 "AI data processing not approved",
             ),
             ("too_late_to_finish", True, SuggestionSettings(llm_drafting=True), True, 0.0, "not enough time left"),
+            (
+                "judge_model_the_gateway_cannot_serve",
+                True,
+                SuggestionSettings(llm_drafting=True),
+                True,
+                None,
+                "no gateway route to calibrate judges on gemini-2.5-flash",
+                "gemini-2.5-flash",
+            ),
         ]
     )
     def test_the_review_runs_only_when_allowed_and_in_time(
@@ -540,6 +604,7 @@ class TestRunRecords(BaseTest):
         consent: bool,
         deadline: float | None,
         detail: str,
+        judge_model: str = "gpt-5-mini",
     ) -> None:
         self.organization.is_ai_data_processing_approved = consent
         self.organization.save()
@@ -551,7 +616,7 @@ class TestRunRecords(BaseTest):
             proposals=[],
             screened_judges=[],
             judge_target="trace",
-            judge_model="gpt-5-mini",
+            judge_model=judge_model,
             sources={},
             candidate_options={},
         )

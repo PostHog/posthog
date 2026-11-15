@@ -13,6 +13,7 @@ from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions import adapters, prices, ranking
 from products.ai_observability.backend.logic.eval_suggestions.call_review import ReviewCard, ReviewExample
 from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow
+from products.ai_observability.backend.logic.eval_suggestions.judge_calibration import Calibration
 from products.ai_observability.backend.logic.eval_suggestions.measure import (
     Measurement,
     Outcome,
@@ -350,6 +351,7 @@ def _review_card(call_types: list[CallTypeRow]) -> ReviewCard:
         checks="Checks whether a reply promises a refund date",
         why="The prompt says never to promise a date",
         call_types=call_types,
+        labels={},
         failed=4,
         of=20,
         examples=[ReviewExample(trace_id="t1", reason="Promised Friday")],
@@ -391,7 +393,9 @@ def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
 ) -> None:
     card = _review_card(call_types)
 
-    proposal = ranking.review_proposal(card, PROFILE, judge_model="gpt-5-mini")
+    calibration = Calibration(review_fails=5, caught=4, review_passes=15, false_alarms=0, unjudged=0)
+
+    proposal = ranking.review_proposal(card, PROFILE, judge_model="gpt-5-mini", calibration=calibration)
 
     assert proposal.filters == filters
     assert not any(isinstance(property_to_expr(f, team=MagicMock()), ast.Constant) for f in proposal.filters)

@@ -2,7 +2,8 @@
 
 1. measure: coverage, profile, the trace sample, the free checks and the gap judges.
 2. screen: the decision model screens traces for the judges and matches hand-written evaluations. Paid.
-3. draft: a model reviews a sample of the team's calls and drafts at most two judges from what it finds. Paid.
+3. draft: a model reviews a sample of the team's calls and drafts at most two judges from what it finds, and each
+   judge is kept only when the model it will run on reproduces the review's labels. Paid.
 4. publish: dedupe, pick at most three, and publish them in one transaction.
 
 Stages hand over through `EvalSuggestionRun.handoff`: trace ids and candidate cards, never trace content. A stage
@@ -11,7 +12,7 @@ that needs traces hydrates them again from their ids, so a retry redoes one stag
 
 import time
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -20,6 +21,7 @@ from django.utils import timezone
 import structlog
 from anthropic import Anthropic
 
+from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models.team import Team
@@ -37,6 +39,7 @@ from . import (
     call_review,
     catalog,
     coverage as coverage_stage,
+    judge_calibration,
     ranking,
     runs,
     screening,
@@ -158,6 +161,61 @@ def _time_left(deadline: float | None) -> float:
     return float("inf") if deadline is None else deadline - time.monotonic()
 
 
+@frozen
+class _Calibrated:
+    kept: list[tuple[call_review.ReviewCard, judge_calibration.Calibration]]
+    # What the run records: why calibration was skipped, or each card's counts.
+    record: dict[str, Any]
+    cost_usd: float
+
+
+def _calibrate(
+    team: Team,
+    run: EvalSuggestionRun,
+    cards: Sequence[call_review.ReviewCard],
+    rendering: call_review.Rendering,
+    judge_model: str,
+    budget: float,
+    deadline: float | None,
+) -> _Calibrated:
+    """Run each card's judge on the review's labelled calls, on the model the accepted judge will run on, and keep
+    the cards it agrees with. Every request's most is reserved from the run's budget first."""
+    if not cards:
+        return _Calibrated(kept=[], record={"status": "skipped", "detail": "no cards"}, cost_usd=0.0)
+    numbers = [judge_calibration.calibration_calls(card) for card in cards]
+    requests = [
+        judge_calibration.judge_request(card, rendering, number, judge_model)
+        for card, card_numbers in zip(cards, numbers)
+        for number in card_numbers
+    ]
+    if _time_left(deadline) < call_review.max_seconds(judge_calibration.TIMEOUT_SECONDS):
+        return _Calibrated(kept=[], record={"status": "skipped", "detail": "not enough time left"}, cost_usd=0.0)
+    client = judge_calibration.build_client(team.pk, str(run.id), judge_model)
+    reserved = judge_calibration.max_cost_usd(requests)
+    if not runs.reserve_spend(run, reserved, budget):
+        return _Calibrated(kept=[], record={"status": "skipped", "detail": "budget used up"}, cost_usd=0.0)
+    calls = judge_calibration.judge_all(client, requests, deadline)
+    cost = sum(call.cost_usd for call in calls if call is not None)
+    runs.settle_spend(run, reserved, cost)
+    verdicts = iter([call.verdict if call is not None else None for call in calls])
+    calibrations = [
+        judge_calibration.calibrate(card, card_numbers, [next(verdicts) for _ in card_numbers])
+        for card, card_numbers in zip(cards, numbers)
+    ]
+    return _Calibrated(
+        kept=[(card, c) for card, c in zip(cards, calibrations) if judge_calibration.keeps(c)],
+        record={
+            "status": "ok",
+            "model": judge_model,
+            "cards": [
+                {"title": card.title, **asdict(c), "kept": judge_calibration.keeps(c)}
+                for card, c in zip(cards, calibrations)
+            ],
+        },
+        cost_usd=cost,
+    )
+
+
 def _reviewed_proposals(
     team: Team,
     run: EvalSuggestionRun,
@@ -168,7 +226,7 @@ def _reviewed_proposals(
     deadline: float | None,
 ) -> list[Proposal]:
     """Triage the busiest call types, review a sample of the picked ones, and turn the review's cards into
-    candidates. Each paid call reserves its most from the run's budget first."""
+    calibrated candidates. Each paid call reserves its most from the run's budget first."""
     day = ProfileWindow(start=handoff.window.end - REVIEW_WINDOW, end=handoff.window.end)
     per_mille = sample_per_mille(handoff.profile.generations_by_days_ago.get(0, 0))
     call_types = load_call_types(team, day, per_mille)
@@ -204,6 +262,8 @@ def _reviewed_proposals(
         stages.set("drafting", "skipped", detail="budget used up", cost_usd=round(spent, 4))
         return []
     cards = call_review.parse_cards(review_call.tool_input, rendering)
+    spent += review_call.cost_usd
+    calibrated = _calibrate(team, run, cards, rendering, judge_model, budget, deadline)
     stages.set(
         "drafting",
         "ok",
@@ -211,9 +271,18 @@ def _reviewed_proposals(
         picked=len(triage.picked),
         reviewed=len(calls),
         cards=len(cards),
-        cost_usd=round(spent + review_call.cost_usd, 4),
+        calibration=calibrated.record,
+        cost_usd=round(spent + calibrated.cost_usd, 4),
     )
-    return [ranking.review_proposal(card, handoff.profile, judge_model=judge_model) for card in cards]
+    return [
+        ranking.review_proposal(
+            judge_calibration.measured(card, calibration),
+            handoff.profile,
+            judge_model=judge_model,
+            calibration=calibration,
+        )
+        for card, calibration in calibrated.kept
+    ]
 
 
 def _publish_fixes_only(
@@ -463,8 +532,13 @@ def draft_stage(
         skip = "no traces with content"
     if skip is None and handoff.judge_model is None:
         skip = "no judge model for the team's provider key"
-    needed = call_review.max_seconds(call_review.TRIAGE_TIMEOUT_SECONDS) + call_review.max_seconds(
-        call_review.REVIEW_TIMEOUT_SECONDS
+    # Its cards could not be calibrated, so the review would be paid for and dropped.
+    if skip is None and judge_calibration.provider(handoff.judge_model) is None:
+        skip = f"no gateway route to calibrate judges on {handoff.judge_model}"
+    needed = (
+        call_review.max_seconds(call_review.TRIAGE_TIMEOUT_SECONDS)
+        + call_review.max_seconds(call_review.REVIEW_TIMEOUT_SECONDS)
+        + call_review.max_seconds(judge_calibration.TIMEOUT_SECONDS)
     )
     if skip is None and _time_left(deadline) < needed:
         skip = "not enough time left"
