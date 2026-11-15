@@ -212,8 +212,9 @@ Optional recovery actions sit below the message and wrap on narrow screens.
 - **Tabs header** (`features/tabs/TabsHeader.tsx`): Home, Inbox, Chats and Views share one header that the
   tabs layout draws once, like the bottom bar. Home is titled "Live", after the screen it shows.
   Home's metrics card and the Chats and Views search fields start at the same position, 4pt below the shared content offset.
-  The logomark and the tab's title sit at the same spot on
-  every tab. The pill on the right holds More on every tab, and a filter button left of it on a tab that
+  The logomark and the tab's title sit at the same spot on every tab, 7.5pt inside the content gutter.
+  This puts the logomark halfway between the Home metrics card's outer edge and its text.
+  The pill on the right holds More on every tab, and a filter button left of it on a tab that
   publishes one (the Inbox), or a Pause or Resume button on Home; Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
   refresh, so the header has no refresh button. A tab may add a status line under the title (Views does); it
   and the refresh hint are absolutely positioned, so they never move the title row. Each screen publishes its

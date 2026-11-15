@@ -9,4 +9,5 @@ export {
     readProfile,
 } from './load'
 export type { LoadOptions, LoadedCard } from './load'
-export { Backlog, Card, CdpRole, Named, Profile, RunningOnQueue, ValveEntry } from './schema'
+export { Backlog, Card, CdpRole, Named, Profile, RunningOnQueue, ValveEntry, stepsOf } from './schema'
+export type { Step } from './schema'
