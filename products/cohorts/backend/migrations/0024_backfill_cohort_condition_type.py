@@ -1,3 +1,5 @@
+import threading
+
 from django.conf import settings
 from django.db import migrations
 
@@ -10,6 +12,7 @@ logger = structlog.get_logger(__name__)
 
 BATCH_SIZE = 1_000
 LOG_EVERY_BATCHES = 25
+REFRESH_DEADLINE_SECONDS = 60
 ROUTED_COHORT_TYPES = ("realtime", "behavioral")
 READINESS_STAMPS = (
     "last_backfill_events_at",
@@ -29,22 +32,34 @@ def _flags_routing_can_change(cohort) -> bool:
     )
 
 
-def _refresh_flags_caches(team_ids: set[int]) -> int:
+def _refresh_flags_caches(team_ids: set[int]) -> int | None:
+    """Return how many refreshes were dispatched, or None when the deadline passed first."""
     # The flags service reads cohorts from the team's flags cache, and `bulk_update` fires none of the
     # cohort save receivers that rebuild it. Without the flags cache there is nothing to rebuild, and
     # an unreachable broker could stall the deploy, so this follows the save receiver's guard.
     if not settings.FLAGS_REDIS_URL:
         return 0
-    dispatched = 0
-    for team_id in sorted(team_ids):
-        try:
-            refresh_readiness_caches(team_id)
-        except Exception:
-            # The cache entry still refreshes before it expires, so a failed dispatch only delays the change.
-            logger.exception("cohort_condition_type_backfill_cache_refresh_failed", team_id=team_id)
-        else:
-            dispatched += 1
-    return dispatched
+    dispatched: list[int] = []
+
+    def refresh_all() -> None:
+        for team_id in sorted(team_ids):
+            try:
+                refresh_readiness_caches(team_id)
+            except Exception:
+                # The cache entry still refreshes before it expires, so a failed dispatch only delays the change.
+                logger.exception("cohort_condition_type_backfill_cache_refresh_failed", team_id=team_id)
+            else:
+                dispatched.append(team_id)
+
+    # Neither the default Django cache nor the Celery Redis transport sets a socket timeout, so a Redis
+    # that accepts connections and never answers blocks a refresh forever. The daemon thread lets the
+    # migration continue past that hang, and the process exit ends the blocked thread.
+    worker = threading.Thread(target=refresh_all, daemon=True)
+    worker.start()
+    worker.join(REFRESH_DEADLINE_SECONDS)
+    if worker.is_alive():
+        return None
+    return len(dispatched)
 
 
 def backfill_condition_type(apps, schema_editor):
@@ -64,6 +79,7 @@ def backfill_condition_type(apps, schema_editor):
     batches = 0
     classified = 0
     refreshes = 0
+    refresh_stalled = False
     while True:
         # Keyset pagination over the primary key, because a cohort without leaf conditions stays
         # null and would come back in every batch of a plain `IS NULL ... LIMIT` loop.
@@ -74,6 +90,7 @@ def backfill_condition_type(apps, schema_editor):
                 batches=batches,
                 classified=classified,
                 refreshes=refreshes,
+                refresh_stalled=refresh_stalled,
             )
             return
         last_id = batch[-1].id
@@ -98,7 +115,15 @@ def backfill_condition_type(apps, schema_editor):
         # between the two batches read this batch's rows while they were still null. Refreshing per
         # batch also covers a retry after a partial run, which finds these rows classified.
         teams = {cohort.team_id for cohort in changed if _flags_routing_can_change(cohort)}
-        refreshes += _refresh_flags_caches(teams)
+        if teams and not refresh_stalled:
+            dispatched = _refresh_flags_caches(teams)
+            if dispatched is None:
+                # Later refreshes would wait on the same unresponsive Redis. The skipped teams pick up
+                # the new value when their cache entries expire.
+                refresh_stalled = True
+                logger.warning("cohort_condition_type_backfill_cache_refresh_stalled", batch=batches + 1)
+            else:
+                refreshes += dispatched
 
         batches += 1
         if batches % LOG_EVERY_BATCHES == 0:

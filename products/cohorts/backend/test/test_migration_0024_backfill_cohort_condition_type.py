@@ -1,15 +1,20 @@
 import importlib
+import threading
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import BaseTest, TestMigrations
 from unittest import mock
 
+from django.apps import apps as django_apps
+from django.db import connection
 from django.test import override_settings
 
 from posthog.models import Team
 
 from products.cohorts.backend.backfill.finalize import FLAGS_CACHE_TASK
+from products.cohorts.backend.models.cohort import Cohort
 
 BEHAVIORAL_FILTERS = {
     "properties": {
@@ -89,3 +94,42 @@ class TestBackfillCohortConditionType(TestMigrations):
     def test_refreshes_the_flags_cache_only_where_routing_can_change(self) -> None:
         refresh = mock.call(FLAGS_CACHE_TASK, args=(self.team.id,), queue="feature_flags")
         assert self.celery.send_task.call_args_list == [refresh, refresh]
+
+
+@override_settings(FLAGS_REDIS_URL="redis://localhost:6379/1")
+class TestBackfillAfterAStalledRefresh(BaseTest):
+    def test_keeps_classifying_and_stops_refreshing(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        ids = [
+            Cohort.objects.create(
+                team=team, cohort_type="realtime", filters=BEHAVIORAL_FILTERS, last_backfill_events_at=STAMP
+            ).id
+            for team in (self.team, other_team)
+        ]
+        Cohort.objects.filter(id__in=ids).update(condition_type=None)
+
+        release = threading.Event()
+        self.addCleanup(release.set)
+        refreshed: list[int] = []
+        first_refresh = threading.Event()
+
+        def unanswered_refresh(team_id: int) -> None:
+            refreshed.append(team_id)
+            first_refresh.set()
+            # Bounded, so that a refresh without a deadline fails the test instead of hanging it.
+            release.wait(timeout=5)
+
+        backfill = importlib.import_module("products.cohorts.backend.migrations.0024_backfill_cohort_condition_type")
+        with (
+            mock.patch.object(backfill, "BATCH_SIZE", 1),
+            mock.patch.object(backfill, "REFRESH_DEADLINE_SECONDS", 0),
+            mock.patch.object(backfill, "refresh_readiness_caches", unanswered_refresh),
+        ):
+            backfill.backfill_condition_type(django_apps, SimpleNamespace(connection=connection))
+
+        assert first_refresh.wait(timeout=5)
+        assert refreshed == [self.team.id]
+        assert list(Cohort.objects.filter(id__in=ids).order_by("id").values_list("condition_type", flat=True)) == [
+            BEHAVIORAL_CONDITION_TYPE,
+            BEHAVIORAL_CONDITION_TYPE,
+        ]
