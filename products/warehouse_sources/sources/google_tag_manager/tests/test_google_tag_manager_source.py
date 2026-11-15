@@ -61,8 +61,7 @@ def test_get_schemas_filters_by_names():
 
 def test_source_for_pipeline_passes_refresh_token_and_schema():
     source = GoogleTagManagerSource()
-    integration = mock.MagicMock()
-    integration.refresh_token = "refresh-token"
+    integration = mock.MagicMock(kind="google-tag-manager", refresh_token="refresh-token")
     inputs = mock.MagicMock()
     inputs.schema_name = "tags"
     inputs.team_id = 7
@@ -79,8 +78,7 @@ def test_source_for_pipeline_passes_refresh_token_and_schema():
 
 
 def _validate(config: GoogleTagManagerSourceConfig, probe: Any) -> tuple[bool, str | None]:
-    integration = mock.MagicMock()
-    integration.refresh_token = "refresh-token"
+    integration = mock.MagicMock(kind="google-tag-manager", refresh_token="refresh-token")
     with (
         mock.patch.object(GoogleTagManagerSource, "get_oauth_integration", return_value=integration),
         mock.patch(f"{SOURCE_MODULE}.google_tag_manager_session"),
@@ -98,15 +96,25 @@ def _http_error(status_code: int) -> requests.HTTPError:
     return requests.HTTPError(response=response)
 
 
-def test_validate_credentials_handles_missing_integration():
-    with mock.patch.object(
-        GoogleTagManagerSource, "get_oauth_integration", side_effect=ValueError("Integration not found: 1")
+@pytest.mark.parametrize(
+    "lookup",
+    [
+        {"side_effect": ValueError("Integration not found: 1")},
+        {"return_value": mock.MagicMock(kind="hubspot", refresh_token="hubspot-refresh-token")},
+    ],
+    ids=["missing", "other_provider"],
+)
+def test_validate_credentials_handles_missing_integration(lookup: dict[str, Any]):
+    with (
+        mock.patch.object(GoogleTagManagerSource, "get_oauth_integration", **lookup),
+        mock.patch(f"{SOURCE_MODULE}.google_tag_manager_session") as session,
     ):
         ok, message = GoogleTagManagerSource().validate_credentials(_config(), team_id=1)
 
     assert ok is False
     assert "no longer exists" in (message or "")
     assert "Integration not found" not in (message or "")
+    session.assert_not_called()
 
 
 @pytest.mark.parametrize(

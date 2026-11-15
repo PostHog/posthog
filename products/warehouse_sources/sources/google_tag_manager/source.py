@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
+    IntegrationKind,
     OAuthMixin,
     ReleaseStatus,
     SimpleSource,
@@ -110,6 +111,8 @@ class GoogleTagManagerSource(SimpleSource[GoogleTagManagerSourceConfig], OAuthMi
 
     def _refresh_token(self, integration_id: int, team_id: int) -> str:
         integration = self.get_oauth_integration(integration_id, team_id)
+        if integration.kind != IntegrationKind.GOOGLE_TAG_MANAGER:
+            raise ValueError(f"Integration not found: {integration_id}")
         if not integration.refresh_token:
             raise ValueError("The Google Tag Manager connection is missing a refresh token")
         return integration.refresh_token
