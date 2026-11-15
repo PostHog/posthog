@@ -62,18 +62,14 @@ ${sleep.toString()}
 ${downloadWithRetry.toString()}
 `
 
-// Windows PowerShell joins every argument after -Command into one script, so a positional path
-// that contains a space splits in two. The env passes each path to Expand-Archive as one value.
+// Extract with tar.exe (bsdtar, bundled since Windows 10 1803) instead of PowerShell.
+// Expand-Archive fails on some images with "Cannot find an overload for ExtractToDirectory",
+// and PowerShell joins -Command arguments, splitting paths that contain a space.
+// spawnSync passes each path to tar.exe as one argument.
 const WINDOWS_EXPAND_ARCHIVE_ANCHOR =
-    /`& \{\s*param\(\[string\]\$LiteralPath, \[string\]\$DestinationPath\)\s*Expand-Archive -LiteralPath \$LiteralPath -DestinationPath \$DestinationPath -Force\s*\}`,\s*tempFile,\s*this\.installDirectory,\s*\]\);/
-const WINDOWS_EXPAND_ARCHIVE_SOURCE = `"$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $env:POSTHOG_CLI_ZIP -DestinationPath $env:POSTHOG_CLI_DEST -Force",
-                  ], {
-                    env: {
-                      ...process.env,
-                      POSTHOG_CLI_ZIP: tempFile,
-                      POSTHOG_CLI_DEST: this.installDirectory,
-                    },
-                  });`
+    /\/\/ Windows does not have "unzip" by default on many installations, instead\s*\/\/ we use Expand-Archive from powershell\s*result = spawnSync\("powershell\.exe", \[\s*"-NoProfile",\s*"-NonInteractive",\s*"-Command",\s*`& \{\s*param\(\[string\]\$LiteralPath, \[string\]\$DestinationPath\)\s*Expand-Archive -LiteralPath \$LiteralPath -DestinationPath \$DestinationPath -Force\s*\}`,\s*tempFile,\s*this\.installDirectory,\s*\]\);/
+const WINDOWS_EXPAND_ARCHIVE_SOURCE = `// tar.exe ships with Windows 10 1803 and later
+                  result = spawnSync("tar.exe", ["-xf", tempFile, "-C", this.installDirectory]);`
 
 const INSTALLED_ANCHOR =
     /\.then\(\(\) => \{(\s*)if \(!suppressLogs\) \{\s*console\.error\(`\$\{this\.name\} has been installed!`\);/
@@ -166,5 +162,5 @@ export function patchCliNpmInstaller(distributionDirectory, manifestPath) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const [distributionDirectory = 'target/distrib', manifestPath = 'dist-manifest.json'] = process.argv.slice(2)
     patchCliNpmInstaller(distributionDirectory, manifestPath)
-    console.log('Patched the generated posthog-cli npm installer with download retries and safe Windows extraction')
+    console.log('Patched the generated posthog-cli npm installer with download retries and tar.exe Windows extraction')
 }
