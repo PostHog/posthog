@@ -121,7 +121,7 @@ export type CloudProfile = z.infer<typeof CloudProfile>
 
 export type InputFile = { file: string; bytes: Buffer; sha256: string }
 
-export type ProfileInputs = { profile: CloudProfile; inputs: InputFile[] }
+export type ProfileInputs = { profile: CloudProfile; runner: InputFile; inputs: InputFile[] }
 
 export type RunInputs = ProfileInputs & { card: RunCard }
 
@@ -167,5 +167,5 @@ export function loadRunInputs(filePath: string): ProfileInputs {
     const cloud = readInput('cloud-profile.yaml', filePath)
     const profile = parseCloudProfile(filePath, cloud)
     const runner = readInput('runner-profile.yaml', path.resolve(path.dirname(filePath), profile.runnerProfile))
-    return { profile, inputs: [cloud, runner] }
+    return { profile, runner, inputs: [cloud, runner] }
 }

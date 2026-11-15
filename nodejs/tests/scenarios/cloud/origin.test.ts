@@ -1,6 +1,9 @@
 import { execFileSync } from 'child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import http from 'http'
 import { AddressInfo } from 'net'
+import os from 'os'
+import path from 'path'
 
 import { githubOrigin } from './origin'
 
@@ -46,10 +49,37 @@ describe('githubOrigin', () => {
         await expect(githubOrigin(api).onMaster(commit)).resolves.toBe(onMaster)
     })
 
-    it('reads a card as the commit holds it and refuses a card the commit does not hold', () => {
-        const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: __dirname, encoding: 'utf8' }).trim()
+    it('reads a card as the commit holds it, never as the working tree holds it', () => {
+        const repo = mkdtempSync(path.join(os.tmpdir(), 'scenario-origin-'))
+        const cards = path.join(repo, 'nodejs', 'tests', 'scenarios', 'cards')
+        const git = (...args: string[]): string => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim()
+        try {
+            mkdirSync(cards, { recursive: true })
+            git('init', '-q')
+            writeFileSync(path.join(cards, 'committed.yaml'), 'id: committed\n')
+            git('add', '.')
+            git(
+                '-c',
+                'user.name=Scenario',
+                '-c',
+                'user.email=scenario@example.com',
+                '-c',
+                'commit.gpgsign=false',
+                'commit',
+                '-q',
+                '-m',
+                'card'
+            )
+            const head = git('rev-parse', 'HEAD')
+            writeFileSync(path.join(cards, 'committed.yaml'), 'id: edited\n')
+            writeFileSync(path.join(cards, 'untracked.yaml'), 'id: untracked\n')
+            const origin = githubOrigin(api, repo)
 
-        expect(githubOrigin(api).cardAt(head, 'cyclotron-scale')).toMatch(/^id: cyclotron-scale$/m)
-        expect(() => githubOrigin(api).cardAt(head, 'no-such-card')).toThrow(/no-such-card\.yaml/)
+            expect(origin.head()).toBe(head)
+            expect(origin.cardAt(head, 'committed')).toBe('id: committed\n')
+            expect(() => origin.cardAt(head, 'untracked')).toThrow(/untracked\.yaml/)
+        } finally {
+            rmSync(repo, { recursive: true, force: true })
+        }
     })
 })

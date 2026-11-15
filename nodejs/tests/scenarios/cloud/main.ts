@@ -43,8 +43,7 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
         return EXIT_CODE.invalid
     }
-    const [, runner] = inputs.inputs
-    const card = runCardOf(controller.origin, admission.admitted.commit, cardId, runner.bytes)
+    const card = runCardOf(controller.origin, admission.admitted.commit, cardId, inputs.runner.bytes)
     const loaded = { ...inputs, card }
     const manifest = await lease(controller, loaded, admission.admitted)
     controller.print(`Leased run ${manifest.runId} until ${manifest.expiresAt}.`)

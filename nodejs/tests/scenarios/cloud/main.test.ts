@@ -196,7 +196,7 @@ describe('cloud controller', () => {
         [
             'a card the runner profile cannot run',
             FAILOVER_CARD,
-            'is not a valid card',
+            `cards/${FAILOVER_CARD}.yaml at ${COMMIT} is not a valid card`,
             { arrange: () => writeFileSync(path.join(dir, 'runner.yaml'), 'name: empty\n') },
         ],
         ['a card path, which the run host cannot read', '../cards/cyclotron-scale.yaml', 'card id', {}],
