@@ -26,7 +26,6 @@ const EMAIL_PAGE_ROUTES = [
     '/workflows/library/templates/:id',
     '/broadcasts/library/templates/:id',
 ]
-// The filters a send's page carries back to the email's Sends tab, each read from the listing's filters.
 const SEND_FILTER_VALUES: Record<string, (filters: TransactionalEmailLogFilters) => string | null> = {
     status: (filters) => filters.status,
     date_from: (filters) => (filters.dateFrom !== DEFAULT_LOG_FILTERS.dateFrom ? filters.dateFrom : null),

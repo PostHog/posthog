@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -105,7 +105,22 @@ describe('CodeEmailTabs', () => {
         let workflowAnswers = 0
         useMocks(
             mocks(() =>
-                ++workflowAnswers === 1 ? [500, { detail: 'Unavailable' }] : [200, { id: 'flow-id', actions: [] }]
+                ++workflowAnswers === 1
+                    ? [500, { detail: 'Unavailable' }]
+                    : [
+                          200,
+                          {
+                              id: 'flow-id',
+                              actions: [
+                                  {
+                                      id: 'email-step',
+                                      name: 'Password reset email',
+                                      type: 'function_email',
+                                      config: {},
+                                  },
+                              ],
+                          },
+                      ]
             )
         )
         renderTabs()
@@ -122,8 +137,8 @@ describe('CodeEmailTabs', () => {
             fireEvent.click(screen.getAllByText('Try again')[0])
         })
 
-        await waitFor(() => expect(screen.queryByText(BANNER)).not.toBeInTheDocument())
-        expect(workflowAnswers).toBe(2)
+        expect(await screen.findByText(/^3 soft bounced/)).toBeInTheDocument()
+        expect(screen.queryByText(BANNER)).not.toBeInTheDocument()
     })
 
     it("lists this email's sends, each linked to its page with the filters to come back to", async () => {
