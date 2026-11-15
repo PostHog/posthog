@@ -1,6 +1,7 @@
 """Tests for clustering labeling client construction (ai-gateway vs direct OpenAI)."""
 
 import json
+import asyncio
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,8 +17,11 @@ from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS
 from posthog.temporal.ai_observability.eval_reports.constants import EVAL_REPORT_AGENT_MODEL
 from posthog.temporal.ai_observability.llm_endpoint import (
     AI_FEATURES_CLOUD_ONLY_ERROR_TYPE,
+    FLEX_CALL_TIMEOUT,
     FLEX_REPROBE_COOLDOWN,
+    STANDARD_CALL_TIMEOUT,
     FlexFirstChatOpenAI,
+    build_flex_first_chat_client,
     build_langchain_callbacks,
     build_langchain_chat_client,
 )
@@ -234,7 +238,6 @@ class TestBuildOpenAIChatClient:
 
     def test_labeling_clients_bound_every_call_inside_the_activity_budget(self):
         from posthog.temporal.ai_observability.clustering_agent import get_labeling_llm
-        from posthog.temporal.ai_observability.llm_endpoint import FLEX_CALL_TIMEOUT, STANDARD_CALL_TIMEOUT
 
         with override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY):
             flex_client = get_labeling_llm(
@@ -244,10 +247,8 @@ class TestBuildOpenAIChatClient:
                 "gpt-5.4", 600.0, trace_id="t", session_id="s", properties={}, distinct_id="d", flex=False
             )
 
-        # Flex: 120s x 1 attempt (the standard-tier fallback call is the retry); standard: 240s x 2 = 480s.
-        # Both fit the 600s activity budget, where the old 600s x 3 attempts per call could not.
-        assert flex_client.request_timeout == FLEX_CALL_TIMEOUT
-        assert flex_client.max_retries == 0
+        assert flex_client.request_timeout == STANDARD_CALL_TIMEOUT
+        assert flex_client.max_retries == 1
         assert standard_client.service_tier is None
         assert standard_client.request_timeout == STANDARD_CALL_TIMEOUT
         assert standard_client.max_retries == 1
@@ -363,6 +364,93 @@ def _mock_stream(is_async: bool = False) -> MagicMock:
 
 
 class TestFlexFirstChatOpenAI:
+    @pytest.mark.parametrize("use_responses_api", [False, True])
+    @pytest.mark.parametrize("is_async", [False, True])
+    @pytest.mark.parametrize("standard_recovers", [False, True])
+    async def test_stalled_flex_call_uses_standard_timeout_and_retries(
+        self, use_responses_api: bool, is_async: bool, standard_recovers: bool
+    ) -> None:
+        requests: list[tuple[str, float]] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content)
+            assert "timeout" not in payload
+            assert "max_retries" not in payload
+            requests.append((payload["service_tier"], request.extensions["timeout"]["read"]))
+            if len(requests) in (1, 2, 4) or not standard_recovers:
+                raise httpx.ReadTimeout("stalled request", request=request)
+            return httpx.Response(200, json=_RESPONSE.model_dump() if use_responses_api else _COMPLETION)
+
+        transport = httpx.MockTransport(handle)
+        with (
+            override_settings(DEBUG=True, AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+            patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}),
+            patch("openai._base_client.time.sleep"),
+            patch("openai._base_client.anyio.sleep", new_callable=AsyncMock),
+            httpx.Client(transport=transport) as sync_http,
+        ):
+            async with httpx.AsyncClient(transport=transport) as async_http:
+                llm = build_flex_first_chat_client(
+                    "gpt-6.1-terra" if use_responses_api else "gpt-5.4",
+                    600.0,
+                    ai_product="aio_eval_reports",
+                    trace_id="test-trace",
+                    session_id="test-session",
+                    properties={},
+                    distinct_id="test-user",
+                    use_responses_api=use_responses_api,
+                )
+                llm.root_client = llm.root_client.with_options(http_client=sync_http)
+                llm.client = llm.root_client.chat.completions
+                llm.root_async_client = llm.root_async_client.with_options(http_client=async_http)
+                llm.async_client = llm.root_async_client.chat.completions
+
+                if standard_recovers:
+                    for prompt in ("label the clusters", "label the next cluster"):
+                        result = await llm.ainvoke(prompt) if is_async else llm.invoke(prompt)
+                        assert result.text() == ("reported" if use_responses_api else "labeled")
+                else:
+                    with pytest.raises(APITimeoutError):
+                        if is_async:
+                            await llm.ainvoke("label the clusters")
+                        else:
+                            llm.invoke("label the clusters")
+
+        assert requests == [("flex", FLEX_CALL_TIMEOUT)] + [("default", STANDARD_CALL_TIMEOUT)] * (
+            4 if standard_recovers else 2
+        )
+
+    @pytest.mark.parametrize("use_responses_api", [False, True])
+    async def test_cancellation_propagates_without_standard_fallback(self, use_responses_api: bool) -> None:
+        tiers: list[str] = []
+        request_started = asyncio.Event()
+
+        async def handle(request: httpx.Request) -> httpx.Response:
+            tiers.append(json.loads(request.content)["service_tier"])
+            request_started.set()
+            await asyncio.Event().wait()
+            raise AssertionError("request unexpectedly resumed")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as async_http:
+            llm = FlexFirstChatOpenAI(
+                model="gpt-6.1-terra" if use_responses_api else "gpt-5.4",
+                api_key="sk-test",
+                service_tier="flex",
+                timeout=STANDARD_CALL_TIMEOUT,
+                max_retries=1,
+                http_async_client=async_http,
+                use_responses_api=use_responses_api,
+            )
+            task = asyncio.create_task(llm.ainvoke("label the clusters"))
+            try:
+                await asyncio.wait_for(request_started.wait(), timeout=10)
+            finally:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+        assert tiers == ["flex"]
+
     @pytest.mark.parametrize(
         "error",
         [

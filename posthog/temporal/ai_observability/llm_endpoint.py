@@ -22,7 +22,7 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
-from openai import APIError, RateLimitError
+from openai import DEFAULT_MAX_RETRIES, APIError, RateLimitError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import PrivateAttr
 from temporalio.exceptions import ApplicationError
@@ -48,8 +48,8 @@ class FlexFirstChatOpenAI(ChatOpenAI):
     The openai SDK's retry loop re-sends the byte-identical request, so it can only
     re-roll a flex capacity refusal. This override retries just the failing chat
     completion with service_tier="default", so an agent loop keeps its completed
-    turns instead of rerunning from scratch. Build flex clients with max_retries=0:
-    the tier switch is the retry.
+    turns instead of rerunning from scratch. Flex attempts disable SDK retries;
+    standard attempts use the client's configured timeout and retry budget.
 
     A fallback then holds the client on standard, because retrying a tier that just
     refused wastes a call. How long it holds depends on what the tier cost to discover:
@@ -73,7 +73,15 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         # Assign rather than guard: langchain builds the payload as {**defaults, **kwargs},
         # so a caller-supplied service_tier would otherwise win and desync the flag.
         if self.service_tier == "flex":
-            kwargs = {**kwargs, "service_tier": "flex" if self._flex_requested else "default"}
+            kwargs = {
+                **kwargs,
+                "service_tier": "flex" if self._flex_requested else "default",
+                "timeout": FLEX_CALL_TIMEOUT if self._flex_requested else self.request_timeout,
+            }
+            max_retries = 0 if self._flex_requested else self.max_retries
+            # boffin: Completion and Responses resources share their root client's retry budget.
+            self.root_client.max_retries = DEFAULT_MAX_RETRIES if max_retries is None else max_retries
+            self.root_async_client.max_retries = DEFAULT_MAX_RETRIES if max_retries is None else max_retries
         return super()._get_request_payload(input_, stop=stop, **kwargs)
 
     def _latch_or_raise(self, error: APIError) -> None:
@@ -210,10 +218,8 @@ def build_langchain_chat_client(
     )
 
 
-# Per-call timeouts, capped so no single call can outlive the activity that runs the agent:
-# flex 120s x 1 attempt (the standard-tier fallback call is the retry), standard 240s x 2
-# attempts. The ai-gateway cuts non-streaming calls at ~290s, so longer client timeouts are
-# unreachable.
+# Keep attempts below the gateway's non-streaming deadline and the agent's activity budget.
+# Flex gets one short attempt before standard uses its longer timeout and one SDK retry.
 FLEX_CALL_TIMEOUT = 120.0
 STANDARD_CALL_TIMEOUT = 240.0
 
@@ -243,14 +249,14 @@ def build_flex_first_chat_client(
     use_flex = flex and model in FLEX_CAPABLE_MODELS
     return build_langchain_chat_client(
         model,
-        FLEX_CALL_TIMEOUT if use_flex else min(timeout, STANDARD_CALL_TIMEOUT),
+        min(timeout, STANDARD_CALL_TIMEOUT),
         ai_product=ai_product,
         trace_id=trace_id,
         session_id=session_id,
         properties=properties,
         distinct_id=distinct_id,
         service_tier="flex" if use_flex else None,
-        max_retries=0 if use_flex else 1,
+        max_retries=1,
         use_responses_api=use_responses_api,
     )
 
