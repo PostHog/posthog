@@ -40,7 +40,10 @@ export class PostHog {
 class _Emails:
     def send(self, **params):
         with open("sent.json", "w") as sent:
-            json.dump({"from": params["from_"]} if "from_" in params else {}, sent)
+            sent_params = {"idempotencyKey": params.get("idempotency_key")}
+            if "from_" in params:
+                sent_params["from"] = params["from_"]
+            json.dump(sent_params, sent)
         return type("Result", (), {"id": "email-id"})()
 
 class Posthog:
@@ -63,7 +66,10 @@ function sentParams(sdk: SendFromCodeSdk, code: string): Record<string, unknown>
             })
                 .toString()
                 .split('\0')
-            return JSON.parse(args[args.indexOf('-d') + 1])
+            const idempotencyKey = args
+                .find((arg) => arg.startsWith('Idempotency-Key: '))
+                ?.slice('Idempotency-Key: '.length)
+            return { ...JSON.parse(args[args.indexOf('-d') + 1]), idempotencyKey }
         }
         const { file, module } = FAKE_SDKS[sdk]
         for (const [path, source] of Object.entries(module)) {
@@ -81,6 +87,12 @@ function sentParams(sdk: SendFromCodeSdk, code: string): Record<string, unknown>
 describe('sendFromCodeSnippet', () => {
     test.each<SendFromCodeSdk>(['node', 'python', 'curl'])('sends a quoted sender intact from %s', (sdk) => {
         expect(sentParams(sdk, sendFromCodeSnippet(sdk, input(SENDER)).code).from).toEqual(SENDER)
+    })
+
+    test.each<SendFromCodeSdk>(['node', 'python', 'curl'])('sends one idempotency key per email from %s', (sdk) => {
+        expect(sentParams(sdk, sendFromCodeSnippet(sdk, input(SENDER)).code).idempotencyKey).toEqual(
+            'welcome-jane-distinct-id'
+        )
     })
 
     test.each<SendFromCodeSdk>(['node', 'python', 'curl'])('sends no sender from %s without one', (sdk) => {

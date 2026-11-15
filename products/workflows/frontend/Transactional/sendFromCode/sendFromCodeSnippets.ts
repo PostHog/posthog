@@ -25,6 +25,7 @@ const EXAMPLE = {
     distinctId: 'jane-distinct-id',
     subject: 'Welcome to Acme',
     html: '<p>Hi Jane, thanks for signing up.</p>',
+    idempotencyKey: 'welcome-jane-distinct-id',
 }
 
 const shellSingleQuoted = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
@@ -45,6 +46,7 @@ const { data, error } = await posthog.emails.send({
     distinctId: ${JSON.stringify(EXAMPLE.distinctId)},${from ? `\n    from: ${JSON.stringify(from)},` : ''}
     subject: ${JSON.stringify(EXAMPLE.subject)},
     html: ${JSON.stringify(EXAMPLE.html)},
+    idempotencyKey: ${JSON.stringify(EXAMPLE.idempotencyKey)},
 })
 if (error) {
     throw error
@@ -69,6 +71,7 @@ result = posthog.emails.send(
     distinct_id=${JSON.stringify(EXAMPLE.distinctId)},${from ? `\n    from_=${JSON.stringify(from)},` : ''}
     subject=${JSON.stringify(EXAMPLE.subject)},
     html=${JSON.stringify(EXAMPLE.html)},
+    idempotency_key=${JSON.stringify(EXAMPLE.idempotencyKey)},
 )
 print(result.id)`
 }
@@ -85,6 +88,7 @@ function curlSnippet({ sendUrl, from }: SendFromCodeSnippetInput): string {
     return `curl -X POST ${sendUrl} \\
   -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_API_KEY" \\
   -H "Content-Type: application/json" \\
+  -H "Idempotency-Key: ${EXAMPLE.idempotencyKey}" \\
   -d ${shellSingleQuoted(JSON.stringify(body, null, 2))}`
 }
 
