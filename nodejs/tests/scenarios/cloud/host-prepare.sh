@@ -6,6 +6,7 @@ repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 prefix="s3://${SCENARIO_EVIDENCE_BUCKET}/runs/${SCENARIO_RUN_ID}"
 root=${SCENARIO_HOST_ROOT:-/opt/scenario}
 input=$root/input
+export XDG_CACHE_HOME=$root/cache
 log=$root/prepare.log
 exec >"$log" 2>&1
 trap 'aws s3 cp --only-show-errors "$log" "$prefix/host/prepare.log" || true' EXIT
