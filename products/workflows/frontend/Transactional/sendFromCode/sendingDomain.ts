@@ -15,6 +15,17 @@ interface EmailSenderFields {
 
 const fieldsOf = (integration: IntegrationType): EmailSenderFields => (integration.config ?? {}) as EmailSenderFields
 
+// Same specials as Python's email.utils.formataddr, which the send API parses the address with.
+const NEEDS_QUOTES = /[\][\\()<>@,:;".]/
+
+export function senderAddress(name: string | undefined, email: string): string {
+    if (!name) {
+        return email
+    }
+    const displayName = NEEDS_QUOTES.test(name) ? `"${name.replace(/[\\"]/g, '\\$&')}"` : name
+    return `${displayName} <${email}>`
+}
+
 export function sendingDomainOf(
     integrations: IntegrationType[],
     defaultIntegrationId: number | null | undefined
@@ -29,7 +40,7 @@ export function sendingDomainOf(
             integrationId: sender.id,
             domain,
             email,
-            from: name ? `${name} <${email}>` : email,
+            from: senderAddress(name, email),
         }
     }
     const pending = integrations.find((integration) => integration.kind === 'email')

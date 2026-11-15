@@ -25,11 +25,18 @@ const codeEmail = (key: string): CodeEmailApi => ({
 describe('firstCodeSendLogic', () => {
     let logic: ReturnType<typeof firstCodeSendLogic.build>
     let stored: CodeEmailApi[]
+    let listFails: boolean
 
     beforeEach(() => {
         jest.useFakeTimers()
         stored = []
-        useMocks({ get: { [`/api/projects/${TEAM_ID}/transactional_code_emails/`]: () => [200, stored] } })
+        listFails = false
+        useMocks({
+            get: {
+                [`/api/projects/${TEAM_ID}/transactional_code_emails/`]: () =>
+                    listFails ? [500, { detail: 'A server error occurred.' }] : [200, stored],
+            },
+        })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: TEAM_ID })
     })
 
@@ -61,5 +68,20 @@ describe('firstCodeSendLogic', () => {
         await jest.advanceTimersByTimeAsync(60_000)
 
         expect(logic.values.firstCodeSend).toEqual({ status: 'already_sending' })
+    })
+
+    it('says its checks failed once polling stops, and checks again on request', async () => {
+        listFails = true
+        await mount()
+        await jest.advanceTimersByTimeAsync(31 * 60_000)
+
+        expect(logic.values).toMatchObject({ pollingStopped: true, lastCheckFailed: true })
+
+        listFails = false
+        logic.actions.checkAgain()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.firstCodeSend).toEqual({ status: 'waiting' })
+        expect(logic.values).toMatchObject({ pollingStopped: false, lastCheckFailed: false })
     })
 })

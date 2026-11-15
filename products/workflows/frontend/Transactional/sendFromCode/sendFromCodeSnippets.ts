@@ -27,7 +27,8 @@ const EXAMPLE = {
     html: '<p>Hi Jane, thanks for signing up.</p>',
 }
 
-const jsString = (value: string): string => `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+const jsString = (value: string): string =>
+    `'${JSON.stringify(value).slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'")}'`
 const pyString = (value: string): string => JSON.stringify(value)
 const shellSingleQuoted = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
 

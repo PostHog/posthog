@@ -1,6 +1,6 @@
 import { SendFromCodeSdk, SendFromCodeSnippetInput, sendFromCodeSnippet } from './sendFromCodeSnippets'
 
-const SENDER = `Bob's "Shop" <hello@example.com>`
+const SENDER = `"Bob's \\"Shop\\"\nOutlet" <hello@example.com>`
 
 const input = (from: string | null): SendFromCodeSnippetInput => ({
     projectToken: 'phc_test',
