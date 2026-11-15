@@ -86,8 +86,11 @@ describe('writerCpuOf', () => {
             MANIFEST,
             { startedAt: T, endedAt: T + 2 * MINUTE + 5_000 }
         )
+        const failed = expect(read).rejects.toThrow('the writer CPU read came back PartialData, not Complete')
 
-        await expect(read).rejects.toThrow('the writer CPU read came back PartialData, not Complete')
+        await jest.advanceTimersByTimeAsync(10 * MINUTE)
+
+        await failed
     })
 
     it('stops waiting for CloudWatch when the run is interrupted while a read is in flight', async () => {
