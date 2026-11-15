@@ -165,6 +165,9 @@ class FakeHost implements PoolerHost {
         ) {
             return Promise.reject(new Error(`password authentication failed for user "${user}"`))
         }
+        if (!(pooler.settings.track_extra_parameters ?? '').split(/\s*,\s*/).includes('statement_timeout')) {
+            return Promise.reject(new Error('unsupported startup parameter: statement_timeout'))
+        }
         if (pooler.databases[database] !== `host=${ENDPOINT} port=5432 dbname=cyclotron_node`) {
             return Promise.reject(new Error(`no such database: ${database}`))
         }
@@ -217,9 +220,15 @@ describe('host-pooler', () => {
     let dir: string
     let host: FakeHost
 
-    function poolOnHost(image: string, runId = RUN_ID): Promise<number> {
+    function poolOnHost(image: string, runId = RUN_ID, settings: Record<string, string> = {}): Promise<number> {
         const profile = path.join(dir, 'cloud-profile.yaml')
-        writeFileSync(profile, stringify({ ...PROFILE, pooler: { ...PROFILE.pooler, image } }))
+        writeFileSync(
+            profile,
+            stringify({
+                ...PROFILE,
+                pooler: { ...PROFILE.pooler, image, settings: { ...PROFILE.pooler.settings, ...settings } },
+            })
+        )
         return main([profile], { SCENARIO_RUN_ID: runId, SCENARIO_HOST_ROOT: dir }, host)
     }
 
@@ -273,6 +282,17 @@ describe('host-pooler', () => {
         }
     })
 
+    it('keeps the parameters a profile tracks while letting the runner set its statement timeout', async () => {
+        await expect(poolOnHost(PUBLIC_IMAGE, RUN_ID, { track_extra_parameters: 'search_path' })).resolves.toBe(0)
+
+        for (const { settings } of host.poolers()) {
+            expect(settings.track_extra_parameters.split(/\s*,\s*/).sort()).toEqual([
+                'search_path',
+                'statement_timeout',
+            ])
+        }
+    })
+
     it('fails naming the replica that never answers and what it logged, once the readiness deadline passes', async () => {
         host.crashOutput.set(6433, 'FATAL unrecognized parameter: pool_mod')
 
@@ -302,9 +322,13 @@ describe('select1', () => {
         await (answers ? expect(answer).resolves.toBeUndefined() : expect(answer).rejects.toThrow('password'))
     })
 
-    it('gives up on a pooler that accepts the client but never answers the query', async () => {
+    it('logs in as the runner does and gives up on a pooler that accepts the client but never answers the query', async () => {
+        let startup = ''
         const stalled = createServer((socket) => {
-            socket.once('data', () => socket.write(Buffer.concat([AUTHENTICATION_OK, READY_FOR_QUERY])))
+            socket.once('data', (packet) => {
+                startup = packet.toString('latin1')
+                socket.write(Buffer.concat([AUTHENTICATION_OK, READY_FOR_QUERY]))
+            })
         })
         await new Promise<void>((resolve) => stalled.listen(0, '127.0.0.1', resolve))
         const { port } = stalled.address() as AddressInfo
@@ -313,6 +337,7 @@ describe('select1', () => {
             await expect(
                 select1({ port, user: 'posthog', password: 'posthog', database: 'test_posthog' })
             ).rejects.toThrow('Query read timeout')
+            expect(startup.split('\0')).toContain('statement_timeout')
         } finally {
             stalled.close()
         }

@@ -16,6 +16,7 @@ const LOG_LINES = 50
 const FIRST_PORT = 6432
 const DATABASE = 'cyclotron_node'
 const CONFIG_DIR = '/etc/scenario-pooler'
+const RUNNER_PARAMETER = 'statement_timeout'
 const ECR_REGISTRY = /^\d{12}\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$/
 
 export type Target = { port: number; user: string; password: string; database: string }
@@ -43,12 +44,17 @@ type Credentials = z.infer<typeof Credentials>
 const quoted = (value: string): string => `"${value.replaceAll('"', '""')}"`
 
 function configOf(pooler: Pooler, cluster: z.infer<typeof Cluster>, port: number): string {
+    const tracked = String(pooler.settings.track_extra_parameters ?? '')
+        .split(',')
+        .map((parameter) => parameter.trim())
+        .filter((parameter) => parameter !== '' && parameter !== RUNNER_PARAMETER)
+    const settings = { ...pooler.settings, track_extra_parameters: [...tracked, RUNNER_PARAMETER].join(', ') }
     return [
         '[databases]',
         `${DATABASE} = host=${cluster.Endpoint} port=${cluster.Port} dbname=${DATABASE}`,
         '',
         '[pgbouncer]',
-        ...Object.entries(pooler.settings).map(([key, value]) => `${key} = ${value}`),
+        ...Object.entries(settings).map(([key, value]) => `${key} = ${value}`),
         'listen_addr = 127.0.0.1',
         `listen_port = ${port}`,
         'auth_type = scram-sha-256',
@@ -186,6 +192,7 @@ export async function select1({ port, user, password, database }: Target): Promi
         database,
         connectionTimeoutMillis: PHASE_TIMEOUT_MS,
         query_timeout: PHASE_TIMEOUT_MS,
+        statement_timeout: PHASE_TIMEOUT_MS,
     })
     await client.connect()
     try {
