@@ -460,10 +460,11 @@ the action — or do the mounting inside a logic that owns the relationship.
 Pull only the names you actually use. The generated types are tighter, downstream
 refactors stay obvious, and unused names won't trigger spurious re-renders.
 
-### Business logic in `useEffect`
+### Any new `useEffect`
 
-If the body of a `useEffect` does anything beyond mounting / focus / DOM, it
-probably belongs in a logic listener.
+New code adds no React effect, including for mounting, focus or DOM work.
+The `no-new-use-effect` semgrep rule fails a pull request that adds one, and its message lists the replacement for each case.
+Focus uses `autoFocus` or a ref callback, DOM events use the hooks in `lib/hooks`, and everything else goes in the logic.
 
 ## History
 

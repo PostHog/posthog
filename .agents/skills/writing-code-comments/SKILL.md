@@ -1,16 +1,18 @@
 ---
 name: writing-code-comments
 description: >
-  Gates whether a code comment should exist and forces the ones that stay to explain why, not what.
+  Gates whether a code comment should exist and keeps the ones that stay to a one-line note.
   Use ALWAYS before writing or editing a comment in any language (Python, TypeScript, Go, Rust, SQL), and when reviewing a diff that adds comments.
-  Removes the comment types that clutter the codebase: narration that restates the code, change-history and chat-context notes ("previously did X", "per PR #123", "AI:"), perishable measurements and current-state stamps ("~20 min build", "currently", "today"), commented-out code, and redundant docstrings.
-  Keeps the ones that earn their place: a non-obvious why, a warning about a non-local consequence, a pointer to context a future reader can't reconstruct.
+  Removes comments that stand in for work (TODO, FIXME, "for now", "simplified", "does not handle X", suppressions without a cause), paragraph explanations of code that should be restructured instead, narration that restates the code, change-history and chat-context notes ("previously did X", "per PR #123", "AI:"), perishable measurements ("~20 min build", "currently"), commented-out code, and redundant docstrings.
+  Keeps a short note that earns its place: a non-obvious why, a warning about a non-local consequence, a pointer to context a future reader can't reconstruct.
   Not for user-facing copy (see `/writing-user-facing-copy`) or commit messages.
 ---
 
 # Writing code comments
 
-Run this before adding or editing any comment. The default is no comment. Good code with clear names carries most of its meaning on its own; a comment earns its place only when it tells a reader something the code cannot.
+Run this before adding or editing any comment. The default is no comment. Good code with clear names carries its meaning on its own; a comment earns its place only when it tells a reader something the code cannot, in one short note.
+
+A comment is never a substitute for doing the work. When the urge is to explain why the code is awkward, incomplete or wrong, the job is to fix the code, not to describe it.
 
 ## The gate: one question
 
@@ -27,6 +29,23 @@ A comment worth keeping answers a _why_ the code can't:
 - ✅ `# Kept in sync with the enum in migrations/0042; update both`
 
 ## Delete these
+
+### Comments that stand in for the work
+
+A comment that names a gap, a shortcut or a defect is an admission that the change is not finished. Finish it, or take the unfinished part out of the diff.
+
+- ❌ `// TODO: handle the empty state` / `# FIXME: race when two workers start`
+- ❌ `// simplified for now` / `# temporary workaround` / `// HACK`
+- ❌ `# in a real implementation this would page through results`
+- ❌ `// this does not handle deleted users`
+- ❌ `// oxlint-disable-next-line react-hooks/exhaustive-deps` to quiet a real bug. Fix the dependency list or move the effect into a logic.
+- ❌ `# type: ignore` or `// @ts-expect-error` over a type the code gets wrong. Fix the type.
+
+A suppression stays only where the tool is wrong, for that one line, with the reason on the same line: `# noqa: PLC0415 keeps the heavy dep off the import path`.
+
+### Explanations that should be code
+
+A paragraph above a block means the block is too hard to read. Rename, extract a function, introduce a type or restructure the branch until the code carries the meaning, then delete the paragraph. Multi-paragraph docstrings and JSDoc blocks that walk through usage belong in a README or a docs page, not in the source.
 
 ### Narration that restates the code
 
@@ -80,17 +99,16 @@ Delete it; the version history has it if it's needed again. Commented-out code i
 
 ## Style
 
-Write comments the way you'd write technical documentation: explicit and precise. State the reasoning so the reader does not have to infer it. Length is not a target in either direction: don't clip a comment to look terse, and don't pad it to look thorough. Say what needs saying and stop.
+A comment is a note: one line by default, two at most when a warning needs its consequence spelled out. If it needs more, the code or a doc needs to change instead.
 
-- **Be explicit and technical.** State the cause and effect. Name the actual conditions, values, and consequences. A reader should not have to reconstruct your reasoning from a hint.
+- **State the fact, not the story.** Name the actual condition, value or consequence, so the reader does not have to infer it.
 - **Use mostly ASD-STE100 Simplified Technical English.** Use active voice, simple tenses, one idea per sentence, and consistent terms.
-- **Let length follow the content.** One line is fine when one line covers it; use more when the reasoning needs more. Neither brevity nor length is the goal.
-- **No em-dash.** The tell to avoid is the clipped two-part phrase joined by a dash, like `# do the thing — it's faster`. Use a real connective instead ("because", "so that", "which means", "to avoid").
+- **No em-dash.** The tell to avoid is the clipped two-part phrase joined by a dash, like `# do the thing — it's faster`. Use a real connective instead ("because", "so that", "to avoid").
 - **Explain why, not what.** The what is in the code; the why usually is not.
 - **Preserve existing comments when moving or refactoring code**, unless the change makes them wrong. Don't drop an existing why just because you're relocating the function.
-- **Match the surrounding density.** Don't add a comment to every line of a file that had none; don't strip a well-commented module bare.
+- **Do not add density.** Don't add a comment to every line of a file that had none, and when you touch an over-commented block, cut it back to notes.
 
-The fix for the em-dash is the connective, not more words. A short comment is fine once the dash is gone:
+The fix for the em-dash is the connective, not more words:
 
 - ❌ `# batch here — avoids N+1`
 - ✅ `# batch here to avoid an N+1 against posthog_organizationmembership`

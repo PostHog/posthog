@@ -1,0 +1,47 @@
+rules:
+    - id: no-new-use-effect
+      message: |
+          Do not add a React effect. New code does not use `useEffect`, `useLayoutEffect`,
+          `useInsertionEffect`, `useOnMountEffect` or `useDelayedOnMountEffect`.
+          An effect hides control flow from kea, runs after render, and is the usual source of
+          double fetches, stale closures and render loops.
+
+          Do the work in the place that owns it:
+          - Fetch data, or react to a value or prop change: a kea loader, `listeners`, `afterMount`,
+            or `propsChanged` with a guard on the changed prop. See `/writing-kea-logics`.
+          - Timers, intervals, and window or document listeners: `cache.disposables` in the logic.
+            See `/using-kea-disposables`.
+          - Mount another logic: `useMountedLogic` or `BindLogic`, not an effect that dispatches.
+          - Value derived from props or state: compute it during render, or write a kea selector.
+          - Reset state when an id changes: give the component a `key`.
+          - Respond to a user action: do it in the event handler.
+          - DOM measurement and events: `useResizeObserver`, `useEventListener`,
+            `useOutsideClickHandler` or `useInterval` from `lib/hooks`. Focus with `autoFocus`
+            or a ref callback.
+
+          Only an extraordinary case is exempt: a sync with a non-React, non-kea system that none of
+          the above can express. Put it in a named, reusable hook in `lib/hooks`, and suppress it at
+          the call with `// nosemgrep: no-new-use-effect` followed by the reason. The reviewer must
+          agree that no option above fits.
+
+          Existing effects are grandfathered. Pull requests fail only on effects that they add.
+      severity: WARNING
+      languages: [typescript]
+      paths:
+          include:
+              - /frontend/src
+              - /products
+              - /packages
+              - /common
+              - /services
+          exclude:
+              - '**/node_modules/**'
+      pattern-either:
+          - pattern: useEffect(...)
+          - pattern: useLayoutEffect(...)
+          - pattern: useInsertionEffect(...)
+          - pattern: useOnMountEffect(...)
+          - pattern: useDelayedOnMountEffect(...)
+          - pattern: $REACT.useEffect(...)
+          - pattern: $REACT.useLayoutEffect(...)
+          - pattern: $REACT.useInsertionEffect(...)
