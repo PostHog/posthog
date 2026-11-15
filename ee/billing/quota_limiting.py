@@ -28,7 +28,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.quota_migration import QuotaReconciliationSnapshots, run_secondary_quota_operation, snapshot_quota_stores
-from posthog.quota_redis import reconcile_quota_set, replace_quota_set
+from posthog.quota_redis import reconcile_quota_set
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     combine_posthog_code_credits,
@@ -209,9 +209,6 @@ def replace_limited_team_tokens(
     if tokens:
         pipe.zadd(key, tokens)  # type: ignore[arg-type]
     pipe.execute()
-    run_secondary_quota_operation(
-        "replace", lambda client: replace_quota_set(client, key, tokens), resource=key, maintenance=True
-    )
 
 
 def reconcile_limited_team_tokens(

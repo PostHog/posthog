@@ -7,7 +7,6 @@ import socket
 import tempfile
 import threading
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
@@ -23,7 +22,7 @@ from cryptography.x509.oid import NameOID
 from parameterized import parameterized
 from redis import Redis, RedisCluster
 from redis.cluster import ClusterNode, NodesManager
-from redis.connection import Connection, SSLConnection
+from redis.connection import SSLConnection
 from redis.exceptions import (
     ConnectionError as RedisConnectionError,
     RedisClusterException,
@@ -31,7 +30,6 @@ from redis.exceptions import (
 )
 
 from posthog import quota_redis
-from posthog.redis import get_client
 
 
 @override_settings(
@@ -186,90 +184,43 @@ class TestQuotaRedis(SimpleTestCase):
 
         connect.assert_called_once()
 
-    @override_settings(BILLING_STATE_REDIS_URL="redis://billing.invalid:6379/0")
-    def test_stalled_connection_workers_are_capped_isolated_and_recover(self) -> None:
-        client = quota_redis.get_secondary_quota_redis_client()
-        assert isinstance(client, Redis)
-        release = threading.Event()
-        workers: list[threading.Thread] = []
-        sockets: list[socket.socket] = []
-
-        def stalled_connect() -> socket.socket:
-            workers.append(threading.current_thread())
-            release.wait(timeout=3)
-            result = socket.socket()
-            sockets.append(result)
-            return result
-
-        def connect() -> socket.socket | RedisError:
-            try:
-                return client.connection_pool.make_connection()._connect()
-            except RedisError as error:
-                return error
-
+    @parameterized.expand(
+        [
+            (f"{mode}_{scheme}", cluster, scheme)
+            for mode, cluster in [("standalone", False), ("cluster", True)]
+            for scheme in ["redis", "rediss"]
+        ]
+    )
+    def test_blocked_hosts_are_rejected_before_dns(self, _name: str, cluster: bool, scheme: str) -> None:
         with (
-            ThreadPoolExecutor(max_workers=8) as callers,
-            patch.object(Connection, "_connect", side_effect=stalled_connect),
+            self.settings(
+                BILLING_STATE_REDIS_URL=f"{scheme}://blocked.example:6379/0",
+                BILLING_STATE_REDIS_CLUSTER_ENABLED=cluster,
+            ),
+            patch("posthog.security.oob_domains.oob_domains", return_value=frozenset({"blocked.example"})),
+            patch("socket.getaddrinfo", side_effect=AssertionError("Unexpected DNS lookup")),
+            self.assertRaisesRegex((RedisConnectionError, RedisClusterException), "Quota Redis host is not permitted"),
         ):
-            attempts = [callers.submit(connect) for _ in range(8)]
-            try:
-                _, pending = wait(attempts, timeout=1.25)
-                self.assertFalse(pending, "Connection setup held its callers after the deadline")
-                self.assertLessEqual(len(workers), 4)
-                self.assertTrue(all(isinstance(attempt.result(), RedisError) for attempt in attempts))
-                with socket.socket() as shared_socket, patch.object(Connection, "_connect", return_value=shared_socket):
-                    shared = get_client()
-                    assert isinstance(shared, Redis)
-                    self.assertIs(shared.connection_pool.make_connection()._connect(), shared_socket)
-                    with self.assertRaises(RedisConnectionError):
-                        client.connection_pool.make_connection()._connect()
-            finally:
-                release.set()
-                wait(attempts, timeout=4)
-                for worker in workers:
-                    if worker.daemon:
-                        worker.join(timeout=4)
-                for attempt in attempts:
-                    if attempt.done() and isinstance(result := attempt.result(), socket.socket):
-                        result.close()
-        try:
-            self.assertTrue(all(result.fileno() == -1 for result in sockets))
-            with socket.socket() as recovered, patch.object(Connection, "_connect", return_value=recovered):
-                self.assertIs(client.connection_pool.make_connection()._connect(), recovered)
-        finally:
-            for result in sockets:
-                result.close()
+            client = quota_redis.get_secondary_quota_redis_client()
+            assert client is not None
+            client.ping()
 
-    @override_settings(BILLING_STATE_REDIS_URL="redis://billing.invalid:6379/0")
-    def test_forked_child_does_not_inherit_exhausted_connection_capacity(self) -> None:
-        client = quota_redis.get_secondary_quota_redis_client()
-        assert isinstance(client, Redis)
-        slots = quota_redis._secondary_connection_slots
-        for _ in range(4):
-            self.assertTrue(slots.acquire(blocking=False))
-        read_fd, write_fd = os.pipe()
-        child_pid = os.fork()
-        if child_pid == 0:
-            os.close(read_fd)
-            try:
-                with socket.socket() as connected, patch.object(Connection, "_connect", return_value=connected):
-                    result = client.connection_pool.make_connection()._connect()
-                    os.write(write_fd, b"ok" if result is connected else b"wrong")
-            except BaseException:
-                os.write(write_fd, b"failed")
-            os._exit(0)
-        os.close(write_fd)
-        try:
-            readable, _, _ = select.select([read_fd], [], [], 2)
-            self.assertTrue(readable, "Inherited connection capacity blocked the child")
-            self.assertEqual(os.read(read_fd, 10), b"ok")
-        finally:
-            for _ in range(4):
-                slots.release()
-            os.close(read_fd)
-            if os.waitpid(child_pid, os.WNOHANG)[0] == 0:
-                os.kill(child_pid, signal.SIGKILL)
-                os.waitpid(child_pid, 0)
+    @override_settings(BILLING_STATE_REDIS_CLUSTER_ENABLED=True)
+    def test_blocked_discovered_node_is_rejected_before_dns(self) -> None:
+        slots = [[0, 16383, [b"blocked.example", 6379, b"node"]]]
+        with (
+            patch.object(Redis, "execute_command", return_value=slots),
+            patch("redis.cluster.CommandsParser.initialize"),
+            patch("posthog.security.oob_domains.oob_domains", return_value=frozenset({"blocked.example"})),
+            patch("socket.getaddrinfo", side_effect=AssertionError("Unexpected DNS lookup")) as resolve,
+        ):
+            with self.assertRaisesRegex(
+                (RedisConnectionError, RedisClusterException), "Quota Redis host is not permitted"
+            ):
+                quota_redis.get_secondary_quota_redis_client()
+
+        resolve.assert_not_called()
+        assert not quota_redis._clients
 
     def test_concurrent_client_initialization_fails_without_building(self) -> None:
         busy = Mock()

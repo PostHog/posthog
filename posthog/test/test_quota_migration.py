@@ -1,11 +1,7 @@
 import os
 import sys
-import time
-import socket
 import tempfile
-import threading
 import subprocess
-from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import time_machine
@@ -15,9 +11,9 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
-from redis import RedisCluster
 from redis.client import Pipeline
 from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
     RedisClusterException,
     TimeoutError as RedisTimeoutError,
 )
@@ -40,7 +36,6 @@ from ee.billing.quota_limiting import (
     add_limited_team_tokens,
     reconcile_limited_team_tokens,
     remove_limited_team_tokens,
-    replace_limited_team_tokens,
 )
 
 
@@ -64,7 +59,7 @@ class TestQuotaMigration(SimpleTestCase):
         self.shared.flushdb()
         self.secondary.flushdb()
 
-    @parameterized.expand([("add",), ("replace",), ("remove",)])
+    @parameterized.expand([("add",), ("remove",)])
     def test_mutations_reach_both_stores(self, operation: str) -> None:
         for client in (self.shared, self.secondary):
             client.zadd(self.key, {"existing": 1900000000})
@@ -72,9 +67,6 @@ class TestQuotaMigration(SimpleTestCase):
         if operation == "add":
             add_limited_team_tokens(self.resource, {"new": 1900000100}, self.cache)
             expected = [(b"existing", 1900000000.0), (b"new", 1900000100.0)]
-        elif operation == "replace":
-            replace_limited_team_tokens(self.resource, {"new": 1900000100}, self.cache)
-            expected = [(b"new", 1900000100.0)]
         else:
             remove_limited_team_tokens(self.resource, ["existing"], self.cache)
             expected = []
@@ -82,8 +74,7 @@ class TestQuotaMigration(SimpleTestCase):
         assert self.shared.zrange(self.key, 0, -1, withscores=True) == expected
         assert self.secondary.zrange(self.key, 0, -1, withscores=True) == expected
 
-    @parameterized.expand([("replace",), ("reconcile",)])
-    def test_bulk_writes_send_no_script_commands(self, operation: str) -> None:
+    def test_bulk_writes_send_no_script_commands(self) -> None:
         for client in (self.shared, self.secondary):
             client.zadd(self.key, {"existing": 1900000000})
         snapshots = snapshot_quota_stores({self.key: ["existing"]})
@@ -95,12 +86,9 @@ class TestQuotaMigration(SimpleTestCase):
             ) as pipeline_commands,
             patch.object(self.secondary, "execute_command", wraps=self.secondary.execute_command) as secondary_commands,
         ):
-            if operation == "replace":
-                replace_limited_team_tokens(self.resource, {"new": 1900000100}, self.cache)
-            else:
-                reconcile_limited_team_tokens(
-                    self.resource, ["existing"], {"new": 1900000100}, self.cache, store_snapshots=snapshots
-                )
+            reconcile_limited_team_tokens(
+                self.resource, ["existing"], {"new": 1900000100}, self.cache, store_snapshots=snapshots
+            )
         commands = [call.args[0] for call in shared_commands.call_args_list + secondary_commands.call_args_list]
         commands.extend(call.args[1] for call in pipeline_commands.call_args_list)
         assert not any(str(command).upper().split()[0] in {"EVAL", "EVALSHA", "SCRIPT"} for command in commands)
@@ -145,21 +133,17 @@ class TestQuotaMigration(SimpleTestCase):
         assert commands.call_args_list[0].args == ("ZREMRANGEBYSCORE", self.key, "-inf", 1794484800.0)
 
     @parameterized.expand(
-        [
-            (f"{operation}_{command}_{batch}", operation, command, batch)
-            for operation, command in [("reconcile", "ZREM"), ("reconcile", "ZADD"), ("replace", "ZADD")]
-            for batch in [1, 2, 3]
-        ]
+        [(f"{command}_{batch}", command, batch) for command in ["ZREM", "ZADD"] for batch in [1, 2, 3]]
     )
     def test_failed_batch_preserves_shared_write_and_recovers(
-        self, _name: str, operation: str, command: str, failed_batch: int
+        self, _name: str, command: str, failed_batch: int
     ) -> None:
         stale = {f"stale-{index}": 1900000000 for index in range(5)}
         tokens = {f"new-{index}": 1900000100 for index in range(5)}
         for client in (self.shared, self.secondary):
             client.zadd(self.key, stale)  # type: ignore[arg-type]
         snapshots = snapshot_quota_stores({self.key: list(stale)})
-        labels = {"operation": operation, "result": "failure"}
+        labels = {"operation": "reconcile", "result": "failure"}
         before = REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
         execute = self.secondary.execute_command
         seen_batches = 0
@@ -178,12 +162,9 @@ class TestQuotaMigration(SimpleTestCase):
             patch("posthog.quota_migration.monotonic", return_value=100),
             patch.object(self.secondary, "execute_command", side_effect=fail_batch) as commands,
         ):
-            if operation == "replace":
-                replace_limited_team_tokens(self.resource, tokens, self.cache)
-            else:
-                reconcile_limited_team_tokens(self.resource, list(stale), tokens, self.cache, store_snapshots=snapshots)
-        expected_prefix = ["DEL"] if operation == "replace" else ["ZREMRANGEBYSCORE"]
-        if operation == "reconcile" and command == "ZADD":
+            reconcile_limited_team_tokens(self.resource, list(stale), tokens, self.cache, store_snapshots=snapshots)
+        expected_prefix = ["ZREMRANGEBYSCORE"]
+        if command == "ZADD":
             expected_prefix += ["ZREM"] * 3
         assert [call.args[0] for call in commands.call_args_list] == expected_prefix + [command] * failed_batch
         assert dict(self.shared.zrange(self.key, 0, -1, withscores=True)) == {
@@ -197,31 +178,20 @@ class TestQuotaMigration(SimpleTestCase):
             patch("posthog.quota_migration.monotonic", return_value=131),
         ):
             snapshots = snapshot_quota_stores({self.key: list(tokens)})
-            if operation == "replace":
-                replace_limited_team_tokens(self.resource, tokens, self.cache)
-            else:
-                reconcile_limited_team_tokens(
-                    self.resource, list(tokens), tokens, self.cache, store_snapshots=snapshots
-                )
+            reconcile_limited_team_tokens(self.resource, list(tokens), tokens, self.cache, store_snapshots=snapshots)
         assert self.secondary.zrange(self.key, 0, -1, withscores=True) == self.shared.zrange(
             self.key, 0, -1, withscores=True
         )
         assert REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) == before + 1
 
-    @parameterized.expand(
-        [
-            (f"{operation}_{completed}", operation, completed)
-            for operation, counts in [("replace", [0, 1, 2, 3]), ("reconcile", [0, 1, 3, 4, 6])]
-            for completed in counts
-        ]
-    )
-    def test_expired_write_budget_preserves_shared_write(self, _name: str, operation: str, completed: int) -> None:
+    @parameterized.expand([(completed,) for completed in [0, 1, 3, 4, 6]])
+    def test_expired_write_budget_preserves_shared_write(self, completed: int) -> None:
         stale = {f"stale-{index}": 1900000000 for index in range(5)}
         tokens = {f"new-{index}": 1900000100 for index in range(5)}
         for client in (self.shared, self.secondary):
             client.zadd(self.key, stale)  # type: ignore[arg-type]
         snapshots = snapshot_quota_stores({self.key: list(stale)})
-        labels = {"operation": operation, "result": "failure"}
+        labels = {"operation": "reconcile", "result": "failure"}
         before = REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
         execute = self.secondary.execute_command
         elapsed = 0
@@ -239,10 +209,7 @@ class TestQuotaMigration(SimpleTestCase):
             patch("posthog.quota_migration.monotonic", return_value=100),
             patch.object(self.secondary, "execute_command", side_effect=advance_clock) as commands,
         ):
-            if operation == "replace":
-                replace_limited_team_tokens(self.resource, tokens, self.cache)
-            else:
-                reconcile_limited_team_tokens(self.resource, list(stale), tokens, self.cache, store_snapshots=snapshots)
+            reconcile_limited_team_tokens(self.resource, list(stale), tokens, self.cache, store_snapshots=snapshots)
         assert commands.call_count == completed
         assert dict(self.shared.zrange(self.key, 0, -1, withscores=True)) == {
             token.encode(): float(score) for token, score in tokens.items()
@@ -250,15 +217,13 @@ class TestQuotaMigration(SimpleTestCase):
         assert REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) == before + 1
         assert _retry_after["redis://quota-secondary.test:6379/0"] == 130
 
-    @parameterized.expand([("replace",), ("reconcile",), ("snapshot",), ("compare",)])
+    @parameterized.expand([("reconcile",), ("snapshot",), ("compare",)])
     def test_bulk_operations_use_the_maintenance_connection(self, operation: str) -> None:
         snapshots = snapshot_quota_stores({self.key: []})
         with patch(
             "posthog.quota_migration.get_secondary_quota_redis_client", return_value=self.secondary
         ) as get_secondary:
-            if operation == "replace":
-                replace_limited_team_tokens(self.resource, {}, self.cache)
-            elif operation == "reconcile":
+            if operation == "reconcile":
                 reconcile_limited_team_tokens(self.resource, [], {}, self.cache, store_snapshots=snapshots)
             elif operation == "snapshot":
                 snapshot_quota_stores({self.key: []})
@@ -273,58 +238,18 @@ class TestQuotaMigration(SimpleTestCase):
         assert self.shared.zscore(self.key, "new") == 1900000100
         assert self.secondary.zscore(self.key, "new") is None
 
-    @parameterized.expand(
-        [
-            (f"{mode}_{scheme}", cluster, scheme)
-            for mode, cluster in [("standalone", False), ("cluster", True)]
-            for scheme in ["redis", "rediss"]
-        ]
-    )
-    def test_stalled_secondary_dns_is_bounded_and_cannot_write_later(
-        self, _name: str, cluster: bool, scheme: str
-    ) -> None:
-        release_dns = threading.Event()
-        received: list[bytes] = []
-        with socket.socket() as listener:
-            listener.bind(("127.0.0.1", 0))
-            listener.listen()
-            listener.settimeout(5)
-            port = listener.getsockname()[1]
-            addresses = socket.getaddrinfo("127.0.0.1", port, 0, socket.SOCK_STREAM)
+    def test_secondary_client_failure_does_not_fail_shared_write(self) -> None:
+        labels = {"operation": "add", "result": "failure"}
+        before = REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
+        with patch(
+            "posthog.quota_migration.get_secondary_quota_redis_client",
+            side_effect=RedisConnectionError("secondary unavailable"),
+        ):
+            add_limited_team_tokens(self.resource, {"new": 1900000100}, self.cache)
 
-            def resolve(*_args: object, **_kwargs: object) -> Sequence[tuple[int, int, int, str, object]]:
-                release_dns.wait(timeout=3)
-                return addresses
-
-            def serve() -> None:
-                with listener.accept()[0] as peer:
-                    peer.settimeout(3)
-                    received.append(peer.recv(1024))
-
-            server = threading.Thread(target=serve)
-            server.start()
-            try:
-                with (
-                    self.settings(
-                        TEST=False,
-                        BILLING_STATE_REDIS_URL=f"{scheme}://quota-dns.example:{port}/0",
-                        BILLING_STATE_REDIS_CLUSTER_ENABLED=cluster,
-                    ),
-                    patch("socket.getaddrinfo", side_effect=resolve),
-                    patch("ee.billing.quota_limiting.get_client", return_value=self.shared),
-                ):
-                    started = time.monotonic()
-                    add_limited_team_tokens(self.resource, {"first": 1900000100}, self.cache)
-                    elapsed = time.monotonic() - started
-                    add_limited_team_tokens(self.resource, {"second": 1900000100}, self.cache)
-                assert self.shared.zcard(self.key) == 2
-                assert elapsed < 1.25
-                assert received == []
-            finally:
-                release_dns.set()
-                server.join(timeout=5)
-            assert not server.is_alive()
-            assert received == [b""]
+        assert self.shared.zscore(self.key, "new") == 1900000100
+        assert self.secondary.zscore(self.key, "new") is None
+        assert REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) == before + 1
 
     def test_shared_failure_stops_the_write(self) -> None:
         with (
@@ -508,22 +433,8 @@ class TestQuotaWriteCommands(SimpleTestCase):
         pipeline_guard.start()
         self.addCleanup(pipeline_guard.stop)
 
-    def test_cluster_replacement_sends_delete_without_a_pipeline(self) -> None:
-        self.redis.zadd(self.key, {"old": 1794571200})
-        with patch("redis.cluster.NodesManager.initialize"), patch("redis.cluster.CommandsParser"):
-            client: RedisCluster = RedisCluster(host="cluster.example", port=6379)
-        with (
-            patch.object(quota_redis, "monotonic", return_value=100),
-            patch.object(client, "pipeline", side_effect=AssertionError("Unexpected cluster pipeline")),
-            patch.object(client, "execute_command", side_effect=self.redis.execute_command),
-        ):
-            quota_redis.replace_quota_set(client, self.key, {"new": 1794571300})
-        assert self.redis.zrange(self.key, 0, -1, withscores=True) == [(b"new", 1794571300.0)]
-
-    @parameterized.expand(
-        [(f"{operation}_{size}", operation, size) for operation in ["replace", "reconcile"] for size in [0, 1, 2, 3, 7]]
-    )
-    def test_bulk_writes_use_bounded_commands(self, _name: str, operation: str, size: int) -> None:
+    @parameterized.expand([(size,) for size in [0, 1, 2, 3, 7]])
+    def test_bulk_writes_use_bounded_commands(self, size: int) -> None:
         stale = {f"stale-{index}": 1794571200 for index in range(size)}
         self.redis.zadd(self.key, {"expired": 1, **stale})  # type: ignore[dict-item]
         tokens = {f"team-{index}": 1794571300 + index for index in range(size)}
@@ -533,12 +444,9 @@ class TestQuotaWriteCommands(SimpleTestCase):
             patch.object(self.redis, "pipeline", side_effect=AssertionError("Unexpected pipeline")),
             patch.object(self.redis, "execute_command", wraps=self.redis.execute_command) as commands,
         ):
-            if operation == "replace":
-                quota_redis.replace_quota_set(self.redis, self.key, tokens)
-            else:
-                quota_redis.reconcile_quota_set(self.redis, self.key, iter(stale), tokens, 1794484800)
+            quota_redis.reconcile_quota_set(self.redis, self.key, iter(stale), tokens, 1794484800)
         batches = (size + 1) // 2
-        expected_commands = ["DEL"] if operation == "replace" else ["ZREMRANGEBYSCORE"] + ["ZREM"] * batches
+        expected_commands = ["ZREMRANGEBYSCORE"] + ["ZREM"] * batches
         assert [call.args[0] for call in commands.call_args_list] == expected_commands + ["ZADD"] * batches
         assert all(len(call.args) <= 6 for call in commands.call_args_list)
         actual = {token.decode(): score for token, score in self.redis.zrange(self.key, 0, -1, withscores=True)}

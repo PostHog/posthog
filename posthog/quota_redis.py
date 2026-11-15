@@ -1,8 +1,6 @@
 import os
-import socket
 import threading
 from collections.abc import Iterable, Mapping
-from concurrent.futures import Future, InvalidStateError
 from itertools import batched
 from time import monotonic
 from typing import Any
@@ -31,64 +29,16 @@ QUOTA_WRITE_BUDGET_SECONDS = 30.0
 _clients: dict[tuple[str, bool, bool, bool], QuotaRedisClient] = {}
 _initialization_locks: dict[tuple[str, bool, bool, bool], threading.Lock] = {}
 _lock = threading.Lock()
-_secondary_connection_slots = threading.BoundedSemaphore(4)
-
-
-class _BoundedQuotaConnection(Connection):
-    def _connect(self) -> socket.socket:
-        if matched_oob_domain(self.host):
-            raise RedisConnectionError("Quota Redis host is not permitted")
-        slots = _secondary_connection_slots
-        if not slots.acquire(blocking=False):
-            raise RedisConnectionError("Quota Redis connection setup is busy")
-        result: Future[socket.socket] = Future()
-        connect = super()._connect  # type: ignore[misc] # redis-py 5.3's stubs omit the TCP connection hook.
-
-        def open_socket() -> None:
-            try:
-                sock = connect()
-                try:
-                    result.set_result(sock)
-                except InvalidStateError:
-                    sock.close()
-            except BaseException as error:
-                try:
-                    result.set_exception(error)
-                except InvalidStateError:
-                    pass
-            finally:
-                slots.release()
-
-        # Only DNS/TCP runs here. Authentication and commands stay on the caller, so a
-        # timed-out connection can never send a delayed write. Late sockets are closed.
-        try:
-            threading.Thread(target=open_socket, name="quota-redis-connect", daemon=True).start()
-        except BaseException:
-            slots.release()
-            raise
-        try:
-            return result.result(timeout=0.5)
-        except BaseException as error:
-            if not result.cancel() and result.exception() is None:
-                result.result().close()
-            if isinstance(error, TimeoutError):
-                raise RedisTimeoutError("Quota Redis DNS/TCP connection timed out") from error
-            raise
-
-
-class _BoundedQuotaSSLConnection(SSLConnection, _BoundedQuotaConnection):
-    pass
 
 
 class _QuotaConnectionPool(ConnectionPool):
     def __init__(self, **connection_kwargs: Any) -> None:
+        if matched_oob_domain(connection_kwargs.get("host", "localhost")):
+            raise RedisConnectionError("Quota Redis host is not permitted")
         connection_class = connection_kwargs.get("connection_class", Connection)
         if issubclass(connection_class, SSLConnection):
             # redis-py cluster filtering drops ssl_check_hostname before it reaches node pools.
             connection_kwargs.update(ssl_check_hostname=True, ssl_cert_reqs="required")
-            connection_kwargs["connection_class"] = _BoundedQuotaSSLConnection
-        elif connection_class is Connection:
-            connection_kwargs["connection_class"] = _BoundedQuotaConnection
         super().__init__(**connection_kwargs)
 
 
@@ -112,9 +62,8 @@ def clear_quota_redis_clients() -> None:
 
 
 def _reset_after_fork() -> None:
-    global _lock, _secondary_connection_slots
+    global _lock
     _lock = threading.Lock()
-    _secondary_connection_slots = threading.BoundedSemaphore(4)
     # Cluster clients have callback cycles: their destructors can run after this hook returns.
     for client in _clients.values():
         if isinstance(client, RedisCluster):
@@ -207,16 +156,6 @@ def get_secondary_quota_redis_client(*, maintenance: bool = False) -> QuotaRedis
 def _check_quota_write_budget(deadline: float) -> None:
     if monotonic() >= deadline:
         raise RedisTimeoutError("Quota Redis write budget exceeded")
-
-
-def replace_quota_set(client: QuotaRedisClient, key: str, tokens: Mapping[str, int]) -> None:
-    # Replacement is not atomic and has no production caller.
-    deadline = monotonic() + QUOTA_WRITE_BUDGET_SECONDS
-    _check_quota_write_budget(deadline)
-    client.execute_command("DEL", key)
-    for batch in batched(tokens.items(), QUOTA_WRITE_BATCH_SIZE, strict=False):
-        _check_quota_write_budget(deadline)
-        client.zadd(key, dict(batch))
 
 
 def reconcile_quota_set(
