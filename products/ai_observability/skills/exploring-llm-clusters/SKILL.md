@@ -119,7 +119,6 @@ WITH cluster_run AS (
     ORDER BY timestamp DESC
     LIMIT 1
 )
--- boffin: Keep member maps out of the response because they can exceed the host's output limit.
 SELECT
     JSONExtractInt(cluster, 'cluster_id') AS cluster_id,
     JSONExtractInt(cluster, 'size') AS size,
