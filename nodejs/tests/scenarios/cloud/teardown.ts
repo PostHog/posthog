@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { durationMs } from '../duration'
 import { Controller } from './admission'
 import { Aws, AwsError } from './aws'
@@ -181,6 +183,14 @@ async function discover(
         await list(`the snapshots of cluster ${id}`, () => snapshotsOf(aws, id))
     }
     return { failures, tagged: new Set(tagged.map(keyOfResource)) }
+}
+
+export async function receiptsOf(evidence: ReturnType<typeof evidenceOf>, manifest: Manifest): Promise<Receipt[]> {
+    const receipts: Receipt[] = []
+    for (const key of (await evidence.keys(keyOf(manifest.runId, 'receipts/'))).sort()) {
+        receipts.push(parseJSON(await evidence.get(key)) as Receipt)
+    }
+    return receipts
 }
 
 const SECRET = 'AWS::SecretsManager::Secret'
