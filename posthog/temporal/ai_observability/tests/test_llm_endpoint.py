@@ -367,17 +367,21 @@ class TestFlexFirstChatOpenAI:
     @pytest.mark.parametrize("use_responses_api", [False, True])
     @pytest.mark.parametrize("is_async", [False, True])
     @pytest.mark.parametrize("standard_recovers", [False, True])
-    async def test_stalled_flex_call_uses_standard_timeout_and_retries(
-        self, use_responses_api: bool, is_async: bool, standard_recovers: bool
+    @pytest.mark.parametrize("capacity_refused", [False, True])
+    async def test_flex_recovery_bounds_attempts_per_call(
+        self, use_responses_api: bool, is_async: bool, standard_recovers: bool, capacity_refused: bool
     ) -> None:
         requests: list[tuple[str, float]] = []
+        clock = {"now": 0.0}
 
         def handle(request: httpx.Request) -> httpx.Response:
             payload = json.loads(request.content)
             assert "timeout" not in payload
             assert "max_retries" not in payload
             requests.append((payload["service_tier"], request.extensions["timeout"]["read"]))
-            if len(requests) in (1, 2, 4) or not standard_recovers:
+            if len(requests) == 1 and capacity_refused:
+                return httpx.Response(429, json={"error": {"message": "capacity refused"}})
+            if len(requests) in (1, 3) or (len(requests) == 2 and not standard_recovers):
                 raise httpx.ReadTimeout("stalled request", request=request)
             return httpx.Response(200, json=_RESPONSE.model_dump() if use_responses_api else _COMPLETION)
 
@@ -387,6 +391,7 @@ class TestFlexFirstChatOpenAI:
             patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}),
             patch("openai._base_client.time.sleep"),
             patch("openai._base_client.anyio.sleep", new_callable=AsyncMock),
+            patch("posthog.temporal.ai_observability.llm_endpoint.time.monotonic", lambda: clock["now"]),
             httpx.Client(transport=transport) as sync_http,
         ):
             async with httpx.AsyncClient(transport=transport) as async_http:
@@ -406,9 +411,8 @@ class TestFlexFirstChatOpenAI:
                 llm.async_client = llm.root_async_client.chat.completions
 
                 if standard_recovers:
-                    for prompt in ("label the clusters", "label the next cluster"):
-                        result = await llm.ainvoke(prompt) if is_async else llm.invoke(prompt)
-                        assert result.text() == ("reported" if use_responses_api else "labeled")
+                    result = await llm.ainvoke("label the clusters") if is_async else llm.invoke("label the clusters")
+                    assert result.text() == ("reported" if use_responses_api else "labeled")
                 else:
                     with pytest.raises(APITimeoutError):
                         if is_async:
@@ -416,9 +420,61 @@ class TestFlexFirstChatOpenAI:
                         else:
                             llm.invoke("label the clusters")
 
-        assert requests == [("flex", FLEX_CALL_TIMEOUT)] + [("default", STANDARD_CALL_TIMEOUT)] * (
-            4 if standard_recovers else 2
+                assert requests == [("flex", FLEX_CALL_TIMEOUT), ("default", STANDARD_CALL_TIMEOUT)]
+                if capacity_refused and standard_recovers:
+                    clock["now"] = FLEX_REPROBE_COOLDOWN + 1
+                result = (
+                    await llm.ainvoke("label the next cluster") if is_async else llm.invoke("label the next cluster")
+                )
+                assert result.text() == ("reported" if use_responses_api else "labeled")
+
+        next_attempt = (
+            ("flex", FLEX_CALL_TIMEOUT)
+            if capacity_refused and standard_recovers
+            else ("default", STANDARD_CALL_TIMEOUT)
         )
+        assert requests == [
+            ("flex", FLEX_CALL_TIMEOUT),
+            ("default", STANDARD_CALL_TIMEOUT),
+            next_attempt,
+            ("default", STANDARD_CALL_TIMEOUT),
+        ]
+
+    @pytest.mark.parametrize("is_async,use_responses_api", [(False, False), (True, True)])
+    async def test_streamed_invoke_propagates_failure_without_fallback(
+        self, is_async: bool, use_responses_api: bool
+    ) -> None:
+        tiers: list[str] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            tiers.append(json.loads(request.content)["service_tier"])
+            raise httpx.ReadTimeout("stalled stream", request=request)
+
+        transport = httpx.MockTransport(handle)
+        with (
+            patch("openai._base_client.time.sleep"),
+            patch("openai._base_client.anyio.sleep", new_callable=AsyncMock),
+            httpx.Client(transport=transport) as sync_http,
+        ):
+            async with httpx.AsyncClient(transport=transport) as async_http:
+                llm = FlexFirstChatOpenAI(
+                    model="gpt-6.1-terra" if use_responses_api else "gpt-5.4",
+                    api_key="sk-test",
+                    service_tier="flex",
+                    timeout=STANDARD_CALL_TIMEOUT,
+                    max_retries=1,
+                    streaming=True,
+                    http_client=sync_http,
+                    http_async_client=async_http,
+                    use_responses_api=use_responses_api,
+                )
+                with pytest.raises(APITimeoutError):
+                    if is_async:
+                        await llm.ainvoke("label the clusters")
+                    else:
+                        llm.invoke("label the clusters")
+
+        assert tiers == ["flex"]
 
     @pytest.mark.parametrize("use_responses_api", [False, True])
     async def test_cancellation_propagates_without_standard_fallback(self, use_responses_api: bool) -> None:
