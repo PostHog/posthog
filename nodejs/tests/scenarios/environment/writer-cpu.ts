@@ -18,7 +18,7 @@ export async function writerCpuOf(
     const lastMinute = Math.floor(window.endedAt / MINUTE_MS) * MINUTE_MS - MINUTE_MS
     const deadline = Date.now() + PUBLISH_WAIT_MS
     let points = await readWriterCpu(aws, manifest, window, signal)
-    while (!points.some(({ at }) => at === lastMinute) && Date.now() < deadline) {
+    while (!points.some(({ at }) => at === lastMinute) && Date.now() < deadline && !signal?.aborted) {
         await pollWait(signal)
         if (signal?.aborted) {
             break
