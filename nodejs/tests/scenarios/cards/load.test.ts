@@ -87,6 +87,33 @@ describe('load', () => {
             'measure.0.name: unknown measurement queue_depth',
         ],
         [
+            'an unknown bar',
+            { ...card, bars: [{ name: 'writer_iops_under' }] },
+            undefined,
+            'bars.0.name: unknown bar writer_iops_under',
+        ],
+        [
+            'bar params its definition refuses',
+            { ...card, bars: [{ name: 'writer_cpu_under', params: { percent: 120 } }] },
+            undefined,
+            'bars.0.params.percent: ',
+        ],
+        [
+            'ramp steps that do not add up to the drive',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 10, for: '10s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.ramp: the ramp steps must add up to drive.for',
+        ],
+        [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
             undefined,

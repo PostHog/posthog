@@ -72,6 +72,7 @@ function checkNames(card: Card, definitions: Definitions): string[] {
         ...card.measure.flatMap((entry, i) =>
             checkNamed('measurement', `measure.${i}`, entry, definitions.measurements)
         ),
+        ...card.bars.flatMap((entry, i) => checkNamed('bar', `bars.${i}`, entry, definitions.bars)),
         ...card.valves.flatMap((entry, i) => {
             const definition = definitions.valves.find(({ name }) => name === entry.valve)
             if (!definition) {

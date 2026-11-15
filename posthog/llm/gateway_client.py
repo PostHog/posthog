@@ -309,6 +309,27 @@ def resolve_ai_gateway_config() -> AIGatewayConfig | None:
     return AIGatewayConfig(url=url, api_key=api_key)
 
 
+# A plain http URL to these hosts stays on this machine, so local development needs no certificate.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def resolve_https_ai_gateway_config() -> AIGatewayConfig | None:
+    """``resolve_ai_gateway_config``, but None when the URL would send the gateway key in clear to
+    a host off this machine.
+
+    Use it for a client that puts the key in an ``Authorization`` header itself, instead of through
+    an SDK that the caller already pinned to https.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        return None
+    parsed = urlparse(gateway.url)
+    if parsed.scheme != "https" and parsed.hostname not in _LOOPBACK_HOSTS:
+        logger.warning("ai_gateway_url_not_https")
+        return None
+    return gateway
+
+
 def _ai_property_headers(**labels: str | None) -> dict[str, str] | None:
     """Build the ``X-PostHog-Properties`` header from caller labels, dropping unset ones.
 
