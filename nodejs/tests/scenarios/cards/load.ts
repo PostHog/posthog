@@ -40,9 +40,9 @@ function problemsOf(error: z.ZodError, prefix: string): string[] {
 
 type Read = { value: unknown } | { problem: string }
 
-function parseYaml(text: string, label: string): Read {
+function parseYaml(text: () => string, label: string): Read {
     try {
-        return { value: parse(text, { maxAliasCount: 0 }) }
+        return { value: parse(text(), { maxAliasCount: 0 }) }
     } catch (error) {
         return { problem: `${label}: ${(error as Error).message}` }
     }
@@ -52,7 +52,7 @@ function readYaml(file: string, label: string): Read {
     if (!existsSync(file)) {
         return { problem: `${label}: no file at ${file}` }
     }
-    return parseYaml(readFileSync(file, 'utf8'), label)
+    return parseYaml(() => readFileSync(file, 'utf8'), label)
 }
 
 function sha256(value: unknown): string {
@@ -209,7 +209,12 @@ export function loadText(
     { card, profile }: { card: string; profile: string },
     options: Pick<LoadOptions, 'definitions'> = {}
 ): LoadedCard {
-    return check(label, parseYaml(card, 'card'), () => profileOf(parseYaml(profile, 'profile')), options)
+    return check(
+        label,
+        parseYaml(() => card, 'card'),
+        () => profileOf(parseYaml(() => profile, 'profile')),
+        options
+    )
 }
 
 function check(
