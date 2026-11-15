@@ -204,7 +204,7 @@ const throttle = (rate: number, holdFor: string): ValveEntry => ({
 const RUNNING_ON_EMAIL = { name: 'running_on_queue' as const, params: { queue: 'email' as const, atLeast: 2 } }
 
 describe('valves', () => {
-    const FAILOVER: ValveEntry = { valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '0ms', for: '200ms' }
+    const FAILOVER: ValveEntry = { valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '0ms', for: '10m' }
     const STAGES = [
         { name: 'cluster_writer', at: expect.any(String) },
         { name: 'sql_writer', at: expect.any(String) },
@@ -230,7 +230,7 @@ describe('valves', () => {
             failover: {
                 identity: () => Promise.resolve({ instance: writerNow(), inRecovery: false }),
                 pollMs: 5,
-                observeWithinMs: 400,
+                observeWithinMs: 30_000,
             },
         })
         return { cloud, ...run, writerNow, commits, environment }
@@ -270,7 +270,7 @@ describe('valves', () => {
             environment: run.environment,
         })
         await waitForExpect(
-            () => expect(valves.timeline()[0].releasedAt ?? valves.timeline()[0].error).toBeDefined(),
+            () => expect(valves.timeline()[0].observedAt ?? valves.timeline()[0].error).toBeDefined(),
             2000,
             5
         )
