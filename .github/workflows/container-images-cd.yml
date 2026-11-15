@@ -636,7 +636,6 @@ jobs:
                         - 'posthog/temporal/ingestion_acceptance_test/**'
                         - 'posthog/temporal/backfill_group_type_created_at/**'
                         - 'posthog/temporal/backfill_materialized_property/**'
-                        - 'posthog/temporal/warehouse_sources_queue_partition_management/**'
                         - 'products/security/backend/temporal/**'
                         - 'products/security/backend/logic/**'
                         - 'products/metrics/backend/temporal/**'
