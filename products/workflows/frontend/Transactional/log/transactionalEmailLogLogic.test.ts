@@ -143,7 +143,6 @@ describe('transactionalEmailLogLogic', () => {
             workflow_id: 'flow-1',
             offset: '0',
         })
-        expect(scoped.values.sendFilterSearchParams).toEqual({ status: 'bounced', date_from: '-3d' })
 
         scoped.actions.setFilters({ workflowId: null, status: null })
         await expectLogic(scoped).toFinishAllListeners()

@@ -41,6 +41,11 @@ import { MessageTemplate } from './types'
 
 export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'runs' | 'versions' | 'api'
 
+const TEMPLATE_PAGE_ROUTES = [
+    '/transactional/library/templates/:id',
+    '/workflows/library/templates/:id',
+    '/broadcasts/library/templates/:id',
+]
 // pinned: values of the `tab` URL search param - renaming breaks shared links
 const TRANSACTIONAL_TEMPLATE_TABS: TransactionalTemplateTab[] = [
     'design',
@@ -1092,20 +1097,24 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             })
         },
     })),
-    urlToAction(({ actions, props, values }) => ({
-        '/transactional/library/templates/:id': ({ id }, searchParams) => {
+    urlToAction(({ actions, props, values }) => {
+        const readTab = ({ id }: { id?: string }, searchParams: Record<string, any>): void => {
             const tab = TRANSACTIONAL_TEMPLATE_TABS.find((known) => known === searchParams.tab) ?? 'design'
             if (id === props.id && tab !== values.transactionalTab) {
                 actions.setTransactionalTab(tab)
             }
-        },
-        // The escape hatch from the AI composer changes only the search params, so this logic sees no remount.
-        [urls.workflowsLibraryTemplateNew()]: (_, searchParams) => {
-            if (props.id === 'new' && !props.messageId && searchParams[EDITOR_MODE_PARAM] === EDITOR_MODE_VALUE) {
-                actions.setTemplatePickerOpen(true)
-            }
-        },
-    })),
+        }
+        return {
+            // The escape hatch from the AI composer changes only the search params, so this logic sees no remount.
+            // It comes first because the template page routes match `new` as an id.
+            [urls.workflowsLibraryTemplateNew()]: (_, searchParams) => {
+                if (props.id === 'new' && !props.messageId && searchParams[EDITOR_MODE_PARAM] === EDITOR_MODE_VALUE) {
+                    actions.setTemplatePickerOpen(true)
+                }
+            },
+            ...Object.fromEntries(TEMPLATE_PAGE_ROUTES.map((route) => [route, readTab])),
+        }
+    }),
     afterMount(({ props, actions, values }) => {
         if (props.id !== 'new') {
             actions.loadTemplate()

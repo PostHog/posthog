@@ -129,7 +129,10 @@ describe('MessageTemplate', () => {
         }
     )
 
-    it("opens the Sends tab a send's page links back to, listing only this email's sends", async () => {
+    it.each([
+        ['the transactional library', urls.transactionalTemplate(TEMPLATE_ID)],
+        ['the workflows library', urls.workflowsLibraryTemplate(TEMPLATE_ID)],
+    ])("opens the Sends tab a send's page links back to from %s, listing only this email's sends", async (_, url) => {
         const sendRequests: Record<string, string>[] = []
         useMocks({
             get: {
@@ -142,7 +145,7 @@ describe('MessageTemplate', () => {
         })
         await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
 
-        router.actions.push(urls.transactionalTemplate(TEMPLATE_ID), { tab: 'sends', status: 'failed' })
+        router.actions.push(url, { tab: 'sends', status: 'failed' })
 
         await screen.findByText('No sends match these filters')
         expect(sendRequests.at(-1)).toMatchObject({ workflow_id: 'flow-1', status: 'failed' })
