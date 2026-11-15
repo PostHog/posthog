@@ -14,7 +14,12 @@ from products.warehouse_sources.sources.google_tag_manager.settings import (
     GOOGLE_TAG_MANAGER_PRIMARY_KEYS,
     GoogleTagManagerParentLevel,
 )
-from products.warehouse_sources.sources.sdk import SourceResponse, credentials_service, make_tracked_adapter
+from products.warehouse_sources.sources.sdk import (
+    SourceResponse,
+    credentials_service,
+    interruptible_wait,
+    make_tracked_adapter,
+)
 from products.warehouse_sources.sources.sdk.internals import NamingConvention
 
 logger = structlog.get_logger(__name__)
@@ -29,6 +34,8 @@ GTM_OAUTH_SCOPES = ["https://www.googleapis.com/auth/tagmanager.readonly"]
 REQUEST_INTERVAL_SECONDS = 4.5
 MAX_TRANSIENT_RETRIES = 5
 TRANSIENT_BACKOFF_BASE_SECONDS = 10.0
+MAX_BACKOFF_SECONDS = TRANSIENT_BACKOFF_BASE_SECONDS * 2 ** (MAX_TRANSIENT_RETRIES - 1)
+REQUEST_TIMEOUT_SECONDS = (10.0, 60.0)
 
 # Legacy-style Google error reasons that mean "over quota" rather than "no permission".
 _QUOTA_ERROR_REASONS = {"quotaExceeded", "rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded"}
@@ -80,7 +87,7 @@ class RequestThrottle:
         if self._last_request_at is not None:
             remaining = self._interval_seconds - (time.monotonic() - self._last_request_at)
             if remaining > 0:
-                time.sleep(remaining)
+                interruptible_wait(remaining)
         self._last_request_at = time.monotonic()
 
 
@@ -120,7 +127,7 @@ def _backoff_seconds(response: requests.Response, attempt: int) -> float:
     retry_after = response.headers.get("Retry-After")
     if retry_after is not None:
         try:
-            return float(retry_after)
+            return min(float(retry_after), MAX_BACKOFF_SECONDS)
         except ValueError:
             pass
     return TRANSIENT_BACKOFF_BASE_SECONDS * (2**attempt)
@@ -131,7 +138,7 @@ def _list_page(
 ) -> dict[str, Any]:
     for attempt in range(MAX_TRANSIENT_RETRIES + 1):
         throttle.wait()
-        response = session.get(url, params=params)
+        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
         if response.ok:
             return response.json()
 
@@ -165,7 +172,7 @@ def _list_page(
             attempt=attempt,
             wait_seconds=wait_seconds,
         )
-        time.sleep(wait_seconds)
+        interruptible_wait(wait_seconds)
 
     # Unreachable: the loop either returns, raises for status, or raises the quota error.
     raise AssertionError("unreachable")
@@ -249,7 +256,7 @@ def get_accessible_account_ids(session: AuthorizedSession, required_ids: set[str
     page_token: str | None = None
     while True:
         params = {"pageToken": page_token} if page_token else {}
-        response = session.get(f"{GTM_API_BASE}/accounts", params=params)
+        response = session.get(f"{GTM_API_BASE}/accounts", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
         payload = response.json()
         ids.update(str(account["accountId"]) for account in payload.get("account") or [] if account.get("accountId"))

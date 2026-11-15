@@ -8,6 +8,7 @@ import requests
 from products.warehouse_sources.sources.google_tag_manager._config import GoogleTagManagerSourceConfig
 from products.warehouse_sources.sources.google_tag_manager.google_tag_manager import (
     GTM_API_BASE,
+    MAX_BACKOFF_SECONDS,
     MAX_TRANSIENT_RETRIES,
     TRANSIENT_BACKOFF_BASE_SECONDS,
     GoogleTagManagerQuotaExceededError,
@@ -54,7 +55,7 @@ def _fake_session(pages: dict[tuple[str, str | None], dict[str, Any]]) -> mock.M
     session = mock.MagicMock()
     calls: list[tuple[str, dict[str, str]]] = []
 
-    def get(url: str, params: dict[str, str] | None = None) -> mock.MagicMock:
+    def get(url: str, params: dict[str, str] | None = None, timeout: Any = None) -> mock.MagicMock:
         query = dict(params or {})
         path = url.removeprefix(f"{GTM_API_BASE}/")
         calls.append((path, query))
@@ -115,6 +116,7 @@ def test_is_quota_error(response, expected):
     "headers,attempt,expected",
     [
         ({"Retry-After": "7"}, 0, 7.0),
+        ({"Retry-After": "3600"}, 0, MAX_BACKOFF_SECONDS),
         ({"Retry-After": "soon"}, 1, TRANSIENT_BACKOFF_BASE_SECONDS * 2),
         ({}, 0, TRANSIENT_BACKOFF_BASE_SECONDS),
         ({}, 2, TRANSIENT_BACKOFF_BASE_SECONDS * 4),
