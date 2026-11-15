@@ -1,9 +1,13 @@
 import { spawnSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { Client } from 'pg'
 import { stringify } from 'yaml'
+
+import { residentBacklogOf } from '../backlog/backlog'
+import { defaultStateDir } from '../environment/environment'
+import { residentBacklogIntact } from '../judge/invariants'
 
 const SCRIPT = path.join(__dirname, 'host-prepare.sh')
 const REPO = path.resolve(__dirname, '../../../..')
@@ -128,7 +132,15 @@ describe('host-prepare.sh', () => {
     it('migrates and seeds the run cluster with its encoded credentials, recording the backlog where the card reads it', async () => {
         expect(prepareHost({})).toBe(0)
 
-        expect(existsSync(path.join(dir, 'host', 'cache', 'posthog-scenarios', 'backlog.json'))).toBe(true)
+        const cardStateDir = defaultStateDir({ XDG_CACHE_HOME: path.join(dir, 'host', 'cache') })
+        const resident = await residentBacklogOf(
+            { name: 'resident', backlog: BACKLOG },
+            cardStateDir,
+            `postgres://posthog:posthog@localhost:5432/${database}`
+        )
+        expect(
+            residentBacklogIntact.check({ journal: [], truth: [], fetchRetries: 0, resident }, undefined)
+        ).toMatchObject({ passed: true })
 
         const { applied, seeded } = await onPostgres(
             `postgres://posthog:posthog@localhost:5432/${database}`,
