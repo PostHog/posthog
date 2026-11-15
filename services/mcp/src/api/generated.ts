@@ -123654,6 +123654,11 @@ export namespace Schemas {
       /** The template name or the sending domain. Empty for a deleted template. */
       label: string;
       /**
+         * The template that sent this row's emails. Null for a deleted template, emails sent from code, and a sending domain.
+         * @nullable
+         */
+      template_id: string | null;
+      /**
          * The email sent from code under a `template_key`, for a row of sends that have no template. Null otherwise.
          * @nullable
          */
