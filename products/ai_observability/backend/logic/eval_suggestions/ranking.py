@@ -500,7 +500,15 @@ def call_type_filters(call_types: Sequence[CallTypeRow]) -> list[dict[str, Any]]
     names = {"key": key, "value": sorted(c.name for c in call_types), "operator": "exact", "type": "event"}
     if source != "span_name":
         return [names]
-    return [names, {"key": CALL_TYPE_PROPERTIES["prompt_name"], "value": [], "operator": "is_not_set", "type": "event"}]
+    # The value repeats the operator, as the property filter UI stores it. An empty list would compile to a filter
+    # that matches every generation.
+    unset = {
+        "key": CALL_TYPE_PROPERTIES["prompt_name"],
+        "value": ["is_not_set"],
+        "operator": "is_not_set",
+        "type": "event",
+    }
+    return [names, unset]
 
 
 def review_dedupe_key(card: ReviewCard) -> str:

@@ -1,8 +1,13 @@
 from dataclasses import replace
 
+from unittest.mock import MagicMock
+
 from parameterized import parameterized
 
 from posthog.schema import LLMTrace
+
+from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions import adapters, prices, ranking
@@ -372,7 +377,7 @@ def _review_card(call_types: list[CallTypeRow]) -> ReviewCard:
             [_call_type("span_name", "answer")],
             [
                 {"key": "$ai_span_name", "value": ["answer"], "operator": "exact", "type": "event"},
-                {"key": "$ai_prompt_name", "value": [], "operator": "is_not_set", "type": "event"},
+                {"key": "$ai_prompt_name", "value": ["is_not_set"], "operator": "is_not_set", "type": "event"},
             ],
             700,
         ),
@@ -389,6 +394,7 @@ def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
     proposal = ranking.review_proposal(card, PROFILE, judge_model="gpt-5-mini")
 
     assert proposal.filters == filters
+    assert not any(isinstance(property_to_expr(f, team=MagicMock()), ast.Constant) for f in proposal.filters)
     assert proposal.estimated_weekly_runs == min(weekly_units, ranking.WEEKLY_JUDGE_RUNS)
     assert proposal.draft["evaluation_config"] == {"prompt": card.judge_prompt}
     assert (proposal.draft["target"], proposal.draft["output_config"]) == ("generation", {"allows_na": True})
