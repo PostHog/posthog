@@ -1979,8 +1979,10 @@ class TestCohortCalculationTasks(APIBaseTest):
         # Attempt 1 writes its matches, then fails, so attempt 2 mints a newer marker under an edited query.
         # Adds made before attempt 1 and between the attempts must survive. Attempt 1's rows must not: neither
         # a match only attempt 1 made, nor the duplicate rows it left for a person both attempts match.
+        # Tags unique to this run: ClickHouse keeps persons from earlier tests in the same team.
+        run = uuid4().hex[:8]
         a, s, p, q, r = (
-            create_person(team=self.team, distinct_ids=[name], properties={"tag": tag}, uuid=uuid4())
+            create_person(team=self.team, distinct_ids=[name], properties={"tag": f"{run}-{tag}"}, uuid=uuid4())
             for name, tag in (("a", "a"), ("s", "s"), ("p", "x"), ("q", "x"), ("r", "x"))
         )
         flush_persons_and_events()
@@ -1989,7 +1991,10 @@ class TestCohortCalculationTasks(APIBaseTest):
             team=self.team,
             name="static replace",
             is_static=True,
-            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag IN ('a', 's')"},
+            query={
+                "kind": "HogQLQuery",
+                "query": f"SELECT id FROM persons WHERE properties.tag IN ('{run}-a', '{run}-s')",
+            },
         )
         real_insert = insert_cohort_query_actors_into_ch
 
@@ -2021,7 +2026,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             clock.shift(10)
             cohort.insert_users_list_by_uuid([str(q.uuid)], team_id=self.team.pk, save_state=False)
             Cohort.objects.filter(pk=cohort.pk).update(
-                query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'a'"}
+                query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-a'"}
             )
             clock.shift(10)
             insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
@@ -2043,8 +2048,10 @@ class TestCohortCalculationTasks(APIBaseTest):
         # In production the replace's ClickHouse delete applies asynchronously, so the rows it removes can linger.
         # An append or an add made before it applies must not read them as membership: the copy would put pruned
         # members back in Postgres, and the append's insert and the add would skip people the delete then removes.
+        # Tags unique to this run: ClickHouse keeps persons from earlier tests in the same team.
+        run = uuid4().hex[:8]
         a, p, s = (
-            create_person(team=self.team, distinct_ids=[name], properties={"tag": name}, uuid=uuid4())
+            create_person(team=self.team, distinct_ids=[name], properties={"tag": f"{run}-{name}"}, uuid=uuid4())
             for name in ("a", "p", "s")
         )
         flush_persons_and_events()
@@ -2052,7 +2059,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             team=self.team,
             name="static replace",
             is_static=True,
-            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'a'"},
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-a'"},
         )
         start = timezone.now().replace(microsecond=0)
         with (
@@ -2078,7 +2085,10 @@ class TestCohortCalculationTasks(APIBaseTest):
             Cohort.objects.filter(pk=cohort.pk).update(
                 is_calculating=True,
                 pending_population_mode=CohortPopulationMode.APPEND,
-                query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag IN ('a', 'p')"},
+                query={
+                    "kind": "HogQLQuery",
+                    "query": f"SELECT id FROM persons WHERE properties.tag IN ('{run}-a', '{run}-p')",
+                },
             )
             insert_cohort_from_query(cohort.id, self.team.pk)
             cohort.refresh_from_db()
@@ -2134,6 +2144,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             with (
                 time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False),
                 patch("products.cohorts.backend.models.util.PRUNE_PAGE_SIZE", 1),
+                patch("products.cohorts.backend.models.util.PRUNE_DELETE_CHUNK", 1),
                 patch(
                     "products.cohorts.backend.models.util.delete_cohort_members_by_person_ids",
                     side_effect=delete_and_fail_on_first,
