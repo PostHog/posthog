@@ -64,6 +64,16 @@ describe('pg.failover', () => {
             /the lease has \d+s left, under the 1800\.8s/,
         ],
         [
+            'a lease that runs short during the precondition reads',
+            {},
+            (run) =>
+                run.cloud.beforeCall(
+                    'get-metric-data',
+                    () => (run.manifest.expiresAt = new Date(Date.now() + HOLD_MS).toISOString())
+                ),
+            /the lease has \d+s left, under the 1800\.8s/,
+        ],
+        [
             'a cluster tagged for another run',
             {},
             (run) => (run.cloud.resources.find(({ id }) => id === run.cluster)!.runTag = randomUUID()),
