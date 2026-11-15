@@ -88,6 +88,13 @@ class TestAdaptedChecks:
             ),
             # Mentioning an abort or an approval does not make a real failure a pause.
             ("connection_abort_is_a_failure", UNRECOVERED, [_span("search", "('Connection aborted.', x)")], False),
+            # A caller that aborts a request it no longer needs did not fail.
+            (
+                "aborted_call_is_not_a_failure",
+                UNRECOVERED,
+                [_span("fetch_page", "AbortError: The operation was aborted.")],
+                True,
+            ),
             (
                 "approval_service_outage_is_a_failure",
                 UNRECOVERED,
@@ -371,6 +378,43 @@ class TestAdaptedChecks:
             ("address_before_an_ellipsis", adapters.sensitive_data(), [_answer("Write to jane@acme.io...")], False),
             ("address_in_underscores", adapters.sensitive_data(), [_answer("Contact _jane@acme.io_")], False),
             ("address_before_an_em_dash", adapters.sensitive_data(), [_answer("Write to jane@acme.io—today")], False),
+            (
+                "translated_example_domain_is_registrable",
+                adapters.sensitive_data(),
+                [_answer("Write to ana@exemplo.com.br")],
+                False,
+            ),
+            (
+                "example_label_under_a_real_domain",
+                adapters.sensitive_data(),
+                [_answer("Write to ana@example.att.com")],
+                False,
+            ),
+            (
+                "subdomain_of_a_reserved_domain",
+                adapters.sensitive_data(),
+                [_answer("Write to ana@mail.example.org")],
+                True,
+            ),
+            ("reserved_top_level_domain", adapters.sensitive_data(), [_answer("Write to ana@shop.test")], True),
+            (
+                "domain_that_only_contains_example",
+                adapters.sensitive_data(),
+                [_answer("Write to ana@counterexamples.io")],
+                False,
+            ),
+            (
+                "registrable_domain_with_example_in_it",
+                adapters.sensitive_data(),
+                [_answer("Write to ana@customer-example.com")],
+                False,
+            ),
+            (
+                "example_subdomain_of_a_real_domain",
+                adapters.sensitive_data(),
+                [_answer("Write to ana@example.customer-mail.com")],
+                False,
+            ),
             ("number_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": 42})], False),
             ("empty_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": []})], False),
             (
