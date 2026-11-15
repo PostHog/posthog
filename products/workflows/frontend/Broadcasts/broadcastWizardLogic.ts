@@ -2854,6 +2854,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
     afterMount(({ actions, props, values, cache }) => {
         if (props.id !== 'new') {
+            // A copied activity link only adds `?activity=`, and the summary tab isn't in the URL, so the
+            // entry it points at would sit on a hidden tab.
+            if (router.values.searchParams.activity) {
+                actions.setSummaryTab('history')
+            }
             actions.loadBroadcast()
             return
         }
