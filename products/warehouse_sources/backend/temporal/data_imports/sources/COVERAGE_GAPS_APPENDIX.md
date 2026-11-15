@@ -13261,10 +13261,10 @@ Today (17): `affiliates`, `checkout_configurations`, `company_token_transactions
 
 Diffed against: <https://raw.githubusercontent.com/whopio/whopsdk-python/main/reference.md>
 
-- [ ] `Variants, formerly plans (GET /api/v1/variants; compatibility GET /api/v1/plans)` — resolve membership plan IDs into prices, billing intervals, trial terms, and product variants (high)
-- [ ] `Payment fees (GET /api/v1/payments/{id}/fees)` — calculate net revenue after processing, platform, and affiliate fees (high)
-- [ ] `Financial activity (GET /api/v1/financial_activity)` — reconcile every movement of money with sales, refunds, and account balances (high)
-- [ ] `Payouts (GET /api/v1/payouts)` — reconcile seller withdrawals and track payment settlement status (high)
+- [x] `Variants, formerly plans (GET /api/v1/variants; compatibility GET /api/v1/plans)` — resolve membership plan IDs into prices, billing intervals, trial terms, and product variants (high) → `variants` (incremental on `created_at`, dated API versions only)
+- [ ] `Payment fees (GET /api/v1/payments/{id}/fees)` — calculate net revenue after processing, platform, and affiliate fees (high); skipped: no list call, so it needs one request per payment, its rows carry no ID, and `financial_activity` already has every fee line with its `payment_id`
+- [x] `Financial activity (GET /api/v1/financial_activity)` — reconcile every movement of money with sales, refunds, and account balances (high) → `financial_activity` (incremental on `posted_at`, dated API versions only)
+- [x] `Payouts (GET /api/v1/payouts)` — reconcile seller withdrawals and track payment settlement status (high) → `payouts` (incremental on `created_at`, dated API versions only)
 - [ ] `Transfers (GET /api/v1/transfers)` — track money sent between accounts and reconcile revenue sharing (medium)
 - [ ] `Member logs (GET /api/v1/members/{id}/logs)` — analyze membership activity and changes that current membership records do not preserve (medium)
 - [ ] `Reviews (GET /api/v1/reviews)` — compare customer ratings and feedback across products (medium)
