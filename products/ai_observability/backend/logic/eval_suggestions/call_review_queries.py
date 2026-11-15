@@ -36,6 +36,8 @@ _CALL_TYPE_COLUMNS = """
             toString(cityHash64(left(input, {key_chars})))
         ) AS call_type"""
 
+# A generation without a trace id is left out: selection caps calls per trace, so all of them would count as one
+# trace, and a card's examples link to traces.
 _GENERATIONS = """
     FROM posthog.ai_events AS ai_events
     WHERE event = '$ai_generation'
@@ -43,6 +45,7 @@ _GENERATIONS = """
       AND timestamp < {end}
       AND notEmpty(coalesce(model, ''))
       AND notEmpty(coalesce(input, ''))
+      AND notEmpty(trace_id)
       AND cityHash64(trace_id) % 1000 < {per_mille}"""
 
 _CALL_TYPES_SQL = f"""
@@ -56,45 +59,52 @@ ORDER BY calls DESC, call_type
 LIMIT {{limit}}
 """
 
-# Rows are ordered by a hash of their uuid, which spreads each call type's candidates over the day.
+# Candidates are chosen by a hash of their uuid, which spreads each call type's candidates over the day. The
+# subquery chooses them from ids and call types alone, so the sort never holds message bodies, and only the chosen
+# rows read their input and output.
 _CALLS_SQL = f"""
-SELECT event_uuid, trace_id, source, call_type, input_text, output_text
-FROM (
-    SELECT
-        toString(uuid) AS event_uuid,
-        trace_id,
-        {_CALL_TYPE_COLUMNS},
+SELECT
+    toString(uuid) AS event_uuid,
+    trace_id,
+    {_CALL_TYPE_COLUMNS},
+    if(
+        length(input) <= {{max_input}},
+        input,
         if(
-            length(input) <= {{max_input}},
-            input,
-            if(
-                startsWith(input, '['),
-                concat(
-                    '[',
-                    arrayStringConcat(
-                        arrayConcat(
-                            arrayFilter(m -> length(m) <= {{max_first}}, arraySlice(JSONExtractArrayRaw(input), 1, 1)),
-                            arrayFilter(
-                                m -> length(m) <= {{max_last}},
-                                arraySlice(
-                                    JSONExtractArrayRaw(input),
-                                    greatest(2, length(JSONExtractArrayRaw(input)) - {{last_messages}} + 1)
-                                )
+            startsWith(input, '['),
+            concat(
+                '[',
+                arrayStringConcat(
+                    arrayConcat(
+                        arrayFilter(m -> length(m) <= {{max_first}}, arraySlice(JSONExtractArrayRaw(input), 1, 1)),
+                        arrayFilter(
+                            m -> length(m) <= {{max_last}},
+                            arraySlice(
+                                JSONExtractArrayRaw(input),
+                                greatest(2, length(JSONExtractArrayRaw(input)) - {{last_messages}} + 1)
                             )
-                        ),
-                        ','
+                        )
                     ),
-                    ']'
+                    ','
                 ),
-                left(input, {{max_input}})
-            )
-        ) AS input_text,
-        left(if(notEmpty(coalesce(output_choices, '')), output_choices, coalesce(output, '')), {{max_output}}) AS output_text
-    {_GENERATIONS}
-)
-WHERE concat(source, ':', call_type) IN {{keys}}
+                ']'
+            ),
+            left(input, {{max_input}})
+        )
+    ) AS input_text,
+    left(if(notEmpty(coalesce(output_choices, '')), output_choices, coalesce(output, '')), {{max_output}}) AS output_text
+{_GENERATIONS}
+  AND uuid IN (
+    SELECT uuid
+    FROM (
+        SELECT uuid, {_CALL_TYPE_COLUMNS}
+        {_GENERATIONS}
+    )
+    WHERE concat(source, ':', call_type) IN {{keys}}
+    ORDER BY cityHash64(toString(uuid))
+    LIMIT {{per_type}} BY source, call_type
+  )
 ORDER BY cityHash64(event_uuid)
-LIMIT {{per_type}} BY source, call_type
 """
 
 
