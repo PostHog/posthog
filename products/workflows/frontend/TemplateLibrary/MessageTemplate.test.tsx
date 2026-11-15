@@ -148,7 +148,7 @@ describe('MessageTemplate', () => {
             },
             post: {
                 '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
-                    const { query } = (await request.json()).query
+                    const { query } = ((await request.json()) as { query: { query: string } }).query
                     const isEmailTotals =
                         query.includes('instance_id, metric_name') && query.includes('email_bounced_hard')
                     return [
