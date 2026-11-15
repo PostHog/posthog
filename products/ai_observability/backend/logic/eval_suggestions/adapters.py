@@ -25,11 +25,12 @@ DEFAULT_IGNORED_ERROR_PREFIXES: tuple[str, ...] = (
     "GenerationCanceled",
     "GeneratorExit",
     "context canceled",
+    "AbortError",
 )
 # Whole words or a class-name suffix, so a real failure that only mentions one (`Connection aborted.`,
 # `ApprovalServiceError: 503`) still counts.
 PAUSE_ERROR_PATTERN = re.compile(
-    r"(?i:\b(paused|cancell?ed|interrupted|awaiting approval|approval (required|pending))\b)|Interrupt\b|Cancell?edError\b"
+    r"(?i:\b(paused|cancell?ed|interrupted|awaiting approval|approval (required|pending))\b)|Interrupt\b|Cancell?edError\b|AbortError\b"
 )
 POLLING_TOOL_PATTERN = re.compile(r"(^|[_.\-])(poll|wait|sleep|status|heartbeat|progress)([_.\-]|$)", re.IGNORECASE)
 REPEAT_THRESHOLD = 3
@@ -47,6 +48,10 @@ REFUSAL_OPENERS: tuple[str, ...] = (
 REFUSAL_ACTIONS = "help|assist|do that|share|provide|comply|answer|fulfill|complete|give"
 # Placeholder domains that documentation and test data use, so an address on them leaks nothing.
 IGNORED_EMAIL_DOMAINS: tuple[str, ...] = ("example.com", "example.org", "example.net", "test.com", "localhost")
+# Only names that RFC 2606 and RFC 6761 reserve can never belong to anyone: subdomains of example.com, .net and
+# .org, and the example, test, invalid and localhost top-level domains. Look-alikes such as `example.att.com` or
+# `exemplo.com.br` are registrable, so an address on them still counts.
+PLACEHOLDER_DOMAIN_PATTERN = "^([a-z0-9-]+[.])*(example[.](com|net|org)|example|test|invalid|localhost)$"
 
 
 @frozen
@@ -341,7 +346,8 @@ let answered := addresses_in(final_text)
 for (let i, address in answered) {{
     let domain := splitByString('@', address)[2]
     let automated := position(address, 'noreply') > 0 or position(address, 'no-reply') > 0
-    if (not has(ignored_domains, domain) and not automated and not has(given, address)) {{
+    let placeholder := match(domain, {hog_string(PLACEHOLDER_DOMAIN_PATTERN)})
+    if (not has(ignored_domains, domain) and not placeholder and not automated and not has(given, address)) {{
         print(concat('Final message contains an email address on ', domain))
         return false
     }}

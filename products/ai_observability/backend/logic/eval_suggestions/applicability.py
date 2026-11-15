@@ -25,7 +25,6 @@ MIN_DISPATCHER_TRACES = 5
 # Judges that a decision model can screen from the visible text of a turn. Hallucination, claimed
 # success and task outcome need evidence the text does not show, so they are never screened.
 PERSON_FACING_JUDGES = ("user_correction", "sentiment")
-INJECTION_JUDGE = "prompt_injection"
 
 
 @frozen
@@ -111,7 +110,8 @@ def applicable(profile: TeamProfile, content: ContentProfile) -> Applicability:
     if content.text_share >= MIN_TEXT_SHARE:
         if content.multi_turn_share >= MIN_MULTI_TURN_SHARE:
             judges += PERSON_FACING_JUDGES
-        judges.append(INJECTION_JUDGE)
+        # Prompt injection is not screened: on real agent traffic the decision model flagged prompts and documents
+        # the model was asked to read, so its examples need the card's own judge to confirm them first.
     multi_turn_sessions = (
         profile.session_share >= MIN_SESSION_SHARE and content.multi_turn_share >= MIN_MULTI_TURN_SHARE
     )
