@@ -4,7 +4,7 @@ Insight alert **Test delivery** sends a synthetic `$insight_alert_firing` event 
 The destination count includes every template and custom HogFunctions without a template.
 Destinations must belong to the alert's project, reference its `alert_id`, listen for an allowed alert event, and be enabled and not deleted.
 Only `internal_destination` functions with the `internal-events` filter source receive these events and count toward delivery.
-The `alert_id` binding must be a string with the `exact` operator, or no operator for legacy filters.
+The `alert_id` binding must be a string with the `exact` operator, or no operator for legacy filters, and no other `alert_id` condition may exclude the alert.
 Counts describe configured destinations; the consumer evaluates additional property filters when it handles the event.
 
 Delivery receipts include these destinations when an alert firing is queued successfully.

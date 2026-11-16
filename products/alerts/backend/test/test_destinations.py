@@ -800,6 +800,15 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
             alert_id="alert-1",
             properties=[{"key": "alert_id", "value": "alert-1", "operator": "icontains"}],
         )
+        for contradicting in (
+            {"key": "alert_id", "value": "alert-2", "operator": "exact"},
+            {"key": "alert_id", "value": "alert-1", "operator": "is_not"},
+        ):
+            self._make_hog_function(
+                template_id=template_id,
+                alert_id="alert-1",
+                properties=[{"key": "alert_id", "value": "alert-1", "operator": "exact"}, contradicting],
+            )
 
         destinations = list_active_alert_destinations(
             team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)

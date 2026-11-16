@@ -225,22 +225,40 @@ def configured_destination_template_ids(
 def _active_alert_destinations_qs(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> QuerySet[HogFunction]:
-    return owned_alert_destinations_qs(
-        team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
-    ).filter(
-        Func(
-            F("filters"),
-            Value(
-                '$.properties[*] ? (@.key == "alert_id" && @.value.type() == "string" && @.value == $alert_id'
-                ' && (!(exists(@.operator)) || @.operator == "exact"))'
+    return (
+        owned_alert_destinations_qs(
+            team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
+        )
+        .annotate(
+            # The consumer ANDs every property filter, so a second alert_id condition that this
+            # alert fails (another id, or `is_not` this one) means the function never runs for it.
+            contradicts_alert_binding=Func(
+                F("filters"),
+                Value(
+                    '$.properties[*] ? (@.key == "alert_id" && !(@.value.type() == "string" && @.value == $alert_id'
+                    ' && (!(exists(@.operator)) || @.operator == "exact")))'
+                ),
+                Value({"alert_id": alert_id}, output_field=JSONField()),
+                function="jsonb_path_exists",
+                output_field=BooleanField(),
+            )
+        )
+        .filter(
+            Func(
+                F("filters"),
+                Value(
+                    '$.properties[*] ? (@.key == "alert_id" && @.value.type() == "string" && @.value == $alert_id'
+                    ' && (!(exists(@.operator)) || @.operator == "exact"))'
+                ),
+                Value({"alert_id": alert_id}, output_field=JSONField()),
+                function="jsonb_path_exists",
+                output_field=BooleanField(),
             ),
-            Value({"alert_id": alert_id}, output_field=JSONField()),
-            function="jsonb_path_exists",
-            output_field=BooleanField(),
-        ),
-        type="internal_destination",
-        filters__source="internal-events",
-        enabled=True,
+            contradicts_alert_binding=False,
+            type="internal_destination",
+            filters__source="internal-events",
+            enabled=True,
+        )
     )
 
 
