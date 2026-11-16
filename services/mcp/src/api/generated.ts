@@ -17785,6 +17785,21 @@ export namespace Schemas {
     export interface AutoresearchLiveTrainingRun {
       /** Unique UUID of the live training run. */
       readonly id: string;
+      /**
+         * Parent Task ID of the run's sandbox. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_id: string | null;
+      /**
+         * Task run ID of the run's sandbox, which holds its log, cost and failure reason. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_run_id: string | null;
+      /**
+         * Relative URL to the run's Task detail page. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_url: string | null;
       /** Maximum experiments allowed for this run. */
       readonly iteration_budget: number;
       /** Experiments the agent has recorded so far in this run. */
@@ -116988,6 +117003,28 @@ export namespace Schemas {
       Ready: 'ready',
     } as const;
 
+    export interface SiteStyle {
+      /** Hex color of the page surface behind its main content. */
+      background_color: string;
+      /** Hex color of the page's main text. */
+      text_color: string;
+      /**
+         * Hex background color of the page's most prominent button. Null when none was found.
+         * @nullable
+         */
+      button_color: string | null;
+      /**
+         * Hex text color of that button. Null when no button was found.
+         * @nullable
+         */
+      button_text_color: string | null;
+      /**
+         * Corner radius of that button in CSS pixels. Null when no button was found.
+         * @nullable
+         */
+      button_border_radius: number | null;
+    }
+
     export interface SiteSnapshot {
       /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
        *
@@ -117010,6 +117047,8 @@ export namespace Schemas {
          * @nullable
          */
       viewport_width: number | null;
+      /** Colors read from the snapshot's page, to suggest a survey appearance that matches the site. Null until the snapshot is ready, or when the page's colors could not be read. */
+      site_style: SiteStyle | null;
     }
 
     export interface SlackAppChannelJoinResult {
@@ -139701,6 +139740,11 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights that carry at least one of them.
+     * @minLength 1
+     */
+    tags?: string;
+    /**
      * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
      */
     type?: string;
@@ -146284,6 +146328,22 @@ export namespace Schemas {
      * @minLength 1
      */
     device: SurveysSiteSnapshotRetrieveDevice;
+    /**
+     * URL condition to use instead of the survey's saved one, for an editor with unsaved targeting. Empty means every page. Leave out to use the saved targeting.
+     */
+    url?: string;
+    /**
+     * How `url` matches a page URL. Defaults to `icontains`. Ignored without `url`.
+     *
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * @minLength 1
+     */
+    url_match_type?: SurveysSiteSnapshotRetrieveUrlMatchType;
     };
 
     export type SurveysSiteSnapshotRetrieveDevice = typeof SurveysSiteSnapshotRetrieveDevice[keyof typeof SurveysSiteSnapshotRetrieveDevice];
@@ -146292,6 +146352,18 @@ export namespace Schemas {
     export const SurveysSiteSnapshotRetrieveDevice = {
       Desktop: 'desktop',
       Mobile: 'mobile',
+    } as const;
+
+    export type SurveysSiteSnapshotRetrieveUrlMatchType = typeof SurveysSiteSnapshotRetrieveUrlMatchType[keyof typeof SurveysSiteSnapshotRetrieveUrlMatchType];
+
+
+    export const SurveysSiteSnapshotRetrieveUrlMatchType = {
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
     } as const;
 
     export type SurveysStatsRetrieveParams = {

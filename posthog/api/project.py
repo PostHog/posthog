@@ -125,7 +125,7 @@ from posthog.permissions import (
     get_authenticator_scoped_organization_ids,
     get_organization_from_view,
 )
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
     parse_feature_to_entitlement,

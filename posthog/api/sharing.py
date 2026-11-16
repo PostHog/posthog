@@ -54,7 +54,7 @@ from posthog.rate_limit import (
     SharePasswordVolumeThrottle,
     SustainedRateThrottle,
 )
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissions
