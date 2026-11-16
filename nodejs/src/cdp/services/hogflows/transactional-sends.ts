@@ -253,12 +253,13 @@ export class TransactionalSends {
             return null
         }
         stages.start('idempotency')
+        // Async mode reads only the Postgres claim, so it never depends on Valkey.
+        const isAsync = this.deps.runIntake.modeOf(teamId) === 'async'
         let recalled: Recalled
         try {
-            recalled =
-                this.deps.runIntake.modeOf(teamId) === 'async'
-                    ? await this.deps.runIntake.recallWithin(claim, 'transactional-email')
-                    : await this.deps.runIntake.recall(claim)
+            recalled = isAsync
+                ? await this.deps.runIntake.recallWithin(claim, 'transactional-email')
+                : await this.deps.runIntake.recall(claim)
         } catch (error) {
             logger.error('🔑', 'Transactional email claim lookup failed', {
                 error: error instanceof Error ? error.message : String(error),
@@ -268,7 +269,7 @@ export class TransactionalSends {
         if (recalled.status === 'absent') {
             return null
         }
-        const stored = await this.deps.idempotencyKeys.queuedReplay(teamId, idempotencyKey)
+        const stored = isAsync ? null : await this.deps.idempotencyKeys.queuedReplay(teamId, idempotencyKey)
         const replayed = recalled.status === 'replayed'
         // The claim keeps none of these, so a record Valkey lost falls back to what the matching request asked for.
         const scheduledAt =
@@ -276,7 +277,7 @@ export class TransactionalSends {
             (replayed && requestedAt && requestedAt.getTime() > Date.now() ? requestedAt.toISOString() : null)
         const sender = replayed && !stored && send ? senderOfCodeSend(teamId, send, await senderLookup) : undefined
         const senderKind = stored ? stored.senderKind : sender?.kind === 'email_sandbox' ? sender.kind : undefined
-        if (!stored) {
+        if (!stored && !isAsync) {
             // Restores a record Valkey lost, because an older pod reads only Valkey and would queue a second run.
             await this.deps.idempotencyKeys.markQueued(
                 teamId,
@@ -330,14 +331,16 @@ export class TransactionalSends {
         // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer. A
         // sensitive send stays synchronous, so its login code or reset link never reaches Kafka.
         const isAsync = this.deps.runIntake.modeOf(team.id) === 'async' && !carriesSecret(invocation)
+        // Async mode takes no Valkey lease: the consumer's Postgres claim deduplicates the run.
+        const leasesKey = idempotencyKey && !isAsync
         const leaseToken = randomUUID()
         const releaseKey = async (): Promise<void> => {
-            if (idempotencyKey) {
+            if (leasesKey) {
                 stages.start('idempotency')
                 await idempotencyKeys.release(team.id, idempotencyKey, leaseToken)
             }
         }
-        if (idempotencyKey) {
+        if (leasesKey) {
             stages.start('idempotency')
             const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, leaseToken)
             switch (reservation.status) {
@@ -436,24 +439,6 @@ export class TransactionalSends {
             if (isAsync) {
                 stages.start('intake_produce')
                 const produced = await this.deps.runIntake.produce(run)
-                if (produced !== 'accepted') {
-                    await releaseKey()
-                } else if (idempotencyKey) {
-                    // Recorded as a synchronous insert records it, so before the consumer claims the run a reused key
-                    // is refused and a retry replays its attachment totals.
-                    stages.start('idempotency')
-                    await idempotencyKeys.markQueued(
-                        team.id,
-                        idempotencyKey,
-                        fingerprint,
-                        invocation.id,
-                        leaseToken,
-                        attachmentTotals,
-                        scheduledAt?.toISOString(),
-                        scheduledAt ? new Date(Date.now() + MAX_SCHEDULE_AHEAD_MS + CLOCK_SKEW_MARGIN_MS) : undefined,
-                        senderKind
-                    )
-                }
                 return producedResult(produced, invocation.id, scheduledAt, attachmentTotals)
             }
             stages.start('queue_insert')

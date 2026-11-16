@@ -2751,18 +2751,21 @@ describe('CDP API', () => {
                 expect(producedTo('cdp_intake_')).toEqual([])
             })
 
-            it('replays a keyed retry and refuses a reused key before the consumer claims the first send', async () => {
+            it('queues a keyed send and its retry under one run id while Valkey is down', async () => {
+                const keys = api['transactionalEmailIdempotencyKeys']
+                for (const method of ['reserve', 'markQueued', 'queuedReplay', 'release'] as const) {
+                    jest.spyOn(keys, method).mockRejectedValue(new Error('valkey unavailable'))
+                }
                 const headers = authorized()
                 const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+
                 const first = await send(hogFlow.id, headers, keyed)
-
                 const retry = await send(hogFlow.id, headers, keyed)
-                const reused = await send(hogFlow.id, headers, { ...keyed, to: 'other@example.com' })
 
-                expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
-                expect(reused.status).toEqual(422)
-                expect(reused.body).toEqual({ error: 'idempotency_key_reused' })
-                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
+                expect(first.status).toEqual(202)
+                expect(retry.status).toEqual(202)
+                expect(retry.body.invocation_id).toEqual(first.body.invocation_id)
+                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(2)
             })
 
             it('inserts a sensitive send synchronously, so its secret never reaches Kafka', async () => {
