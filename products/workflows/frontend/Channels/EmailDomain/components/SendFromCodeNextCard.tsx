@@ -6,7 +6,6 @@ import { emailDomainLogic } from '../emailDomainLogic'
 import { emailDomainSenderLogic } from '../emailDomainSenderLogic'
 import { HedgehogMailbox } from '../hoggies'
 
-/** The ready step's next action when the setup started from transactional emails: back there, to add the send. */
 export function SendFromCodeNextCard(): JSX.Element {
     const { domain } = useValues(emailDomainSenderLogic)
     const { originConfig } = useValues(emailDomainLogic)

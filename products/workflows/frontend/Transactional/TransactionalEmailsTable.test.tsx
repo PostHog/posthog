@@ -145,7 +145,7 @@ describe('TransactionalEmailsTable', () => {
 
     const renderWithCodeSends = (
         get: Record<string, unknown>,
-        { wizardOffered = false }: { wizardOffered?: boolean } = {}
+        { wizardOffered = false, selfHosted = false }: { wizardOffered?: boolean; selfHosted?: boolean } = {}
     ): ReturnType<typeof render> => {
         useMocks({
             get: {
@@ -153,6 +153,7 @@ describe('TransactionalEmailsTable', () => {
                 '/api/projects/:team_id/transactional_code_emails/': [],
                 '/api/projects/:team_id/integrations/': { results: [] },
                 '/api/projects/:team_id/tags': [],
+                ...(selfHosted ? { '/_preflight': { cloud: false, is_debug: false } } : {}),
                 ...get,
             } as Record<string, any>,
         })
@@ -215,19 +216,20 @@ describe('TransactionalEmailsTable', () => {
     })
 
     it.each([
-        ['leads with the Wizard command once it is offered', true],
-        ['shows only the snippet until the Wizard command is offered', false],
-    ])('%s', async (_case, wizardOffered) => {
-        const { container } = renderWithCodeSends({}, { wizardOffered })
+        ['leads with the Wizard command once it is offered', true, false, true],
+        ['shows only the snippet until the Wizard command is offered', false, false, false],
+        ['shows only the snippet on a self-hosted instance the Wizard cannot reach', true, true, false],
+    ])('%s', async (_case, wizardOffered, selfHosted, wizardShown) => {
+        const { container } = renderWithCodeSends({}, { wizardOffered, selfHosted })
         await waitFor(() => {
             expect(screen.getByText('Node.js')).toBeInTheDocument()
             expect(
                 container
                     .querySelector('[data-attr=wizard-command-block]')
                     ?.textContent?.includes('transactional-email') ?? false
-            ).toBe(wizardOffered)
+            ).toBe(wizardShown)
         })
-        expect(screen.queryByText('Or add the send yourself') !== null).toBe(wizardOffered)
+        expect(screen.queryByText('Or add the send yourself') !== null).toBe(wizardShown)
     })
 
     it('offers sending from code only once the templates loaded', async () => {

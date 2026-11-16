@@ -1,20 +1,31 @@
 import { useValues } from 'kea'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-command/WizardCommandBlock'
 
 import { SendFromCodeSurface } from './firstCodeSendLogic'
-import { ProjectSenderSnippet } from './ProjectSenderSnippet'
+import { SendFromCodeSnippet } from './SendFromCodeSnippet'
+import { sendingDomainLogic } from './sendingDomainLogic'
 
-/** How to add the first send to a server: the Wizard command once it ships, and the snippet to do it by hand. */
 export function SendFromCodeSetup({ surface }: { surface: SendFromCodeSurface }): JSX.Element {
     const wizardOffered = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD')
     const { isCloudOrDev } = useValues(preflightLogic)
+    const { sendingDomain, integrationsFailed } = useValues(sendingDomainLogic)
 
-    // The Wizard only reaches cloud and dev instances, so self-hosted keeps the snippet alone.
+    const snippet =
+        !sendingDomain && !integrationsFailed ? (
+            <LemonSkeleton className="h-60" />
+        ) : (
+            <SendFromCodeSnippet
+                from={sendingDomain?.status === 'verified' ? sendingDomain.from : null}
+                surface={surface}
+            />
+        )
     if (!wizardOffered || !isCloudOrDev) {
-        return <ProjectSenderSnippet surface={surface} />
+        return snippet
     }
     return (
         <div className="flex flex-col gap-4">
@@ -23,7 +34,7 @@ export function SendFromCodeSetup({ surface }: { surface: SendFromCodeSurface })
                 description="The setup agent writes the email in your code, adds your project secret API key to your env file, and adds the first send to your server code."
             />
             <h4 className="m-0 text-sm font-semibold">Or add the send yourself</h4>
-            <ProjectSenderSnippet surface={surface} />
+            {snippet}
         </div>
     )
 }

@@ -405,7 +405,15 @@ describe('EmailDomainScene', () => {
             'href',
             expect.stringMatching(new RegExp(`${urls.transactional()}$`))
         )
-        expect(screen.queryByText(`Send email from ${DOMAIN}`)).toBeNull()
+
+        cleanup()
+        await open(`${urls.workflowsEmailDomain('new')}?from=transactional`)
+        typeInto('email-domain-another-domain', 'acme.com')
+        click('email-domain-use-custom-domain')
+        expect(screen.getByText('Open it').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringMatching(new RegExp(`${urls.workflowsEmailDomain(SENDER_ID)}\\?from=transactional$`))
+        )
     })
 
     it('returns to workflows when the link names an origin the setup does not know', async () => {
