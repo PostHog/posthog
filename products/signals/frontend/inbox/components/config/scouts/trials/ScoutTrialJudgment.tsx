@@ -1,5 +1,6 @@
 import { LemonBanner, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
 
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { pluralize } from 'lib/utils/strings'
 
 import type {
@@ -79,7 +80,7 @@ export function ScoutTrialJudgment({
                                     <div className="flex min-w-0 flex-col gap-3 text-sm">
                                         <div className="flex flex-col gap-1">
                                             <strong>Judge's reasoning</strong>
-                                            <p className="m-0 whitespace-pre-wrap">{verdict.reason}</p>
+                                            <LemonMarkdown disableImages>{verdict.reason}</LemonMarkdown>
                                             <span className="text-xs text-muted">{`Confidence: ${verdict.confidence}`}</span>
                                         </div>
                                         {!!verdict.evidence?.length && (

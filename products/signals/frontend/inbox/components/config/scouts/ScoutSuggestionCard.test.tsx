@@ -79,8 +79,8 @@ describe('ScoutSuggestionCard', () => {
         logic.unmount()
     })
 
-    // The body wraps the tags, the title and the motivation, so a name built from its children
-    // leads with the "Turn on" tag while the press only opens the form.
+    // The body wraps the title and the tags, so a name built from its children reads every tag while
+    // the press only opens the form.
     it.each([
         {
             kind: 'canonical',
@@ -96,5 +96,18 @@ describe('ScoutSuggestionCard', () => {
         const { getByLabelText, getByTestId } = render(<ScoutSuggestionCard item={item} surface="strip" />)
 
         expect(getByLabelText(label)).toBe(getByTestId('scout-suggestion-body'))
+    })
+
+    // The producer cites reports as Markdown links in the motivation, and a link inside the body
+    // button is not valid HTML, so the motivation has to render outside it.
+    it('renders the motivation outside the card body', () => {
+        const item = {
+            ...mockScoutSuggestions[1],
+            why_here: 'Signups on the team plan dropped, as [Signup drop-off](https://example.com/report) shows.',
+        }
+        const { getByTestId, getByText } = render(<ScoutSuggestionCard item={item} surface="strip" />)
+
+        const motivation = getByText(/Signups on the team plan dropped/)
+        expect(getByTestId('scout-suggestion-body').contains(motivation)).toBe(false)
     })
 })

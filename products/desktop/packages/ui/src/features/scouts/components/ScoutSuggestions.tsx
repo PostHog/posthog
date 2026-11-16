@@ -9,6 +9,7 @@ import {
 } from "@posthog/core/scouts/scoutSuggestions";
 import { Badge, Button } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { AgentTextMarkdown } from "@posthog/ui/features/inbox/components/utils/AgentTextMarkdown";
 import { useProjectTimezone } from "@posthog/ui/features/projects/useProjectTimezone";
 import { formatTimezoneAbbreviation } from "@posthog/ui/primitives/timezone";
 import { track } from "@posthog/ui/shell/analytics";
@@ -101,9 +102,10 @@ function SuggestionCard({
         </span>
         {item.gap ? <Badge variant="info">New ground</Badge> : null}
       </div>
-      <p className="line-clamp-3 text-[11.5px] text-gray-10 leading-snug">
-        {item.why_here}
-      </p>
+      <AgentTextMarkdown
+        content={item.why_here}
+        className="line-clamp-3 text-[11.5px] text-gray-10 leading-snug"
+      />
       <span className="text-[11px] text-gray-9">
         {suggestionMetaLine(
           item.proposed_config,

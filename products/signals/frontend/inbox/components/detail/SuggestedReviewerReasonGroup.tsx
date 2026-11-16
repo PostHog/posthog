@@ -1,5 +1,7 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
@@ -48,9 +50,12 @@ export function SuggestedReviewerReasonGroup({
                         </LemonTag>
                     ))}
                 </div>
-                <p className="m-0 min-w-0 break-words text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">
+                <LemonMarkdown
+                    className="min-w-0 break-words text-xs leading-snug text-tertiary [overflow-wrap:anywhere]"
+                    disableImages
+                >
                     {reason}
-                </p>
+                </LemonMarkdown>
             </div>
             <div className="mt-1 flex flex-col">
                 {reviewers.map((reviewer) => {

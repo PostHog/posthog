@@ -1,12 +1,20 @@
 import { deriveHeadline, parsePrUrlParts } from './reportPresentation'
 
 describe('deriveHeadline', () => {
-    it('shows a markdown link label without its syntax or URL', () => {
-        expect(
-            deriveHeadline(
-                'Account: [Example workspace](https://example.com/accounts/example) | 12 active users need review. More detail follows.'
-            )
-        ).toBe('Account: Example workspace | 12 active users need review.')
+    it.each([
+        {
+            name: 'a markdown link label without its syntax or URL',
+            summary:
+                'Account: [Example workspace](https://example.com/accounts/example) | 12 active users need review. More detail follows.',
+            headline: 'Account: Example workspace | 12 active users need review.',
+        },
+        {
+            name: 'a leading heading without its marker',
+            summary: '## Checkout errors doubled\n\nMore detail follows.',
+            headline: 'Checkout errors doubled',
+        },
+    ])('shows $name', ({ summary, headline }) => {
+        expect(deriveHeadline(summary)).toBe(headline)
     })
 
     it('does not parse markdown links beyond the headline input limit', () => {

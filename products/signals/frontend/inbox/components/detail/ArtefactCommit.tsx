@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { signalsReportArtefactsDiff } from 'products/signals/frontend/generated/api'
@@ -73,7 +74,11 @@ export function ArtefactCommit({
                     className="shrink-0"
                 />
             </div>
-            {content.note?.trim() ? <span className="block text-secondary text-xs mt-1">{content.note}</span> : null}
+            {content.note?.trim() ? (
+                <LemonMarkdown className="mt-1 text-xs text-secondary" disableImages>
+                    {content.note}
+                </LemonMarkdown>
+            ) : null}
 
             {expanded ? (
                 <div className="mt-2 border-t pt-2">
