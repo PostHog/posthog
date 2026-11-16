@@ -123,8 +123,9 @@ class TestIssueTagRules(BaseTest):
         applied = ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).values_list("key", flat=True)
         assert result == (TaggerRun(source=Source.RULE),)
         disabled_with = (broken.disabled_data or {}).get("properties")
-        assert (disabled_with, set(applied)) == (
-            (BIG_UNHANDLED_ORDER, {self.big_order.key, self.unhandled.key}) if at_fault else (None, set())
+        still_listed = broken.key in {definition.key for definition in enabled_issue_tag_definitions(self.team.id)}
+        assert (disabled_with, set(applied), still_listed) == (
+            (BIG_UNHANDLED_ORDER, {self.big_order.key, self.unhandled.key}, False) if at_fault else (None, set(), True)
         )
 
     def test_reads_no_rules_while_issue_tags_are_off(self) -> None:
