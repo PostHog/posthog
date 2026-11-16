@@ -165,6 +165,25 @@ class TestFanOut:
         assert resumed.rows == [{"key": 30, parent_key: 3}]
         assert child_path.format(1) not in resumed.paths
 
+    @parameterized.expand(FAN_OUT_CASES)
+    def test_skips_parent_deleted_before_its_children_are_read(
+        self, _name: str, schema: str, parent_path: str, child_path: str, parent_key: str
+    ) -> None:
+        driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
+        result = driver.run(
+            schema,
+            route(
+                {
+                    parent_path: [_response(_envelope([{"id": 1}, {"id": 2}], next_page=None))],
+                    child_path.format(1): [_response({"errors": []}, status=404)],
+                    child_path.format(2): [_response(_envelope([{"key": 20}], next_page=None))],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"key": 20, parent_key: 2}]
+
     def test_child_item_without_data_fails_fast(self) -> None:
         driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
         result = driver.run(

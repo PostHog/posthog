@@ -1,10 +1,13 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, ResponseAction
 
 # Max `per_page` the list endpoints share (some accept more, none accept less).
 PER_PAGE = 100
+
+# A deal or order deleted after the parent page was read returns 404 for its children; skip it.
+CHILD_404_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 
 @dataclass(frozen=False)
@@ -66,6 +69,7 @@ ZENDESK_SELL_ENDPOINTS: dict[str, ZendeskSellEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "deal_id"},
+            child_response_actions=CHILD_404_IGNORE,
         ),
     ),
     # The docs do not say whether a line item id is unique outside its order, so the key includes it.
@@ -80,6 +84,7 @@ ZENDESK_SELL_ENDPOINTS: dict[str, ZendeskSellEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "order_id"},
+            child_response_actions=CHILD_404_IGNORE,
         ),
     ),
     # Small config / lookup resources — full refresh, no partitioning.
