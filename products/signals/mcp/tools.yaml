@@ -547,12 +547,14 @@ tools:
             quickly, and `checked_at` says when it was last compared with the full inbox. A report created after that
             time joins at the next scheduled build. Pass `max_age_minutes` when the list must be newer than that: an
             older list is checked against every candidate report, which can take some seconds, and rebuilt if the inbox
-            changed. `refresh` and `focus` always start a build, and builds are rate limited. A user with no stored list
+            changed. `refresh` and `focus` start a build, and builds are rate limited. A user with no stored list
             gets the reports in inbox order with `fallback_reason: building`. When `building` is true, call again a
             little later, or pass `wait_seconds` (up to 30, counted from the start of the call) to wait for the new list
             in the same call. `personalized: false` means the user has no activity summary yet or the list is in inbox
             order (see `fallback_reason`). `stale: true` without `building` means a report in the list changed since the
-            build; the next scheduled build updates it, or pass `refresh`. `status: unavailable` means personal ranking
+            build; the next scheduled build updates it, or pass `refresh`. `focus_dropped: true` means the list ignores
+            the `focus`, because another build was running or a limit was reached: tell the user, and when `building`
+            is true, call again with the same `focus` once it is false. `status: unavailable` means personal ranking
             is off for now.
         feature_flag: personal-inbox-ranking
     inbox-reports-leave-reviewers:

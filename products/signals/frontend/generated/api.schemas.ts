@@ -7599,6 +7599,8 @@ export interface PersonalRankingApi {
     results: PersonalRankingEntryApi[]
     /** Reports the list leaves out because another report in it covers the same work. */
     folded: PersonalRankingFoldApi[]
+    /** True when you passed `focus` but no build with it started, because another build was already running, a build limit was reached, or the build could not start. The list does not reflect your focus. When `building` is true, wait for that build to finish, then call again with `focus`. False when the focus was applied or you passed none. */
+    focus_dropped: boolean
 }
 
 /**
@@ -12882,7 +12884,7 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
 
 export type SignalsReportsForMeRetrieveParams = {
     /**
-     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.
+     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it. When another build is already running or a build limit is reached, no focused build starts and the response has `focus_dropped: true`.
      * @maxLength 2000
      */
     focus?: string

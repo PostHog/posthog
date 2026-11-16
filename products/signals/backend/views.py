@@ -2103,7 +2103,9 @@ class SignalReportViewSet(
             "The request never waits on the model. By default it returns the last stored list quickly, and "
             "`checked_at` says how current it is. Pass `max_age_minutes` to check an older list against every "
             "candidate report, which can take some seconds. `refresh`, `focus` and your first request start a "
-            "background build and set `building: true`. With no stored list, the request returns your reports in "
+            "background build and set `building: true`. A `focus` request that finds a build already running, or "
+            "meets a build limit, starts no focused build and sets `focus_dropped: true`. With no stored list, the "
+            "request returns your reports in "
             "inbox order with `fallback_reason: building`. Pass `wait_seconds` to wait a short time for the new "
             "list. Only the user the list is about can read it."
         ),
@@ -2143,6 +2145,7 @@ class SignalReportViewSet(
                 "fallback_reason": served.fallback_reason,
                 "refresh": query["refresh"],
                 "has_focus": bool(query.get("focus")),
+                "focus_dropped": served.focus_dropped,
                 "wait_seconds": query["wait_seconds"],
                 "max_age_minutes": query.get("max_age_minutes"),
                 "result_count": len(served.results),

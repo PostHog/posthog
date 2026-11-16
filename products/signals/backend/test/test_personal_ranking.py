@@ -1399,6 +1399,24 @@ class TestForMeEndpoint(APIBaseTest):
         # A read that queued no build spent no bucket, so the burst still has one build left.
         assert self._get(refresh="true")["building"] is not builds
 
+    def test_a_focus_read_that_meets_a_running_build_says_the_focus_was_dropped(self) -> None:
+        self._claimed_report("First")
+        self._get()
+        self._run_builds()
+        assert self._get(refresh="true")["building"] is True
+
+        with patch.object(personal_ranking_serve.time, "sleep", side_effect=lambda _seconds: self._run_builds()):
+            body = self._get(focus="checkout", wait_seconds=5)
+
+        assert (self._state(body), body["focus_dropped"], self._rows(), self.queued) == (
+            (False, True, False),
+            True,
+            2,
+            [],
+        )
+        body = self._get(focus="checkout")
+        assert (body["building"], body["focus_dropped"], len(self.queued)) == (True, False, 1)
+
     @parameterized.expand(
         [
             ("resolved", lambda report: SignalReport.objects.filter(id=report.id).update(status="resolved")),

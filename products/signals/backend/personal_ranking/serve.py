@@ -15,7 +15,8 @@ build that stores a list for the current inputs while the read runs answers the 
 the read queues no second build. A lock lets one build per person run at a time, and each queued build spends two
 per-person token buckets. A build that may call the model also spends the shared daily limit of the region
 (`build_budget.py`). `wait_seconds` waits a bounded time for a queued or running build to store or check its
-list, counted from the start of the request.
+list, counted from the start of the request. A `focus` request that finds a build running, or meets a limit, queues
+no focused build, so it serves the list it has with `focus_dropped`.
 """
 
 import time
@@ -141,6 +142,8 @@ class ServedRanking:
     ranked_count: int
     results: tuple[ServedEntry, ...]
     folded: tuple[ServedFold, ...]
+    # True when the request had a focus but queued no build with it, so the list does not reflect the focus.
+    focus_dropped: bool = False
     timings: ReadTimings = ReadTimings()
 
 
@@ -390,9 +393,14 @@ def serve_personal_ranking(
     check_ms: int | None = None
     gather_ms: int | None = None
     wait_ms: int | None = None
+    focus_dropped = False
 
     def timed(served: ServedRanking) -> ServedRanking:
-        return dataclasses.replace(served, timings=ReadTimings(check_ms=check_ms, gather_ms=gather_ms, wait_ms=wait_ms))
+        return dataclasses.replace(
+            served,
+            focus_dropped=focus_dropped,
+            timings=ReadTimings(check_ms=check_ms, gather_ms=gather_ms, wait_ms=wait_ms),
+        )
 
     def checked_within(row: PersonalInboxRanking, minutes: int) -> bool:
         return (row.checked_at or row.created_at) >= now - datetime.timedelta(minutes=minutes)
@@ -485,6 +493,8 @@ def serve_personal_ranking(
     )
     if isinstance(start, PersonalInboxRanking):
         return timed(_serve_row(start, candidates, limit=limit, cached=True, stale=False, building=False))
+    # A running build holds the lock and may be unfocused, so its list cannot answer the focus.
+    focus_dropped = focus is not None and start != "started"
     building = start in ("started", "running")
     if building and wait_seconds:
         wait_started = time.monotonic()

@@ -1899,7 +1899,7 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
 })
 
 /**
- * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. The request never waits on the model. By default it returns the last stored list quickly, and `checked_at` says how current it is. Pass `max_age_minutes` to check an older list against every candidate report, which can take some seconds. `refresh`, `focus` and your first request start a background build and set `building: true`. With no stored list, the request returns your reports in inbox order with `fallback_reason: building`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list is about can read it.
+ * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. The request never waits on the model. By default it returns the last stored list quickly, and `checked_at` says how current it is. Pass `max_age_minutes` to check an older list against every candidate report, which can take some seconds. `refresh`, `focus` and your first request start a background build and set `building: true`. A `focus` request that finds a build already running, or meets a build limit, starts no focused build and sets `focus_dropped: true`. With no stored list, the request returns your reports in inbox order with `fallback_reason: building`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list is about can read it.
  * @summary Get your personal ranked inbox
  */
 export const SignalsReportsForMeRetrieveParams = () => zod.object({
@@ -1928,7 +1928,7 @@ export const SignalsReportsForMeRetrieveQueryParams = () => zod.object({
         .max(signalsReportsForMeRetrieveQueryFocusMax)
         .optional()
         .describe(
-            'Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.'
+            'Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it. When another build is already running or a build limit is reached, no focused build starts and the response has `focus_dropped: true`.'
         ),
     limit: zod
         .number()
