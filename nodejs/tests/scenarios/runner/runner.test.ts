@@ -57,9 +57,13 @@ import { Environment, RoleExit, defaultStateDir } from '../environment/environme
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
+import { main } from '../main'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
+import { STORE_URL } from '../store/client'
+import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { RunResult, Runner, createRunner } from './runner'
+import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
     const actual = jest.requireActual('~/common/utils/request')
@@ -71,6 +75,7 @@ const SMOKE = load(SMOKE_CARD)
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
 const PROFILE_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:1/scenario'
 const NEVER_ABORTED = new AbortController().signal
+const { [STORE_URL]: _developerStore, ...processEnv } = process.env
 
 const withSettings = (settings: Record<string, string>): LoadedCard => ({
     ...SMOKE,
@@ -141,7 +146,7 @@ describe('runner', () => {
         stateDir = path.join(cacheHome, 'posthog-scenarios')
         duringReset = () => undefined
         runner = createRunner(environment, {
-            ...process.env,
+            ...processEnv,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: PROCESS_DATABASE_URL,
             ...api.credentials,
@@ -227,7 +232,7 @@ describe('runner', () => {
             })
         )
         const onHost = createRunner(environment, {
-            ...process.env,
+            ...processEnv,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: PROCESS_DATABASE_URL,
             SCENARIO_RUN_MANIFEST: manifest,
@@ -258,12 +263,77 @@ describe('runner', () => {
             recorded: undefined,
             captured: undefined,
             scorecardError: undefined,
+            host: os.hostname(),
             event: api.captured[0].properties,
         })
         expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toEqual(onDisk)
         expect(readdirSync(result.evidenceDir).filter((file) => file.startsWith('scorecard'))).toEqual([
             'scorecard.json',
         ])
+    })
+
+    describe('reporting to the run store', () => {
+        let store: TestStore
+
+        const runnerWith = (storeEnv: NodeJS.ProcessEnv): Runner =>
+            createRunner(environment, {
+                ...processEnv,
+                XDG_CACHE_HOME: cacheHome,
+                DATABASE_URL: PROCESS_DATABASE_URL,
+                ...api.credentials,
+                ...storeEnv,
+            })
+
+        beforeAll(async () => {
+            store = await startTestStore('runner')
+        })
+
+        afterAll(() => store.close())
+
+        it('stores the scorecard it publishes, with its adapters and the host it ran on', async () => {
+            const result = await runnerWith(store.envOf(cacheHome)).run(
+                withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
+                NEVER_ABORTED
+            )
+
+            expect(result).toMatchObject({ recorded: true, stored: true })
+            expect(await store.read(result.runId)).toMatchObject({
+                scorecard: api.captured[0].properties,
+                adapters: ['workflows'],
+                owners: [],
+                host: os.hostname(),
+            })
+        })
+
+        it('keeps its status when the run store is down, and publish --all stores the run later', async () => {
+            jest.spyOn(process.stdout, 'write').mockReturnValue(true)
+            const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+            const withoutStore = await runner.run(loaded, NEVER_ABORTED)
+            const result = await runnerWith(storeEnvOf(cacheHome, UNREACHABLE_STORE)).run(loaded, NEVER_ABORTED)
+
+            expect(result).toMatchObject({
+                recorded: true,
+                storeError: expect.stringMatching(/^the run store did not answer/),
+            })
+            expect(result.stored).toBeUndefined()
+            expect({ status: result.status, statusReason: result.statusReason, exitCode: exitCodeOf(result) }).toEqual({
+                status: withoutStore.status,
+                statusReason: withoutStore.statusReason,
+                exitCode: exitCodeOf(withoutStore),
+            })
+
+            const published = await main(['publish', '--all'], {
+                ...processEnv,
+                XDG_CACHE_HOME: cacheHome,
+                ...store.envOf(cacheHome),
+            })
+
+            expect(published).toBe(EXIT_CODE.passed)
+            expect(await store.read(result.runId)).toMatchObject({
+                scorecard: api.captured[1].properties,
+                host: os.hostname(),
+            })
+        })
     })
 
     it.each<[string, boolean, AbortSignal, RegExp]>([
@@ -381,7 +451,7 @@ describe('runner', () => {
                 proxied.port = String((server.address() as AddressInfo).port)
                 const bounded = createRunner(
                     environment,
-                    { ...process.env, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
+                    { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
                     { seedWithinMs: 2000 }
                 )
 
@@ -774,7 +844,7 @@ describe('runner through seed, drive and judge', () => {
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
-            ...process.env,
+            ...processEnv,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: defaultConfig.DATABASE_URL,
             CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
@@ -936,6 +1006,7 @@ describe('runner through seed, drive and judge', () => {
                 recorded: undefined,
                 captured: undefined,
                 scorecardError: undefined,
+                host: os.hostname(),
                 event: api.captured[0]?.properties,
             })
             expect(api.captured.map(({ properties }) => properties)).toEqual([

@@ -1,4 +1,4 @@
-import { asToolbarProject } from '~/toolbar/shared/toolbarProject'
+import { asToolbarProject } from 'lib/toolbar/toolbarProject'
 
 import { APP_MESSAGE_OPEN_URL, APP_MESSAGE_PING, OpenUrlResponse, PingResponse } from '../messaging/appMessages'
 import { PAGE_TOOLBAR_PORT, PageToolbarTokens } from '../messaging/pageToolbarBridge'

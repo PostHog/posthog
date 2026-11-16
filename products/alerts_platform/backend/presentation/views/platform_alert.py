@@ -33,7 +33,8 @@ from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
 )
-from posthog.scopes import APIScopeObject, scopes_not_covered
+from posthog.scopes.catalog import APIScopeObject
+from posthog.scopes.checks import scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts_platform.backend.facade import api as platform_api
