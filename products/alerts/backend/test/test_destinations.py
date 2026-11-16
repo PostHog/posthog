@@ -803,6 +803,8 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
         for contradicting in (
             {"key": "alert_id", "value": "alert-2", "operator": "exact"},
             {"key": "alert_id", "value": "alert-1", "operator": "is_not"},
+            {"key": "alert_id", "value": ["alert-1"], "operator": "is_not"},
+            {"key": "alert_id", "value": ["alert-2", "alert-3"], "operator": "exact"},
         ):
             self._make_hog_function(
                 template_id=template_id,
@@ -814,8 +816,9 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
             alert_id="alert-1",
             name="Alerts — Signups (firing) → Not alert 2",
             properties=[
-                {"key": "alert_id", "value": "alert-1", "operator": "exact"},
+                {"key": "alert_id", "value": "alert-1", "operator": None, "type": None},
                 {"key": "alert_id", "value": "alert-2", "operator": "is_not"},
+                {"key": "alert_id", "value": ["alert-1", "alert-2"], "operator": "exact"},
                 {"key": "alert_id", "value": "alert-1", "operator": "is_not", "type": "person"},
             ],
         )

@@ -222,17 +222,27 @@ def configured_destination_template_ids(
     return frozenset(cast(Collection[str], template_ids))
 
 
-# A string `alert_id` condition on event properties. A person or group condition reads other
-# properties, so it neither binds nor excludes the alert. A missing type is a legacy event filter.
-_ALERT_ID_CONDITION = '@.key == "alert_id" && (!(exists(@.type)) || @.type == "event") && @.value.type() == "string"'
-_EXACT_OPERATOR = '(!(exists(@.operator)) || @.operator == "exact")'
-_BOUND_TO_THIS_ALERT_PATH = f"$.properties[*] ? ({_ALERT_ID_CONDITION} && {_EXACT_OPERATOR} && @.value == $alert_id)"
+# An `alert_id` condition on event properties. A person or group condition reads other
+# properties, so it neither binds nor excludes the alert. A missing or null type is an event
+# filter, and a missing or null operator is `exact`, as the consumer reads them.
+_EVENT_ALERT_ID = '@.key == "alert_id" && (!(exists(@.type)) || @.type == null || @.type == "event")'
+_EXACT_OPERATOR = '(!(exists(@.operator)) || @.operator == null || @.operator == "exact")'
+# The consumer compares a list value by membership.
+_VALUE_IS_AN_ID = '(@.value.type() == "string" || @.value.type() == "array")'
+_VALUE_MATCHES_THIS_ALERT = (
+    '((@.value.type() == "string" && @.value == $alert_id)'
+    ' || (@.value.type() == "array" && exists(@.value[*] ? (@ == $alert_id))))'
+)
+# Only a single string id binds a function to one alert.
+_BOUND_TO_THIS_ALERT_PATH = (
+    f'$.properties[*] ? ({_EVENT_ALERT_ID} && {_EXACT_OPERATOR} && @.value.type() == "string" && @.value == $alert_id)'
+)
 # The consumer ANDs every property filter, so a second alert_id condition that this alert fails
-# (exact on another id, or `is_not` this one) means the function never runs for it. Conditions
+# (exact on other ids, or `is_not` this one) means the function never runs for it. Conditions
 # this alert passes, such as `is_not` another id, are kept.
 _EXCLUDES_THIS_ALERT_PATH = (
-    f"$.properties[*] ? ({_ALERT_ID_CONDITION} && (({_EXACT_OPERATOR} && @.value != $alert_id)"
-    ' || (@.operator == "is_not" && @.value == $alert_id)))'
+    f"$.properties[*] ? ({_EVENT_ALERT_ID} && (({_EXACT_OPERATOR} && {_VALUE_IS_AN_ID}"
+    f' && !{_VALUE_MATCHES_THIS_ALERT}) || (@.operator == "is_not" && {_VALUE_MATCHES_THIS_ALERT})))'
 )
 
 
