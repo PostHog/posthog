@@ -2162,14 +2162,17 @@ class TestSharingResourceEditChecks(APIBaseTest):
         sharing = Mock(spec=SharingConfiguration)
         for field_name in SharingConfiguration.shareable_resource_fields():
             setattr(sharing, field_name, None)
-        sharing.interviewee_context = Mock()
+        sharing.retired_resource = Mock()
         sharing.team = self.team
 
         request = Mock(method="PATCH", data={})
         request.user = self.user
         view = Mock(team=self.team)
 
-        with self.assertRaises(PermissionDenied) as caught:
+        with (
+            patch.dict("posthog.api.sharing.SHARING_RESOURCE_ACCESS_CHECKS", {"retired_resource": None}),
+            self.assertRaises(PermissionDenied) as caught,
+        ):
             check_can_access_sharing_configuration(view, request, sharing)
 
         assert "cannot be shared through this endpoint" in str(caught.exception)
