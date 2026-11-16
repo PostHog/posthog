@@ -47,6 +47,7 @@ class TestFixHealthCheckTileFlagCalls(TestMigrations):
         copy = Insight.objects.get(id=self.copy)
         saved = LiveInsight(team=self.team, query=copy.query)
         saved.generate_query_metadata()
+        assert saved.query_metadata is not None
         assert copy.query == _tile(migration.NEW_QUERY)
         assert copy.query_metadata == {**saved.query_metadata, "updated_at": ANY}
 
