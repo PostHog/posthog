@@ -607,7 +607,7 @@ describe('API helper', () => {
 
     describe('events table header', () => {
         afterEach(() => {
-            window.sessionStorage.clear()
+            window.history.replaceState({}, '', '/')
         })
 
         it.each([
@@ -630,8 +630,8 @@ describe('API helper', () => {
                     return headers
                 },
             },
-        ])("sends the tab's events table with $request", async ({ send }) => {
-            window.sessionStorage.setItem('ph_new_events_schema', '0')
+        ])("sends the page's events table with $request", async ({ send }) => {
+            window.history.replaceState({}, '', '/dashboard/5?ph_new_events_schema=0')
 
             const headers = await send()
 

@@ -2,18 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
 
-import {
-    SceneMenuBarCheckboxItem,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-} from '~/layout/scenes/components/SceneMenuBar'
+import { SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 
 import { newEventsTableLogic } from './newEventsTableLogic'
 
 export function NewEventsTableSceneMenu({ dataAttrKey }: { dataAttrKey: string }): JSX.Element | null {
-    const { newEventsTableAvailable, newEventsTableEnabled } = useValues(newEventsTableLogic)
-    const { setNewEventsTable, openOtherEventsTableTab } = useActions(newEventsTableLogic)
+    const { newEventsTableAvailable } = useValues(newEventsTableLogic)
+    const { openEventsTableTab } = useActions(newEventsTableLogic)
 
     if (!newEventsTableAvailable) {
         return null
@@ -22,20 +17,19 @@ export function NewEventsTableSceneMenu({ dataAttrKey }: { dataAttrKey: string }
     return (
         <SceneMenuBarMenu label="Staff only" dataAttr={`${dataAttrKey}-menubar-staff`}>
             <SceneMenuBarItem
-                onClick={openOtherEventsTableTab}
-                data-attr={`${dataAttrKey}-menubar-open-other-events-table`}
+                onClick={() => openEventsTableTab(true)}
+                data-attr={`${dataAttrKey}-menubar-open-new-events-table`}
             >
                 <IconExternal />
-                <span>{newEventsTableEnabled ? 'Open with classic events table' : 'Open with new events table'}</span>
+                Open with new events table
             </SceneMenuBarItem>
-            <SceneMenuBarSeparator />
-            <SceneMenuBarCheckboxItem
-                checked={newEventsTableEnabled}
-                onCheckedChange={setNewEventsTable}
-                data-attr={`${dataAttrKey}-menubar-new-events-table`}
+            <SceneMenuBarItem
+                onClick={() => openEventsTableTab(false)}
+                data-attr={`${dataAttrKey}-menubar-open-classic-events-table`}
             >
-                New events table
-            </SceneMenuBarCheckboxItem>
+                <IconExternal />
+                Open with classic events table
+            </SceneMenuBarItem>
         </SceneMenuBarMenu>
     )
 }

@@ -15,7 +15,6 @@ describe('newEventsTableLogic', () => {
 
     beforeEach(() => {
         document.cookie = 'ph_new_events_schema=; path=/; max-age=0'
-        window.sessionStorage.clear()
         reload = jest.fn()
         Object.defineProperty(window, 'location', { value: { reload }, configurable: true })
         initKeaTests()
@@ -37,56 +36,55 @@ describe('newEventsTableLogic', () => {
         { session: 'a staff user', user: { is_staff: true, is_impersonated: false }, acts: true },
         { session: 'an impersonated session', user: { is_staff: false, is_impersonated: true }, acts: true },
         { session: 'a regular user', user: { is_staff: false, is_impersonated: false }, acts: false },
-    ])('a link that turns the new table on for its tab, opened by $session', ({ user, acts }) => {
-        router.actions.push('/insights', { ph_new_events_schema: '1', other: 'kept' })
+    ])('a page that asks for the new table, opened by $session', ({ user, acts }) => {
+        router.actions.push('/insights', { ph_new_events_schema: '1' })
 
         const logic = mountAs(user)
 
-        expect(window.sessionStorage.getItem('ph_new_events_schema')).toBe(acts ? '1' : null)
-        expect(document.cookie).not.toContain('ph_new_events_schema')
-        expect(reload).toHaveBeenCalledTimes(acts ? 1 : 0)
-        expect(Object.keys(router.values.searchParams)).toEqual(acts ? ['other'] : ['ph_new_events_schema', 'other'])
         expect(logic.values.newEventsTableActive).toBe(acts)
+        expect(document.cookie).not.toContain('ph_new_events_schema')
+        expect(reload).not.toHaveBeenCalled()
     })
 
     it.each([
-        { link: '1', reloads: false, enabled: true },
-        { link: '0', reloads: true, enabled: false },
-    ])('a link to table $link in a browser on the new table', ({ link, reloads, enabled }) => {
-        document.cookie = 'ph_new_events_schema=1; path=/'
-        router.actions.push('/insights', { ph_new_events_schema: link })
+        { cookie: false, page: '1', enabled: true },
+        { cookie: true, page: '0', enabled: false },
+    ])('a page asking for table $page beats a browser cookie of $cookie', ({ cookie, page, enabled }) => {
+        if (cookie) {
+            document.cookie = 'ph_new_events_schema=1; path=/'
+        }
+        router.actions.push('/insights', { ph_new_events_schema: page })
 
         const logic = mountAs({ is_staff: true })
 
-        expect(reload).toHaveBeenCalledTimes(reloads ? 1 : 0)
-        expect(router.values.searchParams).toEqual({})
-        expect(document.cookie).toContain('ph_new_events_schema=1')
         expect(logic.values.newEventsTableEnabled).toBe(enabled)
     })
 
-    it('switching back clears the cookie and the tab choice, and reloads', () => {
+    it("switching back clears the cookie and the page's choice, and reloads", () => {
         document.cookie = 'ph_new_events_schema=1; path=/'
-        window.sessionStorage.setItem('ph_new_events_schema', '1')
+        router.actions.push('/insights', { ph_new_events_schema: '1', other: 'kept' })
         const logic = mountAs({ is_staff: true })
-        expect(logic.values.newEventsTableActive).toBe(true)
 
         logic.actions.setNewEventsTable(false)
 
         expect(document.cookie).not.toContain('ph_new_events_schema')
-        expect(window.sessionStorage.getItem('ph_new_events_schema')).toBeNull()
+        expect(router.values.searchParams).toEqual({ other: 'kept' })
         expect(logic.values.newEventsTableActive).toBe(false)
         expect(reload).toHaveBeenCalledTimes(1)
     })
 
-    it('opens the same page in a new tab on the other table', () => {
+    it.each([
+        { enabled: true, value: '1' },
+        { enabled: false, value: '0' },
+    ])('opens the same page in a new tab on table $value', ({ enabled, value }) => {
         const open = jest.spyOn(window, 'open').mockReturnValue(null)
         router.actions.push('/dashboard/1', { date_from: '-7d' })
         const logic = mountAs({ is_staff: true })
 
-        logic.actions.openOtherEventsTableTab()
+        logic.actions.openEventsTableTab(enabled)
 
         expect(open).toHaveBeenCalledWith(
-            `${router.values.location.pathname}?date_from=-7d&ph_new_events_schema=1`,
+            `${router.values.location.pathname}?date_from=-7d&ph_new_events_schema=${value}`,
             '_blank',
             'noopener'
         )
