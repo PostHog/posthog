@@ -246,12 +246,16 @@ describe('TransactionalEmailsTable', () => {
         expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
         expect(container.querySelector('[data-attr=send-from-code-snippet]')).not.toBeInTheDocument()
 
-        const writeText = jest.fn().mockResolvedValue(undefined)
-        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+        const clipboard = {
+            text: '',
+            writeText: async (text: string): Promise<void> => {
+                clipboard.text = text
+            },
+        }
+        Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
         fireEvent.click(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!)
-        await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
-        expect(writeText.mock.calls[0][0]).toContain('PostHog project token: phc_default-team-api-token')
-        expect(writeText.mock.calls[0][0]).toContain('Leave out the from address.')
+        await waitFor(() => expect(clipboard.text).toContain('PostHog project token: phc_default-team-api-token'))
+        expect(clipboard.text).toContain('Leave out the from address.')
 
         fireEvent.click(container.querySelector('[data-attr=send-from-code-show-code]')!)
 
