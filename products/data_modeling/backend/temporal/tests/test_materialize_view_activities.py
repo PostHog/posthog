@@ -2586,7 +2586,7 @@ class TestHogqlTableDescribeSettings:
             yield clickhouse_client
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", get_test_client
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", get_test_client
         ):
             batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
