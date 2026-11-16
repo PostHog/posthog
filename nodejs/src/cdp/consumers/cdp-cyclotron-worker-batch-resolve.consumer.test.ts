@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { register } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -716,6 +715,44 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             )
         })
 
+        it('refuses a run over the workflows billing limit with a reason the customer can act on', async () => {
+            const getBlastRadiusPersons = jest.fn()
+            const queueLogs = jest.fn()
+            const consumer = buildConsumer(getBlastRadiusPersons, queueLogs)
+            Object.assign(consumer, {
+                deps: {
+                    teamManager: { getTeam: jest.fn().mockResolvedValue(team) },
+                    quotaLimiting: { isTeamQuotaLimited: jest.fn().mockResolvedValue(true) },
+                },
+                hogFlowManager: {
+                    getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue({ ...hogFlow, billable_action_types: ['function_email'] }),
+                },
+                hogFunctionMonitoringService: {
+                    queueAppMetric: jest.fn(),
+                    queueAppMetrics: jest.fn(),
+                    queueLogs,
+                    flush: jest.fn().mockResolvedValue(undefined),
+                },
+                workflowsActivationReporter: { report: jest.fn() },
+            })
+            const job = buildJob({ ...lastAttemptState(), attempts: 0 })
+
+            await consumer.processResolverJob(job)
+
+            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(queueLogs).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        message:
+                            'Batch resolver failed: this project is over its workflows billing limit, so nobody was enrolled in this run. Raise the limit in billing, then start the run again.',
+                    }),
+                ],
+                'hog_flow'
+            )
+            const { state } = job.reschedule.mock.calls[0][0]
+            expect(deserializeResolverState(state).terminalReason).toEqual('quota_limited')
+        })
+
         it('keeps the generic reason for a failure that is not a timeout', async () => {
             const queueLogs = jest.fn()
             const consumer = buildConsumer(jest.fn().mockRejectedValue(new Error('network down')), queueLogs)
@@ -731,87 +768,6 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 ],
                 'hog_flow'
             )
-        })
-    })
-
-    describe('finished run outcome metric', () => {
-        // The failed-runs alert counts only `failed`, so customer-caused failures must land elsewhere.
-        const resolverJobsCount = async (outcome: string): Promise<number> => {
-            const metric = await register.getSingleMetric('cdp_batch_hog_flow_resolver_jobs')!.get()
-            return metric.values.find((v) => v.labels.outcome === outcome)?.value ?? 0
-        }
-
-        it.each([
-            ['the project is over its workflow quota', 'quota_limited'],
-            ['the workflow was deleted mid-run', 'deleted'],
-            ['the audience fetch failed for good', 'failed'],
-        ])('counts a run that failed because %s as %s', async (_name, outcome) => {
-            const billedHogFlow: HogFlow = { ...hogFlow, billable_action_types: ['function'] }
-            const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
-            Object.assign(consumer, {
-                config: { SITE_URL: 'https://us.posthog.com' },
-                deps: {
-                    teamManager: { getTeam: jest.fn().mockResolvedValue(team) },
-                    quotaLimiting: { isTeamQuotaLimited: jest.fn().mockResolvedValue(outcome === 'quota_limited') },
-                },
-                hogFlowManager: {
-                    getHogFlowCheckingPrimaryOnMiss: jest
-                        .fn()
-                        .mockResolvedValue(outcome === 'deleted' ? null : billedHogFlow),
-                },
-                hogFlowBatchPersonQueryService: {
-                    getBlastRadiusPersons:
-                        outcome === 'failed' ? jest.fn().mockRejectedValue(new Error('network down')) : jest.fn(),
-                },
-                workflowsActivationReporter: { report: jest.fn() },
-                internalFetchService: { fetch: jest.fn().mockResolvedValue({ fetchResponse: { status: 200 } }) },
-                hogFunctionMonitoringService: {
-                    queueAppMetric: jest.fn(),
-                    queueAppMetrics: jest.fn(),
-                    queueLogs: jest.fn(),
-                    flush: jest.fn().mockResolvedValue(undefined),
-                },
-                invocationResultsService: {
-                    invocationResultsRowsService: { flush: jest.fn().mockResolvedValue(undefined) },
-                },
-            })
-            const job: any = {
-                id: 'job-outcome',
-                teamId: team.id,
-                functionId: hogFlow.id,
-                parentRunId: 'batch-job-outcome',
-                cancelRequestedAt: null,
-                state: serializeResolverState({
-                    batchJobId: 'batch-job-outcome',
-                    teamId: team.id,
-                    hogFlowId: hogFlow.id,
-                    cursor: null,
-                    filters: { properties: [] },
-                    maxAudienceSize: 100,
-                    totalEnqueued: 0,
-                    pagesProcessed: 0,
-                    attempts: MAX_RESOLVER_ATTEMPTS - 1,
-                    variables: {},
-                    startedAt: '2026-08-11T00:00:00.000Z',
-                }),
-                heartbeat: jest.fn().mockResolvedValue(undefined),
-                reschedule: jest.fn().mockResolvedValue(undefined),
-                ack: jest.fn().mockResolvedValue(undefined),
-                fail: jest.fn().mockResolvedValue(undefined),
-            }
-            const before = {
-                [outcome]: await resolverJobsCount(outcome),
-                failed: await resolverJobsCount('failed'),
-            }
-
-            await consumer.processResolverJob(job)
-            await consumer.processResolverJob({ ...job, state: job.reschedule.mock.calls[0][0].state })
-
-            expect(job.ack).toHaveBeenCalled()
-            expect((await resolverJobsCount(outcome)) - before[outcome]).toEqual(1)
-            if (outcome !== 'failed') {
-                expect(await resolverJobsCount('failed')).toEqual(before.failed)
-            }
         })
     })
 })

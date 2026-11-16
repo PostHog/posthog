@@ -40,6 +40,7 @@ import type {
     AeoKeywordsModifiersParams,
     AeoKeywordsReportParams,
     AeoPromptsChecksParams,
+    AeoPromptsCitationsParams,
     AeoPromptsListParams,
     AeoPromptsOverviewParams,
     AeoPromptsRankingsParams,
@@ -75,6 +76,7 @@ import type {
     LlmsTxtFetchResponseApi,
     PaginatedAEOBrandListApi,
     PaginatedAEOPromptCheckListApi,
+    PaginatedAEOPromptCitationListApi,
     PaginatedAEOPromptListApi,
     PaginatedContentAutopilotOpportunityListApi,
     PaginatedContentAutopilotProposalListListApi,
@@ -602,6 +604,37 @@ export const aeoPromptsBulkImport = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aEOPromptBulkImportRequestApi),
+    })
+}
+
+export const getAeoPromptsCitationsUrl = (projectId: string, params?: AeoPromptsCitationsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/citations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/citations/`
+}
+
+/**
+ * Lists the answered web-search checks across the whole prompt set that cited one URL, cited a page on one domain, or ran one web search, over the last 'days' days (default 30) in the project's timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview or the rankings, with the same 'days' and 'branded' values.
+ * @summary List the answers behind a cited page, site or search
+ */
+export const aeoPromptsCitations = async (
+    projectId: string,
+    params?: AeoPromptsCitationsParams,
+    options?: RequestInit
+): Promise<PaginatedAEOPromptCitationListApi> => {
+    return apiMutator<PaginatedAEOPromptCitationListApi>(getAeoPromptsCitationsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
