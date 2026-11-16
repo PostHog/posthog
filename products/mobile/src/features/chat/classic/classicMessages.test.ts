@@ -278,7 +278,6 @@ describe('classic conversation events', () => {
             message: 'The query failed. Try again.',
         })
     })
-
     test('replaces the optimistic human echo and accumulated answer snapshots without duplicating turns', () => {
         let state = appendClassicMessage(EMPTY_CLASSIC_STATE, {
             type: 'human',
@@ -347,7 +346,7 @@ describe('classic conversation events', () => {
         expect(reduceClassicEvent(state, { event: 'message', data: 'null' })).toBe(state)
     })
 
-    test('preserves links to generated charts and saved insights', () => {
+    test('preserves generated chart payloads and saved insight references', () => {
         const state = classicHistory(
             [
                 { type: 'ai/viz', id: 'chart', answer: { kind: 'TrendsQuery', series: [] } },
@@ -356,10 +355,49 @@ describe('classic conversation events', () => {
             null
         )
         const items = classicThreadItems(state, 'https://app.example.com/project/42')
-        expect(items[0]).toMatchObject({ text: expect.stringContaining('/insights/new#q=') })
-        expect(items[1]).toMatchObject({
-            text: '[View insight](https://app.example.com/project/42/insights/abc123)',
+        expect(items[0]).toMatchObject({
+            kind: 'visualization',
+            query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
+            webUrl: expect.stringContaining('/insights/new#q='),
         })
+        expect(items[1]).toMatchObject({
+            kind: 'visualization',
+            shortId: 'abc123',
+            webUrl: 'https://app.example.com/project/42/insights/abc123',
+        })
+    })
+    test('keeps multiple chart commentary, titles, inline results and feedback together', () => {
+        const state = classicHistory(
+            [
+                {
+                    type: 'ai/multi_viz',
+                    id: 'charts',
+                    trace_id: 'trace-charts',
+                    commentary: 'Compare these results.',
+                    visualizations: [
+                        { answer: { kind: 'TrendsQuery', series: [] }, query: 'Visits over time', result: [] },
+                        {
+                            answer: { kind: 'HogQLQuery', query: 'SELECT 1 AS count' },
+                            query: 'Total visits',
+                            results: [[1]],
+                            columns: ['count'],
+                            types: [['count', 'Int64']],
+                        },
+                    ],
+                },
+            ],
+            null
+        )
+        expect(classicThreadItems(state, 'https://app.example.com/project/42')).toMatchObject([
+            { kind: 'assistant', text: 'Compare these results.', traceId: 'trace-charts' },
+            { kind: 'visualization', title: 'Visits over time', result: [], traceId: 'trace-charts' },
+            {
+                kind: 'visualization',
+                title: 'Total visits',
+                result: { results: [[1]], columns: ['count'], types: [['count', 'Int64']] },
+                traceId: 'trace-charts',
+            },
+        ])
     })
     test('preserves distinct temporary answers while replacing snapshots of each', () => {
         let state = EMPTY_CLASSIC_STATE
@@ -400,8 +438,9 @@ describe('classic conversation events', () => {
     ])('keeps chart links compatible with the query schema: %j', (query, expected) => {
         const state = classicHistory([{ type: 'ai/viz', id: 'chart', answer: query }], null)
         const item = classicThreadItems(state, 'https://app.example.com/project/42')[0]
-        const encoded = item && 'text' in item ? (item.text.split('#q=')[1]?.slice(0, -1) ?? '') : ''
+        const encoded = item?.kind === 'visualization' ? (item.webUrl?.split('#q=')[1] ?? '') : ''
         expect(JSON.parse(decodeURIComponent(encoded))).toEqual(expected)
+        expect(item).toMatchObject({ kind: 'visualization', query: expected })
     })
     test.each(['Saved answer', 'Saved'])('reconciles replayed %s with unique IDs across model calls', (snapshot) => {
         let state = classicHistory(
@@ -447,6 +486,7 @@ describe('classic conversation events', () => {
                 is_saved: true,
                 blocks: [
                     { type: 'markdown', content: '# Report\n\nA synthetic summary.' },
+                    { type: 'visualization', title: 'Visits', query: { kind: 'TrendsQuery', series: [] } },
                     { type: 'session_replay', session_id: 'session-1', timestamp_ms: 0 },
                     { type: 'markdown', content: 'A conclusion.' },
                 ],
@@ -456,11 +496,31 @@ describe('classic conversation events', () => {
             source === 'history'
                 ? classicHistory([data], null)
                 : reduceClassicEvent(EMPTY_CLASSIC_STATE, { event: 'message', data: JSON.stringify(data) })
-        expect(classicThreadItems(state, 'https://app.example.com/project/42')[0]).toMatchObject({
-            text: '# Report\n\nA synthetic summary.\n\nOpen this report on the web to view this content.\n\nA conclusion.\n\n[View notebook](https://app.example.com/project/42/notebooks/report-1)',
+        expect(classicThreadItems(state, 'https://app.example.com/project/42')).toMatchObject([
+            { text: '# Report\n\nA synthetic summary.' },
+            {
+                kind: 'visualization',
+                title: 'Visits',
+                query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
+            },
+            { text: 'Open this report on the web to view this content.' },
+            { text: 'A conclusion.' },
+            { text: '[View notebook](https://app.example.com/project/42/notebooks/report-1)' },
+        ])
+        const items = classicThreadItems(state, 'https://app.example.com/project/42')
+        const chart = items.find((item) => item.kind === 'visualization')
+        expect(items.at(-1)).toMatchObject({
+            copyText: `# Report\n\nA synthetic summary.\n\n[View chart](${chart?.kind === 'visualization' ? chart.webUrl : ''})\n\nOpen this report on the web to view this content.\n\nA conclusion.\n\n[View notebook](https://app.example.com/project/42/notebooks/report-1)`,
         })
-        data.content.is_saved = false
-        const draft = classicThreadItems(classicHistory([data], null), 'https://app.example.com/project/42')[0]
-        expect(draft && 'text' in draft ? draft.text : '').not.toContain('[View notebook]')
+        const draftData = {
+            ...data,
+            content: { ...data.content, is_saved: false, blocks: data.content.blocks.slice(0, 2) },
+        }
+        const draft = classicThreadItems(classicHistory([draftData], null), 'https://app.example.com/project/42').at(-1)
+        expect(draft).toMatchObject({
+            kind: 'visualization',
+            copyText: expect.stringContaining('# Report\n\nA synthetic summary.'),
+        })
+        expect(draft && 'copyText' in draft ? draft.copyText : '').not.toContain('[View notebook]')
     })
 })

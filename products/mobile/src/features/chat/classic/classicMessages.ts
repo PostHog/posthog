@@ -1,5 +1,6 @@
 import type { SseEvent } from '@/api/sse'
 import { asRecord, isRecord } from '@/lib/records'
+import { classicVisualizationItems } from '../classicVisualizations'
 import type { SessionThreadItem } from '../session/types'
 import { classicIntermediateIds, classicThinkingItems, classicToolCalls } from './classicActivity'
 
@@ -204,48 +205,6 @@ export function reduceClassicEvent(state: ClassicState, event: SseEvent): Classi
     }
 }
 
-function visualizationLink(data: Record<string, unknown>, projectUrl: string): string | null {
-    const content = asRecord(data.content) ?? {}
-    const shortId = data.short_id ?? (data.source === 'insight' ? data.artifact_id : content.short_id)
-    if (typeof shortId === 'string') {
-        return `[View insight](${projectUrl}/insights/${encodeURIComponent(shortId)})`
-    }
-    const query = data.answer ?? content.query
-    if (!isRecord(query)) return null
-    const insightKinds = [
-        'TrendsQuery',
-        'FunnelsQuery',
-        'RetentionQuery',
-        'PathsQuery',
-        'StickinessQuery',
-        'LifecycleQuery',
-    ]
-    const visualization =
-        query.kind === 'HogQLQuery'
-            ? { kind: 'DataVisualizationNode', source: query }
-            : insightKinds.includes(String(query.kind))
-              ? { kind: 'InsightVizNode', source: query, showHeader: true }
-              : query
-    return `[View chart](${projectUrl}/insights/new#q=${encodeURIComponent(JSON.stringify(visualization))})`
-}
-
-function notebookText(data: Record<string, unknown>, projectUrl: string): string {
-    const content = asRecord(data.content) ?? {}
-    const blocks = Array.isArray(content.blocks) ? content.blocks : []
-    const parts = blocks.map((value): string => {
-        const block = asRecord(value) ?? {}
-        if (block.type === 'markdown' && typeof block.content === 'string') return block.content
-        if (block.type === 'visualization')
-            return visualizationLink({ content: block }, projectUrl) ?? 'Chart unavailable.'
-        if (block.type === 'error' && typeof block.message === 'string') return block.message
-        return 'Open this report on the web to view this content.'
-    })
-    if (content.is_saved === true && typeof data.artifact_id === 'string') {
-        parts.push(`[View notebook](${projectUrl}/notebooks/${encodeURIComponent(data.artifact_id)})`)
-    }
-    return parts.filter(Boolean).join('\n\n') || 'This report has no content yet.'
-}
-
 export function classicThreadItems(state: ClassicState, projectUrl: string, working = false): SessionThreadItem[] {
     let currentTraceId: string | undefined
     const intermediateIds = classicIntermediateIds(state.messages)
@@ -334,32 +293,9 @@ export function classicThreadItems(state: ClassicState, projectUrl: string, work
                         },
                     ]
                 case 'ai/viz':
-                case 'ai/artifact': {
-                    const link =
-                        asRecord(data.content)?.content_type === 'notebook'
-                            ? notebookText(data, projectUrl)
-                            : visualizationLink(data, projectUrl)
-                    return link
-                        ? [{ kind: 'assistant', id: message.id, text: link, complete: true, projectUrl, ...feedback }]
-                        : []
-                }
+                case 'ai/artifact':
                 case 'ai/multi_viz':
-                    return Array.isArray(data.visualizations)
-                        ? data.visualizations.flatMap((viz, index): SessionThreadItem[] => {
-                              const link = visualizationLink(asRecord(viz) ?? {}, projectUrl)
-                              return link
-                                  ? [
-                                        {
-                                            kind: 'assistant',
-                                            id: `${message.id}-${index}`,
-                                            text: link,
-                                            complete: true,
-                                            ...feedback,
-                                        },
-                                    ]
-                                  : []
-                          })
-                        : []
+                    return classicVisualizationItems(data, message.id, projectUrl, feedback)
                 default:
                     return []
             }
