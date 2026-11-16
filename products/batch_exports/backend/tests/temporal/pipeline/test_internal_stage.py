@@ -261,6 +261,47 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+async def test_insert_into_stage_activity_fails_a_native_run_for_a_custom_schema_without_its_query(
+    mock_clickhouse_client,
+    interval,
+    activity_environment,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """A schema saved by a user with restricted properties has no query to recompile, so the native run fails clearly."""
+    schema = await database_sync_to_async(build_events_query_schema)(
+        ateam.pk, None, "SELECT properties.$browser AS browser FROM events"
+    )
+    schema.pop("hogql_query")
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=None,
+        include_events=None,
+        run_id=None,
+        batch_export_model=BatchExportEventsCustomModel(schema=schema, filters=None),
+        backfill_details=BackfillDetails(
+            backfill_id=None,
+            start_at=(data_interval_end - dt.timedelta(days=10)).isoformat(),
+            end_at=data_interval_end,
+            is_earliest_backfill=False,
+        ),
+        destination_default_fields=None,
+    )
+
+    stage_result = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    assert stage_result.error is not None
+    assert stage_result.error.type == "CustomSchemaWithoutQueryError"
+    assert mock_clickhouse_client.calls == []
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize(
     "model",
     [

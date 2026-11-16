@@ -113,6 +113,21 @@ class HogQLTableNotSupportedError(Exception):
     """A user tried to select a table with HogQL that batch exports does not support."""
 
 
+class CustomSchemaWithoutQueryError(Exception):
+    """A custom schema stored without its HogQL query, so a run on the native events table cannot recompile it.
+
+    A schema is stored without its query when the user who saved it had restricted properties. Its stored fields
+    read the legacy String `properties`, so they cannot run on the native table either.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "This export can't read the new events table because its fields were saved without their query. "
+            "This happens when the person who saved the export has restricted properties. "
+            "Ask someone without restricted properties to save the export again, or contact support."
+        )
+
+
 # Staging failures the user has to resolve; retrying them ourselves would achieve nothing.
 # The activity returns these as an `InternalStageResult.error` instead of raising, which fails the
 # run without failing the activity. This mirrors how the destination activities treat their own
@@ -120,6 +135,7 @@ class HogQLTableNotSupportedError(Exception):
 NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     DataIntervalInFutureError,
     HogQLQueryResourceLimitExceededError,
+    CustomSchemaWithoutQueryError,
     HogQLTableNotSupportedError,
     InvalidFilterError,
     UnsupportedHogQLQueryError,
@@ -658,7 +674,10 @@ async def _get_query(
         # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
         # TODO: Temporary. Once `events_json_recent` serves the recent paths, choose the table once up front and
         # compile for it in `resolve_batch_exports_model` instead (see `prepare_serialized_export_query`).
-        if native_source and custom_schema is not None and (hogql_query := custom_schema.get("hogql_query")):
+        if native_source and custom_schema is not None:
+            hogql_query = custom_schema.get("hogql_query")
+            if not hogql_query:
+                raise CustomSchemaWithoutQueryError()
             fields, extra_query_parameters = await database_sync_to_async(recompile_stored_schema)(
                 team_id, custom_schema, hogql_query
             )
