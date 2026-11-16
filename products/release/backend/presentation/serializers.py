@@ -5,9 +5,14 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.models import OrganizationMembership
 
-from ..facade.contracts import LinkedBroadcastDTO, LinkedInsightDTO, LinkedSendDTO, LinkedSurveyDTO, ReleaseDTO
-
-MAX_LINKED = 100
+from ..facade.contracts import (
+    MAX_LINKED,
+    LinkedBroadcastDTO,
+    LinkedInsightDTO,
+    LinkedSendDTO,
+    LinkedSurveyDTO,
+    ReleaseDTO,
+)
 
 
 class BroadcastSearchQuerySerializer(serializers.Serializer):
@@ -124,6 +129,23 @@ class WriteReleaseSerializer(serializers.Serializer):
 
 class UpdateReleaseSerializer(WriteReleaseSerializer):
     name = serializers.CharField(max_length=255, required=False, help_text="Name of the release.")
+
+
+class MergeReleasesSerializer(serializers.Serializer):
+    release_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_LINKED,
+        help_text=(
+            "IDs of the releases to merge into this one. Their flags, broadcasts, surveys and insights move to this "
+            "release, then they are deleted."
+        ),
+    )
+    name = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text="New name for the merged release. Keeps the current name when left out.",
+    )
 
 
 class ImportAllResponseSerializer(serializers.Serializer):
