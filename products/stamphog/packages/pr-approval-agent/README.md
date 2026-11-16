@@ -426,6 +426,7 @@ The sources are declared in `policy.yml` under `ownership:` and read from the ch
 A file's owning teams are the union across all sources.
 A repo that vendors this directory does not need to vendor the resolver as well: add a pinned `owners-yaml` from PyPI to the script dependencies of `review_pr.py`.
 Pin the version, because a new release can change how paths resolve.
+A PR that only adds lines to an ownership file has its ownership read at the merge base, which needs an `owners-yaml` release newer than 0.3.0. With 0.3.0 that PR's review gets no ownership context, and every other review works as before.
 In this monorepo and in the review sandbox, the engine uses the resolver that ships beside it, so the two always match.
 Cross-team typo, test and comment fixes are fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer concerns.
 API contract, data model, and larger behavioral changes get escalated.

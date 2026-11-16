@@ -222,7 +222,7 @@ def _build_hogli_resolver(repo_root: Path, source: OwnershipSource, ref: str | N
     try:
         # Deferred (PLC0415) because the package is absent in vendored copies and is needed only
         # once a policy declares this ownership format.
-        from owners_yaml.resolver import GitRefSource, OwnersResolver  # noqa: PLC0415
+        from owners_yaml.resolver import OwnersResolver  # noqa: PLC0415
     except ImportError as exc:
         raise RuntimeError(
             "ownership format 'hogli-resolver' requires the owners-yaml package: "
@@ -232,6 +232,13 @@ def _build_hogli_resolver(repo_root: Path, source: OwnershipSource, ref: str | N
     assert source.path is not None  # validated by the loader (hogli-resolver uses `path`)
     if ref is None:
         return _HogliResolver(OwnersResolver(repo_root=repo_root / source.path))
+    try:
+        from owners_yaml.resolver import GitRefSource  # noqa: PLC0415
+    except ImportError as exc:
+        raise RuntimeError(
+            "reading ownership at a git ref requires an owners-yaml release newer than 0.3.0, "
+            "which provides GitRefSource"
+        ) from exc
     return _HogliResolver(OwnersResolver(source=GitRefSource(repo_root / source.path, ref)))
 
 
