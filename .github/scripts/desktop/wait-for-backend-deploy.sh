@@ -5,18 +5,18 @@
 # do not exist yet.
 #
 # The charts deploy writes a GitHub Deployment for the Django image in each
-# environment, with task TASK. It posts `success` after the rollout and marks
-# the previous record of the same task `inactive`. A deploy of a sha that was
-# deployed before reuses that sha's old record, so a rollback posts `success`
-# on an old record. A record's updated_at is the time of its newest status.
-# So the live build is the most recently updated record whose newest status is
-# `success`. A newer record that is in progress or failed does not replace it.
-# A rollback done outside the charts deploy writes no record, so the script
-# cannot see it.
+# environment, with task TASK. Every deploy gets its own record, a rollback
+# too (PostHog/charts#20674). The deploy posts `success` after the rollout and
+# marks the earlier live records of the same task `inactive`. So the live build
+# is the newest record, in creation order, whose newest status is `success`. A
+# newer record that is in progress or failed does not replace it. A rollback
+# done outside the charts deploy writes no record, so the script cannot see it.
 #
 # Any token with `deployments: write`, for example in a pull request workflow,
-# can create a record or a status. So the script reads only records and
-# statuses that TRUSTED_CREATOR, the App of the charts deploy, created.
+# can create a record or post a status. So the script reads only records and
+# statuses that TRUSTED_CREATOR, the App of the charts deploy, created. It
+# orders records by creation, not by updated_at, because any status moves
+# updated_at.
 #
 # master is linear, so the live build contains COMMIT_SHA when COMMIT_SHA is
 # an ancestor of the live sha. The compare API answers that, so the script
@@ -41,6 +41,7 @@ EXIT_ERROR=1
 EXIT_TIMED_OUT=3
 DEPLOYMENTS_PER_PAGE=30
 MAX_DEPLOYMENT_PAGES=2
+STATUSES_PER_PAGE=10
 
 # Bash arithmetic evaluates a variable's value as an expression, which can run a command.
 require_whole_number() {
@@ -65,8 +66,8 @@ contains_status() {
     esac
 }
 
-# Prints the trusted deployments of an environment as "<id> <sha>", most
-# recently updated first. Reads up to MAX_DEPLOYMENT_PAGES pages of the list.
+# Prints the trusted deployments of an environment as "<id> <sha>", newest
+# created first, the order of the API. Reads up to MAX_DEPLOYMENT_PAGES pages.
 list_deployments() {
     local environment="$1" page page_json all_json='[]' count
     for ((page = 1; page <= MAX_DEPLOYMENT_PAGES; page++)); do
@@ -79,7 +80,6 @@ list_deployments() {
     done
     jq -r --arg creator "$TRUSTED_CREATOR" '
         map(select(.creator.login == $creator))
-        | sort_by(.updated_at) | reverse
         | .[] | "\(.id) \(.sha)"' <<<"$all_json"
 }
 
@@ -91,8 +91,9 @@ find_live_sha() {
     deployments=$(list_deployments "$environment") || return 1
     while read -r id sha; do
         [ -n "$id" ] || continue
-        state=$(gh api "repos/$REPOSITORY/deployments/$id/statuses?per_page=1" |
-            jq -r --arg creator "$TRUSTED_CREATOR" '.[0] | select(.creator.login == $creator) | .state') || return 1
+        # The newest trusted status counts. A status from another creator on top of it changes nothing.
+        state=$(gh api "repos/$REPOSITORY/deployments/$id/statuses?per_page=$STATUSES_PER_PAGE" |
+            jq -r --arg creator "$TRUSTED_CREATOR" '[.[] | select(.creator.login == $creator)][0].state // ""') || return 1
         if [ "$state" = "success" ]; then
             echo "$sha"
             return 0

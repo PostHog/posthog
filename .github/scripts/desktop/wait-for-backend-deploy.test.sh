@@ -57,9 +57,9 @@ trusted="deployment-status-posthog[bot]"
 
 # Registers one page of deployments for an environment, newest created first.
 # Each argument is "<id>:<sha>:<updated minute>:<statuses>[:<status creator>[:<deployment creator>]]",
-# with statuses comma-separated, newest first. The stub serves the whole status
-# history even for per_page=1, so the waiter must read only the first entry.
-# The updated minute becomes updated_at, and both creators default to the trusted App.
+# with statuses comma-separated, newest first. A status written "state@login" has
+# its own creator. The updated minute becomes updated_at, and both creators
+# default to the trusted App.
 register_page() {
     local fixtures="$1" environment="$2" page="$3" entry id sha minute states status_by deploy_by
     shift 3
@@ -68,8 +68,9 @@ register_page() {
         IFS=: read -r id sha minute states status_by deploy_by <<<"$entry"
         jq -n --arg id "$id" --arg sha "$sha" --arg minute "$minute" --arg by "${deploy_by:-$trusted}" \
             '{id: ($id | tonumber), sha: $sha, updated_at: "2026-11-13T10:\($minute):00Z", creator: {login: $by}}'
-        jq -n --arg states "$states" --arg by "${status_by:-$trusted}" '$states | split(",") | map({state: ., creator: {login: $by}})' \
-            >"$fixtures/repos_PostHog_posthog_deployments_${id}_statuses_per_page_1.json"
+        jq -n --arg states "$states" --arg by "${status_by:-$trusted}" \
+            '$states | split(",") | map(split("@") | {state: .[0], creator: {login: (.[1] // $by)}})' \
+            >"$fixtures/repos_PostHog_posthog_deployments_${id}_statuses_per_page_10.json"
     done | jq -s . >"$fixtures/repos_PostHog_posthog_deployments_environment_${environment}_task_deploy_per_page_30_page_${page}.json"
 }
 
@@ -99,16 +100,21 @@ register_page "$workdir/rollback" prod-us 1 "12:$c3:10:success"
 register_page "$workdir/rollback" prod-eu 1 "23:$c1:50:success" "22:$c4:40:inactive,success"
 assert_result "a rollback to an older sha holds the release" "$workdir/rollback" 3 "prod-eu: live ${c1:0:12}, contains: no"
 
-# A rollback to a sha deployed before posts success on that sha's older record.
-register_page "$workdir/reused" prod-us 1 "32:$c4:50:inactive,success" "31:$c1:55:success,inactive,success"
-register_page "$workdir/reused" prod-eu 1 "33:$c4:10:success"
-assert_result "a rollback that reuses an older record holds the release" "$workdir/reused" 3 "prod-us: live ${c1:0:12}, contains: no"
+# The newest record was retired, so the older live record holds the release.
+register_page "$workdir/retired" prod-us 1 "32:$c4:50:inactive,success" "31:$c1:55:success"
+register_page "$workdir/retired" prod-eu 1 "33:$c4:10:success"
+assert_result "a retired newest record leaves the older live one" "$workdir/retired" 3 "prod-us: live ${c1:0:12}, contains: no"
 
 # charts writes the inactive status best-effort, so two records can end on success.
-# The one updated last is live.
+# Every deploy gets its own record, so the newest created one is live, whatever updated_at says.
 register_page "$workdir/missed-inactive" prod-us 1 "35:$c4:50:success" "34:$c1:55:success"
 register_page "$workdir/missed-inactive" prod-eu 1 "36:$c4:10:success"
-assert_result "the most recently updated success is live" "$workdir/missed-inactive" 3 "prod-us: live ${c1:0:12}, contains: no"
+assert_result "the newest created success is live" "$workdir/missed-inactive" 0 "prod-us: live ${c4:0:12}, contains: yes"
+
+# A status from another creator on top of the live record changes nothing.
+register_page "$workdir/foreign-status" prod-us 1 "52:$c4:59:inactive@someone-else,success" "51:$c1:10:success"
+register_page "$workdir/foreign-status" prod-eu 1 "53:$c4:10:success"
+assert_result "a foreign status on the live record is ignored" "$workdir/foreign-status" 0 "prod-us: live ${c4:0:12}, contains: yes"
 
 register_page "$workdir/rolling" prod-us 1 "14:$c4:60:in_progress" "13:$c3:50:success,in_progress"
 register_page "$workdir/rolling" prod-eu 1 "24:$c2:10:success"
