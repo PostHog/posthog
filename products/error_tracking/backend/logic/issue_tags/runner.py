@@ -20,7 +20,8 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 
 logger = structlog.get_logger(__name__)
 
-TAGGERS: tuple[Tagger, ...] = (RuleTagger(), JevTagger())
+RULE_TAGGER = RuleTagger()
+TAGGERS: tuple[Tagger, ...] = (RULE_TAGGER, JevTagger())
 
 
 class IssueTaggingSkipReason(StrEnum):
@@ -64,9 +65,8 @@ def run_rule_tagger_on_merge_target(
     answers from an issue's first event and the target issue has its own. A team without rules reads no issue and no
     event.
     """
-    rule_taggers = tuple(tagger for tagger in TAGGERS if tagger.source == ErrorTrackingIssueTag.Source.RULE)
-    issue = Q(fingerprints__team_id=team_id, fingerprints__fingerprint=fingerprint)
-    return _run_issue_taggers(team_id, rule_taggers, issue, load_event_properties)
+    issue_filter = Q(fingerprints__team_id=team_id, fingerprints__fingerprint=fingerprint)
+    return _run_issue_taggers(team_id, (RULE_TAGGER,), issue_filter, load_event_properties)
 
 
 def _run_issue_taggers(

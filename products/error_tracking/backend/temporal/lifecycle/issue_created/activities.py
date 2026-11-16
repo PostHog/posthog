@@ -1,5 +1,6 @@
 import json
 import threading
+from collections.abc import Callable
 from datetime import UTC
 from typing import TYPE_CHECKING
 
@@ -67,7 +68,7 @@ from products.ml_inference.backend.facade.contracts import (
 
 if TYPE_CHECKING:
     from products.error_tracking.backend.logic.issue_summaries import IssueSummaryOutcome
-    from products.error_tracking.backend.logic.issue_tags.runner import TaggerRun
+    from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason, TaggerRun
 
 logger = structlog.get_logger(__name__)
 
@@ -93,8 +94,8 @@ ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES = Counter(
 )
 ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES = Counter(
     "error_tracking_issue_created_merge_target_tagger_total",
-    "Rule runs on the issue that a new exception merged into at creation, by outcome",
-    labelnames=("outcome",),
+    "Rule runs on the issue that a new exception merged into at creation, by tagger and outcome",
+    labelnames=("tagger", "outcome"),
 )
 ERROR_TRACKING_EMBEDDING_UNAVAILABLE = Counter(
     "error_tracking_issue_created_embedding_unavailable_total",
@@ -332,73 +333,70 @@ def _tagger_outcome(inputs: IssueCreatedWorkflowInputs, run: "TaggerRun") -> Iss
 @posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def tag_issue_created_activity(inputs: IssueCreatedWorkflowInputs) -> None:
+    # The runner imports the lifecycle rendering module, whose package imports this module.
+    from products.error_tracking.backend.logic.issue_tags.runner import run_issue_taggers  # noqa: PLC0415
+
     # Skip instead of wait, because a waiting activity still holds its slot. The issue then gets no tags.
     if not ISSUE_TAG_WORKER_SLOTS.acquire(blocking=False):
         logger.warning("error_tracking_issue_tags_worker_busy", team_id=inputs.team_id, issue_id=inputs.issue_id)
         ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome=IssueTaggerOutcome.WORKER_BUSY).inc()
         return
     try:
-        _tag_issue_created(inputs)
+        _tag_issue_created(
+            inputs,
+            ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES,
+            lambda load_event_properties: run_issue_taggers(inputs.team_id, inputs.issue_id, load_event_properties),
+        )
     finally:
         ISSUE_TAG_WORKER_SLOTS.release()
-
-
-def _tag_issue_created(inputs: IssueCreatedWorkflowInputs) -> None:
-    # The runner imports the lifecycle rendering module, whose package imports this module.
-    from products.error_tracking.backend.logic.issue_tags.runner import (  # noqa: PLC0415
-        IssueTaggingSkipReason,
-        run_issue_taggers,
-    )
-
-    try:
-        result = run_issue_taggers(inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs))
-    except IssueCreatedEventNotFoundError:
-        # Tags are best effort, so a missing event skips them without a retry or an error tracking report.
-        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome=IssueTaggerOutcome.EVENT_MISSING).inc()
-        return
-    if isinstance(result, IssueTaggingSkipReason):
-        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome=result).inc()
-        return
-
-    outcomes = [(run, _tagger_outcome(inputs, run)) for run in result]
-    for run, outcome in outcomes:
-        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger=run.source, outcome=outcome).inc()
-    # A retry runs every tagger again. An unchanged answer writes no activity log row.
-    for run, outcome in outcomes:
-        if outcome == IssueTaggerOutcome.UNAVAILABLE:
-            raise NonReportableApplicationError(
-                "Tag model is unavailable", type=ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE
-            ) from run.error
-        if outcome == IssueTaggerOutcome.FAILED and run.error is not None:
-            raise run.error
 
 
 @activity.defn
 @posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def tag_issue_created_merge_target_activity(inputs: IssueCreatedWorkflowInputs) -> None:
-    # A rule run makes no model call, so this activity takes no tag worker slot.
     # The runner imports the lifecycle rendering module, whose package imports this module.
-    from products.error_tracking.backend.logic.issue_tags.runner import (  # noqa: PLC0415
-        IssueTaggingSkipReason,
-        run_rule_tagger_on_merge_target,
+    from products.error_tracking.backend.logic.issue_tags.runner import run_rule_tagger_on_merge_target  # noqa: PLC0415
+
+    # A rule run makes no model call, so this activity takes no tag worker slot.
+    _tag_issue_created(
+        inputs,
+        ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES,
+        lambda load_event_properties: run_rule_tagger_on_merge_target(
+            inputs.team_id, inputs.fingerprint, load_event_properties
+        ),
     )
 
+
+def _tag_issue_created(
+    inputs: IssueCreatedWorkflowInputs,
+    outcomes: Counter,
+    run_taggers: Callable[[Callable[[Team], dict[str, object]]], "tuple[TaggerRun, ...] | IssueTaggingSkipReason"],
+) -> None:
+    # The runner imports the lifecycle rendering module, whose package imports this module.
+    from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason  # noqa: PLC0415
+
     try:
-        result = run_rule_tagger_on_merge_target(
-            inputs.team_id, inputs.fingerprint, lambda team: fetch_event_properties(team, inputs)
-        )
+        result = run_taggers(lambda team: fetch_event_properties(team, inputs))
     except IssueCreatedEventNotFoundError:
-        ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES.labels(outcome=IssueTaggerOutcome.EVENT_MISSING).inc()
+        # Tags are best effort, so a missing event skips them without a retry or an error tracking report.
+        outcomes.labels(tagger="none", outcome=IssueTaggerOutcome.EVENT_MISSING).inc()
         return
     if isinstance(result, IssueTaggingSkipReason):
-        ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES.labels(outcome=result).inc()
+        outcomes.labels(tagger="none", outcome=result).inc()
         return
-    for run in result:
-        if run.error is not None:
-            ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES.labels(outcome=IssueTaggerOutcome.FAILED).inc()
+
+    run_outcomes = [(run, _tagger_outcome(inputs, run)) for run in result]
+    for run, outcome in run_outcomes:
+        outcomes.labels(tagger=run.source, outcome=outcome).inc()
+    # A retry runs every tagger again. An unchanged answer writes no activity log row.
+    for run, outcome in run_outcomes:
+        if outcome == IssueTaggerOutcome.UNAVAILABLE:
+            raise NonReportableApplicationError(
+                "Tag model is unavailable", type=ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE
+            ) from run.error
+        if outcome == IssueTaggerOutcome.FAILED and run.error is not None:
             raise run.error
-        ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES.labels(outcome=IssueTaggerOutcome.ANSWERED).inc()
 
 
 def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "IssueSummaryOutcome":

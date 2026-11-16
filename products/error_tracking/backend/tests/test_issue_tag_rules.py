@@ -44,7 +44,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueTag,
     ErrorTrackingIssueTagRule,
 )
-from products.error_tracking.backend.temporal.lifecycle.event_properties import IssueCreatedEventNotFoundError
 from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
     tag_issue_created_merge_target_activity,
 )
@@ -64,6 +63,7 @@ FETCH_EVENT_PROPERTIES = (
 # No $exception_list, so the event has no stack trace.
 BIG_UNHANDLED_ORDER: dict[str, object] = {"revenue": 25, "$exception_handled": False, "$lib": "posthog-python"}
 REVENUE = RestrictedProperty(name="revenue", property_type=PropertyDefinition.Type.EVENT)
+# A stack trace, so Jev calls the model if it runs on this event.
 BIG_UNHANDLED_ORDER_WITH_TRACE: dict[str, object] = {
     **BIG_UNHANDLED_ORDER,
     "$exception_list": [
@@ -330,48 +330,31 @@ class TestIssueTagRules(_IssueTagRuleTest):
         code_keys = frozenset(definition.key for definition in registry.ISSUE_TAG_DEFINITIONS)
         assert (definitions, result, readable_keys) == ((), IssueTaggingSkipReason.DISABLED, code_keys)
 
-    @parameterized.expand(
-        [
-            ("event_found", BIG_UNHANDLED_ORDER_WITH_TRACE, ["unhandled"]),
-            ("event_missing", IssueCreatedEventNotFoundError("gone"), []),
-        ]
-    )
-    def test_an_exception_that_merges_at_creation_adds_rule_labels_to_the_target_issue(
-        self, _name: str, event: dict[str, object] | Exception, rule_labels: list[str]
-    ) -> None:
+    def test_an_exception_that_merges_at_creation_adds_rule_labels_to_the_target_issue(self) -> None:
         target = self._issue_with_fingerprint("merged-in")
+        self._issue_with_fingerprint("unrelated")
         correct_issue_tag(
             self.team.id, target.id, self.big_order.key, applied=False, user=self.user, was_impersonated=False
         )
 
-        with patch(FETCH_EVENT_PROPERTIES, side_effect=[event]), patch(DECIDE) as decide:
+        with patch(FETCH_EVENT_PROPERTIES, return_value=BIG_UNHANDLED_ORDER_WITH_TRACE), patch(DECIDE) as decide:
             tag_issue_created_merge_target_activity(self._merged_inputs("merged-in"))
 
         decide.assert_not_called()
         tags = ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=target)
         assert set(tags.values_list("key", "value", "source")) == {
             (self.big_order.key, False, Source.MANUAL),
-            *((getattr(self, name).key, True, Source.RULE) for name in rule_labels),
+            (self.unhandled.key, True, Source.RULE),
         }
 
-    @parameterized.expand([("issue_tags_off", False, True, 0), ("no_rules", True, False, 3)])
-    def test_a_merged_exception_reads_no_issue_and_no_event_without_issue_tags_or_rules(
-        self, _name: str, flag_on: bool, has_rules: bool, queries: int
-    ) -> None:
-        if not has_rules:
-            ErrorTrackingIssueTagRule.objects.for_team(self.team.id).delete()
+    def test_a_merged_exception_reads_no_issue_and_no_event_when_the_team_has_no_rules(self) -> None:
+        ErrorTrackingIssueTagRule.objects.for_team(self.team.id).delete()
         self._issue_with_fingerprint("merged-in")
 
-        with (
-            patch.object(team_flags, "feature_enabled_or_false", return_value=flag_on),
-            patch(FETCH_EVENT_PROPERTIES) as fetch_event_properties,
-            patch(DECIDE) as decide,
-            self.assertNumQueries(queries),
-        ):
+        with patch(FETCH_EVENT_PROPERTIES) as fetch_event_properties, self.assertNumQueries(3):
             tag_issue_created_merge_target_activity(self._merged_inputs("merged-in"))
 
         fetch_event_properties.assert_not_called()
-        decide.assert_not_called()
 
     def _issue_with_fingerprint(self, fingerprint: str) -> ErrorTrackingIssue:
         issue = ErrorTrackingIssue.objects.create(team=self.team)

@@ -84,6 +84,29 @@ def _inputs(fingerprint: str) -> IssueCreatedWorkflowInputs:
     )
 
 
+def _embedding_preparation(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
+    return IssueEmbeddingPreparationResult(
+        team_exists=True,
+        embedding=GeneratedIssueEmbedding(
+            merge_inputs=FingerprintEmbeddingResultInputs(
+                team_id=inputs.team_id,
+                fingerprint=inputs.fingerprint,
+                rendering="type_message_and_stack",
+                timestamp=inputs.issue.created_at,
+                model_name="text-embedding-3-large-3072",
+                embedding=[0.1, 0.2],
+                source_issue_id=inputs.issue_id,
+            ),
+            content="TypeError: Something failed",
+        ),
+    )
+
+
+@activity.defn(name="persist_issue_created_embedding_activity")
+async def _persist_embedding(_: GeneratedIssueEmbedding) -> None:
+    return None
+
+
 def test_parse_inputs_accepts_cymbal_issue_created_notification() -> None:
     inputs = _inputs("fingerprint")
     payload = {
@@ -443,25 +466,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 "embedding unavailable",
                 type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
             )
-        return IssueEmbeddingPreparationResult(
-            team_exists=True,
-            embedding=GeneratedIssueEmbedding(
-                merge_inputs=FingerprintEmbeddingResultInputs(
-                    team_id=inputs.team_id,
-                    fingerprint=inputs.fingerprint,
-                    rendering="type_message_and_stack",
-                    timestamp=inputs.issue.created_at,
-                    model_name="text-embedding-3-large-3072",
-                    embedding=[0.1, 0.2],
-                    source_issue_id=inputs.issue_id,
-                ),
-                content="TypeError: Something failed",
-            ),
-        )
-
-    @activity.defn(name="persist_issue_created_embedding_activity")
-    async def persist(_: GeneratedIssueEmbedding) -> None:
-        return None
+        return _embedding_preparation(inputs)
 
     @activity.defn(name="merge_issue_created_fingerprint_activity")
     async def merge(inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
@@ -547,7 +552,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             workflows=[ErrorTrackingIssueCreatedWorkflow],
             activities=[
                 generate,
-                persist,
+                _persist_embedding,
                 merge,
                 infer_severity,
                 tag_issue,
@@ -702,13 +707,13 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             SUMMARY_ON_WRITE_PATCH,
             "generate_issue_created_summary_activity",
             "unmerged",
-            IssueCreatedWorkflowResult(notified=True, embedding_skipped_reason="manual_fingerprint"),
+            IssueCreatedWorkflowResult(notified=True),
         ),
         (
             ISSUE_TAGS_PATCH,
             "tag_issue_created_activity",
             "unmerged",
-            IssueCreatedWorkflowResult(notified=True, embedding_skipped_reason="manual_fingerprint"),
+            IssueCreatedWorkflowResult(notified=True),
         ),
         (
             MERGE_TARGET_TAGS_PATCH,
@@ -728,31 +733,11 @@ async def test_replays_a_history_recorded_before_a_patched_activity(
 ) -> None:
     @activity.defn(name="generate_issue_created_embedding_activity")
     async def generate(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
-        if inputs.fingerprint != "merged":
-            return IssueEmbeddingPreparationResult(team_exists=True, skipped_reason="manual_fingerprint")
-        return IssueEmbeddingPreparationResult(
-            team_exists=True,
-            embedding=GeneratedIssueEmbedding(
-                merge_inputs=FingerprintEmbeddingResultInputs(
-                    team_id=inputs.team_id,
-                    fingerprint=inputs.fingerprint,
-                    rendering="type_message_and_stack",
-                    timestamp=inputs.issue.created_at,
-                    model_name="text-embedding-3-large-3072",
-                    embedding=[0.1, 0.2],
-                    source_issue_id=inputs.issue_id,
-                ),
-                content="TypeError: Something failed",
-            ),
-        )
-
-    @activity.defn(name="persist_issue_created_embedding_activity")
-    async def persist(_: GeneratedIssueEmbedding) -> None:
-        return None
+        return _embedding_preparation(inputs)
 
     @activity.defn(name="merge_issue_created_fingerprint_activity")
-    async def merge(_: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
-        return FingerprintEmbeddingMergeResult(merged_count=1)
+    async def merge(inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
+        return FingerprintEmbeddingMergeResult(merged_count=int(inputs.fingerprint == "merged"))
 
     @activity.defn(name="dispatch_issue_created_alert_activity")
     async def dispatch_alert(_: IssueCreatedWorkflowInputs) -> None:
@@ -791,7 +776,7 @@ async def test_replays_a_history_recorded_before_a_patched_activity(
             workflows=[ErrorTrackingIssueCreatedWorkflow],
             activities=[
                 generate,
-                persist,
+                _persist_embedding,
                 merge,
                 dispatch_alert,
                 emit_event,
