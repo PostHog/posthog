@@ -2488,7 +2488,6 @@ class TestHogFlowAPI(APIBaseTest):
             ("static_cohort", "static", "is a static cohort"),
             ("dynamic_behavioral_cohort", "dynamic", "isn't ready for realtime evaluation"),
             ("realtime_not_backfilled", "realtime_unbackfilled", "isn't ready for realtime evaluation"),
-            ("realtime_off", "realtime_off", "Turn it on from the cohort's page"),
             ("missing_cohort", "missing", "doesn't exist in this environment"),
             ("sibling_environment_cohort", "sibling_environment", "doesn't exist in this environment"),
         ]
@@ -2503,8 +2502,6 @@ class TestHogFlowAPI(APIBaseTest):
             cohort_id = self._create_behavioral_cohort(None, backfilled=False).id
         elif cohort_kind == "realtime_unbackfilled":
             cohort_id = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False).id
-        elif cohort_kind == "realtime_off":
-            cohort_id = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True, realtime_on=False).id
         elif cohort_kind == "sibling_environment":
             sibling_team = Team.objects.create(organization=self.organization, project=self.project, name="sibling env")
             cohort_id = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True, team=sibling_team).id
@@ -2706,12 +2703,15 @@ class TestHogFlowAPI(APIBaseTest):
             ("non_realtime_trigger", "trigger", "non_realtime"),
             ("non_realtime_condition", "condition", "non_realtime"),
             ("off_pipeline_trigger", "trigger", "off_pipeline"),
+            ("realtime_off_trigger", "trigger", "realtime_off"),
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_draft_rejects_cohort_that_can_never_finish(self, _name, reference, cohort_kind, _mock_flag):
         cohort_type = None if cohort_kind == "non_realtime" else CohortType.REALTIME
-        cohort = self._create_behavioral_cohort(cohort_type, backfilled=False)
+        cohort = self._create_behavioral_cohort(
+            cohort_type, backfilled=False, realtime_on=cohort_kind != "realtime_off"
+        )
 
         with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none" if cohort_kind == "off_pipeline" else "all"):
             response = self.client.post(
@@ -2721,7 +2721,8 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 400, response.json()
-        assert "isn't ready for realtime evaluation" in response.json()["detail"]
+        expected = "Turn it on from the cohort's page" if cohort_kind == "realtime_off" else "isn't ready for realtime"
+        assert expected in response.json()["detail"]
 
     def test_hog_flow_grandfathers_stored_cohort_trigger_after_flag_dial_down(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)

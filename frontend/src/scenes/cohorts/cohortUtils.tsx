@@ -170,7 +170,7 @@ export function createCohortFormData(
         description: cohort.description ?? '',
         ...(cohort.csv ? { csv: cohort.csv } : {}),
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
-        ...(cohort.id === 'new' && cohort.realtime_enabled && offersRealtimeOnCreate(cohort)
+        ...(cohort.id === 'new' && cohort.realtime_enabled && hasEventCriteria(cohort)
             ? { realtime_enabled: true }
             : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),
@@ -767,15 +767,15 @@ export const COHORT_MATCHING_DAYS = {
     '30': 'month',
 }
 
-export function hasBehavioralCriteria(group: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean {
+function hasBehavioralCriteria(group: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean {
     if ('values' in group && Array.isArray(group.values)) {
         return (group.values as (CohortCriteriaGroupFilter | AnyCohortCriteriaType)[]).some(hasBehavioralCriteria)
     }
     return group.type === BehavioralFilterKey.Behavioral
 }
 
-/** Whether a new cohort can ask for realtime when it is created. Each turn-on starts a build from past events. */
-export function offersRealtimeOnCreate(cohort: CohortType): boolean {
+/** Whether a dynamic cohort matches on events. Only such a cohort is offered realtime when it is created. */
+export function hasEventCriteria(cohort: CohortType): boolean {
     return !cohort.is_static && !!cohort.filters?.properties && hasBehavioralCriteria(cohort.filters.properties)
 }
 
@@ -787,7 +787,7 @@ export function cohortBroadcastDisabledReason(cohort: CohortType): string | null
     if (cohort.deleted) {
         return 'Restore the cohort first'
     }
-    if (!cohort.is_static && cohort.filters?.properties && hasBehavioralCriteria(cohort.filters.properties)) {
+    if (hasEventCriteria(cohort)) {
         return "Broadcasts can't send to cohorts with event conditions. Use a static or property-based cohort."
     }
     return null

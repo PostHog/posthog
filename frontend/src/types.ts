@@ -93,7 +93,7 @@ import { QueryContext } from '~/queries/types'
 import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
-import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type { CohortApi, CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import type { DashboardTileGroupApi } from 'products/dashboards/frontend/generated/api.schemas'
 import {
     type LineageIssueApi,
@@ -1938,6 +1938,7 @@ export interface CohortType {
     /** How many of those IDs matched no person, and so were left out of the cohort. */
     last_import_unmatched_count?: number | null
     is_static?: boolean
+    cohort_type?: CohortApi['cohort_type']
     name?: string
     csv?: File
     groups: CohortGroupType[] // To be deprecated once `filter` takes over

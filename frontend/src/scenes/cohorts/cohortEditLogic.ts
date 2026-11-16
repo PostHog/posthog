@@ -512,6 +512,7 @@ export interface cohortEditLogicActions {
         cohort: {
             _create_in_folder?: string | null | undefined
             _create_static_person_ids?: string[] | undefined
+            cohort_type?: CohortApi['cohort_type'] | undefined
             count: number | undefined
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
@@ -545,6 +546,7 @@ export interface cohortEditLogicActions {
         cohort: {
             _create_in_folder?: string | null | undefined
             _create_static_person_ids?: string[] | undefined
+            cohort_type?: CohortApi['cohort_type'] | undefined
             count: number | undefined
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
@@ -947,8 +949,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         return 'turn_off'
                     case 'person_properties':
                         // Flags read person criteria straight off the person, so only workflows read this
-                        // cohort's realtime membership.
-                        if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_COHORT_CONDITIONS]) {
+                        // cohort's realtime membership. A cohort whose criteria can't be realtime can't be turned on.
+                        if (
+                            !featureFlags[FEATURE_FLAGS.WORKFLOWS_COHORT_CONDITIONS] ||
+                            cohort.cohort_type !== 'realtime'
+                        ) {
                             return null
                         }
                         return cohort.realtime_enabled ? 'turn_off' : 'turn_on'

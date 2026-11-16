@@ -66,8 +66,17 @@ class TestCohortEnablement(BaseTest):
 
     def test_turning_on_a_cohort_turns_on_what_it_nests_and_queues_both_builds(self) -> None:
         nested = self._cohort(PAGEVIEW_LEAF)
-        cohort = self._cohort(PERSON_LEAF, PAGEVIEW_LEAF, {"type": "cohort", "key": "id", "value": nested.id})
+        already_on = self._cohort(PAGEVIEW_LEAF)
+        cohort = self._cohort(
+            PERSON_LEAF,
+            PAGEVIEW_LEAF,
+            {"type": "cohort", "key": "id", "value": nested.id},
+            {"type": "cohort", "key": "id", "value": already_on.id},
+        )
         Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=STAMPED_AT)
+        Cohort.objects.filter(id=already_on.id).update(
+            realtime_enabled_at=STAMPED_AT, last_backfill_events_at=STAMPED_AT
+        )
 
         with (
             mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async"),
@@ -76,9 +85,11 @@ class TestCohortEnablement(BaseTest):
             turned_on = turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
 
         cohorts = list(Cohort.objects.filter(id__in=[nested.id, cohort.id]).order_by("id"))
+        already_on.refresh_from_db()
         assert sorted(turned_on) == [nested.id, cohort.id]
         assert all(each.realtime_enabled for each in cohorts)
         assert cohorts[1].last_backfill_events_at is None
+        assert (already_on.realtime_enabled_at, already_on.last_backfill_events_at) == (STAMPED_AT, STAMPED_AT)
         readiness = resolve_realtime_readiness(cohorts)
         assert [readiness[each.id].state for each in cohorts] == [CohortRealtimeState.BUILDING] * 2
 

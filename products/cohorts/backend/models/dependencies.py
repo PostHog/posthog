@@ -491,7 +491,7 @@ def _on_cohort_changed_full_warm(cohort: Cohort, always_invalidate: bool = False
     warm_team_cohort_dependency_cache(cohort.team_id)
 
 
-def _backfill_ineligibility_reason(cohort: Cohort, kind: CohortBackfillKind) -> str | None:
+def backfill_ineligibility_reason(cohort: Cohort, kind: CohortBackfillKind) -> str | None:
     from products.cohorts.backend.backfill.runs import (  # noqa: PLC0415 — avoids a model-load cycle
         behavioral_backfill_ineligibility_reason,
         person_backfill_ineligibility_reason,
@@ -610,7 +610,7 @@ def queue_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBackfil
     if not is_processing_team(cohort.team_id, fresh=True):
         COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="not_realtime_team").inc()
         return
-    ineligibility = _backfill_ineligibility_reason(cohort, kind)
+    ineligibility = backfill_ineligibility_reason(cohort, kind)
     if ineligibility is not None:
         _report_backfill_ineligible(cohort, kind, ineligibility)
         return

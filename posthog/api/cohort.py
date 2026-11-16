@@ -1498,9 +1498,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         return None
 
     def validate_realtime_enabled(self, value: bool) -> bool:
-        # update() saves the whole row, so a switch changed here would skip the checks and the backfill
-        # the `realtime` action runs. DRF reads a boolean left out of form data as false, so only a value
-        # the request sent is compared.
+        # update() never reads this field, so a changed value would be dropped without an error. The `realtime`
+        # action runs the turn-on checks and queues the build. DRF reads a boolean left out of form data as false,
+        # so only a value the request sent is compared.
         if (
             self.instance is not None
             and "realtime_enabled" in self.initial_data
@@ -2478,8 +2478,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self._enqueue_query_population(cohort)
             elif not cohort.is_static:
                 cohort.enqueue_calculation(initiating_user=request.user)
-            # A cohort that is on can only be ready when every cohort it includes is on too.
-            if filters_changed:
+            # A cohort that is on can only be ready when every cohort it includes is on too. A restore needs this as
+            # well, because turning off an included cohort ignores parents that are deleted.
+            if filters_changed or (is_deletion_change and deleted_state is False):
                 _turn_realtime_on_after_save(turn_realtime_on_for_included_cohorts, cohort, self._user_access_control())
 
         report_user_action(
@@ -3257,8 +3258,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         return Response(self.get_serializer(cohort).data)
 
     def _refuse_turning_off_a_cohort_that_is_read(self, request: Request, cohort: Cohort) -> None:
-        # Readers decide on the stamps a turn-off clears, so each of these would stop matching anyone without an error.
-        # Flags read a cohort with person criteria alone straight off the person, so only event criteria block.
+        # Flags, active workflows and cohorts that are on check this cohort's readiness stamps, which a turn-off clears,
+        # so each of them would stop matching anyone without an error. Flags read a cohort with person criteria alone
+        # straight off the person, so only event criteria block.
         if has_event_criteria(cohort):
             flags = get_flags_blocking_cohort_deletion(cohort)
             if flags:
@@ -3285,8 +3287,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             )
 
         # Turning a cohort on turns on everything it includes, so a direct parent that is on is the only one to check.
-        # A static parent keeps its switch, but nothing evaluates its criteria.
-        parents = get_cohorts_using_cohort(cohort).filter(realtime_enabled_at__isnull=False, is_static=False)
+        # A parent that became static or daily keeps its switch, but nothing reads realtime membership through it.
+        parents = get_cohorts_using_cohort(cohort).filter(
+            realtime_enabled_at__isnull=False, is_static=False, cohort_type=CohortType.REALTIME
+        )
         count = parents.count()
         if count:
             visible = self.user_access_control.filter_queryset_by_access_level(parents, include_all_if_admin=True)

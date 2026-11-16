@@ -50,7 +50,7 @@ import { pluralize } from 'lib/utils/strings'
 import { StaticCohortMode, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import { offersRealtimeOnCreate } from 'scenes/cohorts/cohortUtils'
+import { hasEventCriteria } from 'scenes/cohorts/cohortUtils'
 import { storesFlagCallsOutsideEvents } from 'scenes/feature-flags/flagEvaluationsTable'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -665,23 +665,21 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 )
                                             )}
 
-                                            {isNewCohort &&
-                                                realtimeCohortsServing &&
-                                                offersRealtimeOnCreate(cohort) && (
-                                                    <LemonField
-                                                        name="realtime_enabled"
-                                                        help="Feature flags can target the cohort once PostHog has prepared it from past events."
-                                                    >
-                                                        {({ value, onChange }) => (
-                                                            <LemonCheckbox
-                                                                checked={!!value}
-                                                                onChange={onChange}
-                                                                label="Turn on realtime"
-                                                                data-attr="cohort-create-realtime"
-                                                            />
-                                                        )}
-                                                    </LemonField>
-                                                )}
+                                            {isNewCohort && realtimeCohortsServing && hasEventCriteria(cohort) && (
+                                                <LemonField
+                                                    name="realtime_enabled"
+                                                    help="Feature flags can target the cohort once PostHog has prepared it from past events."
+                                                >
+                                                    {({ value, onChange }) => (
+                                                        <LemonCheckbox
+                                                            checked={!!value}
+                                                            onChange={onChange}
+                                                            label="Turn on realtime"
+                                                            data-attr="cohort-create-realtime"
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                            )}
 
                                             {cohort.is_static && isNewCohort && (
                                                 <div className="flex flex-col gap-y-2">

@@ -174,7 +174,9 @@ export function CohortRealtimeStatus({
                             LemonDialog.open({
                                 title: 'Turn off realtime for this cohort?',
                                 description:
-                                    "Feature flags won't be able to target this cohort. If you turn realtime on again, PostHog prepares the cohort from past events again.",
+                                    realtime?.state === 'person_properties'
+                                        ? "Workflows won't see membership changes for this cohort as they happen. Feature flags read its person properties directly, so they keep targeting it."
+                                        : "Feature flags won't be able to target this cohort. If you turn realtime on again, PostHog prepares the cohort from past events again.",
                                 primaryButton: {
                                     children: 'Turn off',
                                     status: 'danger',
@@ -186,7 +188,7 @@ export function CohortRealtimeStatus({
                         }
                         data-attr="cohort-realtime-turn-off"
                     >
-                        Turn off
+                        Turn off realtime
                     </LemonButton>
                 )}
             </div>

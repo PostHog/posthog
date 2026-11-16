@@ -99,7 +99,7 @@ class TeamRealtimeCohortsSerializer(serializers.Serializer):
 
 
 def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str]:
-    serving = is_realtime_cohort_flag_targeting_enabled(request, team=team)
+    serving = is_realtime_cohort_flag_targeting_enabled(request, team=team, only_evaluate_locally=True)
     return {"access": RealtimeCohortsAccess.SERVING if serving else RealtimeCohortsAccess.OFF}
 
 
