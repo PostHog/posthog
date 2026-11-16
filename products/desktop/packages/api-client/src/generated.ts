@@ -17960,6 +17960,17 @@ export namespace Schemas {
      * One desktop-only MCP server relayed into the run — a name only, never configuration.
      */
     export type RelayedMcpServer = { name: string };
+    /**
+     * * `check_metrics` - Check metrics
+     * * `merge_pr` - Get it merged
+     * * `fix_ci` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
+     */
+    export type ReportDiscussionIntentEnum =
+        | "check_metrics"
+        | "merge_pr"
+        | "fix_ci"
+        | "resolve_conflicts";
     export type ReportReadStateRequest = {
         /**
          * Reports to read or update, limited to the current project.
@@ -18617,6 +18628,7 @@ export namespace Schemas {
         warm_run_id: string | null;
         start_run: boolean;
         signal_report_discussion_question: string;
+        signal_report_discussion_intent: ReportDiscussionIntentEnum | NullEnum;
         naming_source: string;
         sandbox_environment_id: string | null;
         custom_image_id: string | null;
