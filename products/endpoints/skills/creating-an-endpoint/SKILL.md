@@ -29,8 +29,8 @@ materialisation decision is non-obvious.
 - A new caller (mobile app, customer-facing dashboard, downstream pipeline) needs PostHog data
   and the user is choosing how to deliver it
 - The user wants PostHog data in code, a script, or a scheduled job, or has code that calls
-  `/api/projects/:id/query/`. Production code should call an endpoint, not the query API, even
-  when the user hasn't said "endpoint"
+  `/api/projects/:id/query/`. Production code should call an endpoint, not the query API, so
+  offer one even when the user hasn't said "endpoint", and create it once they agree
 
 ## Decisions to make in order
 

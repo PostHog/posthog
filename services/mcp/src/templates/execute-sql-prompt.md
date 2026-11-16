@@ -16,8 +16,6 @@ When both methods fit, use the typed runner. SQL familiarity, SQL examples, or a
 
 Both typed queries and SQL support visualizations. Save supported dashboard analyses as native query nodes. A chart or table request, or a harness needing a separate rendering call, does not justify SQL.
 
-{endpoints_workflow}
-
 {guidelines}
 
 {schema_discovery}

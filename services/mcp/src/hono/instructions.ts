@@ -12,7 +12,6 @@ import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
-import EXECUTE_SQL_ENDPOINTS from '@/templates/sections/execute-sql-endpoints.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
@@ -47,7 +46,6 @@ export type ExecToolState = Pick<
 const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
 const NOTEBOOK_RUN_TOOL = 'notebooks-run'
 const DOCS_SEARCH_TOOL = 'docs-search'
-const ENDPOINT_CREATE_TOOL = 'endpoint-create'
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
 const INBOX_FIRST_TOOLS = ['inbox-reports-list', 'inbox-reports-retrieve']
@@ -234,18 +232,14 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    /** `tools` is the client's resolved roster. The endpoint workflow names `endpoint-create`,
-     *  so it is left out when the connection cannot call that tool. */
-    formatExecuteSqlDescription(tools: readonly { name: string }[] = []): string {
+    formatExecuteSqlDescription(): string {
         // Metric discovery leads the splice so catalog-first routing still precedes
         // raw schema discovery, without displacing the tool's own intro line.
         const schemaDiscovery = `${METRIC_DISCOVERY.trim()}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
-        const endpointsAvailable = tools.some(({ name }) => name === ENDPOINT_CREATE_TOOL)
         return formatPrompt(EXECUTE_SQL_PROMPT, {
-            endpoints_workflow: endpointsAvailable ? EXECUTE_SQL_ENDPOINTS.trim() : '',
             guidelines: this.guidelines.trim(),
             schema_discovery: schemaDiscovery,
-        }).replace(/\n{3,}/g, '\n\n')
+        })
     }
 
     private getExecLearnCapabilities(state: ExecToolState): { guidesEnabled: boolean; skillsEnabled: boolean } {

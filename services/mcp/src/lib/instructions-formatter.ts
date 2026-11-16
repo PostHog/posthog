@@ -99,7 +99,7 @@ const REPLAY_VISION =
 
 const ENDPOINT_CREATE_TOOL = 'endpoint-create'
 const ENDPOINTS_ROUTING =
-    'When the user wants PostHog data in code, a script, a scheduled job, a backend, or a customer-facing feature, create an endpoint with `endpoint-create` and give them its run URL, even if they never say "endpoint". Do not write code that calls `/api/projects/:id/query/`, which is for one-off exploration. Use variables for values the caller changes, and materialization for heavy or frequent aggregates. Raw-data exports belong on batch exports.'
+    'When the user wants PostHog data in code, a script, a scheduled job, a backend, or a customer-facing feature, offer to save the query as an endpoint, even if they never say "endpoint". Create it with `endpoint-create` only after they agree, then give them its run URL. Do not write code that calls `/api/projects/:id/query/`, which is for one-off exploration. Use variables for values the caller changes, and materialization for heavy or frequent aggregates. Raw-data exports belong on batch exports.'
 
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'

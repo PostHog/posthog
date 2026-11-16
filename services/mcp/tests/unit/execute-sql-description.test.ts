@@ -38,15 +38,4 @@ describe('formatExecuteSqlDescription', () => {
         const catalogSections = `${METRIC_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
         expect(catalogSections.length).toBeLessThan(3250)
     })
-
-    it.each([
-        { name: 'endpoint-create', tools: [{ name: 'execute-sql' }, { name: 'endpoint-create' }], expected: true },
-        { name: 'no endpoint-create', tools: [{ name: 'execute-sql' }, { name: 'endpoint-run' }], expected: false },
-        { name: 'no roster', tools: undefined, expected: false },
-    ])('includes the endpoint workflow only with $name', ({ tools, expected }) => {
-        const rendered = builder.formatExecuteSqlDescription(tools)
-        expect(rendered.includes('### When the user wants the query in code')).toBe(expected)
-        expect(rendered).not.toContain('{endpoints_workflow}')
-        expect(rendered).not.toMatch(/\n{3,}/)
-    })
 })

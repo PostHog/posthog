@@ -334,9 +334,7 @@ describe('InstructionsFormatter', () => {
                 formatter.buildToolsInstructions({ ...fullCtx, tools }),
                 formatter.buildExecCommandReference({ ...fullCtx, tools }),
             ]) {
-                expect(rendered.includes('create an endpoint with `endpoint-create` and give them its run URL')).toBe(
-                    expected
-                )
+                expect(rendered.includes('Create it with `endpoint-create` only after they agree')).toBe(expected)
                 expect(rendered.includes('{endpoints_routing}')).toBe(false)
             }
         })
