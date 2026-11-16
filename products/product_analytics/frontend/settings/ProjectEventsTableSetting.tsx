@@ -22,25 +22,13 @@ export function ProjectEventsTableSetting(): JSX.Element | null {
 
     return (
         <div className="max-w-160">
-            <p className="text-sm text-secondary mb-2">
-                PostHog is moving every project to a new events table. You can switch this project now, and switch back
-                if something looks wrong.{' '}
+            <p className="text-sm text-secondary mb-3">
+                PostHog is going to start switching every project to the new events table on November 30. If you want to
+                switch early, you can.{' '}
                 <Link to={EVENT_STORAGE_CHANGES_URL} target="_blank">
-                    Learn more
+                    Read what changes
                 </Link>
             </p>
-            <p className="text-sm text-secondary mb-1">On the new table:</p>
-            <ul className="list-disc pl-5 text-sm text-secondary mb-3">
-                <li>
-                    Feature flag call events go back about 90 days, and counts of all events no longer include them.
-                </li>
-                <li>
-                    Events keep <code>$set</code> and <code>$set_once</code> for 60 days.
-                </li>
-                <li>
-                    Whole events leave out null values and empty objects, and store a few built-in properties as text.
-                </li>
-            </ul>
             <LemonSwitch
                 bordered
                 checked={eventsTable.reads_new_events_table}
