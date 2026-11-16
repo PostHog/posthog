@@ -220,6 +220,7 @@ const mockUpdateContainerWidth = jest.fn()
 const mockMoveTileToSection = jest.fn()
 const mockChangeTileGroupDisplay = jest.fn()
 const mockRenameTileGroup = jest.fn()
+const mockMoveTileGroup = jest.fn()
 const mockSetRenamingTileGroupKey = jest.fn()
 const mockUndoLayoutChange = jest.fn()
 const mockPositionStrategies = new Map<Element, unknown>()
@@ -263,6 +264,7 @@ describe('DashboardItems', () => {
                     isEditablePlacement: canEditDashboard,
                     canEditLayout: canEditDashboard,
                     tileGroupSections: [],
+                    tileDisplayOptionsSavingIds: [],
                 }
             }
 
@@ -296,6 +298,7 @@ describe('DashboardItems', () => {
                     moveTileToSection: mockMoveTileToSection,
                     changeTileGroupDisplay: mockChangeTileGroupDisplay,
                     renameTileGroup: mockRenameTileGroup,
+                    moveTileGroup: mockMoveTileGroup,
                     setRenamingTileGroupKey: mockSetRenamingTileGroupKey,
                     undoLayoutChange: mockUndoLayoutChange,
                     redoLayoutChange: jest.fn(),
@@ -383,7 +386,7 @@ describe('DashboardItems', () => {
         it.each([
             { name: 'with nothing over the grid', overrides: {}, undoes: true },
             { name: 'while the text tile modal is open', overrides: { showTextTileModal: true }, undoes: false },
-            { name: 'while a tile is carried', overrides: { carryingTile: true }, undoes: false },
+            { name: 'while a tile is carried', overrides: { carryingTile: 'move' }, undoes: false },
             {
                 name: 'on an embedded dashboard',
                 overrides: { placement: DashboardPlacement.ProjectHomepage },
@@ -746,6 +749,7 @@ describe('DashboardItems', () => {
                     tileGroupSectionLayouts: [layouts],
                     collapsedTileGroupKeys: [],
                     tileGroupMoveOptions: {},
+                    tileGroupMoveDirections: {},
                     ...overrides,
                 }
             })
@@ -836,9 +840,10 @@ describe('DashboardItems', () => {
         )
 
         it.each([
-            { layout: 'bands', overrides: {}, item: 'Rename group' },
-            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, item: 'Rename tab' },
-        ])('renames a group from the group menu in $layout', async ({ overrides, item }) => {
+            { layout: 'bands', overrides: {}, item: 'Rename group', opener: 'menu' },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, item: 'Rename tab', opener: 'menu' },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, item: 'Rename tab', opener: 'right-click' },
+        ])('renames a group from the $opener in $layout', async ({ overrides, item, opener }) => {
             showBands(overrides)
             const bandValues = mockedUseValues.getMockImplementation()!
             mockedUseValues.mockImplementation((logic) =>
@@ -850,7 +855,11 @@ describe('DashboardItems', () => {
             )
 
             const { container, findByText, findByDisplayValue, rerender, unmount } = render(<DashboardItems />)
-            fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+            if (opener === 'right-click') {
+                fireEvent.contextMenu(within(container).getByText('Plans'))
+            } else {
+                fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+            }
             fireEvent.click(await findByText(item))
             expect(mockSetRenamingTileGroupKey).toHaveBeenCalledWith('plans')
 
@@ -869,6 +878,23 @@ describe('DashboardItems', () => {
 
             await waitFor(() => expect(mockRenameTileGroup).toHaveBeenCalledWith('plans', 'Pricing plans'))
             expect(mockSetRenamingTileGroupKey).toHaveBeenLastCalledWith(null)
+            unmount()
+        })
+
+        it.each([
+            { layout: 'bands', overrides: {} },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' } },
+        ])('moves a group from its move buttons in $layout', ({ overrides }) => {
+            showBands({ ...overrides, tileGroupMoveDirections: { plans: { canMoveUp: false, canMoveDown: true } } })
+
+            const { container, unmount } = render(<DashboardItems />)
+            const moveUp = container.querySelector<HTMLButtonElement>('[data-attr="dashboard-tile-group-move-up"]')!
+            const moveDown = container.querySelector<HTMLButtonElement>('[data-attr="dashboard-tile-group-move-down"]')!
+            fireEvent.click(moveUp)
+            fireEvent.click(moveDown)
+
+            expect(moveUp).toHaveAttribute('aria-disabled', 'true')
+            expect(mockMoveTileGroup.mock.calls).toEqual([['plans', 'down']])
             unmount()
         })
 

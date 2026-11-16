@@ -13,8 +13,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import QueryErrorCategory
+from posthog.errors import CHQueryErrorUnknownFunction, QueryErrorCategory
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.slo.types import SloOperation, SloOutcome
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -418,6 +421,42 @@ class TestRunCohortQueryFallback(unittest.TestCase):
         assert good.error is None
         assert bad.buckets is None
         assert bad.error is not None and "alert-1 also bad" in str(bad.error)
+
+    @parameterized.expand(
+        [
+            (
+                "invalid_query",
+                QueryError("Nested filter groups in logs queries support only log_attribute filters"),
+                False,
+            ),
+            ("clickhouse_invalid_query", CHQueryErrorUnknownFunction("Unknown function foo", code=46), True),
+            ("query_performance", ClickHouseQueryTimeOut(), True),
+        ]
+    )
+    @patch("products.logs.backend.temporal.activities.capture_exception")
+    @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities._run_batched_query")
+    def test_batched_failure_captured_unless_invalid_query(
+        self,
+        _name,
+        error,
+        expect_captured,
+        mock_batched,
+        mock_alert_check_query_cls,
+        mock_fallback_counter,
+        mock_capture,
+    ):
+        from products.logs.backend.temporal.activities import _run_cohort_query
+
+        mock_batched.side_effect = error
+        mock_alert_check_query_cls.return_value.execute_rolling_checks.return_value = []
+
+        result = _run_cohort_query(self._make_cohort(2))
+
+        mock_fallback_counter.assert_called_once_with("batched_failure")
+        assert all(r.error is None for r in result.per_alert.values())
+        assert mock_capture.called is expect_captured
 
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
     @patch("products.logs.backend.temporal.activities.classify_check_error")
@@ -1349,6 +1388,35 @@ class TestEvaluateSingleAlert(APIBaseTest):
             )
 
         mock_check_errors.assert_called_once_with(expected_category)
+
+    @parameterized.expand(
+        [
+            (
+                "invalid_query",
+                QueryError("Nested filter groups in logs queries support only log_attribute filters"),
+                False,
+            ),
+            ("clickhouse_invalid_query", CHQueryErrorUnknownFunction("Unknown function foo", code=46), True),
+            ("query_performance", ClickHouseQueryTimeOut(), True),
+        ]
+    )
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
+    @patch("products.logs.backend.temporal.activities.capture_exception")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_alert_internal_event")
+    def test_check_error_captured_unless_invalid_query(
+        self, expected_category, error, expect_captured, _mock_produce, mock_query_cls, mock_capture
+    ):
+        mock_query_cls.return_value.execute_rolling_checks.side_effect = error
+        self._make_alert()
+
+        _evaluate_and_save_one(
+            LogsAlertConfiguration.objects.get(), datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats()
+        )
+
+        alert = LogsAlertConfiguration.objects.get()
+        assert alert.consecutive_failures == 1
+        assert mock_capture.called is expect_captured
 
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.increment_check_errors")
