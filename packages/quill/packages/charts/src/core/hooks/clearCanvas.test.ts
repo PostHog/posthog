@@ -1,5 +1,5 @@
 import type { ChartDimensions } from '../types'
-import { clearAndPrepare, onScreenCanvases } from './clearCanvas'
+import { clearAndPrepare } from './clearCanvas'
 
 function makeCtx(backingWidth: number): {
     ctx: CanvasRenderingContext2D
@@ -27,42 +27,22 @@ describe('clearAndPrepare', () => {
 
     afterEach(() => {
         Object.defineProperty(window, 'devicePixelRatio', { value: originalDpr, configurable: true })
-        Object.defineProperty(window, 'visualViewport', { value: undefined, configurable: true })
-    })
-
-    // A 784×200 chart has a budget of sqrt(2,000,000 / 156,800) ≈ 3.57 backing pixels per css pixel.
-    it.each([
-        ['raises an on-screen chart to dpr × pinch-zoom', 200, 1.5, true, 2352],
-        ['keeps an off-screen chart at the dpr while zoomed', 200, 1.5, false, 1568],
-        ['caps an on-screen chart zoomed past the pixel budget', 200, 3, true, 2800],
-        ['never drops a chart larger than the budget below the dpr', 4000, 3, true, 1568],
-    ])('%s', (_, height, zoom, onScreen, expectedBackingWidth) => {
-        Object.defineProperty(window, 'devicePixelRatio', { value: 2, configurable: true })
-        Object.defineProperty(window, 'visualViewport', { value: { scale: zoom }, configurable: true })
-        const { ctx, transforms } = makeCtx(1568)
-        if (onScreen) {
-            onScreenCanvases.add(ctx.canvas)
-        }
-
-        clearAndPrepare(ctx, dims(784, height))
-
-        expect(ctx.canvas.width).toBe(expectedBackingWidth)
-        expect(transforms[0][0]).toBe(expectedBackingWidth / 784)
     })
 
     it.each([
-        ['resizes a backing store sized at a stale dpr', 784, 2, 1568],
-        ['keeps a backing store sized at the current dpr', 1568, 2, 1568],
-        ['resizes a backing store sized for an old css width', 640, 1, 784],
-    ])('%s and scales the transform to match it', (_, backingWidth, dpr, expectedBackingWidth) => {
+        ['resizes a backing store sized at a stale dpr', 784, 2, undefined, 1568],
+        ['keeps a backing store sized at the current dpr', 1568, 2, undefined, 1568],
+        ['resizes a backing store sized for an old css width', 640, 1, undefined, 784],
+        ['sizes the backing store at the pixel ratio the dimensions carry', 1568, 2, 3, 2352],
+    ])('%s and scales the transform to match it', (_, backingWidth, dpr, pixelRatio, expectedBackingWidth) => {
         Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true })
         const { ctx, transforms } = makeCtx(backingWidth)
 
-        clearAndPrepare(ctx, dims(784))
+        clearAndPrepare(ctx, { ...dims(784), pixelRatio })
 
         expect(ctx.canvas.width).toBe(expectedBackingWidth)
-        expect(transforms[0][0]).toBe(dpr)
-        expect(transforms[0][3]).toBe(dpr)
+        expect(transforms[0][0]).toBe(expectedBackingWidth / 784)
+        expect(transforms[0][3]).toBe(expectedBackingWidth / 784)
     })
 
     it('scales each axis by its own backing ratio on a capped tall canvas', () => {

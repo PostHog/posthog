@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { buildDimensions, canvasSizeIsStale, sameDimensions, type SizeRect } from '../canvas-size'
+import { buildDimensions, rasterScale, sameDimensions, type SizeRect } from '../canvas-size'
 import type { ChartDimensions, ChartMargins } from '../types'
-import { canvasRasterScale, onScreenCanvases } from './clearCanvas'
+import { useIsOnScreen } from './useIsOnScreen'
 import { useLatest } from './useLatest'
-
-const ZOOM_SETTLE_MS = 150
+import { useViewportPixelRatio } from './useViewportPixelRatio'
 
 interface UseChartCanvasOptions {
     margins: ChartMargins
@@ -39,8 +38,12 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
     const marginsRef = useLatest(margins)
     const rectRef = useRef<SizeRect | null>(null)
 
-    // Attach the ResizeObserver once. updateSize reads margins from the ref; when margins
-    // change, the secondary effect below recomputes dimensions from the cached rect.
+    const pagePixelRatio = useViewportPixelRatio()
+    const onScreen = useIsOnScreen(wrapperRef, pagePixelRatio > (window.devicePixelRatio || 1))
+    const rasterRef = useLatest({ pagePixelRatio, onScreen })
+
+    // Attach the ResizeObserver once. updateSize reads margins and the raster inputs from refs;
+    // when either changes, the secondary effect below recomputes dimensions from the cached rect.
     useEffect(() => {
         const wrapper = wrapperRef.current
         if (!wrapper) {
@@ -86,7 +89,9 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             // The draw loops key on `dimensions` *identity*, so publishing a fresh object is what
             // schedules a repaint. A restored context needs one even though no value moved, so
             // `repaint` skips the reuse of `prev`.
-            const next = buildDimensions(rect, marginsRef.current)
+            const raster = rasterRef.current
+            const pixelRatio = rasterScale(rect, window.devicePixelRatio || 1, raster.pagePixelRatio, raster.onScreen)
+            const next = buildDimensions(rect, marginsRef.current, pixelRatio)
             setCanvasState((prev) =>
                 prev &&
                 !repaint &&
@@ -116,51 +121,14 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         // does. `contextlost` is deliberately not handled — preventing its default tells the browser
         // we'll restore the context ourselves, and then it never restores.
         const onContextRestored = (): void => updateSize(true)
-        const canvases = [canvasRef.current, overlayCanvasRef.current].filter(
+        const restoreTargets = [canvasRef.current, overlayCanvasRef.current].filter(
             (canvas): canvas is HTMLCanvasElement => !!canvas
         )
-        canvases.forEach((canvas) => canvas.addEventListener('contextrestored', onContextRestored))
-
-        // Pinch-zoom, scrolling and a screen move change the raster scale without a resize the
-        // ResizeObserver sees. Repaint only when the backing size changes, so a zoom skips off-screen charts.
-        const repaintIfRasterScaleChanged = (): void => {
-            const rect = rectRef.current
-            const canvas = canvasRef.current
-            if (rect && canvas && canvasSizeIsStale(canvas, rect, canvasRasterScale(rect, canvas))) {
-                updateSize(true)
-            }
-        }
-
-        // Chrome fires `visualViewport` resize for a pinch-zoom and a screen move. Wait for it to settle,
-        // because a repaint per gesture frame redraws every on-screen chart at a growing size.
-        const viewport = window.visualViewport
-        let zoomSettleTimer: ReturnType<typeof setTimeout> | undefined
-        const onViewportResize = (): void => {
-            clearTimeout(zoomSettleTimer)
-            zoomSettleTimer = setTimeout(repaintIfRasterScaleChanged, ZOOM_SETTLE_MS)
-        }
-        viewport?.addEventListener('resize', onViewportResize)
-
-        let visibility: IntersectionObserver | null = null
-        if (typeof IntersectionObserver === 'function') {
-            visibility = new IntersectionObserver((entries) => {
-                const onScreen = entries[entries.length - 1]?.isIntersecting ?? false
-                canvases.forEach((canvas) =>
-                    onScreen ? onScreenCanvases.add(canvas) : onScreenCanvases.delete(canvas)
-                )
-                repaintIfRasterScaleChanged()
-            })
-            visibility.observe(wrapper)
-        } else {
-            canvases.forEach((canvas) => onScreenCanvases.add(canvas))
-        }
+        restoreTargets.forEach((canvas) => canvas.addEventListener('contextrestored', onContextRestored))
 
         return () => {
             observer.disconnect()
-            canvases.forEach((canvas) => canvas.removeEventListener('contextrestored', onContextRestored))
-            viewport?.removeEventListener('resize', onViewportResize)
-            clearTimeout(zoomSettleTimer)
-            visibility?.disconnect()
+            restoreTargets.forEach((canvas) => canvas.removeEventListener('contextrestored', onContextRestored))
         }
         // Bind the observer once. `marginsRef` is a ref so `updateSize` always reads the
         // latest margins; depending on `marginsRef.current` here would disconnect and re-run
@@ -168,20 +136,22 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    // When margins change without a resize, recompute dimensions from the cached rect.
+    // When margins or the raster scale change without a resize, recompute dimensions from the cached
+    // rect. A new `pixelRatio` on `dimensions` is what repaints a chart after a zoom or a screen move.
     useEffect(() => {
         const rect = rectRef.current
         if (!rect) {
             return
         }
+        const pixelRatio = rasterScale(rect, window.devicePixelRatio || 1, pagePixelRatio, onScreen)
         setCanvasState((prev) => {
             if (!prev) {
                 return prev
             }
-            const next = buildDimensions(rect, margins)
+            const next = buildDimensions(rect, margins, pixelRatio)
             return sameDimensions(prev.dimensions, next) ? prev : { ...prev, dimensions: next }
         })
-    }, [margins.left, margins.right, margins.top, margins.bottom, margins])
+    }, [margins.left, margins.right, margins.top, margins.bottom, margins, pagePixelRatio, onScreen])
 
     return {
         canvasRef,

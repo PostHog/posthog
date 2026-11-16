@@ -122,12 +122,7 @@ describe('useChartCanvas', () => {
         expect([overlay.width, overlay.height]).toEqual([0, 0])
     })
 
-    it.each([
-        ['repaints an on-screen chart at the pinch-zoom scale', true, 2, 1, mockRect.width * 2, 1],
-        ['skips the repaint for an off-screen chart under pinch-zoom', false, 2, 1, mockRect.width, 0],
-        ['repaints an off-screen chart at the new pixel ratio after a screen move', false, 1, 2, mockRect.width * 2, 1],
-    ])('%s once the viewport settles', (_, onScreen, zoom, dpr, expectedWidth, repaints) => {
-        const originalDpr = window.devicePixelRatio
+    it('repaints a chart in view at the zoomed pixel ratio once a pinch-zoom settles', () => {
         let onViewportResize = (): void => {}
         let onVisibilityChange: IntersectionObserverCallback = () => {}
         const viewport = {
@@ -145,29 +140,26 @@ describe('useChartCanvas', () => {
         }) as unknown as typeof IntersectionObserver
 
         try {
-            const drawStatic = jest.fn()
-            const canvas = renderCanvas(drawStatic)
-            const entry = { isIntersecting: onScreen } as IntersectionObserverEntry
-            act(() => onVisibilityChange([entry], {} as IntersectionObserver))
-            drawStatic.mockClear()
+            const canvas = renderCanvas(jest.fn())
             jest.useFakeTimers()
 
-            viewport.scale = zoom
-            Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true })
+            viewport.scale = 2
             act(() => {
                 onViewportResize()
+                jest.advanceTimersByTime(150)
+            })
+            const entry = { isIntersecting: true } as IntersectionObserverEntry
+            act(() => onVisibilityChange([entry], {} as IntersectionObserver))
+            // The new dimensions commit, and the draw loop paints in the next frame.
+            act(() => {
                 jest.runAllTimers()
             })
-            // The settled repaint commits a state update, and the draw loop paints in the next frame.
-            act(() => jest.runAllTimers())
 
-            expect(canvas.width).toBe(expectedWidth)
-            expect(drawStatic).toHaveBeenCalledTimes(repaints)
+            expect(canvas.width).toBe(mockRect.width * 2)
         } finally {
             jest.useRealTimers()
             globalThis.IntersectionObserver = originalIntersectionObserver
             Object.defineProperty(window, 'visualViewport', { value: undefined, configurable: true })
-            Object.defineProperty(window, 'devicePixelRatio', { value: originalDpr, configurable: true })
         }
     })
 
