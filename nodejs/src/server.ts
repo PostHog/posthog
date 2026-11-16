@@ -507,6 +507,7 @@ export class PluginServer implements NodeServer {
                     // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
                     batchMaxSize: 1,
                     boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
+                    releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,

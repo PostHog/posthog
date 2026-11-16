@@ -75,6 +75,29 @@ const staleCommitsCounter = new Counter({
     labelNames: ['queue', 'operation'] as const,
 })
 
+const releaseWriteRetriesCounter = new Counter({
+    name: 'cdp_cyclotron_v2_release_write_retries_total',
+    help: 'Release writes retried once on a fresh connection after the first attempt lost its connection, per queue, operation and outcome. no_row means the first attempt most likely committed before the connection dropped.',
+    labelNames: ['queue', 'operation', 'outcome'] as const,
+})
+
+const CONNECTION_LOST_SQLSTATES = new Set(['57P01', '57P02', '57P03'])
+const CONNECTION_LOST_ERRNOS = new Set(['ECONNRESET', 'ECONNREFUSED', 'EPIPE'])
+const NODE_PG_CONNECTION_LOST_MESSAGE = /^Connection terminated|is not queryable$/
+
+function isConnectionLost(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+        return false
+    }
+    const code = (error as { code?: unknown }).code
+    if (typeof code === 'string') {
+        if (code.startsWith('08') || CONNECTION_LOST_SQLSTATES.has(code) || CONNECTION_LOST_ERRNOS.has(code)) {
+            return true
+        }
+    }
+    return NODE_PG_CONNECTION_LOST_MESSAGE.test(error.message)
+}
+
 export function countStaleCommit(queue: string, operation: string): void {
     staleCommitsCounter.labels({ queue, operation }).inc()
 }
@@ -266,6 +289,7 @@ export class CyclotronV2Worker {
     private wakeFromPollSleep: (() => void) | null = null
     private readonly heartbeatTimeoutMs: number
     private readonly releaseWriteHeartbeatLimitMs: number
+    private readonly releaseWriteRetry: boolean
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
     private readonly boundedPolls: boolean
@@ -291,6 +315,7 @@ export class CyclotronV2Worker {
         this.assertBackOffFitsHeartbeat()
         this.nextPollDelayMs = this.pollDelayMs
         this.releaseWriteHeartbeatLimitMs = config.releaseWriteHeartbeatLimitMs ?? 20000
+        this.releaseWriteRetry = config.releaseWriteRetry ?? false
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
         this.boundedPolls = config.boundedPolls ?? false
         this.ownershipReadTimeoutMs = config.ownershipReadTimeoutMs ?? 5_000
@@ -445,6 +470,7 @@ export class CyclotronV2Worker {
         const assignEmailDequeueSeq = this.assignEmailDequeueSeq
         const lockId = row.lock_id
         const releaseWriteHeartbeatLimitMs = this.releaseWriteHeartbeatLimitMs
+        const releaseWriteRetry = this.releaseWriteRetry
         const ownershipReadTimeoutMs = this.ownershipReadTimeoutMs
         let releaseStartedAt: number | null = null
         let releaseWritten = false
@@ -479,12 +505,41 @@ export class CyclotronV2Worker {
             return result.rowCount === 1
         }
 
+        const writeRetryingLostConnection = async (
+            method: string,
+            attempt: () => Promise<{ rowCount: number | null }>
+        ): Promise<{ rowCount: number | null }> => {
+            try {
+                return await attempt()
+            } catch (error) {
+                if (!releaseWriteRetry || !isConnectionLost(error) || releaseWriteOutlivedHeartbeats()) {
+                    throw error
+                }
+                logger.warn('CyclotronV2Worker retrying a release write after its connection dropped', {
+                    id: row.id,
+                    operation: method,
+                    error: String(error),
+                })
+                const retried = { queue: row.queue_name, operation: method }
+                try {
+                    const result = await attempt()
+                    releaseWriteRetriesCounter
+                        .labels({ ...retried, outcome: result.rowCount === 0 ? 'no_row' : 'written' })
+                        .inc()
+                    return result
+                } catch (retryError) {
+                    releaseWriteRetriesCounter.labels({ ...retried, outcome: 'failed' }).inc()
+                    throw retryError
+                }
+            }
+        }
+
         const releaseWrite =
             <A extends unknown[]>(method: string, write: (...args: A) => Promise<{ rowCount: number | null }>) =>
             async (...args: A): Promise<void> => {
                 releaseGuard(method)
                 try {
-                    const result = await write(...args)
+                    const result = await writeRetryingLostConnection(method, () => write(...args))
                     if (result.rowCount === 0) {
                         noteOwnershipLost(method)
                     }

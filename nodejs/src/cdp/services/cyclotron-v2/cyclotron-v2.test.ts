@@ -5083,5 +5083,94 @@ describe('Cyclotron V2', () => {
             const retried = await dequeueOneBatch(worker)
             expect(retried.map((j) => j.id)).toEqual([id])
         })
+
+        describe('a release write whose connection drops', () => {
+            async function interruptReleaseWrite(
+                id: string,
+                release: () => Promise<void>,
+                interrupt: 'pg_terminate_backend' | 'pg_cancel_backend'
+            ): Promise<'released' | 'rejected'> {
+                const holder = await assertPool.connect()
+                try {
+                    await holder.query('BEGIN')
+                    await holder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+                    const write = release().then(
+                        () => 'released' as const,
+                        () => 'rejected' as const
+                    )
+                    const waitingWrite = async (): Promise<number | undefined> => {
+                        const { rows } = await assertPool.query<{ pid: number }>(
+                            `SELECT pid FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock'`,
+                            [DROP_APP]
+                        )
+                        return rows[0]?.pid
+                    }
+                    let pid: number | undefined
+                    await waitForExpect(async () => expect((pid = await waitingWrite())).toBeDefined(), 2000, 10)
+                    await assertPool.query(`SELECT ${interrupt}($1)`, [pid])
+                    await waitForExpect(async () => expect(await waitingWrite()).not.toBe(pid), 2000, 10)
+                    await holder.query('ROLLBACK')
+                    return await write
+                } finally {
+                    holder.release()
+                }
+            }
+
+            async function janitorResets(id: string): Promise<number> {
+                const janitor = createJanitor({ cleanupGraceMs: 60_000 })
+                stops.push(() => janitor.stop())
+                await janitor.runOnce()
+                return (await queryJob(id)).janitor_touch_count
+            }
+
+            async function dequeueOnDropTestPool(overrides: Record<string, unknown>): Promise<CyclotronV2DequeuedJob> {
+                const worker = createWorker(QUEUE, { pool: { dbUrl: DROP_DB_URL }, ...overrides })
+                stops.push(() => worker.disconnect())
+                const [job] = await dequeueOneBatch(worker)
+                return job
+            }
+
+            it.each([
+                ['ack', 'completed', (job: CyclotronV2DequeuedJob) => job.ack()],
+                ['fail', 'failed', (job: CyclotronV2DequeuedJob) => job.fail()],
+                ['cancel', 'canceled', (job: CyclotronV2DequeuedJob) => job.cancel()],
+                ['reschedule', 'available', (job: CyclotronV2DequeuedJob) => job.reschedule()],
+                ['defer', 'available', (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() })],
+            ])(
+                'retries %s once on a fresh connection, so the job ends released and the janitor never resets it',
+                async (_operation, status, release) => {
+                    const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                    const job = await dequeueOnDropTestPool({ releaseWriteRetry: true })
+
+                    expect(await interruptReleaseWrite(id, () => release(job), 'pg_terminate_backend')).toBe('released')
+
+                    const row = await queryJob(id)
+                    expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status, lock_id: null })
+                    expect(await janitorResets(id)).toBe(0)
+                }
+            )
+
+            it.each([
+                ['the retry switch is off', 'pg_terminate_backend' as const, { releaseWriteRetry: false }],
+                [
+                    'the statement was canceled on a live connection',
+                    'pg_cancel_backend' as const,
+                    { releaseWriteRetry: true },
+                ],
+                [
+                    'the write outlived the heartbeat limit',
+                    'pg_terminate_backend' as const,
+                    { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: 0 },
+                ],
+            ])('does not retry when %s, and the janitor resets the job', async (_case, interrupt, overrides) => {
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                const job = await dequeueOnDropTestPool(overrides)
+
+                expect(await interruptReleaseWrite(id, () => job.ack(), interrupt)).toBe('rejected')
+
+                expect((await queryJob(id)).status).toBe('running')
+                expect(await janitorResets(id)).toBe(1)
+            })
+        })
     })
 })
