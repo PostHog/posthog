@@ -347,6 +347,7 @@ Automatic reviewer changes do not send additional Slack notifications.
 During the internal trial, check correction relevance and assignment quality in report samples.
 Use `after_inbox_notification` on `signals_suggested_reviewers_resolved` to inspect pipeline changes after notification.
 Use `runner_source=team_fallback` on `signals_autostart_steering_attached` and `skip_reason=no_runner` on `signals_autostart_skipped` to inspect task outcomes.
+Break `no_runner` down by `no_runner_reason` to separate a threshold setting from reviewers who cannot run the report and a project with no fallback member.
 Compare report state, not raw event totals: skipped unchanged writes reduce the event count.
 Keep the selection flag disabled until the trial confirms suitable assignments and expected autostart behavior.
 

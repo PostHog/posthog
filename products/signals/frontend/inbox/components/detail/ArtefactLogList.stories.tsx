@@ -203,8 +203,17 @@ export const CheckLifecycleNarrow: Story = {
     ],
 }
 
-/** The three link gates that hold automatic implementation back, and the link one of them acted on. */
+/** The gates that hold automatic implementation back, and the link one of them acted on. */
 const linkArtefacts = [
+    {
+        id: 'skip-below-threshold',
+        type: 'autostart_skip',
+        created_at: '2026-09-22T09:15:00Z',
+        content: {
+            skip_reason: 'below_threshold',
+            detail: "No work started because this report's priority is below the auto-start threshold of every suggested reviewer who could run it, and below the project threshold. Lower a threshold in Inbox settings, or press Create PR to start it now.",
+        },
+    },
     {
         id: 'skip-plan-parent',
         type: 'autostart_skip',

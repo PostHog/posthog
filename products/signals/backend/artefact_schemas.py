@@ -1005,19 +1005,23 @@ class SourceIssue(BaseModel):
 
 MAX_AUTOSTART_SKIP_DETAIL_LENGTH = 500
 
+# Why auto-start found nobody to run a report. The values carry no login or user id, because they
+# also go on the `signals_autostart_skipped` event.
+NoRunnerReason = Literal["below_threshold", "no_identity_candidates", "no_fallback_user"]
+
 
 class AutostartSkip(BaseModel):
-    """Content schema for an `autostart_skip` artefact: automatic implementation was held back by a
-    typed link to another report.
+    """Content schema for an `autostart_skip` artefact: automatic implementation was held back for a
+    reason that a reader cannot see on the report itself.
 
-    Only the link gates write this. The other auto-start skips are properties of the report itself
-    (not actionable, no priority, over quota), and a reader inspecting the report sees those
-    already. A link gate is the one case where the reason lives on a *different* report, so without
-    a row on the log the inbox can only show that nothing started.
+    The link gates write this because their reason lives on a *different* report. The no-runner
+    gate writes it because its reason lives in thresholds and memberships that the report does not
+    show. The other auto-start skips are properties of the report itself (not actionable, no
+    priority, over quota), and a reader inspecting the report sees those already.
     """
 
-    skip_reason: Literal["duplicate_of", "blocked_by_dependency", "plan_parent"] = Field(
-        description="Which link gate held the report back."
+    skip_reason: Literal["duplicate_of", "blocked_by_dependency", "plan_parent"] | NoRunnerReason = Field(
+        description="Which gate held the report back."
     )
     linked_report_id: str | None = Field(
         default=None,
