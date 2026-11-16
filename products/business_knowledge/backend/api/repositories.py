@@ -37,6 +37,7 @@ from .repository_serializers import (
     RepositorySearchResponseSerializer,
     RepositorySelectionSerializer,
 )
+from .settings import CanonicalTeamTokenPermission
 from .throttles import KNOWLEDGE_THROTTLES
 
 _READ_ACTIONS = frozenset({"status", "search", "read_file"})
@@ -152,7 +153,7 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
     )
     def search(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         library_id = request.validated_query_data.get("library_id")
-        self._require_library(library_id)
+        self._require_library(request, library_id)
         outcome = search_repositories(
             self.team,
             cast(User | SyntheticUser, request.user),
@@ -181,7 +182,7 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
     )
     def read_file(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         library_id = request.validated_query_data.get("library_id")
-        self._require_library(library_id)
+        self._require_library(request, library_id)
         loaded = read_repository_file(
             self.team,
             cast(User | SyntheticUser, request.user),
@@ -191,9 +192,14 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
         )
         return Response(RepositoryFileSerializer(_file_payload(loaded)).data)
 
-    def _require_library(self, library_id: Any) -> None:
+    def _require_library(self, request: Request, library_id: Any) -> None:
         if library_id is None:
             return
+        # The parent project owns libraries. Without this check, a caller confined to a child
+        # environment learns from the 404 which library ids exist in the parent.
+        permission = CanonicalTeamTokenPermission()
+        if not permission.has_permission(request, self):
+            raise exceptions.PermissionDenied(permission.message)
         try:
             get_library(self.team_id, library_id)
         except LibraryNotFound:

@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -131,3 +132,19 @@ class TestProjectSecretKeyAccess(APIBaseTest):
         self._use_key(team=child)
         response = self.client.get(self._base(child) + path.format(document=self.document.id))
         assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND), response.content
+
+    @parameterized.expand(
+        [
+            ("search", "/repositories/search/?query=billing&library_id={library}"),
+            ("file", "/repositories/file/?repo=acme/billing&path=src/billing.py&library_id={library}"),
+        ]
+    )
+    def test_child_environment_key_cannot_tell_which_parent_libraries_exist(
+        self, _ff: Any, _embed: Any, _name: str, path: str
+    ) -> None:
+        child = self._child_environment()
+        self._use_key(team=child)
+        existing = self.client.get(self._base(child) + path.format(library=self.library.id))
+        unknown = self.client.get(self._base(child) + path.format(library=uuid4()))
+        assert existing.status_code == status.HTTP_403_FORBIDDEN, existing.content
+        assert unknown.status_code == status.HTTP_403_FORBIDDEN, unknown.content
