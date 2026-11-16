@@ -49,6 +49,7 @@ logger = structlog.get_logger(__name__)
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
+SLACK_ALERT_FOLLOWUP_INVITE_FLAG = "slack-followup-invite-on-alerts"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -180,4 +181,19 @@ def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
         SLACK_APP_FORKING_FLAG,
         integration,
         failure_log_key="slack_app_forking_feature_flag_check_failed",
+    )
+
+
+def is_slack_alert_followup_invite_enabled(integration: IntegrationRecord) -> bool:
+    """Gate for the follow-up invite under alert notifications.
+
+    The invite is an experiment with a holdout, so the flag is meant to aggregate by
+    organization: every workspace of an organization then lands on the same side, and a
+    mention after an alert can be compared between the two sides. No user is passed, because
+    an alert has no reader to key on.
+    """
+    return _workspace_flag_enabled(
+        SLACK_ALERT_FOLLOWUP_INVITE_FLAG,
+        integration,
+        failure_log_key="slack_app_alert_followup_invite_feature_flag_check_failed",
     )

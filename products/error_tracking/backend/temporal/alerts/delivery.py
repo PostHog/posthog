@@ -50,6 +50,8 @@ from products.error_tracking.backend.temporal.alerts.messages import (
     build_root_message,
 )
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
+from products.slack_app.backend.facade.api import slack_alert_followup_invite
+from products.slack_app.backend.facade.types import FollowupInvite
 
 logger = structlog.get_logger(__name__)
 
@@ -79,6 +81,7 @@ class AlertThreadBusyError(Exception):
 ALERT_THROTTLE_KEY_PREFIX = "error_tracking:alert_throttle:v1"
 _RELEASE_IF_HELD = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0"
 MAX_RECORDED_ERROR_LENGTH = 500
+FOLLOWUP_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=error_tracking_alert&utm_medium=slack"
 
 
 # Slack error codes that no retry can fix: the bot was removed, the channel is gone
@@ -484,7 +487,10 @@ def _post_claimed(
         # as the opener's payload saw it.
         root_inputs = _with_current_status(inputs)
         message = build_root_message(root_inputs)
-        response = client.chat_postMessage(channel=channel, blocks=message["blocks"], text=message["text"])
+        # Only the root carries the invite, because every reply already sits in the thread it points to.
+        invite = _followup_invite(delivery.destination)
+        blocks = [*message["blocks"], invite.block] if invite else message["blocks"]
+        response = client.chat_postMessage(channel=channel, blocks=blocks, text=message["text"])
         # The rooting notification is recorded so a later attempt of it can tell
         # its own root from an older conversation.
         external_ref = {
@@ -493,6 +499,10 @@ def _post_claimed(
             "notification_id": inputs.notification_id,
             "root_status": root_inputs.status,
         }
+        if invite:
+            # Recorded so a root edit keeps the invite, and so the rollout can tell which wording a
+            # thread showed.
+            external_ref["followup_invite_variant"] = invite.variant.value
         root_headline = message["headline"]
     else:
         reply = build_reply_text(inputs)
@@ -501,7 +511,7 @@ def _post_claimed(
         # Replies stay in the thread's own channel: a provider thread cannot move,
         # so a repointed destination only applies to newly opened threads.
         client.chat_postMessage(channel=external_ref["channel"], thread_ts=external_ref["ts"], text=reply)
-        external_ref = _reconcile_root_status(client, thread, inputs)
+        external_ref = _reconcile_root_status(client, thread, delivery.destination, inputs)
 
     _finalize_thread(thread, inputs, claimed_at, external_ref=external_ref, root_headline=root_headline)
     _record_delivery_outcome(delivery.destination, error=None)
@@ -586,7 +596,10 @@ def _with_current_status(inputs: AlertDeliveryWorkflowInputs) -> AlertDeliveryWo
 
 
 def _reconcile_root_status(
-    client: WebClient, thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs
+    client: WebClient,
+    thread: ErrorTrackingAlertThread,
+    destination: ErrorTrackingAlertDestination,
+    inputs: AlertDeliveryWorkflowInputs,
 ) -> dict:
     """Edit the root's status line whenever it differs from the issue row's status.
 
@@ -601,11 +614,14 @@ def _reconcile_root_status(
     if not inputs.status or inputs.status == external_ref.get("root_status"):
         return external_ref
     message = build_root_edit(inputs, headline=thread.root_headline or DEFAULT_HEADLINE)
+    blocks = message["blocks"]
+    if external_ref.get("followup_invite_variant") and (invite := _followup_invite(destination)):
+        blocks = [*blocks, invite.block]
     try:
         client.chat_update(
             channel=external_ref["channel"],
             ts=external_ref["ts"],
-            blocks=message["blocks"],
+            blocks=blocks,
             text=message["text"],
         )
     except Exception:
@@ -618,6 +634,12 @@ def _reconcile_root_status(
         )
         return external_ref
     return {**external_ref, "root_status": inputs.status}
+
+
+def _followup_invite(destination: ErrorTrackingAlertDestination) -> FollowupInvite | None:
+    if destination.integration is None:
+        return None
+    return slack_alert_followup_invite(destination.integration, subject="this issue", utm_tags=FOLLOWUP_INVITE_UTM_TAGS)
 
 
 def _slack_client(destination: ErrorTrackingAlertDestination) -> WebClient | None:

@@ -1,6 +1,8 @@
+from typing import Any
+
 from posthog.dataclasses import frozen
 
-from products.slack_app.backend.facade.enums import SlackSetupStepKey
+from products.slack_app.backend.facade.enums import FollowupInviteVariant, SlackSetupStepKey
 
 # Slack rate limits conversations.join, and a long list in one request would hold the request open.
 MAX_CHANNELS_TO_JOIN = 20
@@ -46,3 +48,11 @@ class ChannelOption:
 class ChannelJoinResult:
     channel_id: str
     error: str | None
+
+
+@frozen
+class FollowupInvite:
+    """The invite line as a Slack context block, and which of its two wordings the block carries."""
+
+    block: dict[str, Any]
+    variant: FollowupInviteVariant

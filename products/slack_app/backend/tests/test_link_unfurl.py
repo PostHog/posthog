@@ -726,6 +726,13 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             self.integration,
         )
 
+    def _unfurl_event_variant(self, url: str) -> str | None:
+        with patch("products.slack_app.backend.analytics.ph_background_capture") as background_capture:
+            self._unfurl_links([url])
+        capture = background_capture.return_value
+        event = next(call for call in capture.call_args_list if call.kwargs["event"] == "slack app link unfurled")
+        return event.kwargs["properties"]["followup_invite_variant"]
+
     @staticmethod
     def _invite_blocks(mock_client: MagicMock) -> list[dict]:
         blocks = [
@@ -753,10 +760,13 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
-        self._unfurl_links([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
+        variant = self._unfurl_event_variant(
+            f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+        )
 
         invites = self._invite_blocks(mock_client)
         assert len(invites) == expected_invites
+        assert variant == ("mention" if expected_invites else None)
         if expected_invites:
             assert "dig into this insight" in invites[0]["elements"][0]["text"]
 
@@ -773,9 +783,12 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
-        self._unfurl_links([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
+        variant = self._unfurl_event_variant(
+            f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+        )
 
         text = self._invite_blocks(mock_client)[0]["elements"][0]["text"]
+        assert variant == "setup_link"
         assert "Set up the @PostHog bot" in text
         assert "about this insight here" in text
         assert "mention" not in text

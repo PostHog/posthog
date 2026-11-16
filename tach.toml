@@ -526,6 +526,8 @@ depends_on = [
     "products.warehouse_sources", "products.access_control",
     # Facade-only: the built-in bot filter reads the bot user agent patterns.
     "products.web_analytics",
+    # Facade-only: a Slack alert invites the channel to ask the @PostHog bot about the issue.
+    "products.slack_app",
 ]
 layer = "modules"
 
@@ -1816,7 +1818,13 @@ layer = "modules"
 
 [[modules]]
 path = "products.alerts_platform"
-depends_on = ["posthog", "products.access_control", "products.notifications"]
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.notifications",
+    # Facade-only: a Slack alert invites the channel to ask the @PostHog bot about it.
+    "products.slack_app",
+]
 layer = "modules"
 
 [[interfaces]]

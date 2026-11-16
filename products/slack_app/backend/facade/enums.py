@@ -1,3 +1,5 @@
+from enum import StrEnum
+
 from posthog.enums import LabeledStrEnum
 
 
@@ -10,3 +12,8 @@ class SlackSetupStepKey(LabeledStrEnum):
 class SlackSetupEntry(LabeledStrEnum):
     SLACK_PAGE = "slack_page", "The Slack page in PostHog"
     OTHER = "other", "Another place, such as a channel picker"
+
+
+class FollowupInviteVariant(StrEnum):
+    MENTION = "mention"
+    SETUP_LINK = "setup_link"

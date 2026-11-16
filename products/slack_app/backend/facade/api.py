@@ -28,9 +28,17 @@ import structlog
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import Integration
+from posthog.models.team import Team
 
 from products.slack_app.backend.facade.enums import SlackSetupEntry
-from products.slack_app.backend.facade.types import ChannelJoinResult, ChannelOption, SlackSetupNotFound, WorkspaceSetup
+from products.slack_app.backend.facade.types import (
+    ChannelJoinResult,
+    ChannelOption,
+    FollowupInvite,
+    SlackSetupNotFound,
+    WorkspaceSetup,
+)
+from products.slack_app.backend.feature_flags import is_slack_alert_followup_invite_enabled
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.progress_phases import (
@@ -51,7 +59,11 @@ from products.slack_app.backend.logic.progress_phases import (
     tool_call_from_acp_update,
 )
 from products.slack_app.backend.models import SlackChannel
-from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
+from products.slack_app.backend.services.followup_invite import (
+    build_followup_invite,
+    build_followup_invite_text,
+    resolve_followup_invite,
+)
 from products.slack_app.backend.services.public_channel_catalog import public_channel_options
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
 from products.slack_app.backend.services.slack_scopes import SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE, has_scopes
@@ -85,6 +97,7 @@ __all__ = [
     "invalidate_slack_integration_auth_state",
     "record_slack_feature_used",
     "slack_artifact_delivery_state_updates",
+    "slack_alert_followup_invite",
     "slack_channel_is_approved",
     "slack_followup_invite",
     "slack_followup_invite_text",
@@ -157,6 +170,35 @@ def slack_followup_invite(
 ) -> dict[str, Any] | None:
     """``slack_followup_invite_text`` as a Slack context block, for a caller that appends blocks."""
     return build_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled)
+
+
+def slack_alert_followup_invite(
+    integration: IntegrationRecord, *, subject: str, utm_tags: str
+) -> FollowupInvite | None:
+    """The invite line for an alert notification, or ``None`` when the alert goes out without one.
+
+    Unlike ``slack_followup_invite``, this resolves the organization's AI approval itself and
+    applies the alert rollout flag, so an alert delivery path needs only the integration it posts
+    through. It reads the database, so it must run on a synchronous path.
+
+    ``subject`` names what the reader would ask about, such as "this alert".
+
+    Never raises: the alert matters more than the line under it, so a failed lookup sends the
+    alert without the invite.
+    """
+    try:
+        ai_enabled = bool(
+            Team.objects.filter(id=integration.team_id)
+            .values_list("organization__is_ai_data_processing_approved", flat=True)
+            .first()
+        )
+        # The flag is a network call, so it runs only for an organization that could see the invite.
+        if not ai_enabled or not is_slack_alert_followup_invite_enabled(integration):
+            return None
+        return resolve_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled, subject=subject)
+    except Exception:
+        logger.exception("slack_app_alert_followup_invite_failed", integration_id=integration.id)
+        return None
 
 
 def record_slack_feature_used(integration_id: int, slack_user_id: str | None, feature: SlackFeature) -> None:

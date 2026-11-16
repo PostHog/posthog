@@ -5,7 +5,7 @@ stays here is the part that is about alerts: which destination a message goes to
 message becomes blocks.
 """
 
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -36,6 +36,9 @@ from products.alerts_platform.backend.facade.contracts import (
     SlackMessageContent,
 )
 
+if TYPE_CHECKING:
+    from products.slack_app.backend.facade.types import FollowupInvite
+
 logger = structlog.get_logger(__name__)
 
 PROVIDER: Final = "slack"
@@ -45,6 +48,8 @@ MAX_CONTEXT_CHARS: Final = 3000
 
 # Separates alert traffic from the API-driven calls on the shared Slack egress metrics.
 EGRESS_SOURCE: Final = "alerts"
+
+FOLLOWUP_INVITE_UTM_TAGS: Final = "utm_source=posthog&utm_campaign=alert_notification&utm_medium=slack"
 
 # What Slack answers when it cannot fetch an image block, such as an expired chart URL. It refuses
 # the whole message, so the message goes again without its image rather than not at all.
@@ -139,9 +144,13 @@ def _with_untracked_groups(content: SlackMessageContent, message: AlertMessage) 
     notices = [detail for detail in message.details if detail.label == UNTRACKED_GROUPS_LABEL]
     if not notices:
         return content
-    notice = section_block(_body(tuple(notices)))
     # The warning says the alert is at its group limit, so a reader who misses it reads a truncated
     # alert as a complete one. It goes wherever the renderer left room, never nowhere.
+    return _with_notice(content, section_block(_body(tuple(notices))))
+
+
+def _with_notice(content: SlackMessageContent, notice: dict[str, Any]) -> SlackMessageContent:
+    """`notice` above the action row of the card, in the last attachment when the card is one."""
     if not content.attachments:
         return SlackMessageContent(
             text=content.text, blocks=_above_actions(content.blocks, notice), attachments=content.attachments
@@ -201,8 +210,14 @@ class SlackTransport:
         if workspace_id is None or channel is None:
             raise DeliveryError("This Slack destination is missing its workspace or channel.")
 
-        slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
+        integration = self._integration(team_id=team_id, workspace_id=workspace_id)
+        slack = SlackIntegration(integration, source=EGRESS_SOURCE)
         content = content_for(team_id=team_id, message=message)
+        # Only the opening message carries the invite, because a reply already sits in the thread
+        # that the invite points to.
+        invite = self._followup_invite(integration) if in_reply_to is None else None
+        if invite is not None:
+            content = _with_notice(content, invite.block)
 
         def post(content: SlackMessageContent) -> Any:
             return post_message(
@@ -244,7 +259,10 @@ class SlackTransport:
                 # rollback that reader handles the resolve, so it is given one block to work on.
                 # `edit_root` below ignores this and sends the posted blocks instead.
                 root_content["blocks"] = content.blocks or [section_block(content.text)]
-        return MessageHandle(external_ref={"channel": channel, "ts": timestamp}, root_content=root_content)
+        external_ref = {"channel": channel, "ts": timestamp}
+        if invite is not None:
+            external_ref["followup_invite_variant"] = invite.variant.value
+        return MessageHandle(external_ref=external_ref, root_content=root_content)
 
     def edit_root(self, *, team_id: int, target: AlertDestinationData, root: MessageHandle, state_line: str) -> None:
         workspace_id = target.get("slack_workspace_id")
@@ -294,6 +312,15 @@ class SlackTransport:
                 update(_without_image_content(content))
         except SlackApiError as error:
             raise DeliveryError(f"Slack refused the edit: {error.response.get('error')}") from error
+
+    def _followup_invite(self, integration: IntegrationRecord) -> "FollowupInvite | None":
+        # Imported here because source apps reach this module from ready(), and the Slack app
+        # facade would load the whole Slack app into every process at startup.
+        from products.slack_app.backend.facade.api import (  # noqa: PLC0415 - keeps the Slack app off the import path
+            slack_alert_followup_invite,
+        )
+
+        return slack_alert_followup_invite(integration, subject="this alert", utm_tags=FOLLOWUP_INVITE_UTM_TAGS)
 
     def _integration(self, *, team_id: int, workspace_id: int) -> IntegrationRecord:
         # Scoped by team as well as by id. The destination names an integration, and nothing

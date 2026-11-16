@@ -59,6 +59,7 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.facade.reports import get_report_card, may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.facade.types import FollowupInvite
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.link_unfurl_charts import (
@@ -70,7 +71,7 @@ from products.slack_app.backend.logic.link_unfurl_charts import (
     with_chart_images,
 )
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.slack_app.backend.services.followup_invite import build_followup_invite
+from products.slack_app.backend.services.followup_invite import resolve_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
@@ -511,8 +512,8 @@ def _claim_invite_slot(slack_team_id: str, channel: str) -> bool:
     return bool(claimed)
 
 
-def _build_unfurl_invite(integration: WorkspaceIntegration, kind: str, channel: str) -> dict | None:
-    """The invite block for the first resource we unfurled, or None when it should stay quiet.
+def _build_unfurl_invite(integration: WorkspaceIntegration, kind: str, channel: str) -> FollowupInvite | None:
+    """The invite for the first resource we unfurled, or None when it should stay quiet.
 
     Consent is checked before the slot is claimed: the other way round, a workspace that never
     approved AI would burn its channel's daily slot on every paste, and an approval later that
@@ -526,7 +527,7 @@ def _build_unfurl_invite(integration: WorkspaceIntegration, kind: str, channel: 
         return None
     if not _claim_invite_slot(slack_team_id, channel):
         return None
-    return build_followup_invite(
+    return resolve_followup_invite(
         integration,
         utm_tags=_INVITE_UTM_TAGS,
         ai_enabled=ai_enabled,
@@ -1537,7 +1538,7 @@ def handle_posthog_link_unfurl(event: dict, integration: WorkspaceIntegration) -
     invite = _build_unfurl_invite(integration, invite_kind, channel)
     kinds = sorted({kind for kind, _ in cards.values()})
     for compact in (True,) if len(cards) > 1 else (False, True):
-        unfurls = _unfurls(cards, compact=compact, invite=invite)
+        unfurls = _unfurls(cards, compact=compact, invite=invite.block if invite else None)
         error = _post_unfurls(slack, event, unfurls)
         if error is None:
             break
@@ -1591,6 +1592,7 @@ def handle_posthog_link_unfurl(event: dict, integration: WorkspaceIntegration) -
         compact=compact,
         skipped_count=len(skipped),
         followup_invite_shown=invite is not None,
+        followup_invite_variant=invite.variant.value if invite else None,
         charts_queued=charts_queued,
         artifact_image_queued=artifact_image_queued,
         bot_reply=bot_reply_actor is not None,

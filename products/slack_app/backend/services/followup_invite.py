@@ -9,6 +9,8 @@ from typing import Any
 
 from posthog.integrations import IntegrationRecord
 
+from products.slack_app.backend.facade.enums import FollowupInviteVariant
+from products.slack_app.backend.facade.types import FollowupInvite
 from products.slack_app.backend.services.slack_scopes import bot_is_ready
 
 BOT_SETUP_DOCS_URL = "https://posthog.com/docs/slack-app"
@@ -39,11 +41,8 @@ def build_followup_invite_text(
     The unfurl path passes the resource it just expanded, so the line reads "dig into this
     dashboard" rather than naming a report the reader never saw.
     """
-    if integration is None or not ai_enabled:
-        return None
-    if bot_is_ready(integration):
-        return f"💬 Reply in this thread and mention *@PostHog* with a question to dig into {subject or 'this report'}."
-    return f"💬 <{BOT_SETUP_DOCS_URL}?{utm_tags}|Set up the @PostHog bot> to ask follow-up questions about {subject or 'your reports'} here."
+    invite = resolve_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled, subject=subject)
+    return invite.block["elements"][0]["text"] if invite else None
 
 
 def build_followup_invite(
@@ -57,7 +56,28 @@ def build_followup_invite(
 
     Returns ``None`` in the same cases as ``build_followup_invite_text``.
     """
-    text = build_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled, subject=subject)
-    if text is None:
+    invite = resolve_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled, subject=subject)
+    return invite.block if invite else None
+
+
+def resolve_followup_invite(
+    integration: IntegrationRecord | None,
+    *,
+    utm_tags: str,
+    ai_enabled: bool,
+    subject: str | None = None,
+) -> FollowupInvite | None:
+    """The invite block together with the variant it carries.
+
+    A caller that records which wording a workspace saw reads the variant here instead of checking
+    the install's scopes again. Returns ``None`` in the same cases as ``build_followup_invite_text``.
+    """
+    if integration is None or not ai_enabled:
         return None
-    return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
+    if bot_is_ready(integration):
+        variant = FollowupInviteVariant.MENTION
+        text = f"💬 Reply in this thread and mention *@PostHog* with a question to dig into {subject or 'this report'}."
+    else:
+        variant = FollowupInviteVariant.SETUP_LINK
+        text = f"💬 <{BOT_SETUP_DOCS_URL}?{utm_tags}|Set up the @PostHog bot> to ask follow-up questions about {subject or 'your reports'} here."
+    return FollowupInvite(block={"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}, variant=variant)

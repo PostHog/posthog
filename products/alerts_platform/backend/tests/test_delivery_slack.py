@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SlackMessageContent,
 )
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, announced_transition
+from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 
 MESSAGE = alert_message(
     headline="API errors is firing",
@@ -169,6 +170,44 @@ class TestSlackTransport(APIBaseTest):
         assert post.call_args.kwargs["thread_ts"] == "1699999999.9"
         assert post.call_args.kwargs["reply_broadcast"] is broadcast
         assert handle.root_content is None
+
+    @parameterized.expand(
+        [
+            ("bot_ready", True, True, REQUIRED_SLACK_SCOPES, False, "mention"),
+            ("bot_missing_scopes", True, True, frozenset({"chat:write"}), False, "setup_link"),
+            ("flag_off", False, True, REQUIRED_SLACK_SCOPES, False, None),
+            ("ai_not_approved", True, False, REQUIRED_SLACK_SCOPES, False, None),
+            ("a_reply", True, True, REQUIRED_SLACK_SCOPES, True, None),
+        ]
+    )
+    def test_an_opening_message_invites_a_follow_up_above_the_buttons(
+        self,
+        _name: str,
+        flag_on: bool,
+        ai_approved: bool,
+        scopes: frozenset[str],
+        reply: bool,
+        variant: str | None,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+        self.integration.config = {"scope": ",".join(sorted(scopes))}
+        self.integration.save()
+        in_reply_to = MessageHandle(external_ref={"channel": "C-ENG", "ts": "1699999999.9"}) if reply else None
+
+        with patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=flag_on):
+            handle, post = self._send(in_reply_to=in_reply_to)
+
+        blocks = post.call_args.kwargs["blocks"]
+        invites = [block for block in blocks if "@PostHog" in str(block)]
+        assert handle.external_ref.get("followup_invite_variant") == variant
+        assert len(invites) == (0 if variant is None else 1)
+        if variant is not None:
+            # The state line of a later edit goes directly above the last block, so the buttons stay last.
+            assert blocks[-1]["type"] == "actions"
+            assert blocks[-2] == invites[0]
+            assert "this alert" in str(invites[0])
+            assert ("utm_campaign=alert_notification" in str(invites[0])) is (variant == "setup_link")
 
     def test_an_edit_keeps_the_opening_content_and_adds_the_state_above_the_buttons(self) -> None:
         opening = blocks_for(MESSAGE)

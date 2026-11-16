@@ -42,6 +42,7 @@ from products.error_tracking.backend.temporal.alerts.dispatch import (
 from products.error_tracking.backend.temporal.alerts.messages import build_reply_text, build_root_message, issue_url
 from products.error_tracking.backend.temporal.alerts.types import THREAD_BUSY_ERROR_TYPE, AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.alerts.workflow import BUSY_WAIT_LIMIT
+from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 
 
 class AlertTestMixin(BaseTest):
@@ -320,6 +321,46 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert edit_kwargs["ts"] == "111.222"
         # The headline is the thread's identity: a status edit never changes it.
         assert edit_kwargs["text"].startswith("🔴 New issue")
+
+    @parameterized.expand(
+        [
+            ("bot_ready", True, True, REQUIRED_SLACK_SCOPES, "mention"),
+            ("bot_missing_scopes", True, True, frozenset({"chat:write"}), "setup_link"),
+            ("flag_off", False, True, REQUIRED_SLACK_SCOPES, None),
+            ("ai_not_approved", True, False, REQUIRED_SLACK_SCOPES, None),
+        ]
+    )
+    def test_root_invites_a_follow_up_that_status_edits_keep_and_replies_skip(
+        self, _name: str, flag_on: bool, ai_approved: bool, scopes: frozenset[str], variant: str | None
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+        self.integration.config = {**self.integration.config, "scope": ",".join(sorted(scopes))}
+        self.integration.save()
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+
+        with patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=flag_on):
+            deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+            root_blocks = client.chat_postMessage.call_args.kwargs["blocks"]
+            ErrorTrackingIssue.objects.filter(id=self.issue.id).update(status=ErrorTrackingIssue.Status.RESOLVED)
+            deliver_alert_notifications(self._inputs("$error_tracking_issue_resolved", "notif-2", status="Resolved"))
+
+        reply_kwargs = client.chat_postMessage.call_args.kwargs
+        edit_blocks = client.chat_update.call_args.kwargs["blocks"]
+        with team_scope(self.team.id):
+            thread = ErrorTrackingAlertThread.objects.get(alert=alert, issue=self.issue)
+        assert thread.external_ref.get("followup_invite_variant") == variant
+        assert "blocks" not in reply_kwargs and "@PostHog" not in reply_kwargs["text"]
+        for blocks in (root_blocks, edit_blocks):
+            invite_text = blocks[-1]["elements"][0]["text"] if blocks[-1]["type"] == "context" else ""
+            if variant is None:
+                assert "@PostHog" not in invite_text
+            elif variant == "mention":
+                assert "mention *@PostHog* with a question to dig into this issue" in invite_text
+            else:
+                assert "Set up the @PostHog bot" in invite_text
+                assert "utm_campaign=error_tracking_alert" in invite_text
 
     def test_redelivered_notification_is_not_posted_twice(self):
         client = self._mock_slack()
