@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tests for write-sqlx-requirements and sqlx-schema-check. A fake psql on PATH returns the
-# rows of _sqlx_migrations from a fixture file, so no database is needed.
+# Tests for write-sqlx-requirements and sqlx-schema-check. Fakes on PATH replace psql, sleep and
+# timeout: psql returns the rows of _sqlx_migrations from a fixture file, sleep records its
+# argument instead of waiting, so no database and no real wait is needed.
 set -euo pipefail
 
 BIN_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -10,15 +11,34 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/fakebin" "$WORK/migrations/persons_migrations" "$WORK/migrations/behavioral_cohorts_migrations"
 cat > "$WORK/fakebin/psql" <<'EOF'
 #!/bin/bash
+# PgBouncer refuses statement_timeout as a startup parameter, so the check must not send it there.
+if [[ "${PGOPTIONS:-}" == *statement_timeout* ]]; then
+    echo 'psql: error: FATAL:  unsupported startup parameter: options' >&2
+    exit 2
+fi
 # The URL names the fixture: postgres://fixture/<name>
 fixture="$FAKE_PSQL_DIR/${1##*/}"
 case "${1##*/}" in
     down) echo "psql: error: connection to server failed" >&2; exit 2 ;;
     fresh) echo 'ERROR:  relation "_sqlx_migrations" does not exist' >&2; exit 1 ;;
+    badpass) echo 'psql: error: invalid percent-encoded token: "%secret"' >&2; exit 2 ;;
 esac
 cat "$fixture"
 EOF
-chmod +x "$WORK/fakebin/psql"
+# Records each pause. When FAKE_SLEEP_APPLIES is set, the migration "finishes" during the pause.
+cat > "$WORK/fakebin/sleep" <<'EOF'
+#!/bin/bash
+echo "$1" >> "$FAKE_PSQL_DIR/sleeps"
+if [ -n "${FAKE_SLEEP_APPLIES:-}" ]; then
+    cp "$FAKE_SLEEP_APPLIES" "$FAKE_PSQL_DIR/persons"
+fi
+EOF
+cat > "$WORK/fakebin/timeout" <<'EOF'
+#!/bin/bash
+shift
+exec "$@"
+EOF
+chmod +x "$WORK/fakebin/psql" "$WORK/fakebin/sleep" "$WORK/fakebin/timeout"
 export PATH="$WORK/fakebin:$PATH"
 export FAKE_PSQL_DIR="$WORK"
 
@@ -114,9 +134,29 @@ assert_eq "an image without sqlx databases passes" "0 satisfied" \
 
 # Shadow mode must not wait for a pending migration, or it delays the rollout it must not hold.
 printf '20250101000001 t\n' > "$WORK/persons"
-shadow_output=$(SQLX_SCHEMA_CHECK_MODE=shadow SQLX_SCHEMA_CHECK_INTERVAL_SECONDS=30 "$BIN_DIR/sqlx-schema-check")
-assert_eq "shadow mode checks once without waiting" "0" \
-    "$(echo "$shadow_output" | sed -n 's/.*"elapsed_seconds":\([0-9]*\).*/\1/p')"
+rm -f "$WORK/sleeps"
+SQLX_SCHEMA_CHECK_MODE=shadow "$BIN_DIR/sqlx-schema-check" > /dev/null
+assert_eq "shadow mode checks once without waiting" "no pause" "$([ -f "$WORK/sleeps" ] && echo paused || echo "no pause")"
+
+# A wait shorter than the interval still checks again at the deadline. The migration finishes
+# during the only pause, so the check passes.
+printf '20250101000001 t\n' > "$WORK/persons"
+printf '20250101000001 t\n20250201000001 t\n' > "$WORK/applied"
+rm -f "$WORK/sleeps"
+set +e
+deadline_output=$(FAKE_SLEEP_APPLIES="$WORK/applied" SQLX_SCHEMA_CHECK_WAIT_SECONDS=5 SQLX_SCHEMA_CHECK_INTERVAL_SECONDS=15 "$BIN_DIR/sqlx-schema-check")
+deadline_code=$?
+set -e
+assert_eq "a short wait checks again at the deadline" "0 satisfied" \
+    "$deadline_code $(echo "$deadline_output" | sed -n 's/.*"result":"\([a-z_]*\)".*/\1/p')"
+assert_eq "the last pause ends at the deadline" "yes" "$([ "$(head -1 "$WORK/sleeps")" -le 5 ] && echo yes || echo no)"
+
+# libpq can echo part of a malformed password. The log must not carry it.
+export PERSONS_DATABASE_URL="postgres://fixture/badpass"
+badpass_output=$(SQLX_SCHEMA_CHECK_MODE=shadow "$BIN_DIR/sqlx-schema-check")
+assert_eq "a psql error does not log quoted credentials" "no secret" \
+    "$(echo "$badpass_output" | grep -q secret && echo "secret leaked" || echo "no secret")"
+export PERSONS_DATABASE_URL="postgres://fixture/persons"
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures test(s) failed"
