@@ -67,8 +67,9 @@ _TYPO_MIN_WORD_LENGTH = 3
 
 # The semantic lane keeps its closest metrics with no cosine floor. On short metric text, correct hits
 # and the nearest metric to a query with no metric score in the same range, so a floor drops right
-# answers without keeping wrong ones out. The agent tells them apart with metric-describe.
-SEMANTIC_TOP_K = 10
+# answers without keeping wrong ones out. The agent tells them apart with metric-describe. Twice the
+# default page, so a close miss just past the first page is still on the second.
+SEMANTIC_TOP_K = 20
 
 # A semantic hit this close counts as a confident match. A placeholder until the eval calibrates it.
 SEMANTIC_CONFIDENT_SIMILARITY = 0.55
