@@ -153,8 +153,8 @@ describe('broadcastPreviewLogic', () => {
                 [savedCondition(COHORT, true), savedCondition(PRO, false)],
                 [{ ...COHORT, operator: 'not_in' }, PRO],
             ],
-        ])('loads preview people for %s', async (_name, saved, sent) => {
-            await resume(saved)
+        ])('loads preview people for %s', async (_name, conditions, sent) => {
+            await resume(conditions)
 
             await waitFor(() => expect(previewPeople()).toEqual(['person-ada']))
             expect(received.at(-1)).toEqual(sent)
