@@ -12482,6 +12482,7 @@ export namespace Schemas {
       valueColumn?: string | null;
       xAxisColumn?: string | null;
       xAxisLabel?: string | null;
+      xAxisSortOrder?: HeatmapSortOrder | null;
       yAxisColumn?: string | null;
       yAxisLabel?: string | null;
     }
@@ -26738,6 +26739,43 @@ export namespace Schemas {
       reason: string;
       /** Supporting evidence */
       evidence?: CapabilityStateEvidence;
+    }
+
+    export interface CatalogFlag {
+      /** ID of the feature flag. */
+      id: number;
+      /** Key of the feature flag. */
+      key: string;
+      /** True when the flag is enabled. */
+      active: boolean;
+      /** When the flag was created. */
+      created_at: string;
+    }
+
+    export interface CatalogFlagsResponse {
+      /** Flags the caller can see, newest first. */
+      results: CatalogFlag[];
+      /** True when more flags follow this page. */
+      has_more: boolean;
+    }
+
+    export interface CatalogRelease {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+      /** When the release was created. */
+      created_at: string;
+    }
+
+    export interface CatalogReleasesResponse {
+      /** Releases of the project, newest first. */
+      results: CatalogRelease[];
+      /**
+         * Pass as cursor to fetch the next page. Null when no more releases follow.
+         * @nullable
+         */
+      next_cursor: string | null;
     }
 
     export interface CatalogueEntry {
@@ -102396,6 +102434,8 @@ export namespace Schemas {
      */
     export interface PullRequestChecksResponse {
       readonly checks: readonly PullRequestCheck[];
+      /** True when GitHub reports that the pull request conflicts with its base branch. False while GitHub is still computing it. */
+      readonly has_conflict: boolean;
     }
 
     /**
@@ -108861,6 +108901,7 @@ export namespace Schemas {
     /**
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask
      */
@@ -108870,6 +108911,7 @@ export namespace Schemas {
     export const ReportTaskActionKindEnum = {
       GetItMerged: 'get_it_merged',
       MakeItGreen: 'make_it_green',
+      ResolveConflicts: 'resolve_conflicts',
       SuggestedPrompt: 'suggested_prompt',
       Ask: 'ask',
     } as const;
@@ -116119,10 +116161,11 @@ export namespace Schemas {
      * One report action that starts an agent run, with whether the report offers it now.
      */
     export interface SignalReportTaskAction {
-      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI on the report's open pull request and stops without merging it. `suggested_prompt` sends one of the prompts the report suggests.
+      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
+       * * `resolve_conflicts` - Resolve conflicts
        * * `suggested_prompt` - Suggested prompt
        * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
@@ -116163,6 +116206,7 @@ export namespace Schemas {
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
+       * * `resolve_conflicts` - Resolve conflicts
        * * `suggested_prompt` - Suggested prompt
        * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
@@ -116172,7 +116216,7 @@ export namespace Schemas {
          */
       suggested_prompt_index?: number;
       /**
-         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
          * @maxLength 2000
          */
       message?: string;
@@ -123828,6 +123872,11 @@ export namespace Schemas {
       template_id: string | null;
       /** The template's name. Empty when it was deleted. */
       template_name: string;
+      /**
+         * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** The domain the email was sent from. Empty before it was sent. */
       sending_domain: string;
       /** Whether the recipient opened the email. */
@@ -123878,6 +123927,11 @@ export namespace Schemas {
       template_id: string | null;
       /** The template's name. Empty when it was deleted. */
       template_name: string;
+      /**
+         * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** The domain the email was sent from. Empty before it was sent. */
       sending_domain: string;
       /** Whether the recipient opened the email. */
@@ -123912,6 +123966,16 @@ export namespace Schemas {
       key: string;
       /** The template name or the sending domain. Empty for a deleted template. */
       label: string;
+      /**
+         * The template that sent this row's emails. Null for a deleted template, emails sent from code, and a sending domain.
+         * @nullable
+         */
+      template_id: string | null;
+      /**
+         * The email sent from code under a `template_key`, for a row of sends that have no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** Emails that reached the email provider. */
       sent: number;
       /** Emails the recipient's mail server accepted. */
@@ -136729,6 +136793,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive match on the feature name.
+     */
+    search?: string;
     };
 
     export type ElementsListParams = {
@@ -143971,6 +144039,44 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ReleasesCatalogFlagsRetrieveParams = {
+    /**
+     * How many flags to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many flags to skip, newest first.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Part of the flag key or name to match.
+     * @maxLength 200
+     */
+    search?: string;
+    };
+
+    export type ReleasesCatalogReleasesRetrieveParams = {
+    /**
+     * next_cursor of the previous page.
+     * @maxLength 100
+     */
+    cursor?: string;
+    /**
+     * How many releases to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Part of the release name to match.
+     * @maxLength 200
+     */
+    search?: string;
+    };
+
     export type ReviewHogRepositoryOverviewRetrieveParams = {
     /**
      * The GitHub App installation to list.
@@ -147009,6 +147115,12 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Only sends whose delivery status has this reason, such as `soft` for a soft bounce or `sending_paused` for a send skipped while sending was paused.
+     * @minLength 1
+     * @maxLength 64
+     */
+    reason?: string;
     /**
      * A `message_id` for an exact match, or part of the recipient's email address.
      */
