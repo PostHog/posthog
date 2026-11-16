@@ -264,6 +264,17 @@ def _reviewed_proposals(
     cards = call_review.parse_cards(review_call.answer, rendering)
     spent += review_call.cost_usd
     calibrated = _calibrate(team, run, cards, rendering, judge_model, budget, deadline)
+    proposals = [
+        ranking.review_proposal(
+            judge_calibration.measured(card, calibration),
+            handoff.profile,
+            call_types=call_types,
+            judge_model=judge_model,
+            calibration=calibration,
+        )
+        for card, calibration in calibrated.kept
+    ]
+    scoped = [proposal for proposal in proposals if proposal is not None]
     stages.set(
         "drafting",
         "ok",
@@ -272,17 +283,11 @@ def _reviewed_proposals(
         reviewed=len(calls),
         cards=len(cards),
         calibration=calibrated.record,
+        # Kept cards whose generations no filter selects, which the run leaves out.
+        unscoped=len(proposals) - len(scoped),
         cost_usd=round(spent + calibrated.cost_usd, 4),
     )
-    return [
-        ranking.review_proposal(
-            judge_calibration.measured(card, calibration),
-            handoff.profile,
-            judge_model=judge_model,
-            calibration=calibration,
-        )
-        for card, calibration in calibrated.kept
-    ]
+    return scoped
 
 
 def _publish_fixes_only(

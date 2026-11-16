@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 from unittest.mock import MagicMock
@@ -7,6 +8,7 @@ from parameterized import parameterized
 from posthog.schema import LLMTrace
 
 from posthog.hogql import ast
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.property import property_to_expr
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
@@ -21,6 +23,8 @@ from products.ai_observability.backend.logic.eval_suggestions.measure import (
     TraceSample,
 )
 from products.ai_observability.backend.logic.eval_suggestions.profile import FieldMeaning, StructuredGap, TeamProfile
+
+from common.hogvm.python.execute import execute_bytecode
 
 
 def _sampled(trace_id: str, product: str, held_out: bool = False, earlier: tuple[str, ...] = ()) -> SampledTrace:
@@ -341,8 +345,22 @@ def test_a_gap_judge_checks_what_the_field_means(meaning: FieldMeaning, values: 
     assert phrase in proposal.draft["evaluation_config"]["prompt"]
 
 
-def _call_type(source: str, name: str, calls: int = 100) -> CallTypeRow:
-    return CallTypeRow(source=source, name=name, calls=calls, model="gpt-5-mini", example_input="")
+def _messages(system: str) -> list[dict[str, str]]:
+    return [{"role": "system", "content": system}, {"role": "user", "content": "The request"}]
+
+
+# The system prompts hold quotes and line breaks, which the condition matcher prints escaped.
+SUMMARIZER = _messages('You summarize one trace for an engineer.\nEach bullet\'s "line_refs" holds one reference.')
+# Its longest plain text follows a line break, which the stored JSON escapes.
+ROUTER = _messages("Route it.\nAnswer with the name of the single tool to call.")
+TRANSLATOR = _messages("You translate the reply into the language of the user.")
+# The team's call type that the card does not cover, by test case.
+OTHER_CALL_TYPES = {"input_shared_with_another_call_type": [SUMMARIZER[0], {"role": "user", "content": "Another"}]}
+
+
+def _call_type(source: str, name: str, calls: int = 100, messages: list[dict[str, str]] | None = None) -> CallTypeRow:
+    example_input = json.dumps(messages) if messages else ""
+    return CallTypeRow(source=source, name=name, calls=calls, model="gpt-5-mini", example_input=example_input)
 
 
 def _review_card(call_types: list[CallTypeRow]) -> ReviewCard:
@@ -385,21 +403,58 @@ def _review_card(call_types: list[CallTypeRow]) -> ReviewCard:
             700,
             100.0,
         ),
-        # No one property names both, so the judge runs on every generation and the prompt's N/A covers the rest.
+        # No one property names both, and a judge on every generation would grade mostly calls it does not fit.
         (
             "mixed_properties",
             [_call_type("prompt_name", "support-reply"), _call_type("span_name", "answer")],
-            [],
-            5000,
-            20.0,
+            None,
+            0,
+            0.0,
         ),
-        ("named_by_input", [_call_type("input", "1234567")], [], 5000, 20.0),
+        (
+            "named_by_input",
+            [_call_type("input", "1", messages=SUMMARIZER)],
+            [
+                {
+                    "key": "$ai_input",
+                    "value": "You summarize one trace for an engineer",
+                    "operator": "icontains",
+                    "type": "event",
+                }
+            ],
+            700,
+            100.0,
+        ),
+        (
+            "two_named_by_input",
+            [_call_type("input", "1", messages=SUMMARIZER), _call_type("input", "2", messages=ROUTER)],
+            [
+                {
+                    "key": "$ai_input",
+                    "value": "Answer with the name of the single tool to call|You summarize one trace for an engineer",
+                    "operator": "regex",
+                    "type": "event",
+                }
+            ],
+            1400,
+            71.43,
+        ),
+        # Another call type opens with the same prompt, so no text tells the two apart.
+        (
+            "input_shared_with_another_call_type",
+            [_call_type("input", "1", messages=SUMMARIZER)],
+            None,
+            0,
+            0.0,
+        ),
     ]
 )
 def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
-    _name: str, call_types: list[CallTypeRow], filters: list[dict], weekly_units: int, rollout: float
+    _name: str, call_types: list[CallTypeRow], filters: list[dict] | None, weekly_units: int, rollout: float
 ) -> None:
     card = _review_card(call_types)
+    other = _call_type("input", "3", messages=OTHER_CALL_TYPES.get(_name, TRANSLATOR))
+    team_call_types = [*call_types, other]
 
     calibration = Calibration(
         review_fails=5,
@@ -412,16 +467,29 @@ def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
         na_on_passes=0,
     )
 
-    proposal = ranking.review_proposal(card, PROFILE, judge_model="gpt-5-mini", calibration=calibration)
+    proposal = ranking.review_proposal(
+        card, PROFILE, call_types=team_call_types, judge_model="gpt-5-mini", calibration=calibration
+    )
 
+    if filters is None:
+        assert proposal is None
+        return
+    assert proposal is not None
     assert proposal.filters == filters
     assert not any(isinstance(property_to_expr(f, team=MagicMock()), ast.Constant) for f in proposal.filters)
+    # The condition matcher runs the filters on each generation's parsed input.
+    for call_type, selected in [*((c, True) for c in call_types), (other, False)]:
+        if call_type.source == "input":
+            bytecode = [create_bytecode(property_to_expr(f, team=MagicMock())).bytecode for f in proposal.filters]
+            properties = {"$ai_input": json.loads(call_type.example_input)}
+            assert all(execute_bytecode(b, {"properties": properties}).result for b in bytecode) is selected
     assert proposal.estimated_weekly_runs == min(weekly_units, ranking.WEEKLY_JUDGE_RUNS)
     assert proposal.rollout_percentage == rollout
     busier = replace(PROFILE, generations=100 * PROFILE.generations)
-    assert ranking.review_proposal(card, busier, judge_model="gpt-5-mini", calibration=calibration).score == (
-        proposal.score
+    busier_proposal = ranking.review_proposal(
+        card, busier, call_types=team_call_types, judge_model="gpt-5-mini", calibration=calibration
     )
+    assert busier_proposal is not None and busier_proposal.score == proposal.score
     assert proposal.draft["evaluation_config"] == {"prompt": card.judge_prompt}
     assert (proposal.draft["target"], proposal.draft["output_config"]) == ("generation", {"allows_na": True})
     assert (proposal.template_key, proposal.measured_failure_rate, proposal.sample_size) == ("review", 0.2, 20)
