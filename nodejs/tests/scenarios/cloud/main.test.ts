@@ -10,15 +10,19 @@ import { FAILOVER_RELEASE_WITHIN_MS } from '../environment/failover'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { FakeCloud, FakeCloudOptions, ReaderMinute } from './fake-cloud'
 import { PROFILE } from './fixtures'
+import { STOP_TIMEOUT_S, STOP_WAIT_MS } from './host'
 import { lease } from './lease'
 import { Controller, main } from './main'
 import { loadRunInputs } from './profile'
+import { POLL_MS } from './stack'
 
 const T = new Date('2026-03-02T10:00:00.000Z')
 const HOUR_MS = 60 * 60 * 1000
 const COMMIT = 'c0ffee0000000000000000000000000000000000'
 const OWNER = 'arn:aws:sts::000000000000:assumed-role/scenario-run-controller/person'
 const OTHER_ACCOUNT = '111111111111'
+const FAILOVER_CARD = 'cyclotron-failover-under-load'
+const RUNNER_PROFILE = readFileSync(path.join(__dirname, '..', 'profiles', 'synthetic.yaml'), 'utf8')
 
 type Setup = {
     profile?: (profile: typeof PROFILE) => unknown
@@ -26,6 +30,7 @@ type Setup = {
     onMaster?: boolean
     arrange?: (cloud: FakeCloud) => void
     env?: NodeJS.ProcessEnv
+    uncommitted?: string
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
@@ -51,16 +56,28 @@ describe('cloud controller', () => {
         onMaster = true,
         arrange = () => undefined,
         env = {},
+        uncommitted,
     }: Setup = {}): {
         controller: Controller
     } {
         writeFileSync(profilePath(), stringify(profile(structuredClone(PROFILE))))
-        writeFileSync(path.join(dir, 'runner.yaml'), stringify({ name: 'test-current', traffic: {}, settings: {} }))
+        writeFileSync(path.join(dir, 'runner.yaml'), RUNNER_PROFILE)
         cloud = new FakeCloud({ now: () => now, ...options })
         arrange(cloud)
         const controller: Controller = {
             aws: cloud,
-            origin: { head: () => COMMIT, onMaster: (commit) => Promise.resolve(onMaster && commit === COMMIT) },
+            origin: {
+                head: () => COMMIT,
+                onMaster: (commit) => Promise.resolve(onMaster && commit === COMMIT),
+                cardAt: (commit, id) => {
+                    if (commit !== COMMIT || id === uncommitted) {
+                        throw new Error(
+                            `fatal: path 'nodejs/tests/scenarios/cards/${id}.yaml' does not exist in '${commit}'`
+                        )
+                    }
+                    return readFileSync(path.join(__dirname, '..', 'cards', `${id}.yaml`), 'utf8')
+                },
+            },
             now: () => now,
             sleep: async (ms) => {
                 now = new Date(now.getTime() + ms)
@@ -81,7 +98,14 @@ describe('cloud controller', () => {
 
     async function leaseAt(at: Date, controller: Controller): Promise<string> {
         now = at
-        const manifest = await lease(controller, loadRunInputs(profilePath()), { owner: OWNER, commit: COMMIT })
+        const manifest = await lease(
+            controller,
+            { ...loadRunInputs(profilePath()), card: { id: FAILOVER_CARD, failsOver: true } },
+            {
+                owner: OWNER,
+                commit: COMMIT,
+            }
+        )
         return manifest.runId
     }
 
@@ -145,13 +169,50 @@ describe('cloud controller', () => {
                 profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: allowance } }),
             })
 
-            await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
             expect(out.join('\n')).toContain(`Admitted estimate: ${total} of the $200 cap`)
             expect(out.join('\n')).toMatch(/reader at 32 ACU.*\$19\.20/)
             expect(out.join('\n')).toMatch(tail)
         }
     )
+
+    it('runs the card it is given on the host and judges a card without a failover on its own verdict', async () => {
+        const { controller } = prepare({ env: api.credentials })
+
+        await expect(main(['run', profilePath(), 'cyclotron-scale'], controller)).resolves.toBe(0)
+
+        expect(published()).toMatchObject({ card_id: 'cyclotron-scale', status: 'passed', t0_at: null })
+        expect(parseJSON(cloud.objects.get(`runs/${leasedRunId()}/manifest.json`)!)).toMatchObject({
+            card: 'cyclotron-scale',
+        })
+    })
+
+    it.each<[string, string | undefined, string, Setup]>([
+        ['a card that does not exist', 'no-such-card', 'no-such-card is not a card at commit', {}],
+        [
+            'a card that exists only in the working tree, not at the run commit',
+            'cyclotron-scale',
+            'cyclotron-scale is not a card at commit',
+            { uncommitted: 'cyclotron-scale' },
+        ],
+        [
+            'a card the runner profile cannot run',
+            FAILOVER_CARD,
+            `cards/${FAILOVER_CARD}.yaml at ${COMMIT} is not a valid card`,
+            { arrange: () => writeFileSync(path.join(dir, 'runner.yaml'), 'name: empty\n') },
+        ],
+        ['a card path, which the run host cannot read', '../cards/cyclotron-scale.yaml', 'card id', {}],
+        ['no card', undefined, 'Usage:', {}],
+    ])('refuses %s before it leases anything', async (_story, card, problem, setup) => {
+        const { controller } = prepare(setup)
+
+        await expect(main(['run', profilePath(), ...(card ? [card] : [])], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain(problem)
+        expect(cloud.schedules.size).toBe(0)
+        expect([...cloud.objects.keys()].filter((key) => key.startsWith('runs/'))).toEqual([])
+    })
 
     it('leases the run by registering both stack-delete schedules and the private inputs', async () => {
         const { controller } = prepare()
@@ -186,7 +247,7 @@ describe('cloud controller', () => {
         const { controller } = prepare()
         cloud.failOnCall('create-schedule', 2)
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(cloud.schedules.size).toBe(0)
         const runId = [...cloud.objects.keys()]
@@ -198,7 +259,7 @@ describe('cloud controller', () => {
     it('releases the lease when the run ends', async () => {
         const { controller } = prepare()
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
         const runId = leasedRunId()
         expect(released(runId)).toBe(1)
@@ -217,7 +278,7 @@ describe('cloud controller', () => {
             return result
         }
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
         const manifest = parseJSON(cloud.objects.get(`runs/${leasedRunId()}/input/manifest.json`)!)
         expect(manifest.account).toEqual(PROFILE.account)
@@ -231,7 +292,7 @@ describe('cloud controller', () => {
             return onMaster(commit)
         }
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
         const runId = leasedRunId()
         const manifest = parseJSON(cloud.objects.get(`runs/${runId}/input/manifest.json`)!)
@@ -302,7 +363,7 @@ describe('cloud controller', () => {
     ])('refuses %s before it writes anything', async (_, setup, reason) => {
         const { controller } = prepare(setup)
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(err.join('\n')).toContain(reason)
         expect(cloud.objects.size).toBe(0)
@@ -315,7 +376,7 @@ describe('cloud controller', () => {
     const MISMATCH = `account ${OTHER_ACCOUNT}, and the profile names 222222222222`
 
     it.each<[string, string, string, string, string, (runId: string) => string[]]>([
-        ['run', PERSON_ROLE, 'person', OTHER_ACCOUNT, CONTROLLER, () => ['run', profilePath()]],
+        ['run', PERSON_ROLE, 'person', OTHER_ACCOUNT, CONTROLLER, () => ['run', profilePath(), FAILOVER_CARD]],
         [
             'cleanup <run id>',
             PERSON_ROLE,
@@ -324,8 +385,22 @@ describe('cloud controller', () => {
             CONTROLLER,
             (runId) => ['cleanup', profilePath(), runId],
         ],
-        ['run', 'scenario-run-controller-copy', 'person', OTHER_ACCOUNT, CONTROLLER, () => ['run', profilePath()]],
-        ['run', PERSON_ROLE, 'scenario-run-controller', OTHER_ACCOUNT, CONTROLLER, () => ['run', profilePath()]],
+        [
+            'run',
+            'scenario-run-controller-copy',
+            'person',
+            OTHER_ACCOUNT,
+            CONTROLLER,
+            () => ['run', profilePath(), FAILOVER_CARD],
+        ],
+        [
+            'run',
+            PERSON_ROLE,
+            'scenario-run-controller',
+            OTHER_ACCOUNT,
+            CONTROLLER,
+            () => ['run', profilePath(), FAILOVER_CARD],
+        ],
         [
             'cleanup <run id>',
             'scenario-run-controller',
@@ -366,7 +441,7 @@ describe('cloud controller', () => {
             }),
         })
 
-        await main(['run', profilePath()], controller)
+        await main(['run', profilePath(), FAILOVER_CARD], controller)
 
         expect(out.join('\n')).toContain('Admitted estimate: $250.99 of the $200 cap')
     })
@@ -447,7 +522,7 @@ describe('cloud controller', () => {
             deletedAt ??= now.getTime()
         })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(err.join('\n')).toContain('did not take the command')
         expect(deletedAt! - sentAt!).toBeLessThan(HOUR_MS / 12)
@@ -474,7 +549,7 @@ describe('cloud controller', () => {
         const { controller } = prepare()
         arrange(cloud)
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
         const runId = leasedRunId()
         expect(cloud.resources.filter(({ type }) => type === 'AWS::EC2::Instance')).toHaveLength(1)
@@ -500,7 +575,7 @@ describe('cloud controller', () => {
             cloud.loseResponseOf(operation, nth)
         }
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
@@ -542,7 +617,7 @@ describe('cloud controller', () => {
     ])('makes the run invalid and tears down when %s', async (_, setup, reason) => {
         const { controller } = prepare({ ...setup, env: { ...setup.env, ...api.credentials } })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(err.join('\n')).toContain(reason)
         expect(published()).toMatchObject({ run_id: leasedRunId(), origin: 'cloud-manual', status: 'invalid' })
@@ -571,7 +646,7 @@ describe('cloud controller', () => {
             deletedAt ??= now.getTime()
         })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(exitCode)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(exitCode)
 
         const runId = leasedRunId()
         expect(deletedAt! - doneAt!).toBeLessThan(HOUR_MS / 6)
@@ -588,6 +663,12 @@ describe('cloud controller', () => {
         [
             'the card spends its whole fail-back budget cleaning up',
             { card: { stopTakesMs: FAILOVER_RELEASE_WITHIN_MS + 60_000 } },
+            () => undefined,
+            true,
+        ],
+        [
+            'the card cleans up until just before systemd would kill it',
+            { card: { stopTakesMs: STOP_TIMEOUT_S * 1000 - 1000 } },
             () => undefined,
             true,
         ],
@@ -618,11 +699,11 @@ describe('cloud controller', () => {
             evidenceAtDelete ??= cloud.objects.has(`runs/${leasedRunId()}/evidence/SHA256SUMS`)
         })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(evidenceAtDelete).toBe(uploaded)
         expect(err.join('\n').includes('did not finish cleanly')).toBe(!uploaded)
-        expect(deletedAt! - interruptedAt!).toBeLessThan(HOUR_MS / 3)
+        expect(deletedAt! - interruptedAt!).toBeLessThan(STOP_WAIT_MS + POLL_MS)
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
     })
@@ -642,7 +723,7 @@ describe('cloud controller', () => {
             deletedAt ??= now.getTime()
         })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(deletedAt! - interruptedAt!).toBeLessThan(60_000)
         expect(cloud.billable()).toEqual([])
@@ -664,7 +745,7 @@ describe('cloud controller', () => {
             }
         })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(cloud.resources).toHaveLength(createdBefore!)
         expect(cloud.billable()).toEqual([])
@@ -687,7 +768,7 @@ describe('cloud controller', () => {
             }
         })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
@@ -708,7 +789,7 @@ describe('cloud controller', () => {
             }
         })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(err.join('\n')).toContain(reason)
         expect(cloud.resources.some(({ id }) => id.endsWith('-reader'))).toBe(readerAdded)
@@ -731,7 +812,7 @@ describe('cloud controller', () => {
         const { controller } = prepare({ cloud: options })
         arrange(cloud)
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         const runId = leasedRunId()
         expect(cloud.billable()).not.toEqual([])
@@ -755,7 +836,7 @@ describe('cloud controller', () => {
         const { controller } = prepare()
         arrange(cloud)
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         const runId = leasedRunId()
         expect(cloud.billable()).toEqual([])
@@ -803,7 +884,7 @@ describe('cloud controller', () => {
         const { controller } = prepare({ cloud: { outlives: [type] } })
         beforeRun(cloud)
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         const left = cloud.billable().filter((resource) => resource.startsWith(type))
         expect(left).toHaveLength(1)
@@ -819,7 +900,7 @@ describe('cloud controller', () => {
 
     it('changes nothing on a second cleanup of a torn-down run', async () => {
         const { controller } = prepare()
-        await main(['run', profilePath()], controller)
+        await main(['run', profilePath(), FAILOVER_CARD], controller)
         const runId = leasedRunId()
         const resources = structuredClone(cloud.resources)
 
@@ -840,7 +921,7 @@ describe('cloud controller', () => {
                 return new Promise(() => undefined)
             }
         }
-        void main(['run', profilePath()], controller)
+        void main(['run', profilePath(), FAILOVER_CARD], controller)
         await died
         onSleep = undefined
         const runId = leasedRunId()
@@ -997,7 +1078,7 @@ describe('cloud controller', () => {
         const { controller } = prepare({ cloud: cloudOptions, env: api.credentials })
         arrange(cloud)
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(status === 'passed' ? 0 : 2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(status === 'passed' ? 0 : 2)
 
         expect(published()).toMatchObject({ run_id: leasedRunId(), status })
         expect(published().status_reason).toContain(reason)
@@ -1022,7 +1103,7 @@ describe('cloud controller', () => {
         ]
         const { controller } = prepare({ cloud: { readerAcu }, env: api.credentials })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
         const runId = leasedRunId()
         const { createdAt } = parseJSON(cloud.objects.get(`runs/${runId}/manifest.json`)!) as { createdAt: string }
@@ -1069,7 +1150,7 @@ describe('cloud controller', () => {
     it('counts every minute of the card as missing when CloudWatch returns no reader capacity', async () => {
         const { controller } = prepare({ cloud: { readerAcu: [] }, env: api.credentials })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         const { startedAt, endedAt } = cardOf(leasedRunId())
         const minuteIso = (at: number): string => new Date(at - (at % 60_000)).toISOString()
@@ -1089,7 +1170,7 @@ describe('cloud controller', () => {
         const fingerprintOf = async (profile: Setup['profile']): Promise<unknown> => {
             api.captured.length = 0
             const { controller } = prepare({ profile, env: api.credentials })
-            await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
             return published().fingerprint
         }
 
@@ -1129,7 +1210,7 @@ describe('cloud controller', () => {
         const { controller } = prepare({ cloud: { outlives: ['AWS::EC2::Volume'] }, env: api.credentials })
         arrange(cloud)
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         const [volume] = cloud.billable()
         expect(published()).toMatchObject({ status: 'invalid', teardown_clean: false })
@@ -1155,7 +1236,7 @@ describe('cloud controller', () => {
         const { controller } = prepare({ cloud: cloudOptions, env })
         arrange(cloud)
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(3)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(3)
 
         expect(api.captured).toEqual([])
     })
@@ -1163,7 +1244,7 @@ describe('cloud controller', () => {
     it('keeps the scorecard in the bucket and names it when no Scenario runs credentials are set', async () => {
         const { controller } = prepare()
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
         const key = `runs/${leasedRunId()}/scorecard.json`
         expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ origin: 'cloud-manual', status: 'passed' })
@@ -1179,7 +1260,7 @@ describe('cloud controller', () => {
             waitingForHost()
             return new Promise(() => undefined)
         }
-        void main(['run', profilePath()], controller)
+        void main(['run', profilePath(), FAILOVER_CARD], controller)
         await died
         const runId = leasedRunId()
         expect(cloud.billable()).not.toEqual([])
