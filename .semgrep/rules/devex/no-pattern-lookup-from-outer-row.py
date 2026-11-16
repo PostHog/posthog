@@ -157,7 +157,7 @@ FileSystem.objects.filter(
 
 def list_held_in_a_variable(queryset):
     labels = [OuterRef("label")]
-    # ok: no-pattern-lookup-from-outer-row
+    # todook: no-pattern-lookup-from-outer-row
     return queryset.filter(labels__contains=labels)
 
 
@@ -180,3 +180,14 @@ def lookup_dict_held_in_a_variable(queryset):
 def lookup_key_built_with_an_f_string(queryset, field):
     # ruleid: no-pattern-lookup-from-outer-row
     return queryset.filter(**{f"{field}__startswith": OuterRef("path")})
+
+
+def parts_list_unpacked_into_concat(queryset):
+    parts = [OuterRef("path"), Value("/")]
+    # ruleid: no-pattern-lookup-from-outer-row
+    return queryset.filter(path__startswith=Concat(*parts))
+
+
+def containment_next_to_a_star_argument(queryset, conditions):
+    # ok: no-pattern-lookup-from-outer-row
+    return queryset.filter(*conditions, labels__contains=[OuterRef("label")])

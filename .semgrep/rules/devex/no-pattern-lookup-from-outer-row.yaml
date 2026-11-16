@@ -9,10 +9,10 @@ rules:
           outer row. It stays fast on small test data and times out on large projects.
 
           A JSON or array `__contains` compares values (`@>`) instead of matching a pattern, so a
-          `JSONArray`, `JSONObject`, list or tuple value does not count. The rule can't see the
-          column type, so it also flags a bare `OuterRef` compared to a JSON or array column, a
-          tuple held in a variable, and a pattern served by a trigram index. Suppress those with
-          the reason.
+          `JSONArray`, `JSONObject`, or a list or tuple written in the lookup does not count. The
+          rule can't see the column type, so it also flags a bare `OuterRef` compared to a JSON or
+          array column, a list or tuple held in a variable, and a pattern served by a trigram
+          index. Suppress those with the reason.
 
           Match against constant values instead: loop over the known prefixes and build one
           uncorrelated `Exists` per prefix, as `_visible_files` in
@@ -28,12 +28,10 @@ rules:
       pattern-sanitizers:
           - pattern: JSONArray(...)
           - pattern: JSONObject(...)
-          - patterns:
-                - pattern: '[...]'
-                - pattern-not-inside: $FUNC(..., *$UNPACKED, ...)
       pattern-sinks:
           - patterns:
                 - pattern: $CALL(..., $LOOKUP=$VALUE, ...)
+                - pattern-not: $CALL(..., $LOOKUP=[...], ...)
                 - pattern-not: $CALL(..., $LOOKUP=($ITEM, ...), ...)
                 - metavariable-regex:
                       metavariable: $LOOKUP
@@ -41,6 +39,7 @@ rules:
                 - focus-metavariable: $VALUE
           - patterns:
                 - pattern: '{..., $KEY: $VALUE, ...}'
+                - pattern-not: '{..., $KEY: [...], ...}'
                 - pattern-not: '{..., $KEY: ($ITEM, ...), ...}'
                 - metavariable-regex:
                       metavariable: $KEY
@@ -50,6 +49,10 @@ rules:
                 - pattern-either:
                       - pattern: $LOOKUPCLASS($LHS, $VALUE)
                       - pattern: $LOOKUPCLASS(..., rhs=$VALUE, ...)
+                - pattern-not: $LOOKUPCLASS($LHS, [...])
+                - pattern-not: $LOOKUPCLASS($LHS, ($ITEM, ...))
+                - pattern-not: $LOOKUPCLASS(..., rhs=[...], ...)
+                - pattern-not: $LOOKUPCLASS(..., rhs=($ITEM, ...), ...)
                 - metavariable-regex:
                       metavariable: $LOOKUPCLASS
                       regex: ^(lookups\.)?I?(Contains|StartsWith|EndsWith|Regex)$
