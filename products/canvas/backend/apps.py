@@ -48,7 +48,7 @@ class CanvasConfig(AppConfig):
 
             return visibility.filter_file_system_rows(rows, request, project_id)
 
-        def _access_rule_target_ids(team_id: int, user_id: int | None, sandboxed: bool) -> QuerySet:
+        def _access_rule_target_ids(team_id: int, user_id: int | None, sandboxed: bool) -> set[str]:
             from products.canvas.backend.logic import visibility  # noqa: PLC0415
 
             return visibility.access_rule_target_ids(team_id, user_id, sandboxed)

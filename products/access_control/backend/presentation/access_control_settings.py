@@ -7,7 +7,7 @@ controls every product viewset mixes in stay in access_control.py.
 """
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
@@ -801,7 +801,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         hidden: set[tuple[str, str]] = set()
         for resource, ids in ids_by_resource.items():
             display = display_model(resource)
-            visible_ids = self._visible_ids_subquery(team, resource)
+            visible_ids = self._visible_ids(team, resource)
             if display is None or visible_ids is None:
                 continue
             try:
@@ -816,7 +816,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             hidden.update((resource, resource_id) for resource_id in ids - visible)
         return [ac for ac in rows if (ac.resource, str(ac.resource_id)) not in hidden]
 
-    def _visible_ids_subquery(self, team: Team, resource: str) -> QuerySet | None:
+    def _visible_ids(self, team: Team, resource: str) -> Collection[str] | None:
         user = self.request.user
         return visible_object_ids(
             resource,
@@ -826,7 +826,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         )
 
     def _only_visible_objects(self, team: Team, resource: str, objects: QuerySet) -> QuerySet:
-        visible = self._visible_ids_subquery(team, resource)
+        visible = self._visible_ids(team, resource)
         return objects if visible is None else objects.filter(pk__in=visible)
 
     def _visible_object(

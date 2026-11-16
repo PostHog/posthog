@@ -6,14 +6,14 @@ drift from the code: a viewset opts in by mixing in AccessControlViewSetMixin, w
 the settings UI and the resolution preview show for object rules.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from functools import cache
 from typing import cast
 
 from django.apps import apps
 from django.core.exceptions import FieldDoesNotExist
-from django.db.models import BooleanField, F, Model, QuerySet, Value
+from django.db.models import BooleanField, F, Model, Value
 from django.db.models.functions import Coalesce
 from django.urls import URLResolver, get_resolver
 
@@ -54,12 +54,11 @@ _MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
 }
 
 
-# (team_id, user_id, sandboxed) -> a queryset of the ids of the objects that viewer may open. A
-# product whose objects have visibility rules of their own (a canvas follows its space) registers
-# one, so the settings endpoints never find or put rules on objects the requester cannot open.
-# It returns a queryset so callers embed it as a subquery instead of loading every id. A sandbox
-# token may see less than its user, so the caller says whether the request carries one.
-ObjectVisibilityFilter = Callable[[int, int | None, bool], QuerySet]
+# (team_id, user_id, sandboxed) -> the ids of the objects that viewer may open. A product whose
+# objects have visibility rules of their own (a canvas follows its space) registers one, so the
+# settings endpoints never find or put rules on objects the requester cannot open. A sandbox token
+# may see less than its user, so the caller says whether the request carries one.
+ObjectVisibilityFilter = Callable[[int, int | None, bool], Collection[str]]
 
 _OBJECT_VISIBILITY_FILTERS: dict[str, ObjectVisibilityFilter] = {}
 
@@ -68,7 +67,7 @@ def register_object_visibility_filter(resource: str, filter_fn: ObjectVisibility
     _OBJECT_VISIBILITY_FILTERS[resource] = filter_fn
 
 
-def visible_object_ids(resource: str, *, team_id: int, user_id: int | None, sandboxed: bool) -> QuerySet | None:
+def visible_object_ids(resource: str, *, team_id: int, user_id: int | None, sandboxed: bool) -> Collection[str] | None:
     """The ids of the `resource` objects the viewer may open, or None when the product adds no rule of its own."""
     filter_fn = _OBJECT_VISIBILITY_FILTERS.get(resource)
     return filter_fn(team_id, user_id, sandboxed) if filter_fn else None
