@@ -7,7 +7,12 @@ from parameterized import parameterized
 
 from posthog.schema import RecordingsQuery
 
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    ReplayScanner,
+    ScannerDisabledReason,
+    ScannerModel,
+    ScannerType,
+)
 from products.replay_vision.backend.scanner_access import can_read_targeted_experiment
 from products.replay_vision.backend.scope import experiment_id_of, scope_for
 from products.replay_vision.backend.temporal.snapshots import ScannerSnapshot
@@ -191,6 +196,26 @@ class TestScopeDualWrite(BaseTest):
         scanner.refresh_from_db()
 
         self.assertEqual(scanner.scanner_version, before + 1)
+
+    def test_a_partial_save_of_other_fields_keeps_the_persisted_scope(self) -> None:
+        # A sweep holds the scanner from before a retarget. Its `turn_off` persists only `enabled`,
+        # so the mirror must leave `scope` alone. Deriving it from this stale instance would
+        # authorize the previous experiment while the recording query targets the new one.
+        scanner = _make_scanner(
+            self.team, scanner_type=ScannerType.MONITOR, experiment_targeting={"experiment_id": 111}
+        )
+        stale = ReplayScanner.objects.get(pk=scanner.pk)
+
+        retargeted = ReplayScanner.objects.get(pk=scanner.pk)
+        retargeted.experiment_targeting = {"experiment_id": 222}
+        retargeted.save()
+
+        stale.turn_off(ScannerDisabledReason.FREE_CREDITS_USED)
+
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.experiment_targeting, {"experiment_id": 222})
+        self.assertEqual(scanner.scope, {"kind": "experiment", "experiment_id": 222})
+        self.assertEqual(experiment_id_of(scanner), 222)
 
     def test_mirroring_on_an_update_that_names_its_fields(self) -> None:
         scanner = _make_scanner(self.team, scanner_type=ScannerType.MONITOR)
