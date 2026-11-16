@@ -183,4 +183,28 @@ describe('startupProgramLogic', () => {
             expect(logic.values.startupProgramValidationErrors.yc_verification_url).toBeUndefined()
         })
     })
+
+    describe('referrer', () => {
+        it('requires a referrer on the plain startup form', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
+
+            expect(logic.values.startupProgramValidationErrors.referrer).toEqual(
+                'Please tell us how you heard about the startup program'
+            )
+
+            logic.actions.setStartupProgramValue('referrer', '   ')
+            expect(logic.values.startupProgramValidationErrors.referrer).toEqual(
+                'Please tell us how you heard about the startup program'
+            )
+
+            logic.actions.setStartupProgramValue('referrer', 'GetProven')
+            expect(logic.values.startupProgramValidationErrors.referrer).toBeUndefined()
+        })
+
+        it.each(['yc', 'stripe-atlas'])('does not ask for a referrer on the /startups/%s page', async (referrer) => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com', referrer })
+
+            expect(logic.values.startupProgramValidationErrors.referrer).toBeUndefined()
+        })
+    })
 })

@@ -16,7 +16,11 @@ const FLAG = {
     experiment_set: [],
 } as unknown as FeatureFlagApi
 
-function row(hasHiddenFlags: boolean, flags: FeatureFlagApi[] = [FLAG]): ReturnType<typeof buildReleaseRow> {
+function row(
+    hasHiddenFlags: boolean,
+    flags: FeatureFlagApi[] = [FLAG],
+    surveyIds: string[] = []
+): ReturnType<typeof buildReleaseRow> {
     const release = {
         id: 'release-1',
         name: 'Quiet theme',
@@ -25,12 +29,16 @@ function row(hasHiddenFlags: boolean, flags: FeatureFlagApi[] = [FLAG]): ReturnT
         feature_flag_ids: flags.map((flag) => flag.id),
         has_hidden_flags: hasHiddenFlags,
         broadcast_ids: [],
+        survey_ids: surveyIds,
+        insight_ids: [],
+        insights: [],
+        surveys: [],
         broadcasts: [],
         created_at: '2026-10-02T00:00:00Z',
     } as ReleaseDTOApi
-    const index = buildReleaseIndex([FLAG], [], [], [], {
+    const index = buildReleaseIndex(flags, [], [], [], {
         complete: true,
-        resolvedFlagIds: [FLAG.id],
+        resolvedFlagIds: flags.map((flag) => flag.id),
         unknownFlagIds: [],
     })
     return buildReleaseRow(release, index)
@@ -72,6 +80,10 @@ describe('buildReleaseRow', () => {
             feature_flag_ids: [FLAG.id],
             has_hidden_flags: false,
             broadcast_ids: [LAUNCH_SEND.id],
+            survey_ids: [],
+            insight_ids: [],
+            insights: [],
+            surveys: [],
             broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email', status: 'active', recent_sends: [] }],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
@@ -102,7 +114,7 @@ describe('buildReleaseRow', () => {
         ).toEqual([
             ['Broadcast sent', undefined],
             ['Broadcast failed', undefined],
-            ['Broadcast', true],
+            ['Broadcast scheduled', true],
         ])
         expect(result.nextDate).toBe(NEXT_SEND)
         expect(result.suggestions.map((suggestion) => suggestion.key)).not.toContain('broadcast')
@@ -117,6 +129,10 @@ describe('buildReleaseRow', () => {
             feature_flag_ids: [FLAG.id],
             has_hidden_flags: false,
             broadcast_ids: [],
+            survey_ids: [],
+            insight_ids: [],
+            insights: [],
+            surveys: [],
             broadcasts: [],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
@@ -143,6 +159,10 @@ describe('buildReleaseRow', () => {
             feature_flag_ids: [FLAG.id],
             has_hidden_flags: false,
             broadcast_ids: [],
+            survey_ids: [],
+            insight_ids: [],
+            insights: [],
+            surveys: [],
             broadcasts: [],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
@@ -164,6 +184,66 @@ describe('buildReleaseRow', () => {
         expect(result.stage).toBe(stage)
         expect(result.nextStep?.title).toBe(nextStep)
         expect(result.needsDecision).toBe(needsDecision)
+    })
+
+    const PARTIAL = {
+        ...FLAG,
+        filters: { groups: [{ properties: [], rollout_percentage: 50 }] },
+    } as unknown as FeatureFlagApi
+    const ARCHIVED = { ...FLAG, active: false, archived: true } as unknown as FeatureFlagApi
+
+    it.each([
+        ['behind a flag', [PARTIAL], [], 'flag', ['experiment', 'early-access', 'survey']],
+        ['behind a flag with a linked survey', [PARTIAL], ['survey-1'], 'flag', ['experiment', 'early-access']],
+        ['rolled out', [FLAG], [], 'released', ['broadcast', 'survey']],
+        ['rolled out with a linked survey', [FLAG], ['survey-1'], 'released', ['broadcast']],
+        ['planned', [], [], 'planned', []],
+        ['ended', [ARCHIVED], [], 'ended', []],
+    ])('suggests ideas that fit the stage when %s', (_name, flags, surveyIds, stage, ideas) => {
+        const result = row(false, flags, surveyIds)
+
+        expect(result.stage).toBe(stage)
+        expect(result.suggestions.map((suggestion) => suggestion.key)).toEqual(ideas)
+    })
+
+    it('counts only flags open to all users toward the flags that reach everyone', () => {
+        const targeted = {
+            ...FLAG,
+            id: 2,
+            key: 'quiet-theme-paid',
+            filters: { groups: [{ properties: [{ key: 'plan', value: 'paid' }], rollout_percentage: 100 }] },
+        } as unknown as FeatureFlagApi
+        const release = {
+            id: 'release-1',
+            name: 'Quiet theme',
+            description: '',
+            owner: null,
+            feature_flag_ids: [FLAG.id, targeted.id],
+            has_hidden_flags: false,
+            broadcast_ids: [],
+            survey_ids: [],
+            insight_ids: [],
+            insights: [],
+            surveys: [],
+            broadcasts: [],
+            created_at: '2026-10-02T00:00:00Z',
+        } as ReleaseDTOApi
+        const index = buildReleaseIndex([FLAG, targeted], [], [], [], {
+            complete: true,
+            resolvedFlagIds: [FLAG.id, targeted.id],
+            unknownFlagIds: [],
+        })
+
+        expect(buildReleaseRow(release, index).headline).toBe('1 of 2 flags reach everyone')
+    })
+})
+
+describe('broadcast suggestion', () => {
+    it('links the new broadcast to the release without asking for an audience', () => {
+        const suggestion = row(false).suggestions.find((item) => item.key === 'broadcast')
+        const params = new URL(suggestion?.to ?? '', 'https://example.com').searchParams
+
+        expect([params.get('source_record'), params.has('audience')]).toEqual(['release:release-1', false])
     })
 })
 

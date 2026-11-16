@@ -15,6 +15,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
 import {
+    confirmTrainingWithoutCheck,
+    firstRunCheckProblem,
+    needsFirstRunCheck,
+    runFirstRunCheck,
+} from './firstRunCheck'
+import {
     autoresearchDestroy,
     autoresearchList,
     autoresearchPauseCreate,
@@ -93,6 +99,9 @@ export interface autoresearchLogicActions {
     pipelineUpdated: (pipeline: AutoresearchPipelineApi) => {
         pipeline: AutoresearchPipelineApi
     }
+    requestTraining: (pipeline: AutoresearchPipelineApi) => {
+        pipeline: AutoresearchPipelineApi
+    }
     resumePipeline: (pipeline: AutoresearchPipelineApi) => {
         pipeline: AutoresearchPipelineApi
     }
@@ -156,6 +165,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
         deletePipeline: (id: string, name: string) => ({ id, name }),
         pausePipeline: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
         resumePipeline: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
+        requestTraining: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
         startTraining: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
         modelCardOpened: (id: string) => ({ id }),
         setPipelineMutating: (id: string, mutating: boolean) => ({ id, mutating }),
@@ -331,6 +341,37 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             } finally {
                 actions.setPipelineMutating(pipeline.id, false)
             }
+        },
+        requestTraining: async ({ pipeline }: { pipeline: AutoresearchPipelineApi }) => {
+            if (!needsFirstRunCheck(pipeline)) {
+                actions.startTraining(pipeline)
+                return
+            }
+            if (!values.currentTeamId || values.mutatingPipelineIds[pipeline.id]) {
+                return
+            }
+            actions.setPipelineMutating(pipeline.id, true)
+            let problem: string | null
+            let errorCode: string | null = null
+            try {
+                const validation = await runFirstRunCheck(String(values.currentTeamId), pipeline)
+                problem = firstRunCheckProblem(validation)
+                errorCode = validation.error_code
+            } catch {
+                problem = "Couldn't check this model."
+            } finally {
+                actions.setPipelineMutating(pipeline.id, false)
+            }
+            if (!problem) {
+                actions.startTraining(pipeline)
+                return
+            }
+            const checkProperties = { pipeline_id: pipeline.id, source: 'list', error_code: errorCode }
+            posthog.capture('autoresearch model training check failed', checkProperties)
+            confirmTrainingWithoutCheck(problem, () => {
+                posthog.capture('autoresearch model training check overridden', checkProperties)
+                actions.startTraining(pipeline)
+            })
         },
         startTraining: async ({ pipeline }: { pipeline: AutoresearchPipelineApi }) => {
             if (!values.currentTeamId || values.mutatingPipelineIds[pipeline.id]) {

@@ -56,9 +56,11 @@ from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.permissions import posthog_feature_flag_enabled
 
 from ..facade.api import (
+    DEFAULT_SUMMARY_LIMIT,
     FACET_COLUMNS,
     MAX_AI_EVENTS_PER_TRACE,
     MAX_IDS_PER_LOOKUP,
+    MAX_SUMMARY_LIMIT,
     annotate_self_time,
     count_session_exceptions,
     count_span_exceptions,
@@ -72,6 +74,7 @@ from ..facade.api import (
     run_service_health_query,
     run_symbol_stats_query,
     service_health_byte_cap_message,
+    summarize_trace,
 )
 from ..facade.enums import ServiceHealthStatus
 from ..has_spans_query_runner import team_has_spans
@@ -403,6 +406,24 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
         required=False,
         min_value=0,
         help_text="Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.",
+    )
+    summary = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return a compact digest of the trace in `summary` instead of every span (`results` comes back "
+            "empty): duration, root span, span/service/error counts, the top spans by self time, the critical "
+            "path from the root, span names that repeat (N+1 queries), and error spans with their message. "
+            "Covers the first 2000 spans; `summary.truncated` is true when the trace has more. Ignores "
+            "`offset` and `excludeAttributes`."
+        ),
+    )
+    summaryLimit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_SUMMARY_LIMIT,
+        default=DEFAULT_SUMMARY_LIMIT,
+        help_text=f"With `summary`, how many entries each summary list keeps (1-{MAX_SUMMARY_LIMIT}). Defaults to {DEFAULT_SUMMARY_LIMIT}.",
     )
 
 
@@ -923,8 +944,93 @@ class _TracingQueryResponseSerializer(serializers.Serializer):
     )
 
 
+class _TraceSummarySpanSerializer(serializers.Serializer):
+    span_id = serializers.CharField(required=False, help_text="Span's ID within the trace.")
+    name = serializers.CharField(help_text="Span name, truncated to 120 characters.")
+    service = serializers.CharField(
+        required=False, help_text="Service that emitted the span. Omitted when it is the root span's service."
+    )
+    duration_ms = serializers.FloatField(help_text="Span duration in milliseconds.")
+    self_ms = serializers.FloatField(help_text="Duration not covered by child spans, in milliseconds.")
+    error = serializers.BooleanField(required=False, help_text="Present and true when the span has error status.")
+
+
+class _TraceSummaryErrorSerializer(_TraceSummarySpanSerializer):
+    message = serializers.CharField(
+        allow_null=True,
+        help_text="The exception message, or the error attribute the span carries. Null when the span records none.",
+    )
+
+
+class _TraceSummaryPathEntrySerializer(_TraceSummarySpanSerializer):
+    depth = serializers.IntegerField(help_text="Nesting depth below the root, which is 0.")
+    count = serializers.IntegerField(
+        required=False,
+        help_text="Present when consecutive same-named siblings were collapsed into this entry; durations are summed.",
+    )
+
+
+class _TraceSummaryRepeatedSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Span name, truncated to 120 characters.")
+    service = serializers.CharField(
+        required=False, help_text="Service that emitted the spans. Omitted when it is the root span's service."
+    )
+    count = serializers.IntegerField(help_text="How many spans in the trace have this service and name.")
+    total_ms = serializers.FloatField(help_text="Summed duration of those spans, in milliseconds.")
+    max_ms = serializers.FloatField(help_text="Longest of those spans, in milliseconds.")
+
+
+class _TraceSummarySerializer(serializers.Serializer):
+    trace_id = serializers.CharField(required=False, help_text="The trace ID.")
+    start = serializers.CharField(required=False, help_text="When the earliest span started (ISO 8601).")
+    duration_ms = serializers.FloatField(
+        required=False, help_text="First span start to last span end, in milliseconds."
+    )
+    span_count = serializers.IntegerField(help_text="Spans summarized.")
+    service_count = serializers.IntegerField(required=False, help_text="Distinct services in the trace.")
+    error_count = serializers.IntegerField(required=False, help_text="Spans with error status.")
+    truncated = serializers.BooleanField(
+        help_text="True when the trace has more spans than were summarized, so counts are lower bounds."
+    )
+    root = _TraceSummarySpanSerializer(required=False, help_text="The trace's root span.")
+    services = serializers.DictField(
+        child=serializers.IntegerField(), required=False, help_text="Span count per service, largest first (top 10)."
+    )
+    top_self_time = _TraceSummarySpanSerializer(
+        many=True,
+        required=False,
+        help_text="Spans with the most self time, largest first. Self time on a parent is uninstrumented work.",
+    )
+    critical_path = _TraceSummaryPathEntrySerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "The spans the trace's end time waits on, in start order, walking back from the root's end. "
+            "Spans that ran in parallel and finished earlier are left out."
+        ),
+    )
+    critical_path_omitted = serializers.IntegerField(
+        required=False,
+        help_text="Spans on the critical path left out because each took under 1% of the root's duration.",
+    )
+    critical_path_truncated = serializers.BooleanField(
+        required=False, help_text="True when the critical path was cut at summaryLimit entries (at most 20)."
+    )
+    repeated_spans = _TraceSummaryRepeatedSerializer(
+        many=True,
+        required=False,
+        help_text="Service and name pairs that occur more than once, by total duration. Many fast repeats point at an N+1 pattern.",
+    )
+    errors = _TraceSummaryErrorSerializer(  # type: ignore[assignment]  # API field intentionally shadows Serializer.errors.
+        many=True, required=False, help_text="Error spans, earliest first."
+    )
+
+
 class _TracingTraceResponseSerializer(serializers.Serializer):
-    results = _TraceSpanSerializer(many=True, help_text="Spans in the trace, earliest first.")
+    results = _TraceSpanSerializer(
+        many=True, help_text="Spans in the trace, earliest first. Empty when `summary` is requested."
+    )
+    summary = _TraceSummarySerializer(required=False, help_text="The trace digest, present when `summary` is true.")
     hasMore = serializers.BooleanField(help_text="Whether a further page of spans exists.")
     nextOffset = serializers.IntegerField(
         allow_null=True, help_text="Offset for the next page, or null on the last page."
@@ -2012,7 +2118,11 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         trace_request = _TracingTraceRequestSerializer(data=query_data)
         trace_request.is_valid(raise_exception=True)
-        offset: int = trace_request.validated_data.get("offset", 0)
+        summary: bool = trace_request.validated_data["summary"]
+        # The summary digests the trace from its first span, so it always reads page one. It needs the
+        # attributes and events of error spans for their message, so it never excludes them.
+        offset: int = 0 if summary else trace_request.validated_data.get("offset", 0)
+        exclude_attributes = False if summary else query_data.get("excludeAttributes", False)
 
         # The waterfall loads a trace one page at a time, earliest spans first, with infinite scroll
         # fetching the next page. Order by start time ASC so a page is the first N spans by start
@@ -2029,7 +2139,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             offset=offset,
             prefetchSpans=TRACE_SPANS_PAGE_SIZE + 1,
             rootSpans=False,
-            excludeAttributes=query_data.get("excludeAttributes", False),
+            excludeAttributes=exclude_attributes,
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)
@@ -2052,8 +2162,22 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "has_more": has_more,
                 "is_paginated": offset > 0,
                 "has_filter_group": bool(query_data.get("filterGroup")),
+                "summary": summary,
             },
         )
+
+        if summary:
+            return Response(
+                {
+                    "results": [],
+                    "summary": summarize_trace(
+                        results, limit=trace_request.validated_data["summaryLimit"], truncated=has_more
+                    ),
+                    "hasMore": False,
+                    "nextOffset": None,
+                },
+                status=status.HTTP_200_OK,
+            )
 
         return Response(
             {

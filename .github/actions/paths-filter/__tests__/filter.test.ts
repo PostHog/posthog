@@ -67,6 +67,23 @@ describe('matching tests', () => {
     expect(new Filter(filtersYaml).match(files).frontend_code).toEqual(files)
   })
 
+  test.each<[string, string[], number]>([
+    ['unrelated rename', ['services/mcp/README.md', 'services/mcp/README-renamed.md'], 3],
+    ['rename source', ['services/mcp/renamed-fixture'], 2],
+    ['rename destination', ['services/mcp/original-fixture'], 2]
+  ])('CLI filter detects newline inputs with %s', (_name, otherPaths, matchedCount) => {
+    const workflowYaml = readFileSync(path.join(__dirname, '../../../../.github/workflows/ci-cli.yml'), 'utf8')
+    const workflow = jsyaml.load(workflowYaml) as {jobs: {changes: {steps: {id?: string; with?: {filters?: string}}[]}}}
+    const filtersYaml = workflow.jobs.changes.steps.find(step => step.id === 'filter')?.with?.filters
+    const newlinePath = 'rust/cymbal/tests/static/native/extra\nfixture'
+    const files = modified(['services/mcp/src/cli/index.ts', ...otherPaths, newlinePath])
+    const matched = new Filter(filtersYaml).match(files)
+
+    expect(matched.rust).toEqual([])
+    expect(matched.all).toHaveLength(matchedCount)
+    expect(matched.unmatched_paths).toEqual(modified([newlinePath]))
+  })
+
   test('matches single inline rule', () => {
     const yaml = `
     src: "src/**/*.js"

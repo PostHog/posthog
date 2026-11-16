@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconRabbit, IconTortoise } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
 
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import {
     PLAYBACK_SPEEDS,
@@ -10,9 +11,10 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { QuillMenuItems } from 'scenes/session-recordings/playlist/QuillMenuItems'
 
-export function QuillSetPlaybackSpeed({ filled = false }: { filled?: boolean }): JSX.Element {
+export function QuillSetPlaybackSpeed({ short = false }: { short?: boolean }): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { setSpeed } = useActions(sessionRecordingPlayerLogic)
+    const floatingContainer = useFloatingContainer()
     const Icon = speed === 0.5 ? IconTortoise : IconRabbit
 
     return (
@@ -20,16 +22,17 @@ export function QuillSetPlaybackSpeed({ filled = false }: { filled?: boolean }):
             <DropdownMenuTrigger
                 render={
                     <Button
-                        size={filled ? 'default' : 'sm'}
-                        variant={filled || speed !== 1 ? 'secondary' : 'default'}
+                        size="sm"
+                        variant={speed !== 1 ? 'secondary' : 'default'}
+                        tooltip={short ? 'Playback speed' : undefined}
                         data-attr="session-recording-speed-select"
                     />
                 }
             >
                 <Icon className="text-lg" style={{ stroke: 'currentColor', strokeWidth: '0.5' }} />
-                Speed {speed}x
+                {short ? `${speed}x` : `Speed ${speed}x`}
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" side="top" container={floatingContainer ?? undefined}>
                 <QuillMenuItems
                     items={PLAYBACK_SPEEDS.map((speedToggle) => ({
                         label: (

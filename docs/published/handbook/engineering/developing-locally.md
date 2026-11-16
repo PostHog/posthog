@@ -533,15 +533,20 @@ Jaeger will be available at [http://localhost:16686](http://localhost:16686).
 
 #### Production usage
 
-We send our PostHog Cloud emails via Customer.io using their HTTP API. If Customer.io is not configured but SMTP is, it will fall back to SMTP. We do this so we can continue to support SMTP emails for self-hosted instances.
+We send our PostHog Cloud emails through the Workflows transactional email API, using message templates in the PostHog US project.
+If Workflows is not configured but SMTP is, emails send through SMTP instead.
+We do this so we can continue to support SMTP emails for self-hosted instances.
 
-#### Setting up Customer.io emails
+#### Setting up Workflows emails
 
-To start sending via Customer.io, all you need to do is add the `CUSTOMER_IO_API_KEY` variable. Please be careful when using locally, this is only intended for testing emails and should not be used otherwise.
+To start sending through Workflows, set `POSTHOG_TRANSACTIONAL_EMAIL_API_KEY` to a project secret API key and `POSTHOG_HOST` to an `https://` URL.
+Please be careful when using locally, this is only intended for testing emails and should not be used otherwise.
 
 #### Setting up SMTP emails
 
-Most, but not all, emails have been migrated to Customer.io. Some are still sending via SMTP from Django templates. Eventually we will move them all to Customer.io but we will still support SMTP for self-hosted instances.
+Most, but not all, emails send through Workflows.
+Some are still sending via SMTP from Django templates.
+We will still support SMTP for self-hosted instances.
 
 - Set `EMAIL_HOST`, `EMAIL_PORT`, and `EMAIL_ENABLED` appropriately
 - Enable TLS or SSL if required (`EMAIL_USE_TLS=true` or `EMAIL_USE_SSL=true`)
@@ -549,16 +554,16 @@ Most, but not all, emails have been migrated to Customer.io. Some are still send
 
 ### Creating a new email
 
-When creating a new email, there are a few steps to take. It's important to add the template to both Customer.io and the `posthog/templates/` folder.
+When creating a new email, there are a few steps to take. It's important to add the template to both Workflows and the `posthog/templates/` folder.
 
-1. Create a new template in Customer.io. Ask @joe or @team-platform for help here if needed
-2. Add the new Customer.io template to the `CUSTOMER_IO_TEMPLATE_ID_MAP` in `posthog/email.py`
+1. Create a new message template in Workflows in the PostHog US project
+2. Add the new template's ID to the `WORKFLOWS_TEMPLATE_ID_MAP` in `posthog/email.py`
 3. Create a template in PostHog as an SMTP backup. Make sure the file name matches the key used in the template map.
 4. Trigger the email with something like this:
 
    ```python
    message = EmailMessage(
-       use_http=True,  # This will attempt to send via Customer.io before falling back to SMTP
+       use_http=True,  # Sends through Workflows when it is configured, and through SMTP otherwise
        campaign_key=campaign_key,
        subject="This is a subject",
        template_name="test_template",

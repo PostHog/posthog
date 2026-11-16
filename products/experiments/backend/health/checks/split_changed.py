@@ -4,10 +4,15 @@ functions, no I/O: `health/exposure_gate.py` loads the changes and the exposure 
 
 People exposed before such a change can get another variant after it, so the results mix two assignments. When
 fewer than MIN_EXPOSED_UNITS_TO_WARN were exposed before the last change, that can't move the results, so it is info.
-A variant rolled out to 100% stays a warning, because the split serves one variant from then on.
+It is info too when the people who can get another variant are a small share of the people in the results: only a
+person whose hash lies in a part of a variant's slot that the new split gives to another variant can switch. A variant
+rolled out to 100% stays a warning, because the split serves one variant from then on.
 """
 
+from math import ceil
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
@@ -33,8 +38,15 @@ from products.experiments.backend.health.checks.flag_change_findings import (
     not_checked_finding,
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped
+from products.experiments.backend.health.checks.multiple_variants import MULTIPLE_VARIANTS_SHARE_THRESHOLD
 from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, FlagState, HealthContext
-from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip
+from products.experiments.backend.health.skips import (
+    REPORTED_BY_FLAG_STATE,
+    CheckOutcome,
+    CheckRows,
+    CheckSkip,
+    not_applicable,
+)
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     SplitNetEffect,
@@ -47,8 +59,13 @@ from products.feature_flags.backend.facade.edits import (
     added_variant_keys,
     removed_variant_keys,
     rolled_out_variant_key,
+    switchable_shares,
     zeroed_variant_keys,
 )
+
+# pinned: the `reason` of a split change that can move only a small share of the people in the results. `srm` reads
+# it, because such a change can still cause a sample ratio mismatch.
+FEW_COULD_SWITCH = "few_could_switch"
 
 _TITLE = "The variant split changed after launch"
 _REVERTED_INFO_TITLE = "The variant split changed and was set back"
@@ -70,8 +87,10 @@ def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history, flag)
     effect = net_effect(history.counted(SplitChange))
-    if effect is None or _reported_as_shipped(effect, flag):
+    if effect is None:
         return None
+    if _reported_as_shipped(effect, flag):
+        return not_applicable(REPORTED_BY_FLAG_STATE)
 
     if (
         effect.shape == SplitChangeShape.REVERTED
@@ -89,6 +108,14 @@ def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
     # few people were exposed before.
     if few is not None and effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT:
         return _few_exposed(history, effect, few)
+    could_switch = _could_switch(ctx, history)
+    # The threshold of `multiple_variants_share`, because the people who switch end up in more than one variant.
+    if (
+        could_switch is not None
+        and effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT
+        and could_switch.percentage <= MULTIPLE_VARIANTS_SHARE_THRESHOLD
+    ):
+        return _few_could_switch(history, effect, could_switch)
     if effect.shape == SplitChangeShape.REVERTED:
         start_at = suggested_start(effect.last.changed_at, history.team_timezone)
         return _finding(
@@ -124,10 +151,12 @@ def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
     )
 
 
-def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> ExperimentHealthFinding | None:
+def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> CheckOutcome:
     effect = net_effect(history.of_kind(SplitChange))
-    if effect is None or _reported_as_shipped(effect, flag):
+    if effect is None:
         return None
+    if _reported_as_shipped(effect, flag):
+        return not_applicable(REPORTED_BY_FLAG_STATE)
     at = format_change_time(effect.last.changed_at, history.team_timezone)
     from_split = describe_split(effect.from_split)
     if effect.shape == SplitChangeShape.REVERTED:
@@ -174,6 +203,87 @@ def _few_exposed(history: FlagHistory, effect: SplitNetEffect, count: int) -> Ex
             *from_then_on,
         ],
         moves_start_date=bool(move_start),
+    )
+
+
+@frozen
+class _CouldSwitch:
+    # The persons or groups exposed before the last change whose hash the current split gives to another variant. An
+    # expected count, because the count by variant doesn't say where in its slot each person's hash lies.
+    units: float
+    # The persons or groups in the results.
+    total: int
+
+    @property
+    def percentage(self) -> float:
+        return self.units / self.total * 100
+
+
+def _could_switch(ctx: HealthContext, history: FlagHistory) -> _CouldSwitch | None:
+    """The people exposed before the last split change who can get another variant after it, under the current split.
+    A person exposed under a split that ended before the last change, and not since, never got that split's variant, so
+    only the split of each window they were exposed in counts. A person who already got two variants counts in full.
+    None when a count is unknown, which keeps the warning."""
+    paths = history.split_paths_before_last
+    # The exposure answer counts the exposed people. The health endpoint doesn't load it, so it reads the people that
+    # the primary metric's stored result counts.
+    if ctx.exposures is not None:
+        total: int | None = ctx.exposures.total
+    else:
+        total = ctx.primary_metric.exposures if ctx.primary_metric is not None else None
+    changes = history.of_kind(SplitChange)
+    if paths is None or not total or not changes:
+        return None
+    # Window 0 ends at the first split change, and window N runs under the split that change N set.
+    splits = [changes[0].before, *(change.after for change in changes)]
+    shares = [switchable_shares(split, splits[-1]) for split in splits[:-1]]
+    units = 0.0
+    for path, count in paths.items():
+        if len({variant for _, variant in path}) > 1:
+            units += count
+            continue
+        window_shares = [shares[window] if window < len(shares) else None for window, _ in path]
+        if any(share is None for share in window_shares):
+            return None
+        # A variant key that the split of the window didn't serve has no slot, so all of its people can switch.
+        units += count * max(
+            share.get(variant, 1.0) for share, (_, variant) in zip(window_shares, path) if share is not None
+        )
+    return _CouldSwitch(units=units, total=total)
+
+
+def _few_could_switch(
+    history: FlagHistory, effect: SplitNetEffect, could_switch: _CouldSwitch
+) -> ExperimentHealthFinding:
+    what_changed = (
+        _reverted(history, effect) if effect.shape == SplitChangeShape.REVERTED else [_what_changed(history, effect)]
+    )
+    change = the_change(effect.change_count, "the")
+    after = "it" if effect.change_count == 1 else "them"
+    unit = "groups" if history.counts_groups else "users"
+    # An expected count, so a fraction of a person rounds up to one.
+    count = ceil(could_switch.units)
+    total = f"{could_switch.total:,} {unit} in the results"
+    if count == 0:
+        who = f"None of the {total} can get another variant because of {change}."
+    else:
+        who = (
+            f"About {count:,} of the {total} ({could_switch.percentage:.1f}%) {'was' if count == 1 else 'were'} "
+            f"exposed before {change} and can get another variant after {after}."
+        )
+    return _finding(
+        history,
+        effect,
+        severity=ExperimentHealthFindingSeverity.INFO,
+        title=_TITLE,
+        sentences=[
+            *what_changed,
+            *delay_after_launch(history, effect),
+            who,
+            f"So {change} {'has' if effect.change_count == 1 else 'have'} little effect on the results.",
+        ],
+        reason=FEW_COULD_SWITCH,
+        extra_evidence={"units_could_switch": count, "units_in_results": could_switch.total},
     )
 
 
@@ -238,8 +348,9 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
                 RESET_EFFECT,
             ]
         case SplitChangeShape.VARIANT_ZEROED:
-            # The zeroed share goes to other variants, which moves their boundaries too. Excluding the zeroed
-            # variant from the analysis therefore leaves mixed assignments in the variants that remain.
+            # The people of the zeroed variant switch, and so do the people of another variant whose slot moves
+            # when the zeroed share goes elsewhere. Excluding the zeroed variant from the analysis can therefore
+            # leave mixed assignments in the variants that remain.
             keys = _quoted(zeroed_variant_keys(effect.from_split, effect.to_split), conjunction="and")
             return [
                 f"People exposed before {change} may have switched variants, and no new users get {keys}.",
@@ -288,6 +399,8 @@ def _finding(
     sentences: list[str],
     moves_start_date: bool = False,
     end_experiment: bool = False,
+    reason: str | None = None,
+    extra_evidence: dict[str, int] | None = None,
 ) -> ExperimentHealthFinding:
     return change_finding(
         history,
@@ -298,7 +411,8 @@ def _finding(
         severity=severity,
         title=title,
         sentences=sentences,
-        kind_evidence=_kind_evidence(effect),
+        kind_evidence={**_kind_evidence(effect), **(extra_evidence or {})},
+        reason=reason,
         diagnostic_ref=(
             "E4" if effect.shape in (SplitChangeShape.VARIANT_ADDED, SplitChangeShape.VARIANT_REMOVED) else "E3"
         ),

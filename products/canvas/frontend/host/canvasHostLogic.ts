@@ -203,14 +203,11 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
                 case 'canvas':
                     router.actions.push(urls.canvasDetail(intent.dashboardId))
                     break
-                case 'new-canvas':
-                    router.actions.push(urls.canvasNew(props.spaceId))
-                    break
                 case 'connect':
                     router.actions.push(connectorSettingsUrl(intent.provider))
                     break
                 default:
-                    // The web app has no task composer route to prefill, so these are dropped.
+                    // The web app has no task composer route to prefill, and it does not create canvases, so these are dropped.
                     break
             }
         },

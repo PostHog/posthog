@@ -24,6 +24,8 @@ import type {
     UserBasicType,
 } from '../../../../../frontend/src/types'
 import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
+import { sandboxSenderLogic } from '../../Channels/sandboxSenderLogic'
+import type { WorkflowEmailSandboxStatusApi } from '../../generated/api.schemas'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
@@ -31,6 +33,12 @@ import { getEdgeId } from './edgeId'
 import { getTeamUtmDefaults, newEmailUtmConfig, utmKeysFollowingSavedDefault } from './steps/components/utmDefaults'
 import type { UtmTagValues } from './steps/components/UtmTagFields'
 import type { UtmTagKey } from './steps/components/UtmTagFields'
+import {
+    hasOwnSender,
+    needsSandboxSender,
+    sandboxSenderAllowed,
+    toSandboxAction,
+} from './steps/email/emailStepVariants'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType } from './steps/types'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
@@ -223,6 +231,8 @@ export interface hogFlowEditorLogicValues {
     integrations: IntegrationType[] | null // integrationsLogic
     categories: MessageCategory[] // optOutCategoriesLogic
     categoriesLoading: boolean // optOutCategoriesLogic
+    canAdoptSandbox: boolean // sandboxSenderLogic
+    sandboxStatus: WorkflowEmailSandboxStatusApi | null // sandboxSenderLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     edgesByActionId: Record<string, HogFlowEdge[]> // workflowLogic
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
@@ -250,6 +260,9 @@ export interface hogFlowEditorLogicActions {
     loadCategories: () => {
         value: true
     } // optOutCategoriesLogic
+    provisionSandboxSender: (surface: import('../../Channels/sandboxSender').SandboxSenderSurface) => {
+        surface: import('../../Channels/sandboxSender').SandboxSenderSurface
+    } // sandboxSenderLogic
     loadWorkflowSuccess: (
         originalWorkflow:
             | HogFlow
@@ -475,6 +488,60 @@ export interface hogFlowEditorLogicActions {
                                 | null
                                 | undefined
                             type: 'delay'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: {
+                                    email: {
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: {
+                                            design?: any
+                                            html?: string | undefined
+                                            preheader?: string | undefined
+                                            subject?: string | undefined
+                                            text?: string | undefined
+                                            to?:
+                                                | {
+                                                      email: string
+                                                      name?: string | undefined
+                                                  }
+                                                | undefined
+                                        }
+                                    }
+                                }
+                                message_category_id?: string | null | undefined
+                                message_category_type?: 'marketing' | 'transactional' | null | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'email_sandbox'
                             updated_at?: number | undefined
                         }
                       | {
@@ -1369,6 +1436,60 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
+                                inputs: {
+                                    email: {
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: {
+                                            design?: any
+                                            html?: string | undefined
+                                            preheader?: string | undefined
+                                            subject?: string | undefined
+                                            text?: string | undefined
+                                            to?:
+                                                | {
+                                                      email: string
+                                                      name?: string | undefined
+                                                  }
+                                                | undefined
+                                        }
+                                    }
+                                }
+                                message_category_id?: string | null | undefined
+                                message_category_type?: 'marketing' | 'transactional' | null | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'email_sandbox'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
                                 inputs: Record<
                                     string,
                                     {
@@ -2109,6 +2230,9 @@ export interface hogFlowEditorLogicActions {
     resetFlowFromHogFlow: (hogFlow: HogFlow) => {
         hogFlow: HogFlow
     }
+    selectTrigger: () => {
+        value: true
+    }
     setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => {
         dropzoneNodes: DropzoneNode[]
     }
@@ -2180,6 +2304,28 @@ export type hogFlowEditorLogicType = MakeLogicType<
     hogFlowEditorLogicMeta
 >
 
+function withSandboxSenderOnInsert(
+    action: HogFlowAction,
+    values: Pick<
+        hogFlowEditorLogicValues,
+        'integrations' | 'workflow' | 'canAdoptSandbox' | 'sandboxStatus' | 'currentTeam'
+    >,
+    editingTemplate: boolean,
+    provisionSandboxSender: () => void
+): HogFlowAction {
+    if (
+        hasOwnSender(values.integrations) !== false ||
+        !sandboxSenderAllowed(values.workflow, editingTemplate) ||
+        !needsSandboxSender(action, values.canAdoptSandbox, getTeamUtmDefaults(values.currentTeam?.workflows_config))
+    ) {
+        return action
+    }
+    if (values.sandboxStatus?.integration_id === null) {
+        provisionSandboxSender()
+    }
+    return toSandboxAction(action)
+}
+
 function isDeletableStep(action: HogFlowAction, isViewOnly: boolean): boolean {
     return !isViewOnly && !['trigger', 'exit'].includes(action.type)
 }
@@ -2198,12 +2344,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             ['integrations'],
             teamLogic,
             ['currentTeam'],
+            sandboxSenderLogic,
+            ['canAdoptSandbox', 'sandboxStatus'],
         ],
         actions: [
             workflowLogic,
             ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
             optOutCategoriesLogic(),
             ['loadCategories'],
+            sandboxSenderLogic,
+            ['provisionSandboxSender'],
         ],
     })),
     actions({
@@ -2216,6 +2366,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNodesRaw: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setEdges: (edges: HogFlowActionEdge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
+        selectTrigger: true,
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event?: DragEvent, targetEdge?: HogFlowEdge, joinEdges?: HogFlowEdge[]) => ({
@@ -2390,7 +2541,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => {
+    listeners(({ values, actions, props }) => {
         return {
             resetFlowFromHogFlow: ({ hogFlow }) => {
                 try {
@@ -2577,7 +2728,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         })
                         const dynamicInputs = (partialNewAction as CreateActionType).getDefaultInputs?.()
                         if (dynamicInputs && 'inputs' in config) {
-                            config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } }
+                            config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } } as typeof config
                         }
                     }
                     // Seed the step's inputs with the template defaults at creation time. The input renderer
@@ -2635,7 +2786,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
-                    const newAction = {
+                    let newAction = {
                         id: isHogFlowActionNode
                             ? (values.nodeToBeAdded as HogFlowActionNode).id
                             : `action_${partialNewAction.type}_${uuid()}`,
@@ -2652,6 +2803,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             ? { on_error: (partialNewAction as CreateActionType).on_error }
                             : {}),
                     } as HogFlowAction
+
+                    if (!isHogFlowActionNode) {
+                        newAction = withSandboxSenderOnInsert(newAction, values, !!props.editTemplateId, () =>
+                            actions.provisionSandboxSender('inserted_step')
+                        )
+                    }
 
                     const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
 
@@ -2772,6 +2929,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
                 actions.onDrop()
                 actions.stopCopyingNode()
+            },
+            selectTrigger: () => {
+                // Workflows created through the API or MCP can give the trigger any id, not only TRIGGER_NODE_ID.
+                const trigger = values.workflow.actions.find((action) => action.type === 'trigger')
+                actions.setSelectedNodeId(trigger?.id ?? null)
             },
             startMovingNode: () => {
                 actions.showDropzones()

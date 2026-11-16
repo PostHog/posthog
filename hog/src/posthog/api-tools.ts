@@ -8,7 +8,7 @@ import type {
 } from '@posthog/mcp/src/cli/library-types'
 
 import type { Context } from '@/core/context'
-import { EXIT_FAILURE, HogError } from '@/core/errors'
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { ApiError, stepUpRequired } from './api'
@@ -70,16 +70,39 @@ export function findGroup(library: ApiToolLibrary, query: string): ToolGroup {
     return group
 }
 
+export const STALE_TOOLS_HINT =
+    'The tool definitions may be out of date. Update hog to the latest version, or run `hog api refresh`.'
+
 export function findTool(library: ApiToolLibrary, name: string): ApiToolSummary {
     const tool = library.tools().find((candidate) => candidate.name === name)
-    if (!tool) {
+    if (tool) {
+        return tool
+    }
+
+    const dropped = library.catalog().dropped.find((candidate) => candidate.name === name && !candidate.builtIn)
+    if (dropped) {
         throw new HogError(
-            'unknown_tool',
-            `There is no tool named "${name}".`,
-            'Run `hog api search <words>` to find tools by name and description.'
+            'tool_unavailable',
+            `This hog can't run ${name} from the downloaded tool catalog. Reason: ${dropped.reason}.`,
+            'Update hog to the latest version to use it.'
         )
     }
-    return tool
+    throw new HogError(
+        'unknown_tool',
+        `There is no tool named "${name}".`,
+        'Run `hog api search <words>` to find tools by name and description. If the tool is new, update hog to the latest version, or run `hog api refresh`.'
+    )
+}
+
+// PostHog refusing a field, or a missing endpoint, can mean the tool's definition is older than the
+// API, so those failures also say how to get newer definitions.
+export function withStaleToolsHint(error: ApiToolError, hogError: HogError): HogError {
+    const stale =
+        (error.code === 'validation_error' && error.status === 400) ||
+        (error.code === 'api_error' && error.status === 404)
+    return stale
+        ? hogError.withHint(hogError.hint ? `${hogError.hint} ${STALE_TOOLS_HINT}` : STALE_TOOLS_HINT)
+        : hogError
 }
 
 export function toolKind(tool: ApiToolSummary): ToolKind {
@@ -144,13 +167,13 @@ export function missingScopesError(
 ): HogError {
     const message = `Your credentials need ${scopes.join(', ')} to call ${tool}.`
     if (credentials?.source === 'workload') {
-        return new HogError('missing_scopes', message, workloadScopesHint(scopes))
+        return new HogError('missing_scopes', message, workloadScopesHint(scopes), EXIT_NEEDS_PERSON)
     }
     const loginCanAdd = canStepUp(credentials)
     if (loginCanAdd && scopes.every(isScopeName)) {
         return stepUpRequired(scopes, { message, host: credentials?.key.host })
     }
-    return new HogError('missing_scopes', message, loginCanAdd ? SCOPES_HINT : addToKeyHint(scopes))
+    return new HogError('missing_scopes', message, loginCanAdd ? SCOPES_HINT : addToKeyHint(scopes), EXIT_NEEDS_PERSON)
 }
 
 export function toHogError(error: ApiToolError, tool?: string, credentials?: Credentials): HogError {
@@ -159,7 +182,7 @@ export function toHogError(error: ApiToolError, tool?: string, credentials?: Cre
         case 'permission_denied':
             return error.missingScope && tool
                 ? missingScopesError(tool, [error.missingScope], credentials)
-                : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT, undefined, detail)
+                : new ApiError(403, 'permission_denied', error.message, { hint: SCOPES_HINT, serverDetail: detail })
         case 'validation_error':
         case 'invalid_input':
             return new HogError(
@@ -179,7 +202,7 @@ export function toHogError(error: ApiToolError, tool?: string, credentials?: Cre
                 'An organization admin can allow AI data processing in PostHog under Organization settings.'
             )
         case 'rate_limited':
-            return new ApiError(429, undefined, error.code, error.message, 'Wait a minute, then run it again.')
+            return new ApiError(429, error.code, error.message, { hint: 'Wait a minute, then run it again.' })
         case 'unreachable':
             return new HogError(error.code, error.message, 'Check the host and your network connection.')
         case 'api_error': {
@@ -188,7 +211,7 @@ export function toHogError(error: ApiToolError, tool?: string, credentials?: Cre
                 404: 'Check the IDs in the input, and the project ID.',
             }
             const status = error.status ?? 500
-            return new ApiError(status, undefined, `http_${status}`, error.message, hints[status], undefined, detail)
+            return new ApiError(status, `http_${status}`, error.message, { hint: hints[status], serverDetail: detail })
         }
         case 'tool_error':
             return new HogError(error.code, error.message)

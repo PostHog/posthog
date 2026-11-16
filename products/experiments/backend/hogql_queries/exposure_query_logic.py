@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Collection
 from datetime import UTC, datetime
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import posthoganalytics
 
@@ -26,6 +26,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.property import action_to_expr, operator_is_negative, property_to_expr
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsOnlyNames
 from posthog.hogql.utils import map_virtual_properties
 
 from posthog.models.team.team import Team
@@ -108,14 +109,36 @@ def exposure_event_names(event: str, *, read_copies: bool = True) -> list[str]:
     return [event]
 
 
+def exposure_nodes_without_copies(criteria: Optional[ExperimentExposureCriteria]) -> list[dict[str, Any]]:
+    """The exposure and activation configs that read their events without the $experiment_exposure copy, as
+    EventsNode or ActionsNode dicts. Only the default exposure goes through `exposure_event_names`. An action
+    exposure and an activation read the events they name, as they are."""
+    if criteria is None:
+        return []
+    nodes: list[dict[str, Any]] = []
+    if isinstance(criteria.exposure_config, ActionsNode):
+        nodes.append(criteria.exposure_config.model_dump())
+    if has_activation_config(criteria):
+        activation = criteria.activation_config
+        if isinstance(activation, ActionsNode):
+            nodes.append(activation.model_dump())
+        elif isinstance(activation, ExperimentEventExposureConfig):
+            nodes.append({"kind": "EventsNode", "event": activation.event})
+    return nodes
+
+
 def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
-    """Matches the events that `exposure_event_names` returns for a resolved exposure event."""
+    """Matches the events that `exposure_event_names` returns for a resolved exposure event.
+
+    A filter on more than one name reads `events` on every mode, and never reads `flag_evaluations` or the flag-call
+    union. The union scans `flag_evaluations` too, which costs an exposure query far more than `events` alone.
+    """
     names = exposure_event_names(event, read_copies=read_copies)
     if len(names) > 1:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=names),
+            right=ast.Constant(value=EventsOnlyNames(names)),
         )
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,

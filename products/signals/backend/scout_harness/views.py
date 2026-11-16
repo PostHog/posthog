@@ -103,6 +103,7 @@ from products.signals.backend.report_check_final_agents import MonitoringScoutRe
 from products.signals.backend.report_discussions import list_report_discussions
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.report_monitoring_results import InvalidMonitoringResult, MonitoringResultConflict
+from products.signals.backend.report_note_mentions import request_mention_author_id
 from products.signals.backend.report_scout_notes import leave_report_note
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerWriteError
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
@@ -2366,6 +2367,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     expires_at=data.get("expires_at"),
                 )
             else:
+                attribution = resolve_request_attribution(request, team_id)
                 note = leave_report_note(
                     team_id=team_id,
                     report=report,
@@ -2373,7 +2375,8 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     skill_name=data.get("skill_name") or "",
                     created_by_id=created_by_id,
                     expires_at=data.get("expires_at"),
-                    attribution=resolve_request_attribution(request, team_id),
+                    attribution=attribution,
+                    mention_author_id=request_mention_author_id(request, attribution),
                 )
         except InvalidNoteError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -2745,9 +2748,9 @@ class SignalScoutReportDiscussionsViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         },
         summary="List discussions on your scout's reports",
         description=(
-            "Return the discussions people opened with Ask AI on inbox reports your scout emitted or edited, "
-            "newest first, each with the latest summary of the conversation and its outcome. Callable only from "
-            "a scout run, which is read from the run's credential."
+            "Return the discussions people opened with Ask AI or in a report's Slack thread on inbox reports your "
+            "scout emitted or edited, newest first, each with the latest summary of the conversation and its "
+            "outcome. Callable only from a scout run, which is read from the run's credential."
         ),
         operation_id="signals_scout_report_discussions_list",
     )

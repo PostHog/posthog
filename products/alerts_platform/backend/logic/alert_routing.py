@@ -6,7 +6,7 @@ refused here, so one bad row cannot fail the routed sends of every alert on the 
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Final, cast
 from uuid import UUID
 
@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     StoredAlertRoute,
     UnknownAlertRouting,
 )
+from products.alerts_platform.backend.logic import alert_routes
 from products.alerts_platform.backend.logic.alert_destinations import validate_destination_data, validate_event_kinds
 from products.alerts_platform.backend.logic.rule_metadata import InvalidRuleMetadata, validate_labels
 from products.alerts_platform.backend.models import AlertReceiver, AlertRoute
@@ -38,8 +39,11 @@ DEFAULT_ROUTE_EVENT_KINDS: Final = (
 _EQUALS: Final = "="
 
 
-def list_receivers(*, team_id: int) -> tuple[StoredAlertReceiver, ...]:
-    rows = AlertReceiver.objects.for_team(team_id).annotate(route_count=Count("routes")).order_by("name", "id")
+def list_receivers(*, team_id: int, ids: Collection[UUID] | None = None) -> tuple[StoredAlertReceiver, ...]:
+    receivers = AlertReceiver.objects.for_team(team_id)
+    if ids is not None:
+        receivers = receivers.filter(id__in=ids)
+    rows = receivers.annotate(route_count=Count("routes")).order_by("name", "id")
     return tuple(_stored_receiver(row, row.route_count) for row in rows)
 
 
@@ -94,6 +98,10 @@ def delete_receiver(*, team_id: int, receiver_id: UUID) -> None:
 def list_routes(*, team_id: int) -> tuple[StoredAlertRoute, ...]:
     rows = AlertRoute.objects.for_team(team_id).order_by("position", "created_at", "id")
     return tuple(_stored_route(row) for row in rows)
+
+
+def matching_routes(*, team_id: int, labels: Mapping[str, str]) -> tuple[StoredAlertRoute, ...]:
+    return tuple(_stored_route(row) for row in alert_routes.matching_routes(team_id=team_id, labels=labels))
 
 
 def create_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:

@@ -74,19 +74,59 @@ class TestMetricsAlertCreate(APIBaseTest):
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
 
-    def _create(self, source_config: dict[str, object]) -> Any:
+    def _create(self, source_config: dict[str, object], **settings: object) -> Any:
         return self.client.post(
             f"/api/projects/{self.team.id}/platform_alerts/",
-            {"source_kind": "metrics", "name": "Consumer lag", "enabled": True, "source_config": source_config},
+            {
+                "source_kind": "metrics",
+                "name": "Consumer lag",
+                "enabled": True,
+                "source_config": source_config,
+                **settings,
+            },
             format="json",
         )
 
-    def test_a_metrics_alert_is_created_through_the_platform_api(self) -> None:
-        response = self._create({"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}})
+    @parameterized.expand([("default", {}, 1), ("every_5_minutes", {"check_interval_minutes": 5}, 5)])
+    def test_a_metrics_alert_is_created_through_the_platform_api(
+        self, _name: str, settings: dict[str, object], expected_interval: int
+    ) -> None:
+        response = self._create({"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}}, **settings)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["source_kind"] == "metrics"
-        assert response.json()["check_interval_minutes"] == 1
+        assert response.json()["check_interval_minutes"] == expected_interval
+
+    @parameterized.expand([("not_dividing_an_hour", 7), ("over_an_hour", 120), ("zero", 0)])
+    def test_an_interval_outside_the_allowed_set_is_refused(self, _name: str, minutes: int) -> None:
+        created = self._create({"query": _QUERY, "condition": {"kind": "present"}}).json()
+        url = f"/api/projects/{self.team.id}/platform_alerts/{created['id']}/"
+
+        refused_create = self._create(
+            {"query": _QUERY, "condition": {"kind": "present"}}, check_interval_minutes=minutes
+        )
+        refused_edit = self.client.patch(url, {"check_interval_minutes": minutes}, format="json")
+
+        assert refused_create.status_code == status.HTTP_400_BAD_REQUEST, refused_create.json()
+        assert refused_create.json()["attr"] == "check_interval_minutes"
+        assert refused_edit.status_code == status.HTTP_400_BAD_REQUEST, refused_edit.json()
+        assert refused_edit.json()["attr"] == "check_interval_minutes"
+        assert self.client.get(url).json()["check_interval_minutes"] == 1
+
+    def test_an_edit_moves_the_alert_to_a_new_interval_and_a_later_edit_keeps_it(self) -> None:
+        created = self._create({"query": _QUERY, "condition": {"kind": "present"}}).json()
+        url = f"/api/projects/{self.team.id}/platform_alerts/{created['id']}/"
+        with team_scope(self.team.id):
+            platform_testing.set_check_interval_minutes(UUID(created["id"]), 60)
+            platform_testing.set_due_at(UUID(created["id"]), timezone.now() + timedelta(minutes=50))
+
+        moved = self.client.patch(url, {"check_interval_minutes": 5}, format="json")
+        renamed = self.client.patch(url, {"name": "Consumer lag, renamed"}, format="json")
+
+        assert moved.status_code == status.HTTP_200_OK, moved.json()
+        assert datetime.fromisoformat(moved.json()["next_check_at"]) <= timezone.now() + timedelta(minutes=2)
+        assert renamed.status_code == status.HTTP_200_OK, renamed.json()
+        assert renamed.json()["check_interval_minutes"] == 5
 
     def test_a_project_without_the_metrics_rollout_flag_cannot_create_one(self) -> None:
         self.enterContext(
@@ -361,6 +401,36 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "NaN")))
 
         assert self._kinds(self._evaluate()) == {}
+
+    def test_team_missing_counts_skipped(self) -> None:
+        # Deleting the team would cascade its configurations, leaving no check due, so the read misses instead.
+        with team_scope(self.team.id):
+            second_id = create_configuration(
+                team_id=self.team.id,
+                source_kind=SourceKind.METRICS,
+                edit=PlatformAlertConfigurationEdit(
+                    name="Second",
+                    enabled=True,
+                    source_config={"query": _QUERY, "condition": {"operator": "gt", "threshold": 1}},
+                    grouping=Grouping(mode=GroupingMode.SINGLE, keys=()),
+                    schedule_restriction=None,
+                    evaluation_periods=1,
+                    datapoints_to_alarm=1,
+                    cooldown_minutes=0,
+                ),
+                created_by_id=self.user.id,
+            ).id
+            platform_testing.set_due_at(second_id, self.due_at)
+
+        with (
+            patch("products.metrics.backend.alerts.evaluation.Team") as team_model,
+            patch("products.metrics.backend.alerts.evaluation.increment_checks_skipped") as skipped,
+        ):
+            team_model.objects.filter.return_value.first.return_value = None
+            evaluation = self._evaluate_batch()
+
+        assert (evaluation.outcomes, self.snuffle.call_count) == ((), 0)
+        assert [call.args for call in skipped.call_args_list] == [("metrics", "team_missing")] * 2
 
     @override_settings(ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES=1)
     def test_a_batch_over_the_pool_limit_stays_due_for_a_later_tick(self) -> None:

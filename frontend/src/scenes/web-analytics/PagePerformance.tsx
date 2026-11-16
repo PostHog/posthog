@@ -127,7 +127,7 @@ export const PagePerformance = (): JSX.Element => {
             dismissKey="web-analytics-search-and-ai-feedback-banner"
             action={{ children: 'Send feedback', id: 'web-analytics-search-and-ai-feedback-button' }}
         >
-            We'd love to hear what you think about search and AI.
+            We'd love to hear what you think about AI traffic.
         </LemonBanner>
     ) : null
 
