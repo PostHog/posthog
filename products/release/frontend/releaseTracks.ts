@@ -215,6 +215,19 @@ export function buildTrack(
     stepsByFlag: Map<number, RolloutStep[]>,
     related: TrackRelated = NO_RELATED
 ): Track {
+    const scheduledByFlag = new Map<number, ReleaseEvent[]>()
+    const sendsByHref = new Map<string, ReleaseEvent[]>()
+    for (const event of row.events) {
+        if (event.kind === 'schedule' && event.upcoming && event.flagId !== undefined) {
+            const events = scheduledByFlag.get(event.flagId) ?? []
+            events.push(event)
+            scheduledByFlag.set(event.flagId, events)
+        } else if (event.kind === 'broadcast' && event.href) {
+            const events = sendsByHref.get(event.href) ?? []
+            events.push(event)
+            sendsByHref.set(event.href, events)
+        }
+    }
     const lanes: Lane[] = []
     for (const flag of row.flags) {
         lanes.push({
@@ -224,9 +237,7 @@ export function buildTrack(
             status: flag.active ? 'Live' : 'Off',
             live: !!flag.active,
             steps: stepsByFlag.get(flag.id) ?? NO_STEPS,
-            events: row.events.filter(
-                (event) => event.kind === 'schedule' && event.upcoming && event.flagId === flag.id
-            ),
+            events: scheduledByFlag.get(flag.id) ?? [],
             span: {
                 key: `flag-span-${flag.id}`,
                 kind: 'flag',
@@ -271,9 +282,7 @@ export function buildTrack(
             title: broadcast.name || 'Untitled broadcast',
             status: broadcast.status,
             live: broadcast.status === 'active',
-            events: row.events.filter(
-                (event) => event.kind === 'broadcast' && event.href === urls.broadcast(broadcast.id)
-            ),
+            events: sendsByHref.get(urls.broadcast(broadcast.id)) ?? [],
             href: urls.broadcast(broadcast.id),
         })
     }
