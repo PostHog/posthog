@@ -9,6 +9,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
+import { IntakeProducer, intakeModeOf } from '../intake/intake-producer'
 import { Claim, Committed, Recalled, Run, RunIntake, keyedRunId } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
@@ -139,6 +140,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         this.runIntake = new RunIntake({
             hogflowQueue: this.hogflowQueue,
             invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+            // Read on each launch, so a team-list change in the settings reaches the next webhook.
+            intake: {
+                modeOf: (teamId) => intakeModeOf(this.config)(teamId),
+                producer: new IntakeProducer(this.outputs),
+            },
         })
     }
 
@@ -370,8 +376,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
                 // Every repeat of a key on the workflow is the same request, so the fingerprint is the workflow.
                 const run: Run = scopedIdempotencyKey
-                    ? { invocation: hogFlowInvocation, claim: { fingerprint: hogFlow.id } }
-                    : { invocation: hogFlowInvocation }
+                    ? { kind: 'workflow-webhook', invocation: hogFlowInvocation, claim: { fingerprint: hogFlow.id } }
+                    : { kind: 'workflow-webhook', invocation: hogFlowInvocation }
                 const answerDuplicate = (): HogFlowTriggerOutcome => {
                     addLog('info', `Skipped duplicate request for Idempotency-Key "${idempotencyKey}"`)
                     functionResult.finished = false
