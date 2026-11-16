@@ -122,5 +122,6 @@ products/mobile/jest.config.js
 products/mobile/jest.setup.ts
 products/mobile/biome.json
 products/mobile/.gitignore
+products/mobile/app/** @cvolzer3
 products/desktop/apps/mobile/** @cvolzer3
 .github/workflows/*mobile*.yml @cvolzer3
