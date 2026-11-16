@@ -1,6 +1,10 @@
+use apache_avro::{types::Value, Reader, Schema, Writer};
 use capture_logs::endpoints::prometheus::{
-    decode_write_request, write_request_to_kafka_rows, RemoteWriteEncoding,
+    decode_write_request, is_stale_marker, write_request_to_kafka_rows,
+    write_timeseries_to_kafka_rows_with_options, RemoteWriteEncoding, RemoteWriteOptions,
+    STALE_NAN_BITS,
 };
+use capture_logs::metrics_avro_schema::METRICS_AVRO_SCHEMA;
 use chrono::{Duration, Utc};
 use prometheus_rw_proto::prometheus::v1::{
     metric_metadata::MetricType, Label, MetricMetadata, Sample, TimeSeries, WriteRequest,
@@ -222,14 +226,8 @@ fn skips_series_without_metric_name() {
     assert!(rows.is_empty());
 }
 
-/// Prometheus marks a series stale with a specific NaN payload
-/// (`0x7ff0000000000002`) and remote-write forwards it. It must not become a
-/// metric value: NaN survives the storage `ifNull` and corrupts rate/aggregate
-/// queries. Non-finite samples are dropped before a row is built.
-#[test]
-fn drops_stale_marker_nan_samples() {
-    const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
-    let req = WriteRequest {
+fn stale_marker_request() -> WriteRequest {
+    WriteRequest {
         timeseries: vec![series(
             vec![
                 label("__name__", "http_requests_total"),
@@ -248,17 +246,73 @@ fn drops_stale_marker_nan_samples() {
                     value: f64::INFINITY,
                     timestamp: now_ms() + 2,
                 },
+                Sample {
+                    value: f64::NAN,
+                    timestamp: now_ms() + 3,
+                },
             ],
         )],
         metadata: vec![],
-    };
+    }
+}
 
-    let (rows, _) = write_request_to_kafka_rows(req);
+#[test]
+fn drops_stale_marker_nan_samples() {
+    let (rows, _) = write_request_to_kafka_rows(stale_marker_request());
 
-    // Only the finite sample survives; the stale marker and the infinity are dropped.
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].value, 7.0);
-    assert!(rows.iter().all(|r| r.value.is_finite()));
+}
+
+#[test]
+fn keeps_only_exact_stale_markers_when_enabled() {
+    let req = stale_marker_request();
+    let (rows, _) = write_timeseries_to_kafka_rows_with_options(
+        req.timeseries,
+        &req.metadata,
+        RemoteWriteOptions {
+            keep_stale_markers: true,
+        },
+    );
+
+    let bits: Vec<u64> = rows.iter().map(|r| r.value.to_bits()).collect();
+    assert_eq!(bits, vec![7.0f64.to_bits(), STALE_NAN_BITS]);
+    assert!(is_stale_marker(rows[1].value));
+    assert_eq!(rows[0].series_fingerprint, rows[1].series_fingerprint);
+}
+
+/// ClickHouse finds a stale marker by its bits, so the Avro encoding must not
+/// turn it into the default NaN.
+#[test]
+fn avro_keeps_stale_marker_bits() {
+    let req = stale_marker_request();
+    let (rows, _) = write_timeseries_to_kafka_rows_with_options(
+        req.timeseries,
+        &req.metadata,
+        RemoteWriteOptions {
+            keep_stale_markers: true,
+        },
+    );
+    let schema = Schema::parse_str(METRICS_AVRO_SCHEMA).unwrap();
+    let mut writer = Writer::new(&schema, Vec::new());
+    writer.append_ser(&rows[1]).unwrap();
+    let encoded = writer.into_inner().unwrap();
+
+    let decoded = Reader::new(&encoded[..]).unwrap().next().unwrap().unwrap();
+    let Value::Record(fields) = decoded else {
+        panic!("expected a record, got {decoded:?}");
+    };
+    let value = fields
+        .iter()
+        .find_map(|(name, value)| (name == "value").then_some(value))
+        .unwrap();
+    let Value::Union(_, inner) = value else {
+        panic!("expected a nullable double, got {value:?}");
+    };
+    let Value::Double(double) = **inner else {
+        panic!("expected a double, got {inner:?}");
+    };
+    assert_eq!(double.to_bits(), STALE_NAN_BITS);
 }
 
 #[test]

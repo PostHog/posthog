@@ -156,6 +156,16 @@ class PromptCheck:
 
 
 @frozen
+class PromptCitation(PromptCheck):
+    """An answered web-search check that cited a page or site, or ran a search, with the prompt as it ran."""
+
+    prompt_id: str
+    prompt_text: str
+    prompt_topic: str
+    mentioned: bool
+
+
+@frozen
 class PromptEngineStats:
     engine: str
     checks: int
@@ -312,6 +322,8 @@ class PromptSetOverview:
     target_domains: tuple[str, ...]
     brand_names: tuple[str, ...]
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     current: PromptSetCounts
     previous: PromptSetCounts
     # Answered checks in the current window on each side of the split, whatever `branded` selects.
@@ -380,6 +392,7 @@ BRAND_NAME_MAX_LENGTH = 200
 KEYWORD_MAX_LENGTH = 100
 MAX_KEYWORDS_PER_TEAM = 200
 BRAND_DOMAIN_MAX_LENGTH = 253
+COMPETITOR_CANDIDATE_DAYS = 7
 
 
 class BrandKind(LabeledStrEnum):
@@ -413,6 +426,17 @@ class Brand:
     aliases: tuple[str, ...]
     created_at: dt.datetime
     updated_at: dt.datetime | None
+
+
+@frozen
+class CompetitorCandidate:
+    """A suggested brand that answers to non-branded prompts both name and cite, so likely a competitor."""
+
+    brand_id: str
+    name: str
+    domain: str
+    answers_naming: int
+    answers_citing: int
 
 
 @frozen
@@ -596,6 +620,8 @@ class PromptSetRankings:
     window_from: dt.date
     window_to: dt.date
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     answers: int
     competitors_confirmed: bool
     brands: tuple[RankedBrand, ...]

@@ -308,6 +308,54 @@ class TestTableNodeCaseInsensitiveLookup(TestCase):
 class TestUnknownTableSuggestions(TestCase):
     @parameterized.expand(
         [
+            ("ai_events", False),
+            ("trace_spans", False),
+            ("trace_attributes", False),
+            ("metrics", False),
+            ("metric_samples", False),
+            ("trace_spans", True),
+            ("trace_attributes", True),
+        ]
+    )
+    def test_missing_posthog_namespace(self, table_name: str, direct_query: bool) -> None:
+        database = Database()
+        if direct_query:
+            database._connection_id = "test-connection"
+            database.apply_schema_scope()
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        if direct_query:
+            assert str(error.exception) == f"Unknown table `{table_name}`."
+        else:
+            assert str(error.exception) == f"Unknown table `{table_name}`. Did you mean: posthog.{table_name}?"
+            assert database.get_table(f"posthog.{table_name}") is not None
+
+    @parameterized.expand([("metrics", True), ("error_tracking_recent_issue_state", False)])
+    def test_does_not_suggest_denied_or_hidden_namespaced_tables(self, table_name: str, denied: bool) -> None:
+        database = Database()
+        if denied:
+            del database.tables.children["posthog"].children[table_name]
+            assert database._is_warehouse_table_denied(DataWarehouseTable(name=f"posthog.{table_name}"))
+            with self.assertRaises(TableAccessDeniedError):
+                database.get_table(f"posthog.{table_name}")
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        assert f"posthog.{table_name}" not in str(error.exception)
+
+    @parameterized.expand([("events", "evnts"), ("posthog.metrics", "metrics")])
+    def test_denied_warehouse_name_does_not_hide_a_resolvable_suggestion(
+        self, table_name: str, unknown_name: str
+    ) -> None:
+        database = Database()
+        table = database.get_table(table_name)
+        assert database._is_warehouse_table_denied(DataWarehouseTable(name=table_name))
+        assert database.get_table(table_name) is table
+        with self.assertRaises(QueryError) as error:
+            database.get_table(unknown_name)
+        assert str(error.exception) == f"Unknown table `{unknown_name}`. Did you mean: {table_name}?"
+
+    @parameterized.expand(
+        [
             (
                 "cross_namespace_candidate_is_not_suggested",
                 [],
@@ -508,6 +556,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 reads_forced_to_events=True,
             ),
             ("only_mode", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+            param(
+                "only_mode_with_the_union_flag_off",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                union_flag_enabled=False,
+            ),
+            param(
+                "only_mode_with_the_union_disabled",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                union_disabled=True,
+            ),
             # The switch skips FLAG_EVALUATIONS_ONLY, whose flag calls are no longer in events.
             param(
                 "only_mode_with_reads_forced_to_events",
@@ -535,6 +595,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         include_flag_evaluations_table: bool | None = None,
         union_flag_enabled: bool = True,
         table_in_catalog: bool = True,
+        union_disabled: bool = False,
     ) -> None:
         enabled_flags = {"hogql-flag-calls-union"} if union_flag_enabled else set()
         OrganizationFeatureFlagsConfig.objects.update_or_create(
@@ -545,6 +606,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             override_settings(DEBUG=debug),
             self.is_cloud(cloud),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
+            override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", union_disabled),
             patch(
                 "posthog.hogql.database.database.feature_enabled_or_false",
                 side_effect=lambda key, *args, **kwargs: key in enabled_flags,
@@ -556,10 +618,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert database.organization_reads_flag_calls_from_flag_evaluations is expected
         assert database.has_table(["posthog", "flag_evaluations"]) is table_in_catalog
-        # The build reads the union flag only when the table gate is on, and the override skips that gate.
-        union_expected = table_in_catalog and union_flag_enabled and include_flag_evaluations_table is None
+        # The build adds the union table only when the table gate is on. The override skips that gate.
+        union_expected = table_in_catalog and include_flag_evaluations_table is None and not union_disabled
         assert database.flag_calls_union_enabled is union_expected
         assert database.has_table(["posthog", "events_with_flag_calls"]) is union_expected
+        assert database.flag_calls_union_opted_in is (
+            union_expected and union_flag_enabled and expected and mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
         context = HogQLContext(team_id=self.team.pk, database=database)
         assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)
 

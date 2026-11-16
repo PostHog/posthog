@@ -315,11 +315,16 @@ describe('Hono MCP analytics contexts', () => {
     it('drops preloaded app data from the captured result for every consumer', async () => {
         const appData = { rows: [{ value: 'widget-only-data' }] }
         await trackToolCall('render-ui', 12, false, makeState(), undefined, {
-            response: { content: [{ type: 'text', text: 'ok' }], _meta: { 'com.posthog.mcp/app_data': appData } },
+            response: {
+                content: [{ type: 'text', text: 'ok' }],
+                structuredContent: { tool_name: 'survey-get', 'com.posthog.mcp/app_data': appData },
+                _meta: { 'com.posthog.mcp/app_data': appData },
+            },
         })
 
         expect(mockCaptureToolCall.mock.calls[0]![0].response).toEqual({
             content: [{ type: 'text', text: 'ok' }],
+            structuredContent: { tool_name: 'survey-get' },
             _meta: {},
         })
     })
