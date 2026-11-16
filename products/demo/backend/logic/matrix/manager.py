@@ -279,8 +279,6 @@ class MatrixManager:
             cohort.calculate_people_ch(pending_version=0)
         team.project.save()
         team.save()
-        if self.use_pre_save:
-            self._schedule_native_events_copy(source_team.pk, team.pk)
         print(f"Demo data ready for team ID {team.pk}.")
 
     def _save_analytics_data(self, data_team: Team):
@@ -359,6 +357,7 @@ class MatrixManager:
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
         copy_group_type_mappings(self.MASTER_TEAM_ID, target_team.id, target_team.project_id)
+        self._schedule_native_events_copy(self.MASTER_TEAM_ID, target_team.pk)
 
     @classmethod
     def _sync_postgres_with_clickhouse_data(cls, source_team_id: int, target_team_id: int):
