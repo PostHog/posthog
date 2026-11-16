@@ -3128,8 +3128,30 @@ class _ThresholdsSerializer(serializers.ListSerializer):
         return super().to_representation(thresholds)
 
 
+def _copy_bounds(alerts: list[AlertConfiguration]) -> dict[str, Any] | None:
+    """The bounds a threshold shows in place of its row's, or None to keep the row's.
+
+    Edits to an alert the insight stack owns still write the row, so one such alert keeps the row current
+    and the row's bounds stay. Otherwise the oldest moved alert's copy wins, so the answer stays the same
+    between reads."""
+    if not alerts or not all(alert.platform_owned for alert in alerts):
+        return None
+    for alert in sorted(alerts, key=lambda alert: (alert.created_at, alert.id)):
+        if alert.threshold is not None:
+            return alert.threshold.configuration
+    return None
+
+
 class ThresholdWithAlertSerializer(ThresholdSerializer):
     alerts = _ShownAlertsSerializer(child=AlertSerializer(), read_only=True, source="alertconfiguration_set")
+
+    def to_representation(self, instance: Threshold) -> dict[str, Any]:
+        # Serializing `alerts` first shows each moved alert with its copy's threshold, in place.
+        data = super().to_representation(instance)
+        shown = _copy_bounds(list(instance.alertconfiguration_set.all()))
+        if shown is not None:
+            data["configuration"] = self.fields["configuration"].to_representation(shown)
+        return data
 
     class Meta(ThresholdSerializer.Meta):
         fields = [*ThresholdSerializer.Meta.fields, "alerts"]

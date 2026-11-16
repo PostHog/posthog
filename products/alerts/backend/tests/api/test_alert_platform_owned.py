@@ -590,14 +590,15 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("list", "list", None),
-            ("retrieve", "retrieve", None),
-            ("threshold_insight_hidden", "list", "threshold"),
-            ("alert_moved_to_a_hidden_insight", "list", "alert"),
+            ("list", "list", None, False),
+            ("retrieve", "retrieve", None, False),
+            ("shared_with_an_alert_the_insight_stack_owns", "list", None, True),
+            ("threshold_insight_hidden", "list", "threshold", False),
+            ("alert_moved_to_a_hidden_insight", "list", "alert", False),
         ]
     )
     def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(
-        self, _name: str, action: str, hidden: str | None
+        self, _name: str, action: str, hidden: str | None, shared_with_row_alert: bool
     ) -> None:
         assert self.alert.threshold is not None
         threshold_insight_id = self.alert.insight_id
@@ -605,6 +606,22 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         copy_threshold = self.alert.threshold.configuration
         row_threshold = {"type": "absolute", "bounds": {"upper": 999.0}}
         Threshold.objects.filter(id=self.alert.threshold.id).update(configuration=row_threshold, name="Revenue bound")
+        expected = [(copy_threshold, self.alert.name, copy_threshold, "Revenue bound")]
+        if shared_with_row_alert:
+            row_alert = AlertConfiguration.objects.create(
+                team=self.team,
+                insight=self.alert.insight,
+                threshold=self.alert.threshold,
+                name="Row alert",
+                created_by=self.user,
+            )
+            # Edits to the row alert still write the threshold row, so the row's bounds are current.
+            expected = sorted(
+                [
+                    (row_threshold, self.alert.name, copy_threshold, "Revenue bound"),
+                    (row_threshold, row_alert.name, row_threshold, "Revenue bound"),
+                ]
+            )
         if hidden is not None:
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -626,11 +643,11 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         thresholds = [response.json()] if action == "retrieve" else response.json()["results"]
-        assert [
+        assert sorted(
             (threshold["configuration"], alert["name"], alert["threshold"]["configuration"], alert["threshold"]["name"])
             for threshold in thresholds
             for alert in threshold["alerts"]
-        ] == ([(row_threshold, self.alert.name, copy_threshold, "Revenue bound")] if hidden is None else [])
+        ) == (expected if hidden is None else [])
 
     @parameterized.expand(
         [
