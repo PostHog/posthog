@@ -7,7 +7,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.billing_limit import billing_limit
+from products.experiments.backend.health.checks.billing_limit import billing_limit_drops_exposures
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG, ZERO_EXPOSURES_GRACE_HOURS
@@ -224,7 +224,7 @@ def _paused_or_billing_limited(
     # The billing limit check names the limit, and every cause after this would blame the setup. A flag call recorded
     # during the run means that capture took events after launch, so the limit began later and doesn't explain why
     # none of those calls counted.
-    if ctx.flag_called_during_run is not True and isinstance(billing_limit(ctx), ExperimentHealthFinding):
+    if ctx.flag_called_during_run is not True and billing_limit_drops_exposures(ctx):
         return not_applicable("The billing limit check reports why no users are exposed")
     return None
 

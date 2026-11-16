@@ -410,8 +410,9 @@ An edit of the exposure criteria recomputes the whole run (E5 in `mid-run-change
 ## B13 — The product analytics billing limit is reached [HIGH]
 
 **Behavior.** While the organization is over its billing limit or free tier limit for product analytics, PostHog drops the product analytics events the project sends.
-That covers `$feature_flag_called`, `$experiment_exposure`, custom exposure events and metric events.
-Exceptions, survey events and LLM analytics events have limits of their own.
+That covers `$feature_flag_called`, `$experiment_exposure`, most custom exposure events and metric events.
+`$exception`, the survey events and the `$ai_` events have limits of their own, so this limit doesn't drop them.
+An experiment whose exposure event is one of them keeps counting exposures, and the finding says so.
 PostHog doesn't keep the events it drops, so they can't be counted later.
 
 **Evidence.**
@@ -423,17 +424,19 @@ PostHog doesn't keep the events it drops, so they can't be counted later.
   In an experiment that counted exposures before, `exposures.timeseries` shows the day: every variant stops growing on it.
 - While the limit holds, the `zero_exposures` finding steps aside, because every cause it names would blame the setup.
   A flag call recorded during the run means the limit started later, so `zero_exposures` still reports those calls.
+  It also reports an experiment whose exposure event has its own limit, because this limit doesn't explain its zero.
 
-**Reading.** Every variant loses events alike, so the comparison isn't biased.
-The run gains no exposures and no metric data until the limit lifts.
+**Reading.** The run gains no exposures and no metric data on product analytics events until the limit lifts.
+People exposed before the limit lose the conversions they make while it holds.
+When a variant changes how soon people convert, that loss differs between variants, so don't call the results unbiased.
 
 **Recommendation.** Raise the limit or subscribe on the billing page, or wait until the limit lifts.
 Consider running longer to make up for the days without data.
 Don't diagnose the SDK or the exposure criteria while the finding holds.
 
 <!-- Source for maintainers (may rot): billing_limit in products/experiments/backend/health/checks/billing_limit.py;
-team_limited_until in ee/billing/quota_limiting.py; the capture limiter in rust/common/limiters/src/redis.rs. Verify
-before citing. -->
+team_limited_until in ee/billing/quota_limiting.py; the capture limiter in rust/common/limiters/src/redis.rs; the events
+with limits of their own in rust/capture/src/quota_limiters.rs. Verify before citing. -->
 
 ## If none of the above: the code path may not be running
 
