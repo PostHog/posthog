@@ -9,6 +9,7 @@ import type { Team } from '~/types'
 
 import { recordLogMessageDropped } from '../ingestion-otel-metrics'
 import { INTERNAL_LOGS_HEADER } from '../internal-logs'
+import { LOGS_SIGNATURE_HEADER, verifyLogsSignature } from '../log-signature'
 import {
     logMessageDroppedCounter,
     logsRecordsBytesExceedPayloadCounter,
@@ -104,6 +105,12 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                 sentAsInternalLogs: headers[INTERNAL_LOGS_HEADER] !== undefined,
                 verifiedAsInternalLogs: internalLogsVerifier.verify(
                     headers[INTERNAL_LOGS_HEADER],
+                    team.id,
+                    headers.created_at
+                ),
+                signatureVerified: await verifyLogsSignature(
+                    deps.signingSecrets,
+                    headers[LOGS_SIGNATURE_HEADER],
                     team.id,
                     headers.created_at
                 ),

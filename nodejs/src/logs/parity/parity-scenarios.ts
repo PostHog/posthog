@@ -7,6 +7,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '../config'
 import { INTERNAL_LOGS_HEADER, signInternalLogs } from '../internal-logs'
 import { encodeLogRecords } from '../log-record-avro'
+import { LOGS_SIGNATURE_HEADER, signLogs } from '../log-signature'
 import { librdKafkaError } from './parity-harness'
 import type { ParityError, ParityHeader, ParityMessage, ParityScenario, ParityTeam } from './parity-types'
 
@@ -794,6 +795,44 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
                 }),
                 await f.logs(plain, 3, internal(sign('rules_src', 101), { min_timestamp: old(20) }), {
                     timestamp: Number(old(20)),
+                }),
+            ],
+        ]
+        scenarios.push(finish(s))
+    }
+    {
+        const rng = new Rng(11)
+        const f = new MessageFactory(rng)
+        const s = baseScenario(
+            'signed-logs',
+            'Customer-signed batches: current and previous secret, wrong secret, wrong team, stale, forged and spoofed.'
+        )
+        s.signing_secrets = { 101: ['current-secret', 'previous-secret'] }
+        const signedAt = new Date(NOW_MS - 2000)
+        const created = new Date(NOW_MS - 1000).toISOString()
+        const signed = (signature: string, extra: Record<string, string> = {}) => ({
+            headers: { [LOGS_SIGNATURE_HEADER]: signature, created_at: created, ...extra },
+        })
+        s.batches = [
+            [
+                // First, because LogsIngestionConsumer orders a batch by when each parse settles, and this one settles first.
+                await f.logs(plain, 2, { headers: { 'signature-status': 'verified' } }),
+                await f.logs(plain, 3, signed(signLogs('current-secret', 101, signedAt))),
+                await f.logs(plain, 2, signed(signLogs('previous-secret', 101, signedAt))),
+                await f.logs(plain, 2, signed(signLogs('other-secret', 101, signedAt))),
+                await f.logs(plain, 2, signed(signLogs('current-secret', 102, signedAt))),
+                await f.logs(plain, 2, signed(signLogs('current-secret', 101, new Date(NOW_MS - 3_600_000)))),
+                await f.logs(plain, 2, signed('v1.1736942398.deadbeef')),
+                await f.logs(plain, 2, signed('not a signature')),
+                await f.logs(json, 2, signed(signLogs('current-secret', 102, signedAt))),
+                await f.logs(
+                    plain,
+                    2,
+                    signed(signLogs('current-secret', 101, signedAt), { 'signature-status': 'spoofed' })
+                ),
+                await f.logs(plain, 2, {
+                    headers: { [LOGS_SIGNATURE_HEADER]: signLogs('current-secret', 101, signedAt) },
+                    omitHeaders: ['created_at'],
                 }),
             ],
         ]

@@ -17,4 +17,6 @@ export type LogsIngestionMessage = {
     /** The posthog-internal header was present, whether or not it verified. */
     sentAsInternalLogs: boolean
     verifiedAsInternalLogs?: InternalLogs
+    /** The posthog-signature header verified against the team's logs signing secret. */
+    signatureVerified?: boolean
 }

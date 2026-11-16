@@ -122,6 +122,8 @@ pub struct ServiceConfig {
     /// `None` in shadow mode, which opens no write pool.
     pub database_writer_url: Option<String>,
     pub pool_size: u32,
+    /// Comma-separated. Empty turns the logs signature check off.
+    pub encryption_salt_keys: String,
     pub posthog_redis: RedisTarget,
     pub logs_redis: RedisTarget,
     pub usage: UsageConfig,
@@ -278,6 +280,14 @@ fn node_defaults(env: &Env) -> Vec<(String, JsValue)> {
         ),
         ("DATABASE_READONLY_URL", s("")),
         ("POSTGRES_CONNECTION_POOL_SIZE", n(10.0)),
+        (
+            "ENCRYPTION_SALT_KEYS",
+            s(if prod {
+                ""
+            } else {
+                "00beef0000beef0000beef0000beef00"
+            }),
+        ),
         ("POSTHOG_REDIS_HOST", s("")),
         ("POSTHOG_REDIS_PORT", n(6379.0)),
         ("POSTHOG_REDIS_PASSWORD", s("")),
@@ -504,6 +514,7 @@ impl ServiceConfig {
             database_reader_url,
             database_writer_url,
             pool_size: positive(&node, "POSTGRES_CONNECTION_POOL_SIZE")? as u32,
+            encryption_salt_keys: get_string(&node, "ENCRYPTION_SALT_KEYS"),
             usage,
             http_port: positive(&node, "HTTP_SERVER_PORT")? as u16,
             kafka_client_rack: (!rack.is_empty()).then_some(rack),

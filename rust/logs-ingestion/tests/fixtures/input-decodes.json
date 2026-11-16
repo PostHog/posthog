@@ -1822,6 +1822,63 @@
    "sha256": "feb5b5d5f9ef4359ee6012918bfc0616ff866ef7663c6ae1a2ee43cedce27dd2"
   }
  ],
+ "signed-logs.json": [
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "ca1c2318fd32be0d710fd122d8e483e274419a74b613851c07c7b7b49b964f8f"
+  },
+  {
+   "codec": "zstandard",
+   "count": 3,
+   "sha256": "a902e476703a9be913c823fa528fdbde0bf31ed8768947b241b494c2ae5c7aec"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "c7818e211e17255e3de267e057d9e68fbbe92de07a742e019e13743f17825da7"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "37e1173677e876a941cfb3e1067edd74857ef66790d4b0aaec8bb586910934fa"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "051af36037b7fd461b4b3fe23423b46ace37672c9cba22c0c8da6772774814cb"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "9ddfc152b0d10395243cb6e9250bf0aa3ddb6d28de736ecb7525ab7902032cf1"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "20078f455b22d1c8b850ca17ef7d869aa6bb0fa5c41baecdd5a6239bd350669e"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "4c36cee11ce6bbc7a9fe7eca8e47708123700115b30a840cb1a1e5c21a34ca98"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "8bf5ae5867141ac45b16d2d91e2fe0a488be199d5a8ddaa8b7d7a1ba425a4ea8"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "1357ec8d379967074d0b38c47c50f4c245522b3d911c927cf715110d52be7705"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "da7c499d22cb8224a8658e01db9265701b3f9d4d7e5dfb5316363e105a61b831"
+  }
+ ],
  "traces-no-config-cache.json": [
   {
    "codec": "zstandard",

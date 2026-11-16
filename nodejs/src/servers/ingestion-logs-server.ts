@@ -15,6 +15,7 @@ import {
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
 import { createLogsIngestionConsumer } from '~/logs/framework/create-consumer'
+import { LogsSigningSecretsCache } from '~/logs/log-signature'
 import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
@@ -136,6 +137,10 @@ export class IngestionLogsServer implements NodeServer {
             : undefined
         const retentionRulesCache = new RetentionRulesCache(this.postgres)
         const patternMessageKeysCache = new PatternMessageKeysCache(this.postgres)
+        const signingSecrets = new LogsSigningSecretsCache(
+            this.postgres,
+            new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
+        )
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
@@ -177,6 +182,7 @@ export class IngestionLogsServer implements NodeServer {
                 logsTransformer,
                 retentionRulesCache,
                 patternMessageKeysCache,
+                signingSecrets,
                 usageBatch,
             })
             await consumer.start()

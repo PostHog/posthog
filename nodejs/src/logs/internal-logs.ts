@@ -11,16 +11,16 @@ export const INTERNAL_LOGS_HTTP_HEADER = 'x-posthog-internal'
 
 export const INTERNAL_SOURCE_HEADER = 'internal-source'
 
-const SIGNATURE_VERSION = 'v1'
+export const SIGNATURE_VERSION = 'v1'
 
 // No dot, because a dot divides the parts of the header value.
 const SOURCE_PATTERN = /^[a-z0-9_]{1,64}$/
 // Epoch seconds. A strict shape keeps milliseconds, signs and padding out of the freshness check.
-const SIGNED_AT_PATTERN = /^[1-9][0-9]{9}$/
+export const SIGNED_AT_PATTERN = /^[1-9][0-9]{9}$/
 
 // Measured against capture's `created_at`, not this consumer's clock, so consumer lag and DLQ replays
 // do not expire a signature. Covers producer and capture clock skew and a short producer retry.
-const SIGNATURE_WINDOW_SECONDS = 5 * 60
+export const SIGNATURE_WINDOW_SECONDS = 5 * 60
 
 export type InternalSourcePolicy = {
     /** Counts toward the team's logs usage, quota and rate limits. */

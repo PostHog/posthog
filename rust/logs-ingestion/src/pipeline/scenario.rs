@@ -460,6 +460,18 @@ impl MetricsEmitter for ScenarioEmitter {
     }
 }
 
+struct ScenarioSigningSecrets(JsValue);
+
+#[async_trait]
+impl SigningSecretsSource for ScenarioSigningSecrets {
+    async fn get_secrets(&self, team_id: i64) -> Vec<String> {
+        arr(get(&self.0, &team_id.to_string()))
+            .iter()
+            .filter_map(|v| s(Some(v)))
+            .collect()
+    }
+}
+
 struct ScenarioPatternKeys {
     keys: JsValue,
     faults: Mutex<HashMap<i64, (u64, JsValue)>>,
@@ -664,6 +676,7 @@ pub fn scenario_parts(
         }),
         tracing_config: keep("tracingConfigCache")
             .then(|| Arc::new(ScenarioTracing(field("traces_retention_days"))) as _),
+        signing_secrets: Some(Arc::new(ScenarioSigningSecrets(field("signing_secrets")))),
         dependency_retry: DependencyRetry {
             retry_count: 2,
             initial_retry_delay_ms: 1,

@@ -175,6 +175,12 @@ pub fn build_deps(
             .then(|| Arc::new(postgres::PgPatternMessageKeys::new(reader.clone())) as _),
         tracing_config: (!logs)
             .then(|| Arc::new(postgres::PgTracingConfig::new(reader.clone())) as _),
+        signing_secrets: logs.then(|| {
+            Arc::new(postgres::PgSigningSecrets::new(
+                reader.clone(),
+                &config.encryption_salt_keys,
+            )) as _
+        }),
         dependency_retry: DependencyRetry::default(),
         internal_source_policies: None,
         token_bucket_redis: Arc::new(RedisTokenBucket::new(logs_redis)),

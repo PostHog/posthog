@@ -52,6 +52,8 @@ export type ParityScenario = {
     pattern_message_keys: Record<string, string[]>
     traces_retention_days: Record<string, number>
     internal_source_policies?: Record<string, { billed: boolean; teamRules: boolean }>
+    /** Each team's valid logs signing secrets. A team without an entry has none. */
+    signing_secrets?: Record<string, string[]>
     team_lookup_faults: Record<string, ParityError>
     team_by_id_faults: Record<string, ParityError & { times: number }>
     team_by_id_missing: number[]

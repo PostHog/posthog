@@ -49,6 +49,12 @@ import {
     processLogMessageBuffer,
     sniffJsonLogAttributes,
 } from './log-record-avro'
+import {
+    LOGS_SIGNATURE_HEADER,
+    type LogsSigningSecretsSource,
+    verifyLogsSignature,
+    withSignatureStatus,
+} from './log-signature'
 import { rethrowKafkaOutageAsDependency } from './logs-produce-errors'
 import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { withDefaultMetricRules } from './metrics-rules/default-metric-rules'
@@ -90,6 +96,8 @@ export interface LogsIngestionConsumerDeps {
     retentionRulesCache?: RetentionRulesCache
     /** When set, pattern masking reads each team's message keys instead of the defaults. */
     patternMessageKeysCache?: PatternMessageKeysCache
+    /** When set, a batch with a valid `posthog-signature` header is marked verified. */
+    signingSecrets?: LogsSigningSecretsSource
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -1259,7 +1267,10 @@ export class LogsIngestionConsumer {
                                         value: processedValue,
                                         key: null,
                                         headers: {
-                                            ...withoutInternalLogsHeaders(parseKafkaHeaders(message.message.headers)),
+                                            ...withSignatureStatus(
+                                                withoutInternalLogsHeaders(parseKafkaHeaders(message.message.headers)),
+                                                message.signatureVerified === true
+                                            ),
                                             ...(message.verifiedAsInternalLogs !== undefined
                                                 ? { [INTERNAL_SOURCE_HEADER]: message.verifiedAsInternalLogs.source }
                                                 : {}),
@@ -1599,6 +1610,12 @@ export class LogsIngestionConsumer {
                         sentAsInternalLogs: headers[INTERNAL_LOGS_HEADER] !== undefined,
                         verifiedAsInternalLogs: this.internalLogsVerifier.verify(
                             headers[INTERNAL_LOGS_HEADER],
+                            team.id,
+                            headers.created_at
+                        ),
+                        signatureVerified: await verifyLogsSignature(
+                            this.deps.signingSecrets,
+                            headers[LOGS_SIGNATURE_HEADER],
                             team.id,
                             headers.created_at
                         ),

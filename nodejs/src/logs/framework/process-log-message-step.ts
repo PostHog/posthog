@@ -10,6 +10,7 @@ import { recordLogMessageDropped } from '../ingestion-otel-metrics'
 import { INTERNAL_SOURCE_HEADER, withoutInternalLogsHeaders } from '../internal-logs'
 import { type PiiScrubStats } from '../log-pii-scrub'
 import { type LogRecord, sniffJsonLogAttributes } from '../log-record-avro'
+import { withSignatureStatus } from '../log-signature'
 import {
     DEFAULT_USAGE_STATS,
     UsageStatsByTeam,
@@ -253,7 +254,10 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
                     value: resolved.processedValue,
                     key: null,
                     headers: {
-                        ...withoutInternalLogsHeaders(parseKafkaHeaders(input.message.headers)),
+                        ...withSignatureStatus(
+                            withoutInternalLogsHeaders(parseKafkaHeaders(input.message.headers)),
+                            input.signatureVerified === true
+                        ),
                         ...(input.verifiedAsInternalLogs !== undefined
                             ? { [INTERNAL_SOURCE_HEADER]: input.verifiedAsInternalLogs.source }
                             : {}),

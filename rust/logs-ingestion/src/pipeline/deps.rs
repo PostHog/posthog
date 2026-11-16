@@ -63,6 +63,13 @@ pub trait PatternMessageKeysSource: Send + Sync {
     async fn get_message_keys(&self, team_id: i64) -> anyhow::Result<Vec<String>>;
 }
 
+/// The current secret, then the previous one while its grace period lasts. Empty on any failure,
+/// because a signature must not block or quarantine a batch.
+#[async_trait]
+pub trait SigningSecretsSource: Send + Sync {
+    async fn get_secrets(&self, team_id: i64) -> Vec<String>;
+}
+
 #[async_trait]
 pub trait TracingConfigSource: Send + Sync {
     async fn get_retention_days(&self, team_id: i64) -> anyhow::Result<f64>;
@@ -94,6 +101,7 @@ pub struct LogsIngestionConsumerDeps {
     pub retention_rules: Option<Arc<dyn RetentionRulesSource>>,
     pub pattern_message_keys: Option<Arc<dyn PatternMessageKeysSource>>,
     pub tracing_config: Option<Arc<dyn TracingConfigSource>>,
+    pub signing_secrets: Option<Arc<dyn SigningSecretsSource>>,
     pub dependency_retry: DependencyRetry,
     pub internal_source_policies: Option<HashMap<String, InternalSourcePolicy>>,
     pub token_bucket_redis: Arc<dyn TokenBucketRedis>,

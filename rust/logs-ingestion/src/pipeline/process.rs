@@ -11,6 +11,7 @@ use crate::metric_rules::{
 use crate::normalize::{sniff_json_log_attributes, LogsSettings};
 use crate::record::LogRecord;
 use crate::retention::RETENTION_EXPIRED_STAGE_NAME;
+use crate::signature::{LOGS_SIGNATURE_HEADER, SIGNATURE_STATUS_HEADER, SIGNATURE_STATUS_VERIFIED};
 
 use super::buffer::{BufferValue, RecordsVisitor};
 use super::context::{
@@ -283,9 +284,21 @@ async fn process_log_message(
     let output = || {
         let mut headers = parse_kafka_headers_except(
             &message.message,
-            &[INTERNAL_LOGS_HEADER, INTERNAL_SOURCE_HEADER],
-            10,
+            &[
+                INTERNAL_LOGS_HEADER,
+                INTERNAL_SOURCE_HEADER,
+                LOGS_SIGNATURE_HEADER,
+                SIGNATURE_STATUS_HEADER,
+            ],
+            11,
         );
+        // Only a verified batch may set the `signature_status` column.
+        if message.signature_verified {
+            headers.set(
+                SIGNATURE_STATUS_HEADER,
+                SIGNATURE_STATUS_VERIFIED.to_string(),
+            );
+        }
         if let Some(internal) = &message.internal_logs {
             headers.set(INTERNAL_SOURCE_HEADER, internal.source.clone());
         }

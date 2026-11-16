@@ -7677,6 +7677,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-database",
+ "fernet",
  "futures",
  "hashbrown 0.17.1",
  "hex",

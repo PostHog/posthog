@@ -4,6 +4,7 @@ use ingestion_framework::{drop, ok, KafkaMessage, Outcome, PipelineResult, Proce
 use metrics::counter;
 
 use crate::internal_logs::INTERNAL_LOGS_HEADER;
+use crate::signature::{verify_logs_signature, LOGS_SIGNATURE_HEADER};
 
 use super::context::{kafka_header, quarantine_log_message, LogsPipelineContext};
 use super::deps::Team;
@@ -85,6 +86,15 @@ async fn parse(
         team.id,
         header("created_at").as_deref(),
     );
+    let signature_verified = match (&context.deps.signing_secrets, header(LOGS_SIGNATURE_HEADER)) {
+        (Some(source), Some(signature)) => verify_logs_signature(
+            &signature,
+            &source.get_secrets(team.id).await,
+            team.id,
+            header("created_at").as_deref(),
+        ),
+        _ => false,
+    };
     Ok(ok(LogsIngestionMessage {
         token,
         message: message.clone(),
@@ -96,6 +106,7 @@ async fn parse(
         min_timestamp_micros: parse_min_timestamp_header(header("min_timestamp").as_deref()),
         backfill_requested: header("backfill_days").is_some(),
         internal_logs,
+        signature_verified,
     }))
 }
 

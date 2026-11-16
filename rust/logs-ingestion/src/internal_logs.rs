@@ -12,9 +12,9 @@ pub const INTERNAL_LOGS_HEADER: &str = "posthog-internal";
 pub const INTERNAL_LOGS_HTTP_HEADER: &str = "x-posthog-internal";
 pub const INTERNAL_SOURCE_HEADER: &str = "internal-source";
 
-const SIGNATURE_VERSION: &str = "v1";
+pub(crate) const SIGNATURE_VERSION: &str = "v1";
 /// Measured against capture's `created_at`, so consumer lag does not expire a signature.
-const SIGNATURE_WINDOW_SECONDS: f64 = 5.0 * 60.0;
+pub(crate) const SIGNATURE_WINDOW_SECONDS: f64 = 5.0 * 60.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InternalSourcePolicy {
@@ -67,7 +67,7 @@ fn is_valid_source(source: &str) -> bool {
 }
 
 /// `/^[1-9][0-9]{9}$/`: epoch seconds with no sign, padding or fraction.
-fn is_valid_signed_at(signed_at: &str) -> bool {
+pub(crate) fn is_valid_signed_at(signed_at: &str) -> bool {
     let b = signed_at.as_bytes();
     b.len() == 10 && (b'1'..=b'9').contains(&b[0]) && b[1..].iter().all(u8::is_ascii_digit)
 }
@@ -89,7 +89,7 @@ fn compute_signature(key: &str, source: &str, team_id: i64, signed_at: &str) -> 
     format!("{SIGNATURE_VERSION}.{source}.{signed_at}.{digest}")
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 

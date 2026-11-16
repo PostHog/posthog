@@ -16,7 +16,7 @@ use crate::pattern::MESSAGE_KEYS;
 use crate::pipeline::scenario::logs_settings;
 use crate::pipeline::{
     DependencyUnavailableError, PatternMessageKeysSource, RetentionRulesSource,
-    SamplingRulesSource, Team, TeamManager, TracingConfigSource,
+    SamplingRulesSource, SigningSecretsSource, Team, TeamManager, TracingConfigSource,
 };
 use crate::retention::{
     compile_retention_rule_set, CompiledRetentionRuleSet, RetentionRuleRow,
@@ -643,6 +643,95 @@ impl TracingConfigSource for PgTracingConfig {
     }
 }
 
+/// Must match `LogsSigningSecret.PREVIOUS_SECRET_GRACE` in `products/logs/backend/models.py`.
+const PREVIOUS_SECRET_GRACE_SECONDS: i64 = 48 * 60 * 60;
+
+/// Decrypts Django `EncryptedTextField` values, which are Fernet tokens keyed by `ENCRYPTION_SALT_KEYS`.
+pub struct PgSigningSecrets {
+    pool: PgPool,
+    fernets: Vec<fernet::Fernet>,
+    cache: Mutex<HashMap<i64, (Vec<String>, Instant)>>,
+}
+
+impl PgSigningSecrets {
+    pub fn new(pool: PgPool, encryption_salt_keys: &str) -> Self {
+        use base64::Engine;
+        let fernets = encryption_salt_keys
+            .split(',')
+            .filter(|key| !key.is_empty())
+            .filter_map(|key| {
+                fernet::Fernet::new(&base64::engine::general_purpose::URL_SAFE.encode(key))
+            })
+            .collect();
+        Self {
+            pool,
+            fernets,
+            cache: Default::default(),
+        }
+    }
+
+    fn decrypt(&self, token: &str) -> Option<String> {
+        self.fernets
+            .iter()
+            .find_map(|f| f.decrypt(token).ok())
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+    }
+
+    async fn fetch(&self, team_id: i64) -> anyhow::Result<Vec<String>> {
+        let row = sqlx::query(
+            "SELECT secret, previous_secret, \
+             COALESCE(previous_secret_rotated_at > now() - make_interval(secs => $2), false) AS previous_active \
+             FROM logs_logssigningsecret WHERE team_id = $1",
+        )
+        .bind(team_id)
+        .bind(PREVIOUS_SECRET_GRACE_SECONDS as f64)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(Vec::new());
+        };
+        let secret: String = row.try_get("secret")?;
+        let previous: Option<String> = row.try_get("previous_secret")?;
+        let previous_active: bool = row.try_get("previous_active")?;
+        Ok(std::iter::once(secret)
+            .chain(previous.filter(|_| previous_active))
+            .filter_map(|token| self.decrypt(&token))
+            .collect())
+    }
+}
+
+#[async_trait]
+impl SigningSecretsSource for PgSigningSecrets {
+    // shortcut: concurrent misses for one team each query Postgres, share one load if that shows in the pool.
+    async fn get_secrets(&self, team_id: i64) -> Vec<String> {
+        if self.fernets.is_empty() {
+            return Vec::new();
+        }
+        let existing = self.cache.lock().unwrap().get(&team_id).cloned();
+        if let Some((secrets, expires_at)) = &existing {
+            if Instant::now() < *expires_at {
+                return secrets.clone();
+            }
+        }
+        let (secrets, ttl) = match self.fetch(team_id).await {
+            Ok(secrets) => (secrets, RULES_REFRESH),
+            Err(error) => {
+                tracing::warn!(team_id, error = %error, "[logs-signature] signing secret fetch failed");
+                // Hold the fallback briefly so a down database is not queried on every message.
+                (
+                    existing.map(|(secrets, _)| secrets).unwrap_or_default(),
+                    Duration::from_secs(5),
+                )
+            }
+        };
+        self.cache
+            .lock()
+            .unwrap()
+            .insert(team_id, (secrets.clone(), Instant::now() + ttl));
+        secrets
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -664,5 +753,20 @@ mod tests {
         assert!(crate::pipeline::errors::is_dependency_unavailable(&refused));
         let bad = classify_pg_error(sqlx::Error::RowNotFound);
         assert!(!crate::pipeline::errors::is_dependency_unavailable(&bad));
+    }
+
+    // Python `Fernet` wrote this token with the key below, as Django's `EncryptedTextField` does.
+    #[tokio::test]
+    async fn signing_secrets_decrypt_a_django_encrypted_field() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused")
+            .unwrap();
+        let secrets = PgSigningSecrets::new(
+            pool,
+            "wrong-key-wrong-key-wrong-key-00,00beef0000beef0000beef0000beef00",
+        );
+        let token = "gAAAAABlU_EAAAECAwQFBgcICQoLDA0OD6wHltQjGRg-WTHwev-y3BTmMdfqPYo0iHd59v-WC8clhUo6Hkcz3sFBbnRR_hR-Lg==";
+        assert_eq!(secrets.decrypt(token).as_deref(), Some("current-secret"));
+        assert_eq!(secrets.decrypt("gAAAAAnot-ours"), None);
     }
 }

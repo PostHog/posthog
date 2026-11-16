@@ -25,6 +25,8 @@ pub struct LogsIngestionMessage {
     pub min_timestamp_micros: Option<f64>,
     pub backfill_requested: bool,
     pub internal_logs: Option<InternalLogs>,
+    /// The posthog-signature header verified against the team's logs signing secret.
+    pub signature_verified: bool,
 }
 
 impl RateLimitedMessage for LogsIngestionMessage {

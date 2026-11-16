@@ -408,6 +408,9 @@ export function buildParityConsumer(
                 return Promise.resolve(scenario.pattern_message_keys[teamId] ?? MESSAGE_KEYS)
             },
         } as unknown as LogsIngestionConsumerDeps['patternMessageKeysCache'],
+        signingSecrets: {
+            getSecrets: (teamId: number) => Promise.resolve(scenario.signing_secrets?.[teamId] ?? []),
+        },
         internalSourcePolicies:
             scenario.internal_source_policies &&
             Object.fromEntries(
