@@ -117,6 +117,19 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    export interface AEOCompetitorCandidate {
+      /** Brand id. Confirm the brand as a competitor or ignore it with aeo_brands_partial_update. */
+      brand_id: string;
+      /** Brand name. Starts as a guess from the domain until someone edits it. */
+      name: string;
+      /** Registrable domain of the brand. */
+      domain: string;
+      /** Answers to non-branded prompts whose text has the brand's name or one of its other names as a whole word. */
+      answers_naming: number;
+      /** Answers to non-branded prompts that cite a page on the brand's domain or one of its subdomains. */
+      answers_citing: number;
+    }
+
     /**
      * * `web_search` - Web search
      * * `no_search` - No search
@@ -10633,6 +10646,7 @@ export namespace Schemas {
       AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
+      Motherduck: 'motherduck',
       YoutubeAnalytics: 'youtube-analytics',
       TwitterAds: 'twitter-ads',
     } as const;
@@ -12085,6 +12099,10 @@ export namespace Schemas {
       useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /**
+         * @minimum 0
+         * @maximum 200
+         */
       volumeResolution: number;
       withAggregations?: boolean | null;
       withFirstEvent?: boolean | null;
@@ -16339,9 +16357,21 @@ export namespace Schemas {
          * @nullable
          */
       last_flagged_bucket: string | null;
-      /** Up to 3 flagged series, most anomalous first. */
+      /** Up to 3 flagged series, in the requested `order`. */
       top_series: AnomalyTopSeries[];
     }
+
+    /**
+     * * `unusual` - Unusual
+     * * `recent` - Recent
+     */
+    export type AnomalyOrderEnum = typeof AnomalyOrderEnum[keyof typeof AnomalyOrderEnum];
+
+
+    export const AnomalyOrderEnum = {
+      Unusual: 'unusual',
+      Recent: 'recent',
+    } as const;
 
     export interface AnomalySeries {
       /** The numeric id of the insight. */
@@ -16432,10 +16462,17 @@ export namespace Schemas {
        * * `series` - Series
        * * `insight` - Insight */
       group_by: AnomalyGroupByEnum;
-      /** One row per series, most anomalous first. Empty unless `group_by` is `series`. */
+      /** The applied order.
+       *
+       * * `unusual` - Unusual
+       * * `recent` - Recent */
+      order: AnomalyOrderEnum;
+      /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
       series: AnomalySeries[];
-      /** One row per insight, most anomalous first. Empty unless `group_by` is `insight`. */
+      /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
       insights: AnomalyInsightRow[];
+      /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
+      has_more: boolean;
       /** True when `limit` or a read cap left rows out. */
       truncated: boolean;
       /**
@@ -39131,6 +39168,9 @@ export namespace Schemas {
     /**
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other
      */
     export type WarehouseSuggestionDismissalReasonEnum = typeof WarehouseSuggestionDismissalReasonEnum[keyof typeof WarehouseSuggestionDismissalReasonEnum];
@@ -39139,6 +39179,9 @@ export namespace Schemas {
     export const WarehouseSuggestionDismissalReasonEnum = {
       NotUseful: 'not_useful',
       NotNow: 'not_now',
+      WrongEstimate: 'wrong_estimate',
+      AlreadyHandled: 'already_handled',
+      NotOwner: 'not_owner',
       Other: 'other',
     } as const;
 
@@ -39147,6 +39190,9 @@ export namespace Schemas {
        *
        * * `not_useful` - Not useful
        * * `not_now` - Not now
+       * * `wrong_estimate` - Wrong estimate
+       * * `already_handled` - Already handled
+       * * `not_owner` - Someone else decides
        * * `other` - Other */
       reason: WarehouseSuggestionDismissalReasonEnum;
       /**
@@ -51944,6 +51990,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      */
     export type ExternalDataDestinationTypeEnum = typeof ExternalDataDestinationTypeEnum[keyof typeof ExternalDataDestinationTypeEnum];
 
@@ -51957,6 +52004,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     /**
@@ -51984,7 +52032,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       type: ExternalDataDestinationTypeEnum;
       /**
          * Human-readable name shown when picking destinations for a source or table.
@@ -65006,6 +65055,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -65062,6 +65112,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Motherduck: 'motherduck',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
@@ -65118,6 +65169,7 @@ export namespace Schemas {
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
        * * `meta-ads` - Meta Ads
+       * * `motherduck` - Motherduck
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
@@ -65285,6 +65337,7 @@ export namespace Schemas {
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
        * * `meta-ads` - Meta Ads
+       * * `motherduck` - Motherduck
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
@@ -85737,6 +85790,9 @@ export namespace Schemas {
        *
        * * `not_useful` - Not useful
        * * `not_now` - Not now
+       * * `wrong_estimate` - Wrong estimate
+       * * `already_handled` - Already handled
+       * * `not_owner` - Someone else decides
        * * `other` - Other */
       dismissal_reason: WarehouseSuggestionDismissalReasonEnum | null;
       /** What happened to the asset an accepted suggestion created.
@@ -89777,7 +89833,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       type?: ExternalDataDestinationTypeEnum;
       /**
          * Human-readable name shown when picking destinations for a source or table.
@@ -124680,6 +124737,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      */
     export type UserCreatableDestinationTypeEnum = typeof UserCreatableDestinationTypeEnum[keyof typeof UserCreatableDestinationTypeEnum];
 
@@ -124692,6 +124750,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     export interface UserCustomerAnalyticsConfig {
@@ -126686,7 +126745,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       warehouse_destination_type: UserCreatableDestinationTypeEnum | null;
       /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
        *
@@ -131139,7 +131199,7 @@ export namespace Schemas {
      */
     detail_filters?: string;
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
     /**
@@ -131202,7 +131262,7 @@ export namespace Schemas {
      */
     search_text?: string;
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string;
     /**
@@ -132840,7 +132900,7 @@ export namespace Schemas {
      */
     detail_filters?: string;
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
     /**
@@ -132903,7 +132963,7 @@ export namespace Schemas {
      */
     search_text?: string;
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string;
     /**
@@ -132982,6 +133042,15 @@ export namespace Schemas {
       Confirmed: 'confirmed',
       Ignored: 'ignored',
     } as const;
+
+    export type AeoBrandsCompetitorCandidatesParams = {
+    /**
+     * How many candidates to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
 
     export type AeoKeywordsModifiersParams = {
     /**
@@ -135938,7 +136007,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 20 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string;
     /**
@@ -138971,6 +139040,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      * @minLength 1
      */
     destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType;
@@ -138996,6 +139066,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
@@ -139636,6 +139707,11 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights that carry at least one of them.
+     * @minLength 1
+     */
+    tags?: string;
     /**
      * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
      */
@@ -141431,6 +141507,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -141498,6 +141575,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Motherduck: 'motherduck',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
@@ -144922,9 +145000,28 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
+     * @minimum 0
+     * @maximum 10000
+     */
+    offset?: number;
+    /**
      * Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.
      */
     only_flagged?: boolean;
+    /**
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     *
+     * * `unusual` - Unusual
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: SignalsAnomaliesSearchRetrieveOrder;
+    /**
+     * Only insights whose name contains this text, ignoring case.
+     * @maxLength 200
+     */
+    search?: string;
     };
 
     export type SignalsAnomaliesSearchRetrieveGroupBy = typeof SignalsAnomaliesSearchRetrieveGroupBy[keyof typeof SignalsAnomaliesSearchRetrieveGroupBy];
@@ -144943,6 +145040,14 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
       Month: 'month',
+    } as const;
+
+    export type SignalsAnomaliesSearchRetrieveOrder = typeof SignalsAnomaliesSearchRetrieveOrder[keyof typeof SignalsAnomaliesSearchRetrieveOrder];
+
+
+    export const SignalsAnomaliesSearchRetrieveOrder = {
+      Unusual: 'unusual',
+      Recent: 'recent',
     } as const;
 
     export type SignalsProcessingListParams = {
@@ -148635,6 +148740,10 @@ export namespace Schemas {
 
     export type WarehouseSuggestionsAcceptCreateParams = {
     /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean;
+    /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
      * * `models` - Models
@@ -148653,6 +148762,10 @@ export namespace Schemas {
     } as const;
 
     export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean;
     /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
