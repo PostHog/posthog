@@ -292,6 +292,34 @@ class TestUsedUpQuota:
         assert "403 Client Error" in str(result.raised)
 
 
+PLAN_REJECTION_BODY = b"Your current subscription package doesn't include raw data reports. If you'd like to have raw data, contact your CSM"
+
+
+class TestRawDataRejection:
+    @pytest.mark.parametrize(
+        "endpoint, body, expected_copy",
+        [
+            ("installs", PLAN_REJECTION_BODY, "doesn't include raw data reports"),
+            ("installs", b"x" * 600 + PLAN_REJECTION_BODY, "doesn't include raw data reports"),
+            ("daily_report", PLAN_REJECTION_BODY, "may be used up"),
+            ("installs", b"Raw reports historical lookback is limited to 90 days", "may be used up"),
+            ("installs", b"", "may be used up"),
+        ],
+    )
+    def test_400_maps_to_the_message_for_its_cause(self, endpoint: str, body: bytes, expected_copy: str) -> None:
+        result = _driver().run(endpoint, always(ScriptedResponse(status=400, body=body)))
+
+        assert result.raised is not None
+        error = f"{type(result.raised).__name__}: {result.raised}"
+        source = AppsFlyerSource()
+        messages = [
+            message
+            for pattern, message in source.get_non_retryable_errors().items()
+            if message and error_message_matches(error, [pattern])
+        ]
+        assert messages and expected_copy in messages[0]
+
+
 class TestNotFoundRejection:
     @pytest.mark.parametrize(
         "endpoint, expected_copy",
