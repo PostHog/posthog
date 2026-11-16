@@ -3,10 +3,12 @@
 //! poll and swapped atomically via [`arc_swap::ArcSwap`] so hot-path reads are lock-free and a
 //! refresh never blocks the consumer.
 //!
-//! Staleness is safe: the gate is defense-in-depth and the downstream processor re-checks
-//! membership, so a stale snapshot only over-forwards briefly. The index starts empty and unloaded
-//! so nothing is forwarded until the first refresh — avoiding a cold-start flood if the DB is
-//! briefly unreachable at boot.
+//! A stale snapshot over-forwards a team that just turned off its last cohort, which is safe
+//! because the gate is defense-in-depth and the downstream processor re-checks membership. It also
+//! drops the events of a team that just turned on its first cohort until the next refresh, and
+//! backfill does not recover the ones on the run's boundary day. The index starts empty and
+//! unloaded so nothing is forwarded until the first refresh — avoiding a cold-start flood if the DB
+//! is briefly unreachable at boot.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};

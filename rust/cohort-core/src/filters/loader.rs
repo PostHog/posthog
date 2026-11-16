@@ -21,12 +21,12 @@ use crate::seed::{BehavioralShapeHash, PersonShapeHash, ScopeKind, ShapeHashErro
 
 /// The cohorts the pipeline loads, shared by every statement below so that the shuffler's team index
 /// and the processor's catalog hold the same set. Django keeps `realtime_enabled_at` through a soft
-/// delete and through an edit that makes the cohort lose realtime support, so being on implies
-/// neither `deleted = false` nor `cohort_type = 'realtime'`.
+/// delete, a conversion to static, and an edit that makes the cohort lose realtime support, so being
+/// on implies none of `deleted = false`, `is_static = false` and `cohort_type = 'realtime'`.
 macro_rules! loaded_cohorts_predicate {
     () => {
         "c.cohort_type = 'realtime' AND c.realtime_enabled_at IS NOT NULL \
-         AND c.deleted = false AND c.filters IS NOT NULL"
+         AND c.is_static = false AND c.deleted = false AND c.filters IS NOT NULL"
     };
 }
 

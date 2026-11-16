@@ -191,7 +191,7 @@ Changing the derivation would re-key every behavioral state row in every store, 
 Every Rust service that needs definitions builds a **catalog**: an immutable, per-team index of parsed cohorts.
 The shared `cohort-core` crate owns the parsing, classification and indexing, so the processor and the seeder interpret a definition with the same code.
 
-- The **processor** loads every row with `cohort_type = 'realtime' AND realtime_enabled_at IS NOT NULL AND deleted = false AND filters IS NOT NULL`, joined to the team's timezone.
+- The **processor** loads every row with `cohort_type = 'realtime' AND realtime_enabled_at IS NOT NULL AND is_static = false AND deleted = false AND filters IS NOT NULL`, joined to the team's timezone.
   It keeps only the teams in its own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` and the teams that a `cohort_realtime_team_access` row grants, builds the catalog off the async runtime, and swaps it in atomically.
   A refresh whose read of that table fails builds nothing, so the catalog never misses a team that the table granted before the refresh began, as long as the database it reads is current.
   It refreshes every few minutes with jitter, and within about 15 seconds of a grant or a revoke.

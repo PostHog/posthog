@@ -32,13 +32,15 @@ async fn every_load_selects_only_realtime_cohorts_that_are_on() {
         "CREATE TEMP TABLE posthog_team AS TABLE public.posthog_team WITH NO DATA; \
          CREATE TEMP TABLE posthog_cohort AS TABLE public.posthog_cohort WITH NO DATA; \
          INSERT INTO posthog_team (id, timezone) VALUES (1, 'UTC'), (2, 'UTC'), (3, 'UTC'); \
-         INSERT INTO posthog_cohort (id, team_id, cohort_type, realtime_enabled_at, deleted, filters) \
-         VALUES (11, 1, 'realtime', now(), false, '{}'), \
-                (12, 1, 'realtime', NULL, false, '{}'), \
-                (13, 1, NULL, now(), false, '{}'), \
-                (14, 1, 'realtime', now(), true, '{}'), \
-                (21, 2, 'realtime', NULL, false, '{}'), \
-                (31, 3, 'realtime', now(), false, '{}');",
+         INSERT INTO posthog_cohort \
+             (id, team_id, cohort_type, realtime_enabled_at, is_static, deleted, filters) \
+         VALUES (11, 1, 'realtime', now(), false, false, '{}'), \
+                (12, 1, 'realtime', NULL, false, false, '{}'), \
+                (13, 1, NULL, now(), false, false, '{}'), \
+                (14, 1, 'realtime', now(), false, true, '{}'), \
+                (15, 1, 'realtime', now(), true, false, '{}'), \
+                (21, 2, 'realtime', NULL, false, false, '{}'), \
+                (31, 3, 'realtime', now(), false, false, '{}');",
     )
     .execute(&pool)
     .await
@@ -53,7 +55,8 @@ async fn every_load_selects_only_realtime_cohorts_that_are_on() {
         .expect("load the teams");
     teams.sort_unstable();
 
-    // Cohort 12 is off, 13 is on but lost realtime support in an edit, and 14 is on but deleted.
+    // Cohort 12 is off, 13 is on but lost realtime support in an edit, 14 is on but deleted, and 15
+    // is on but was converted to static.
     assert_eq!(team_and_cohort_ids(all), [(1, 11), (3, 31)]);
     assert_eq!(team_and_cohort_ids(scoped), [(1, 11)]);
     // Team 2's only cohort is off.

@@ -43,7 +43,7 @@ It parses every message in two phases.
 An event passes the gate when it has a person id and its team passes two checks.
 
 1. **The team index.**
-   The team has at least one realtime cohort that is on and not deleted.
+   The team has at least one realtime cohort that is on, not static and not deleted.
    The shuffler rebuilds the index from Postgres every few minutes and swaps it in atomically.
 2. **Team access.**
    `REALTIME_COHORT_TEAM_ALLOWLIST` names the team, or the team's row in `cohort_realtime_team_access` is at `processing` or `serving`.
