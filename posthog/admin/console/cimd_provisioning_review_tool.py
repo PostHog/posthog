@@ -268,7 +268,7 @@ class CIMDProvisioningReviewTool(ConsoleTool):
                 _status_counts(),
                 Filters(
                     form=form,
-                    groups=(FieldGroup(title="Filter", field_names=("status", "domain")),),
+                    groups=(FieldGroup(title="Filter", field_names=("status", "domain"), inline=True),),
                     submit_label="Filter",
                 ),
                 Table(
