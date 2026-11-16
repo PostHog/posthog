@@ -1,7 +1,10 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -95,6 +98,16 @@ describe('codeEmailLogic', () => {
 
         expect(logic.values.loadState).toEqual(loadState)
         expect(logic.values.codeEmail).toBeNull()
+    })
+
+    it('opens on the tab its URL names and leaves the URL as it was', () => {
+        useMocks({ get: { [EMAIL_URL]: [404, { detail: 'Nope' }] } })
+        router.actions.push(urls.transactionalCodeEmail('email-id'), { tab: 'sends', status: 'bounced' })
+        logic = codeEmailLogic({ id: 'email-id' })
+        logic.mount()
+
+        expect(logic.values.tab).toEqual('sends')
+        expect(router.values.lastMethod).toEqual('PUSH')
     })
 
     it('loads the email after a failed load is retried', async () => {

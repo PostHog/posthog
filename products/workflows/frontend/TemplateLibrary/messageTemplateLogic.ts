@@ -780,7 +780,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             const { tab: _shownTab, ...searchParams } = router.values.searchParams
             const kept = tab === 'sends' ? withoutRunLogFilters(searchParams) : searchParams
             const next = tab === 'design' ? kept : { ...kept, tab }
-            if (!objectsEqual(next, router.values.searchParams)) {
+            // kea-router builds searchParams without a prototype, and objectsEqual never matches that to a plain object.
+            if (!objectsEqual(next, { ...router.values.searchParams })) {
                 router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
             }
         },
