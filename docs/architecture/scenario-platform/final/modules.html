@@ -1,0 +1,204 @@
+<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font-family:var(--font-sans,system-ui,-apple-system,"Segoe UI",sans-serif)}
+.panel{position:relative;background:#fff;color:#0f172a;border-radius:var(--radius,10px);padding:16px;font-size:12px}
+svg.wires{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;z-index:2}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.views{display:flex;gap:3px;background:#e2e8f0;border-radius:7px;padding:3px}
+.views button,.toggle{border:0;background:transparent;font:inherit;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:5px;color:#334155;cursor:pointer}
+.toggle{background:#e2e8f0}
+.views button[aria-pressed=true],.toggle[aria-pressed=true]{background:#0f172a;color:#fff}
+.row{display:flex;gap:14px;align-items:flex-start;position:relative;z-index:1}
+.mod{flex:1;border:2px solid #334155;border-radius:8px;background:#f8fafc;min-width:0}
+.mod.new{border-color:#16a34a;background:#f0fdf4}
+.mod.changed{border-color:#ca8a04;background:#fefce8}
+.mod.external{border-color:#2563eb;background:#eff6ff}
+.mod.follow{border:2px dashed #ea580c;background:#fff7ed}
+.seam{display:flex;flex-wrap:wrap;gap:2px 12px;align-items:center;background:#0f172a;color:#fff;font-family:var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:10.5px;padding:5px 8px;border-radius:6px 6px 0 0;line-height:1.35}
+.mod.new .seam{background:#14532d}
+.mod.follow .seam{background:#7c2d12}
+.mod.external .seam{background:#1e3a8a}
+.seam .tag{background:#fff;color:#0f172a;border-radius:3px;padding:0 4px;font-family:var(--font-sans,system-ui,sans-serif);font-weight:700;font-size:9.5px}
+.fn.new::after{content:" +";color:#86efac;font-weight:700}
+.fn.changed{color:#fde047}
+.name{font-weight:700;font-size:13px;padding:6px 8px 2px}
+.name small{font-weight:500;color:#64748b;font-size:11px}
+.mod:not(:has(.chips)) .name{padding-bottom:8px}
+.used{display:inline-block;font-size:9.5px;font-weight:700;color:#b91c1c;background:#fee2e2;border-radius:3px;padding:0 4px;vertical-align:1px}
+.chips{padding:4px 8px 8px;display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid #94a3b8;background:#f1f5f9;border-radius:5px;padding:3px 7px;line-height:1.3}
+.chip.wide{flex-basis:100%;text-align:center}
+.chip.new{background:#dcfce7;border-color:#16a34a}
+.chip.changed{background:#fef9c3;border-color:#ca8a04}
+.chip.follow{border:2px dashed #ea580c}
+.chip.cycle,.rail .cycle{border:2px dashed #dc2626;background:#fef2f2;color:#b91c1c;font-weight:600}
+.cycle::before{content:"↺ "}
+.ask{outline:2px dashed #7c3aed;outline-offset:1px}
+.ask.fork{outline-style:dotted}
+.q,.f{display:inline-block;font-family:var(--font-sans,system-ui,sans-serif);font-size:9px;font-weight:700;color:#fff;border-radius:3px;padding:0 3px;margin-left:4px;vertical-align:1px}
+.q{background:#7c3aed}
+.f{background:#ea580c}
+.f::before{content:"follow-up"}
+.rail{position:relative;z-index:1;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.rail b{color:#fff;font-size:12px}
+.rail .cycle{border-radius:4px;padding:1px 6px}
+.untouched{margin-top:18px;border-top:1px dashed #94a3b8;padding-top:10px}
+.untouched h4{margin:0 0 8px;font-size:12px;color:#334155}
+.untouched .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.mini{border:1.5px solid #94a3b8;border-radius:6px;background:#f8fafc;font-size:10.5px}
+.mini .seam{font-size:9.5px;padding:3px 6px;border-radius:4px 4px 0 0;background:#334155}
+.mini b{display:block;padding:4px 6px 0;font-size:11.5px}
+.mini p{margin:0;padding:2px 6px 5px;color:#475569}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:16px;padding-top:10px;border-top:1px solid #e2e8f0;font-size:11px;color:#334155;align-items:center}
+.legend .key{font-weight:700}
+.legend i{display:inline-block;width:22px;height:0;border-top:2px solid;vertical-align:middle;margin-right:4px}
+.legend .swatch{display:inline-block;padding:0 5px;margin-right:4px;border-radius:3px}
+.legend .seamkey{background:#0f172a;color:#fff;font-weight:600}
+.panel[data-view=today] .v-added{display:none}
+.panel[data-view=target] .v-removed{display:none}
+.panel:not([data-view=today]) .v-today{display:none}
+.panel[data-view=removed] .v-removed{color:#94a3b8;text-decoration:line-through}
+.panel[data-view=removed] .chip.v-removed{background:#f8fafc;border:1px dashed #94a3b8}
+.panel[data-view=removed] .v-removed :is(.q,.f,.used){text-decoration:none}
+.panel[data-view=today] .ask{outline:none}
+.panel[data-view=today] .q{display:none}
+.panel[data-untouched=off] .untouched{display:none}
+</style></head><body>
+<div class="panel" id="modules" data-view="target" data-untouched="off">
+<svg class="wires"></svg>
+<div class="controls"><div class="views" role="group" aria-label="View"><button data-view-to="target" aria-pressed="true">Target</button><button data-view-to="removed" aria-pressed="false">Target + what it removes</button><button data-view-to="today" aria-pressed="false">Today</button></div></div><div class="row"><div id="cli" class="mod" style="flex:0.8"><div class="seam" id="cli-seam"><span class="tag">seam</span><span class="fn">run</span></div><div class="name">CLI <small>core/cli</small></div></div><div id="viewer" class="mod changed" style="flex:2.2"><div class="seam" id="viewer-seam"><span class="tag">seam</span><span class="fn">map</span><span class="fn">scenarios</span><span class="fn">run</span><span class="fn">live</span></div><div class="name">Viewer <small>core/viewer (#354)</small></div><div class="chips"><span class="chip">layout, cursor, valve bands</span><span id="v-t1" class="chip v-added new">panel + node specs (tier 1)</span><span id="v-t2" class="chip v-added new follow">code slot (tier 2, named)<span class="f"></span></span><span id="v-tables" class="chip v-removed">9 Workflows tables</span></div></div></div>
+<div style="height:56px"></div><div class="row"><div id="life" class="mod changed" style="flex:1.5"><div class="seam" id="life-seam"><span class="tag">seam</span><span class="fn">up</span><span class="fn">run(card)</span><span class="fn">down</span></div><div class="name">Lifecycle <small>core/lifecycle</small> <span class="used">6 used outside</span></div><div class="chips"><span class="chip wide">build → reset → seed → start → ready → drive → quiet → judge</span><span id="life-wf" class="chip v-removed">Workflows wiring in run()</span><span id="life-hooks" class="chip v-added new">build, seed, ready, validAfter</span></div></div><div id="card" class="mod changed" style="flex:1"><div class="seam" id="card-seam"><span class="tag">seam</span><span class="fn">loadCard(path, adapters)</span></div><div class="name">Card <small>core/card</small> <span class="used">16 used outside</span></div><div class="chips"><span class="chip">schema, hashes</span><span id="card-reg" class="chip v-added new">merged registry</span><span id="card-fixed" class="chip v-removed">DEFINITIONS, CdpRole</span></div></div></div>
+<div style="height:56px"></div><div class="row"><div id="drive" class="mod changed"><div class="seam" id="drive-seam"><span class="tag">seam</span><span class="fn">drive → history</span></div><div class="name">Drive <small>core/drive</small></div><div class="chips"><span class="chip">open-loop scheduler</span><span id="drive-h" class="chip v-added new">history.jsonl</span></div></div><div id="valves" class="mod changed"><div class="seam" id="valves-seam"><span class="tag">seam</span><span class="fn">start</span><span class="fn">releaseAll</span></div><div class="name">Valves <small>core/valves</small></div><div class="chips"><span class="chip">timeline, hold, release</span><span id="valves-caps" class="chip v-added new">capabilities</span></div></div><div id="judge" class="mod changed"><div class="seam" id="judge-seam"><span class="tag">seam</span><span class="fn">quiet</span><span class="fn">check</span></div><div class="name">Judge <small>core/judge</small></div><div class="chips"><span class="chip">history invariants</span><span id="judge-cons" class="chip v-added new">conservation</span><span id="judge-q" class="chip v-added new">quiet: pending + settle</span></div></div><div id="topo" class="mod v-added new"><div class="seam" id="topo-seam"><span class="tag">seam</span><span class="fn">observe</span><span class="fn">check</span></div><div class="name">Topology <small>core/topology</small></div><div class="chips"><span class="chip">rpk, pg_stat_activity</span><span class="chip">diff vs manifest</span></div></div><div id="score" class="mod changed"><div class="seam" id="score-seam"><span class="tag">seam</span><span class="fn">payloadOf</span><span class="fn">publish</span></div><div class="name">Scorecard <small>core/scorecard</small></div><div class="chips"><span class="chip">v2, namespaced</span><span class="chip">versions by module id</span></div></div></div>
+<div style="height:56px"></div><div class="row"><div id="proc" class="mod changed" style="flex:1"><div class="seam" id="proc-seam"><span class="tag">seam</span><span class="fn">start</span><span class="fn">kill</span><span class="fn">freeze</span><span class="fn">stop</span></div><div class="name">Processes <small>core/processes</small></div><div class="chips"><span class="chip">supervisor, run lock, ports</span><span id="proc-env" class="chip v-added new">env allowlist</span><span id="proc-tsx" class="chip v-removed">one tsx command</span></div></div><div id="edge" class="mod changed" style="flex:1"><div class="seam" id="edge-seam"><span class="tag">seam</span><span class="fn">start</span><span class="fn">truth</span><span class="fn">faults</span></div><div class="name">Provider edge <small>core/edge</small></div><div class="chips"><span class="chip">proxy, CA, truth log</span><span id="edge-h" class="chip v-added new">host handlers</span></div></div></div>
+<div style="height:56px"></div><div class="row"><div id="wf" class="mod v-added new" style="flex:1.6"><div class="seam" id="wf-seam"><span class="tag">seam</span><span class="fn">manifest</span><span class="fn">seed</span><span class="fn">ready</span><span class="fn">reset</span><span class="fn">pending</span><span class="fn">validAfter</span></div><div class="name">Workflows adapter <small>adapters/workflows</small></div><div class="chips"><span id="wf-man" class="chip">manifest.yaml</span><span class="chip">roles, traffic, SES handler</span><span class="chip">Cyclotron pending, backlog</span><span id="wf-cloud" class="chip">cloud/</span></div></div><div id="pc" class="mod v-added new follow" style="flex:1.2"><div class="seam" id="pc-seam"><span class="tag">seam</span><span class="fn">manifest</span><span class="fn">traffic</span><span class="fn">seed</span><span class="fn">ready</span><span class="fn">reset</span><span class="fn">pending</span></div><div class="name">Persons + cohorts adapter <small>adapters/persons-cohorts, stack 2</small><span class="f"></span></div><div class="chips"><span class="chip">offers $set at capture</span><span id="pc-carrier" class="chip">carrier: person id + canary</span><span class="chip">Rust boot</span></div></div></div><div class="legend"><span><b class="swatch seamkey">fn</b><span class="key">seam</span> a module's interface; parts sit below it</span><span><i style="border-color:#334155;border-top-style:solid"></i><span class="key">call</span> through a seam</span><span><i style="border-color:#15803d;border-top-style:solid"></i><span class="key">added</span> by this change, green</span><span><span class="swatch chip changed">part</span><span class="key">changed</span> by this change</span><span><i style="border-color:#94a3b8;border-top-style:dashed"></i><span class="key">removed</span> ✕ by this change, struck through</span><span><i style="border-color:#dc2626;border-top-style:solid"></i><span class="key">leak</span> reaches past a seam, with measured counts</span><span><i style="border-color:#ea580c;border-top-style:dashed"></i><span class="key">follow-up</span> the target needs it; a later refactor builds it</span><span><span class="used">n</span><span class="key">used outside</span> exports other modules use</span></div>
+</div>
+<script>const strokes = {
+  call: { color: "#334155", width: 1.7 },
+  bus: { color: "#475569", width: 1.5 },
+  leak: { color: "#dc2626", width: 2.2 },
+  added: { color: "#15803d", width: 2.2 },
+  changed: { color: "#ca8a04", width: 2.2 },
+  followUp: { color: "#ea580c", dash: "6 4", width: 2 },
+  ask: { color: "#7c3aed", dash: "6 4", width: 2 },
+  fork: { color: "#7c3aed", dash: "2 3", width: 2 },
+  removed: { color: "#94a3b8", dash: "4 4", width: 1.6, cross: true, strike: true },
+};
+
+function strokeOf(wire, view) {
+  if (wire.change === "removed" && view === "removed") return "removed";
+  if (wire.q && view !== "today") return wire.fork ? "fork" : "ask";
+  if (wire.followUp) return "followUp";
+  if (wire.kind === "leak") return "leak";
+  if (wire.change === "added" || wire.change === "changed") return wire.change;
+  return wire.kind ?? "call";
+}
+
+function shownIn(wire, view) {
+  if (wire.change === "added") return view !== "today";
+  if (wire.change === "removed") return view !== "target";
+  if (wire.change === "todayOnly") return view === "today";
+  return true;
+}
+
+function anchorOf(element, side, at, root) {
+  const box = element.getBoundingClientRect(), origin = root.getBoundingClientRect();
+  const x = box.left - origin.left, y = box.top - origin.top, along = at ?? 0.5;
+  if (side === "top") return { x: x + box.width * along, y, nx: 0, ny: -1 };
+  if (side === "bottom") return { x: x + box.width * along, y: y + box.height, nx: 0, ny: 1 };
+  if (side === "left") return { x, y: y + box.height * along, nx: -1, ny: 0 };
+  return { x: x + box.width, y: y + box.height * along, nx: 1, ny: 0 };
+}
+
+function svgElement(name, attributes) {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+  return element;
+}
+
+function drawLabel(svg, point, text, stroke, align) {
+  const label = svgElement("text", { x: point.x, y: point.y, "text-anchor": align ?? "middle", "dominant-baseline": "middle", "font-size": "10", "font-weight": "600", fill: stroke.color });
+  if (stroke.strike) label.setAttribute("text-decoration", "line-through");
+  label.textContent = text;
+  svg.appendChild(label);
+  const box = label.getBBox();
+  svg.insertBefore(svgElement("rect", { x: box.x - 3, y: box.y - 1, width: box.width + 6, height: box.height + 2, rx: 3, fill: "#ffffff", opacity: "0.95" }), label);
+  return { text, box };
+}
+
+function drawCross(svg, at, name) {
+  const radius = 7.5;
+  svg.appendChild(svgElement("circle", { cx: at.x, cy: at.y, r: radius, fill: "#ffffff", stroke: "#64748b", "stroke-width": 1.5 }));
+  svg.appendChild(svgElement("path", { d: `M${at.x - 3.5},${at.y - 3.5}L${at.x + 3.5},${at.y + 3.5}M${at.x + 3.5},${at.y - 3.5}L${at.x - 3.5},${at.y + 3.5}`, stroke: "#475569", "stroke-width": 2 }));
+  return { text: `✕ on ${name}`, box: { x: at.x - radius, y: at.y - radius, width: radius * 2, height: radius * 2 } };
+}
+
+function apart(a, b) {
+  return a.x + a.width < b.x || b.x + b.width < a.x || a.y + a.height < b.y || b.y + b.height < a.y;
+}
+
+function textBoxes(root) {
+  const origin = root.getBoundingClientRect();
+  return [...root.querySelectorAll(".seam, .name, .chip, .rail")].filter((element) => element.getClientRects().length).map((element) => {
+    const box = element.getBoundingClientRect();
+    return { text: element.innerText.replace(/\s+/g, " ").trim().slice(0, 40), box: { x: box.left - origin.left, y: box.top - origin.top, width: box.width, height: box.height } };
+  });
+}
+
+function collisions(root, labels) {
+  const hits = [];
+  labels.forEach((a, i) => labels.slice(i + 1).forEach((b) => { if (!apart(a.box, b.box)) hits.push(`"${a.text}" overlaps "${b.text}"`); }));
+  const boxes = textBoxes(root);
+  for (const label of labels) for (const text of boxes) if (!apart(label.box, text.box)) hits.push(`"${label.text}" covers "${text.text}"`);
+  const page = root.getBoundingClientRect();
+  for (const { text, box } of labels) if (box.x < 0 || box.x + box.width > page.width) hits.push(`"${text}" runs off the page`);
+  return hits;
+}
+
+function drawWire(svg, root, wire, view) {
+  const from = root.querySelector(`[id="${wire.from}"]`), to = root.querySelector(`[id="${wire.to}"]`);
+  if (!from?.getClientRects().length || !to?.getClientRects().length) return;
+  const strokeName = strokeOf(wire, view), stroke = strokes[strokeName];
+  const a = anchorOf(from, wire.fromSide ?? "bottom", wire.fromAt, root), z = anchorOf(to, wire.toSide ?? "top", wire.toAt, root), bend = wire.bend ?? 40;
+  if (wire.straight === "from") z.x = a.x;
+  if (wire.straight === "to") a.x = z.x;
+  const c1 = { x: a.x + a.nx * bend, y: a.y + a.ny * bend }, c2 = { x: z.x + z.nx * bend, y: z.y + z.ny * bend };
+  const path = svgElement("path", { d: `M${a.x},${a.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${z.x},${z.y}`, fill: "none", stroke: stroke.color, "stroke-width": stroke.width, "marker-end": `url(#arrow-${strokeName})` });
+  if (stroke.dash) path.setAttribute("stroke-dasharray", stroke.dash);
+  svg.appendChild(path);
+  const pointAt = (t) => { const u = 1 - t; return { x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * z.x, y: u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * z.y }; };
+  const labelAt = wire.labelAt ?? 0.5, [dx, dy] = wire.labelOffset ?? [0, 0];
+  const marks = stroke.cross ? [drawCross(svg, pointAt(wire.crossAt ?? Math.min(labelAt + 0.25, 0.85)), wire.label ?? `${wire.from} → ${wire.to}`)] : [];
+  const text = [view !== "today" && wire.q, (view === "today" && wire.todayLabel) || wire.label].filter(Boolean).join(": ");
+  if (!text) return marks;
+  const at = pointAt(labelAt);
+  return [...marks, drawLabel(svg, { x: at.x + dx, y: at.y + dy }, text, stroke, wire.labelAlign)];
+}
+
+function drawWires(root, wires) {
+  const svg = root.querySelector("svg.wires"), box = root.getBoundingClientRect(), view = root.dataset.view;
+  svg.setAttribute("width", box.width);
+  svg.setAttribute("height", box.height);
+  svg.innerHTML = "<defs>" + Object.entries(strokes).map(([name, { color }]) => `<marker id="arrow-${name}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="${color}"/></marker>`).join("") + "</defs>";
+  const labels = wires.filter((wire) => shownIn(wire, view)).flatMap((wire) => drawWire(svg, root, wire, view) ?? []);
+  root.dataset.collisions = JSON.stringify(collisions(root, labels));
+}
+
+function connect(root, wires) {
+  const redraw = () => drawWires(root, wires);
+  redraw();
+  new ResizeObserver(redraw).observe(root);
+  for (const button of root.querySelectorAll("[data-view-to]")) button.addEventListener("click", () => {
+    root.dataset.view = button.dataset.viewTo;
+    for (const other of root.querySelectorAll("[data-view-to]")) other.setAttribute("aria-pressed", String(other === button));
+    redraw();
+  });
+  const toggle = root.querySelector("[data-untouched-toggle]");
+  toggle?.addEventListener("click", () => {
+    const on = root.dataset.untouched !== "on";
+    root.dataset.untouched = on ? "on" : "off";
+    toggle.setAttribute("aria-pressed", String(on));
+    redraw();
+  });
+}
+
+connect(document.getElementById("modules"), [{"from":"cli","to":"life-seam","toAt":0.15},{"from":"life","to":"card-seam","fromSide":"right","toSide":"left"},{"from":"life","to":"drive-seam","fromAt":0.15},{"from":"life","to":"valves-seam","fromAt":0.4},{"from":"life","to":"judge-seam","fromAt":0.65},{"from":"life","to":"topo-seam","fromAt":0.85},{"from":"life","to":"score-seam","fromAt":0.97},{"from":"valves-caps","to":"proc-seam","toAt":0.6},{"from":"valves-caps","to":"edge-seam","toAt":0.3},{"from":"life","to":"wf-seam","fromSide":"left","toSide":"left","toAt":0.5,"label":"hooks","change":"added","bend":24,"fromAt":0.5,"labelAt":0.5,"labelOffset":[46,0],"labelAlign":"start"},{"from":"card-fixed","to":"judge","kind":"leak","label":"3 cycles","change":"removed","toAt":0.8,"crossAt":0.3,"labelAt":0.6}]);
+</script>
+</body></html>

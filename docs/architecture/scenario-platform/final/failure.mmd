@@ -1,0 +1,22 @@
+sequenceDiagram
+    participant PC as persons-cohorts
+    participant S as services
+    participant W as workflows
+    participant E as edge
+    participant L as lifecycle
+    participant J as judge
+    PC->>S: $set at capture: 200
+    S->>S: person and membership<br/>rows written
+    S--xS: membership change never<br/>reaches the trigger consumer
+    Note over S,E: no webhook arrives
+    loop until quiet held for settleMs, or convergeWithin
+        L->>PC: pending(): 0, lag of declared groups 0
+        L->>W: pending(): 0, Cyclotron empty
+    end
+    Note over W,L: zeros held, but deliveries are missing:<br/>not converged at convergeWithin
+    L->>W: validAfter(): no interruption, admissions passed
+    L->>J: check(history)
+    J->>PC: hops(): accepted N, persons N, members N
+    J->>W: hops(): triggered 0, delivered 0
+    J-->>L: failed: at_least_once for N units.<br/>Diagnostic: members N, triggered 0
+    Note over L,J: failed, not invalid: nothing on the<br/>statusOf invalid list fired

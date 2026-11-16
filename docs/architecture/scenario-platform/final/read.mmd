@@ -1,0 +1,23 @@
+sequenceDiagram
+    participant B as browser
+    participant V as viewer server
+    participant R as RunSource (open seam)
+    participant A as page composer
+    B->>V: GET /api/runs/:id
+    V->>R: the run
+    R-->>V: scorecard, history, series,<br/>topology, manifest
+    Note over V,R: a v1 record has no manifest:<br/>its converter attaches the<br/>frozen Workflows manifest (Q7)
+    V-->>B: record
+    B->>A: compose(record)
+    A->>A: platform top from history:<br/>verdict, offered vs delivered,<br/>latency, valve timeline
+    A->>A: merge manifests on shared<br/>resource ids, namespace nodes
+    loop each adapter
+        A->>A: tier 1 panels bind<br/>series by name, path order
+    end
+    Note over V,A: an undeclared series name fails<br/>at manifest load. A declared one<br/>with no points draws "no samples" (Q8)
+    B->>A: cursor to t
+    A->>A: paint(t) from series at t,<br/>no fetch, hops shown as a diagnostic
+    opt the run is still going
+        B->>V: GET /api/live, each second
+        V-->>B: record grows, manifest<br/>there from the first poll
+    end
