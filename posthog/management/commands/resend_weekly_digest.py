@@ -6,9 +6,6 @@ Usage:
     # Resend to organizations a failed send skipped. Members who already got it get a second copy.
     python manage.py resend_weekly_digest --digest-key weekly-digest-2026-45 --org <uuid> --org <uuid>
 
-    # Send only to members the routing flag sends through Workflows, for example to test the workflow with staff
-    python manage.py resend_weekly_digest --digest-key weekly-digest-2026-45 --org <uuid> --workflows-only
-
     # Log who would get the digest, without sending
     python manage.py resend_weekly_digest --digest-key weekly-digest-2026-45 --org <uuid> --dry-run
 """
@@ -52,11 +49,6 @@ class Command(BaseCommand):
             type=UUID,
             help="Organization (UUID) to resend to. Repeat the option for more organizations.",
         )
-        parser.add_argument(
-            "--workflows-only",
-            action="store_true",
-            help="Send only to members the routing flag sends through Workflows. Nobody gets a second Customer.io email.",
-        )
         parser.add_argument("--dry-run", action="store_true", help="Log who would get the digest without sending it.")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -69,7 +61,6 @@ class Command(BaseCommand):
             # The scheduled run marks every organization it reached as sent, including ones a failure cut short.
             allow_already_sent=True,
             organization_ids=organization_ids,
-            workflows_only=options["workflows_only"],
             period_end_override=period_end_for_digest_key(digest_key),
         )
         workflow_id = f"weekly-digest-resend-{digest_key}-{uuid4()}"

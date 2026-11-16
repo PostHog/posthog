@@ -14,6 +14,7 @@ import {
 } from './offlineHistoryBreakdown'
 import { OfflineScorerHistoryRunDetails } from './OfflineScorerHistoryRunDetails'
 import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
+import { offlineUnscoredLabel } from './offlineUnscoredLabel'
 
 export function OfflineScorerHistoryTable({
     periodKey,
@@ -124,14 +125,14 @@ export function OfflineScorerHistoryTable({
                     width: breakdown ? '14%' : '20%',
                     render: (_, { summary }) => (
                         <Tooltip
-                            title={`${summary.status_counts.ok} / ${summary.observed_item_count} scored items · ${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${summary.missing_result_count} missing`}
+                            title={`${summary.status_counts.ok} / ${summary.observed_item_count} scored items · ${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${offlineUnscoredLabel(summary)}`}
                         >
                             <div className="text-xs truncate">
                                 <span>{`${summary.status_counts.ok}/${summary.observed_item_count} scored · `}</span>
                                 <span
                                     className={summary.status_counts.error > 0 ? 'text-danger' : 'text-muted'}
                                 >{`${summary.status_counts.error} errors`}</span>
-                                <span className="text-muted">{` · ${summary.missing_result_count} missing`}</span>
+                                <span className="text-muted">{` · ${offlineUnscoredLabel(summary)}`}</span>
                             </div>
                         </Tooltip>
                     ),

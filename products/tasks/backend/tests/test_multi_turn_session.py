@@ -23,6 +23,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from products.tasks.backend.facade import agents as agents_facade
 from products.tasks.backend.facade.api import _public_task_run_state
 from products.tasks.backend.facade.contracts import SessionFile
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
     AgentTurnFailed,
@@ -63,6 +64,9 @@ from products.tasks.backend.tests.agent_log_fixtures import (
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+USER = get_task_profile("user")
 
 
 class _Resp(BaseModel):
@@ -1891,6 +1895,7 @@ class TestMultiTurnSessionStartBranch:
                 prompt="hello",
                 context=context,
                 model=_Resp,
+                profile=USER,
                 **kwargs,
             )
 
@@ -1951,6 +1956,7 @@ class TestMultiTurnSessionStartCleanup:
                 prompt="test",
                 context=CustomPromptSandboxContext(team_id=1, user_id=2),
                 model=_Resp,
+                profile=USER,
             )
 
         # session.end() must have signalled the workflow exactly once on the cleanup path.
@@ -1981,7 +1987,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         "ctx_env, ctx_scopes, expected_env, expected_scopes",
         [
             ("env-uuid-abc", "read_only", "env-uuid-abc", "read_only"),
-            (None, None, None, "full"),
+            (None, None, None, None),
             (None, [], None, []),
         ],
     )
@@ -2001,11 +2007,11 @@ class TestCreateTaskAndTriggerForwardsContext:
             "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
         ) as mock_create:
-            await create_task_and_trigger("prompt", context)
+            await create_task_and_trigger("prompt", context, profile=USER)
 
         kwargs = mock_create.call_args.kwargs
         assert kwargs["sandbox_environment_id"] == expected_env
-        assert kwargs["posthog_mcp_scopes"] == expected_scopes
+        assert kwargs["options"].mcp_scopes == expected_scopes
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -2027,7 +2033,7 @@ class TestCreateTaskAndTriggerForwardsContext:
             "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
         ) as mock_create:
-            await create_task_and_trigger("prompt", context, **{stamp: value})
+            await create_task_and_trigger("prompt", context, profile=USER, **{stamp: value})
 
         assert mock_create.call_args.kwargs[stamp] == value
 
@@ -2049,7 +2055,7 @@ class TestCreateTaskAndTriggerForwardsContext:
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
             task_run = await agents_facade.create_task_and_trigger(
-                "prompt", context, workflow_id_prefix=workflow_id_prefix, analytics_query_context=queries
+                "prompt", context, profile=USER, workflow_id_prefix=workflow_id_prefix, analytics_query_context=queries
             )
 
         persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
@@ -2098,11 +2104,11 @@ class TestCreateTaskAndTriggerForwardsContext:
             if fail_initialization:
                 with pytest.raises(ValueError, match="Initialization failed"):
                     await _create_task_and_trigger(
-                        "prompt", context, origin_key="trial-example", before_task_dispatch=initialize
+                        "prompt", context, profile=USER, origin_key="trial-example", before_task_dispatch=initialize
                     )
             else:
                 task, run = await _create_task_and_trigger(
-                    "prompt", context, origin_key="trial-example", before_task_dispatch=initialize
+                    "prompt", context, profile=USER, origin_key="trial-example", before_task_dispatch=initialize
                 )
                 assert task.origin_key == "trial-example"
                 assert run.state["private_ready"] is True
@@ -2128,7 +2134,11 @@ class TestCreateTaskAndTriggerForwardsContext:
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
         ):
             _, run = await _create_task_and_trigger(
-                "prompt", context, files=files, before_task_dispatch=lambda run_id: {"private_ready": True}
+                "prompt",
+                context,
+                profile=USER,
+                files=files,
+                before_task_dispatch=lambda run_id: {"private_ready": True},
             )
 
         persisted = await sync_to_async(TaskRun.objects.get)(id=run.id)
@@ -2152,7 +2162,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         )
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
-            task_run = await agents_facade.create_task_and_trigger("prompt", context)
+            task_run = await agents_facade.create_task_and_trigger("prompt", context, profile=USER)
 
         persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
         public_state = _public_task_run_state(persisted.state)
@@ -2167,7 +2177,9 @@ class TestCreateTaskAndTriggerForwardsContext:
         context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
-            task_run = await agents_facade.create_task_and_trigger("prompt", context, output_schema=output_schema)
+            task_run = await agents_facade.create_task_and_trigger(
+                "prompt", context, profile=USER, output_schema=output_schema
+            )
 
         persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
         assert persisted.state.get("caller_ends_run") is expected_flag
@@ -2204,14 +2216,14 @@ class TestCreateTaskAndTriggerForwardsContext:
             "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
         ) as mock_create:
-            await create_task_and_trigger("prompt", context)
+            await create_task_and_trigger("prompt", context, profile=USER)
 
-        kwargs = mock_create.call_args.kwargs
+        options = mock_create.call_args.kwargs["options"]
         assert (
-            kwargs["model"],
-            kwargs["runtime_adapter"],
-            kwargs["reasoning_effort"],
-            kwargs["initial_permission_mode"],
+            options.model,
+            options.adapter,
+            options.reasoning_effort,
+            options.permission_mode,
         ) == (model, runtime_adapter, reasoning_effort, initial_permission_mode)
 
 
@@ -2258,6 +2270,7 @@ class TestMultiTurnSessionStartFallback:
                 prompt="x",
                 context=MagicMock(),
                 model=_Resp,
+                profile=USER,
                 fallback_from_text=lambda text: _Resp(value=text),
                 json_retry_prompt="Return JSON" if retry_reply is not None else None,
             )
@@ -2273,7 +2286,7 @@ class TestMultiTurnSessionStartFallback:
 
         with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
             with pytest.raises(ValueError):
-                await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp)
+                await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, profile=USER)
 
         session.end.assert_awaited_once()  # type: ignore[attr-defined]
         assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
@@ -2287,7 +2300,7 @@ class TestMultiTurnSessionStartFallback:
             MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, json.dumps({"value": "ok"})))
         ):
             _, parsed = await MultiTurnSession.start(
-                prompt="x", context=MagicMock(), model=_Resp, fallback_from_text=fallback
+                prompt="x", context=MagicMock(), model=_Resp, profile=USER, fallback_from_text=fallback
             )
 
         assert parsed == _Resp(value="ok")
@@ -2305,7 +2318,9 @@ class TestMultiTurnSessionStartFallback:
 
         with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
             with pytest.raises(ValueError):
-                await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, fallback_from_text=boom)
+                await MultiTurnSession.start(
+                    prompt="x", context=MagicMock(), model=_Resp, profile=USER, fallback_from_text=boom
+                )
 
         session.end.assert_awaited_once()  # type: ignore[attr-defined]
         assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
@@ -2322,7 +2337,9 @@ class TestMultiTurnSessionStartFallback:
             patch.object(MultiTurnSession, "_parse_and_validate", side_effect=asyncio.CancelledError()),
         ):
             with pytest.raises(asyncio.CancelledError):
-                await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, fallback_from_text=fallback)
+                await MultiTurnSession.start(
+                    prompt="x", context=MagicMock(), model=_Resp, profile=USER, fallback_from_text=fallback
+                )
 
         fallback.assert_not_called()
         session.end.assert_awaited_once()  # type: ignore[attr-defined]
@@ -2342,10 +2359,12 @@ class TestMultiTurnSessionStartFallback:
         with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
             if expected is None:
                 with pytest.raises(ValueError):
-                    await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON")
+                    await MultiTurnSession.start(
+                        prompt="x", context=MagicMock(), model=_Resp, profile=USER, json_retry_prompt="JSON"
+                    )
             else:
                 _, parsed = await MultiTurnSession.start(
-                    prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON"
+                    prompt="x", context=MagicMock(), model=_Resp, profile=USER, json_retry_prompt="JSON"
                 )
                 assert parsed == expected
 
@@ -2367,7 +2386,12 @@ class TestMultiTurnSessionStartFallback:
         with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
             with pytest.raises(RuntimeError):
                 await MultiTurnSession.start(
-                    prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON", fallback_from_text=fallback
+                    prompt="x",
+                    context=MagicMock(),
+                    model=_Resp,
+                    profile=USER,
+                    json_retry_prompt="JSON",
+                    fallback_from_text=fallback,
                 )
 
         fallback.assert_not_called()

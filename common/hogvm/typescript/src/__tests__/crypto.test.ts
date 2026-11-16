@@ -2,11 +2,11 @@ import crypto from 'crypto'
 
 import { execSync } from '../execute'
 import { Operation as op } from '../operation'
-import { sha1, sha1HmacChain } from '../stl/crypto'
+import { ed25519Verify, sha1, sha1HmacChain } from '../stl/crypto'
 import { STL } from '../stl/stl'
 import { ExecOptions } from '../types'
 
-describe('sha1 and sha1HmacChain', () => {
+describe('crypto STL', () => {
     const options: ExecOptions = { external: { crypto } }
 
     describe('sha1 bytecode', () => {
@@ -88,6 +88,15 @@ describe('sha1 and sha1HmacChain', () => {
         test('rejects fewer than two elements', () => {
             expect(() => sha1HmacChain(['only-a-key'], 'hex', options)).toThrow(
                 'Data array must contain at least two elements.'
+            )
+        })
+    })
+
+    describe('ed25519Verify', () => {
+        test('fails loudly on a crypto module without Ed25519, like the browser REPL', () => {
+            const browserLike = { ...crypto, createPublicKey: undefined, verify: undefined }
+            expect(() => ed25519Verify('r', 'aa', 'bb', 'hex', { external: { crypto: browserLike } })).toThrow(
+                'ed25519Verify is not supported in this runtime.'
             )
         })
     })

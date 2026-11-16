@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -17,6 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 from products.data_modeling.backend.facade.api import (
     definition_fingerprint,
     get_incremental_config,
+    get_incremental_state,
     set_incremental_state,
 )
 from products.data_modeling.backend.facade.models import (
@@ -27,6 +29,7 @@ from products.data_modeling.backend.facade.models import (
 from products.engineering_analytics.backend.facade.contracts import MATERIALIZED_VIEWS_FEATURE_FLAG
 from products.engineering_analytics.backend.logic.materialized_ci import MAX_MATERIALIZATION_AGE
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import WIDEST_SCAN_FLOOR_SLACK
 from products.engineering_analytics.backend.logic.sources import (
     DEPOT_JOB_ATTEMPTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
@@ -34,6 +37,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_RUNS_SCHEMA,
 )
 from products.engineering_analytics.backend.logic.views import ci_rows
+from products.engineering_analytics.backend.logic.views.incremental_floor import SEED_LOOKBACK
 from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
@@ -52,6 +56,10 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 from products.engineering_analytics.backend.tests._logic_helpers import _ago_with_duration, _job_row, _WarehouseMixin
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+
+
+def _covered_since() -> datetime:
+    return timezone.now() - timedelta(days=7)
 
 
 def _ready_views(
@@ -137,10 +145,11 @@ class TestMaterializedCI(BaseTest):
         _ready_views(self)
         with patch("posthoganalytics.feature_enabled", return_value=enabled):
             reader = self._reader()
-            runs = set(get_table_names(parse_select(reader.run_source())))
-            jobs = set(get_table_names(parse_select(reader.jobs_source() or "")))
-            costs = set(get_table_names(parse_select(reader.job_cost_source() or "")))
-            detail = set(get_table_names(parse_select(reader.jobs_source(include_steps=True) or "")))
+            since = _covered_since()
+            runs = set(get_table_names(parse_select(reader.run_source(since=since))))
+            jobs = set(get_table_names(parse_select(reader.jobs_source(since=since) or "")))
+            costs = set(get_table_names(parse_select(reader.job_cost_source(since=since) or "")))
+            detail = set(get_table_names(parse_select(reader.jobs_source(since=since, include_steps=True) or "")))
             current = set(get_table_names(parse_select(reader.runs_cte().removeprefix("runs AS "))))
         if stored:
             assert runs == {ci_rows.RUNS_VIEW_NAME}
@@ -161,12 +170,18 @@ class TestMaterializedCI(BaseTest):
             "new_definition",
             "missing_stored_column",
             "wrong_viewset",
+            "full_build_not_recorded",
         ]
     )
     def test_unusable_materializations_fall_back_together(self, condition: str) -> None:
         views = _ready_views(self)
         jobs = views[ci_rows.JOBS_VIEW_NAME]
-        if condition == "missing_pair":
+        if condition == "full_build_not_recorded":
+            fingerprint = get_incremental_state(jobs).definition_fingerprint
+            DataWarehouseSavedQuery.objects.filter(id=jobs.id).update(incremental_state={})
+            jobs.refresh_from_db()
+            set_incremental_state(jobs, watermark=timezone.now(), fingerprint=fingerprint, mode="incremental")
+        elif condition == "missing_pair":
             DataWarehouseSavedQuery.objects.filter(id=jobs.id).update(deleted=True)
         elif condition == "disabled_view":
             DataWarehouseSavedQuery.objects.filter(id=jobs.id).update(is_materialized=False)
@@ -188,8 +203,45 @@ class TestMaterializedCI(BaseTest):
 
         with patch("posthoganalytics.feature_enabled", return_value=True):
             reader = self._reader()
-            assert "raw_github_workflow_runs" in get_table_names(parse_select(reader.run_source()))
-            assert "raw_github_workflow_jobs" in get_table_names(parse_select(reader.jobs_source() or ""))
+            assert "raw_github_workflow_runs" in get_table_names(
+                parse_select(reader.run_source(since=_covered_since()))
+            )
+            assert "raw_github_workflow_jobs" in get_table_names(
+                parse_select(reader.jobs_source(since=_covered_since()) or "")
+            )
+
+    @parameterized.expand(
+        [
+            ("unbounded", None, timedelta(0), False),
+            ("floor_reaches_before_the_seed", WIDEST_SCAN_FLOOR_SLACK - timedelta(seconds=1), timedelta(0), False),
+            ("inside_the_seed", WIDEST_SCAN_FLOOR_SLACK, timedelta(0), True),
+            ("inside_the_older_seed_only", WIDEST_SCAN_FLOOR_SLACK - timedelta(days=10), timedelta(days=10), False),
+        ]
+    )
+    def test_reads_windowed_before_the_stored_coverage_use_raw_tables(
+        self, _: str, offset_from_coverage_start: timedelta | None, jobs_seeded_earlier_by: timedelta, stored: bool
+    ) -> None:
+        views = _ready_views(self)
+        if jobs_seeded_earlier_by:
+            jobs_view = views[ci_rows.JOBS_VIEW_NAME]
+            fingerprint = get_incremental_state(jobs_view).definition_fingerprint
+            with time_machine.travel(timezone.now() - jobs_seeded_earlier_by, tick=False):
+                set_incremental_state(jobs_view, watermark=timezone.now(), fingerprint=fingerprint, mode="full_refresh")
+        # The coverage starts at the later of the two seeds.
+        covers_from = timezone.now() - SEED_LOOKBACK
+        window_start = covers_from + offset_from_coverage_start if offset_from_coverage_start is not None else None
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            reader = self._reader()
+            runs = set(get_table_names(parse_select(reader.run_source(since=window_start))))
+            jobs = set(get_table_names(parse_select(reader.jobs_source(since=window_start) or "")))
+            costs = set(get_table_names(parse_select(reader.job_cost_source(since=window_start) or "")))
+        if stored:
+            assert runs == {ci_rows.RUNS_VIEW_NAME}
+            assert jobs == {ci_rows.JOBS_VIEW_NAME}
+            assert costs == {ci_rows.RUNS_VIEW_NAME, ci_rows.JOBS_VIEW_NAME}
+        else:
+            assert "raw_github_workflow_runs" in runs
+            assert "raw_github_workflow_jobs" in jobs & costs
 
     @parameterized.expand([DataModelingJob.Status.RUNNING, DataModelingJob.Status.FAILED])
     def test_an_unfinished_newer_build_keeps_the_completed_one_serving(self, status: str) -> None:
@@ -198,8 +250,12 @@ class TestMaterializedCI(BaseTest):
 
         with patch("posthoganalytics.feature_enabled", return_value=True):
             reader = self._reader()
-            assert set(get_table_names(parse_select(reader.run_source()))) == {ci_rows.RUNS_VIEW_NAME}
-            assert set(get_table_names(parse_select(reader.jobs_source() or ""))) == {ci_rows.JOBS_VIEW_NAME}
+            assert set(get_table_names(parse_select(reader.run_source(since=_covered_since())))) == {
+                ci_rows.RUNS_VIEW_NAME
+            }
+            assert set(get_table_names(parse_select(reader.jobs_source(since=_covered_since()) or ""))) == {
+                ci_rows.JOBS_VIEW_NAME
+            }
 
     def test_flag_exception_falls_back_to_live_sources(self) -> None:
         _ready_views(self)
@@ -210,7 +266,9 @@ class TestMaterializedCI(BaseTest):
             return False
 
         with patch("posthoganalytics.feature_enabled", side_effect=flag):
-            assert "raw_github_workflow_runs" in get_table_names(parse_select(self._reader().run_source()))
+            assert "raw_github_workflow_runs" in get_table_names(
+                parse_select(self._reader().run_source(since=_covered_since()))
+            )
 
     def test_freshness_and_cache_scope_follow_materialization(self) -> None:
         _ready_views(self)
@@ -256,8 +314,10 @@ class TestMaterializedCI(BaseTest):
         _ready_views(self)
         with patch("posthoganalytics.feature_enabled", return_value=True):
             reader = CuratedGitHubSource.for_team(self.team, source_id=str(other.id), repo="example/widgets")
-            assert "second_github_workflow_runs" in get_table_names(parse_select(reader.run_source()))
-            assert "depot_attempts" in get_table_names(parse_select(reader.jobs_source() or ""))
+            assert "second_github_workflow_runs" in get_table_names(
+                parse_select(reader.run_source(since=_covered_since()))
+            )
+            assert "depot_attempts" in get_table_names(parse_select(reader.jobs_source(since=_covered_since()) or ""))
 
 
 @time_machine.travel(lambda: datetime.now(UTC), tick=False)
@@ -426,13 +486,14 @@ class TestMaterializedCIParity(_WarehouseMixin):
 
         def read(*, stored: bool = False, floor: datetime | None = None) -> dict[str, list[tuple]]:
             reader = CuratedGitHubSource.for_team(self.team, source_id=str(source.id), repo=repository)
+            since = _covered_since()
             if stored:
-                assert set(get_table_names(parse_select(reader.run_source()))) == {ci_rows.RUNS_VIEW_NAME}
+                assert set(get_table_names(parse_select(reader.run_source(since=since)))) == {ci_rows.RUNS_VIEW_NAME}
             floor_value = floor.strftime("%Y-%m-%d") if floor is not None else None
             queries = {
-                "runs": f"SELECT id, run_attempt, pr_number, ci_engine, stopped_reporting FROM {reader.run_source(started_floor=floor is not None)} ORDER BY ci_engine, id",
-                "jobs": f"SELECT id, run_id, run_attempt, is_rerun_copy, ci_engine FROM {reader.jobs_source(created_floor=floor is not None)} ORDER BY ci_engine, id",
-                "costs": f"SELECT run_id, job_name, run_attempt, head_branch, estimated_cost_usd, pr_number, ci_engine FROM {reader.job_cost_source(created_floor=floor is not None)} ORDER BY ci_engine, run_id, job_name, run_attempt",
+                "runs": f"SELECT id, run_attempt, pr_number, ci_engine, stopped_reporting FROM {reader.run_source(started_floor=floor is not None, since=since)} ORDER BY ci_engine, id",
+                "jobs": f"SELECT id, run_id, run_attempt, is_rerun_copy, ci_engine FROM {reader.jobs_source(created_floor=floor is not None, since=since)} ORDER BY ci_engine, id",
+                "costs": f"SELECT run_id, job_name, run_attempt, head_branch, estimated_cost_usd, pr_number, ci_engine FROM {reader.job_cost_source(created_floor=floor is not None, since=since)} ORDER BY ci_engine, run_id, job_name, run_attempt",
             }
             return {
                 kind: list(
@@ -472,6 +533,11 @@ class TestMaterializedCIParity(_WarehouseMixin):
                 placeholders={"incremental_window_start": ast.Constant(value=None)},
                 bypass_warehouse_access_control=True,
             )
+            # A materialization stores these types. A UInt8 flag would be stored as Int16, which a stored read
+            # cannot use as a condition.
+            types = dict(response.types or [])
+            booleans = [column for column, field in fields.items() if isinstance(field, BooleanDatabaseField)]
+            assert {column: types[column] for column in booleans} == dict.fromkeys(booleans, "Nullable(Bool)")
             if name == ci_rows.JOBS_VIEW_NAME:
                 windowed = execute_hogql_query(
                     sql,

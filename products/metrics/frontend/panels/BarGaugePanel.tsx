@@ -6,7 +6,7 @@ import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 
 import { flattenSeriesRows } from './metricsReduce'
-import { thresholdColor } from './metricsThresholds'
+import { thresholdColorToken } from './metricsThresholds'
 import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
@@ -36,7 +36,9 @@ export function BarGaugePanel({ series, display, fallbackName }: MetricsPanelPro
                 color: getColorVar(FALLBACK_COLOR),
                 // Per-bar threshold colors.
                 bars: rows.map((row) => ({
-                    color: getColorVar(thresholdColor(row.values[reducer] ?? null, display.thresholds, FALLBACK_COLOR)),
+                    color: getColorVar(
+                        thresholdColorToken(row.values[reducer] ?? null, display.thresholds, FALLBACK_COLOR)
+                    ),
                 })),
             },
         ],

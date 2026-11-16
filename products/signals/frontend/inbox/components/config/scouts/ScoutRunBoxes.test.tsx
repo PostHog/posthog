@@ -43,8 +43,8 @@ describe('ScoutRunBoxes', () => {
         const labels = Array.from(container.querySelectorAll('[aria-label]')).map(
             (node) => node.getAttribute('aria-label') ?? ''
         )
-        expect(labels.filter((label) => label.includes('$4.03'))).toHaveLength(1)
-        expect(labels.filter((label) => label.includes('$'))).toHaveLength(1)
+        expect(labels.filter((label) => label.includes('403 credits'))).toHaveLength(1)
+        expect(labels.filter((label) => label.includes('credits'))).toHaveLength(1)
     })
 
     it('renders two elements per plain run, so a large fleet stays a small DOM', () => {
@@ -99,6 +99,6 @@ describe('ScoutRunBoxes', () => {
     it('leaves every run unpriced when no costs are given', () => {
         const { container } = render(<ScoutRunBoxes runs={[makeRun()]} />)
 
-        expect(container.querySelector('[aria-label]')?.getAttribute('aria-label')).not.toContain('$')
+        expect(container.querySelector('[aria-label]')?.getAttribute('aria-label')).not.toContain('credits')
     })
 })

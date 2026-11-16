@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceExportApi } from '../../generated/api.schemas'
-import { makeTraceResource } from './adapter/testFixtures'
+import { makeTraceResource } from './testFixtures'
 import { toExportedAsset, traceExportLogic } from './traceExportLogic'
 import { traceViewLogic } from './traceViewLogic'
 
@@ -254,5 +254,33 @@ describe('traceExportLogic', () => {
 
         expect(lemonToast.error).toHaveBeenCalledWith('This trace is no longer available.')
         expect(unhandled).toEqual([])
+    })
+
+    test('exportTrace shows as busy until the export has started', async () => {
+        let releaseExport = (): void => {}
+        const exportStarted = new Promise<void>((resolve) => {
+            releaseExport = resolve
+        })
+        useMocks({
+            post: {
+                [EXPORT_URL]: async () => {
+                    await exportStarted
+                    return [201, createdExport]
+                },
+            },
+        })
+        exportsLogic.mount()
+        await expectLogic(traceViewLogic(props), () => {
+            traceViewLogic(props).mount()
+        }).toFinishAllListeners()
+        const logic = traceExportLogic(props)
+        logic.mount()
+
+        logic.actions.exportTrace()
+
+        expect(logic.values.traceExportLoading).toBe(true)
+        releaseExport()
+        await expectLogic(logic).toDispatchActions(['exportTraceSuccess'])
+        expect(logic.values.traceExportLoading).toBe(false)
     })
 })

@@ -4,7 +4,7 @@ use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::common::Name;
-use symbolic::demangle::{Demangle, DemangleOptions};
+use symbolic_demangle::{Demangle, DemangleOptions};
 
 use crate::{
     error::{AppleError, FrameError, ResolveError, UnhandledError},
@@ -423,6 +423,25 @@ mod test {
     fn identifies_kotlin_source_language() {
         assert_eq!(lang_from_filename(Some("App.kt")), "kotlin");
         assert_eq!(lang_from_filename(Some("Build.kts")), "kotlin");
+    }
+
+    #[test]
+    fn unresolved_frame_demangles_cpp_but_leaves_swift_mangled() {
+        for (function, expected) in [
+            ("_ZN7example3runEv", "example::run()"),
+            ("?run@example@@YAXXZ", "void example::run(void)"),
+            (
+                "$s5MyApp11ContentViewV4bodyQrvg",
+                "$s5MyApp11ContentViewV4bodyQrvg",
+            ),
+        ] {
+            let mut raw = frame_at(0x100004000, 0x100000000);
+            raw.function = Some(function.to_string());
+
+            let frame = raw.handle_resolution_error(AppleError::NoMatchingDebugImage);
+
+            assert_eq!(frame.resolved_name.as_deref(), Some(expected));
+        }
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]

@@ -17,9 +17,12 @@ import {
 } from '../generated/api'
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import type { CategoricalScoreOptionApi } from '../generated/api.schemas'
+import type { CompositeInputReadApi } from '../generated/api.schemas'
+import { updateScorerDraft } from './compositeFormulaDefaults'
 import { getBooleanConfig } from './scoreDefinitionConfigUtils'
 import {
     buildConfigFromDraft,
+    buildCompositionFromDraft,
     createDraft,
     getApiErrorDetail,
     getCurrentProjectId,
@@ -101,7 +104,7 @@ export interface scorerLogicActions {
         value: ScoreDefinitionDraft[keyof ScoreDefinitionDraft]
     ) => {
         field: keyof ScoreDefinitionDraft
-        value: boolean | string | string[] | CategoricalScoreOptionApi[]
+        value: boolean | string | string[] | CategoricalScoreOptionApi[] | CompositeInputReadApi[]
     }
     setError: (error: string | null) => {
         error: string | null
@@ -202,28 +205,35 @@ export const scorerLogic = kea<scorerLogicType>([
                               : 'create',
                         definition
                     ),
-                setDraftField: (state, { field, value }) => ({ ...state, [field]: value }),
+                setDraftField: (state, { field, value }) => updateScorerDraft(state, field, value),
                 updateOptionLabel: (state, { index, value }) => {
                     const oldKey = getScoreDefinitionOptionKey(state.options[index])
                     const newKey = getScoreDefinitionOptionKey({ ...state.options[index], label: value })
-                    return {
-                        ...state,
-                        options: state.options.map((option, optionIndex) =>
+                    return updateScorerDraft(
+                        {
+                            ...state,
+                            categoricalPassingCategories: state.categoricalPassingCategories
+                                .map((key) => (key === oldKey ? newKey : key))
+                                .filter(Boolean),
+                        },
+                        'options',
+                        state.options.map((option, optionIndex) =>
                             optionIndex === index ? { ...option, label: value } : option
-                        ),
-                        categoricalPassingCategories: state.categoricalPassingCategories
-                            .map((key) => (key === oldKey ? newKey : key))
-                            .filter(Boolean),
-                    }
+                        )
+                    )
                 },
-                addOption: (state) => ({ ...state, options: [...state.options, { key: '', label: '' }] }),
-                removeOption: (state, { index }) => ({
-                    ...state,
-                    options: state.options.filter((_, optionIndex) => optionIndex !== index),
-                    categoricalPassingCategories: state.categoricalPassingCategories.filter(
-                        (key) => key !== getScoreDefinitionOptionKey(state.options[index])
+                addOption: (state) => updateScorerDraft(state, 'options', [...state.options, { key: '', label: '' }]),
+                removeOption: (state, { index }) =>
+                    updateScorerDraft(
+                        {
+                            ...state,
+                            categoricalPassingCategories: state.categoricalPassingCategories.filter(
+                                (key) => key !== getScoreDefinitionOptionKey(state.options[index])
+                            ),
+                        },
+                        'options',
+                        state.options.filter((_, optionIndex) => optionIndex !== index)
                     ),
-                }),
             },
         ],
         saving: [false, { setSaving: (_, { saving }) => saving }],
@@ -243,8 +253,10 @@ export const scorerLogic = kea<scorerLogicType>([
             (s) => [s.draft, s.definition],
             (draft: ScoreDefinitionDraft, definition: ScoreDefinitionApi | null) =>
                 !!definition &&
-                JSON.stringify(buildConfigFromDraft(draft)) !==
-                    JSON.stringify(buildConfigFromDraft(createDraft('metadata', definition))),
+                (JSON.stringify(buildConfigFromDraft(draft)) !==
+                    JSON.stringify(buildConfigFromDraft(createDraft('metadata', definition))) ||
+                    JSON.stringify(buildCompositionFromDraft(draft)) !==
+                        JSON.stringify(buildCompositionFromDraft(createDraft('metadata', definition)))),
         ],
         hasChanges: [
             (s) => [s.isNew, s.configChanged, s.draft, s.definition],
@@ -326,18 +338,24 @@ export const scorerLogic = kea<scorerLogicType>([
             }
             const operation = isNew ? 'create' : willCreateVersion ? 'version' : 'metadata'
             actions.setError(null)
-            posthog.capture('llma scorer save started', { operation, kind: draft.kind })
+            posthog.capture('llma scorer save started', { operation, kind: draft.kind, calculation: draft.calculation })
             try {
                 const saved = isNew
                     ? await llmAnalyticsScoreDefinitionsCreate(teamId, {
                           ...metadata,
                           kind: draft.kind,
+                          ...(draft.calculation === 'composite'
+                              ? { calculation: draft.calculation, composition: buildCompositionFromDraft(draft) }
+                              : {}),
                           config: buildConfigFromDraft(draft),
                       })
                     : willCreateVersion
                       ? await llmAnalyticsScoreDefinitionsNewVersionCreate(teamId, props.scorerId, {
                             ...metadata,
                             config: buildConfigFromDraft(draft),
+                            ...(draft.calculation === 'composite'
+                                ? { composition: buildCompositionFromDraft(draft) }
+                                : {}),
                             base_version: definition!.current_version,
                         })
                       : await llmAnalyticsScoreDefinitionsPartialUpdate(teamId, props.scorerId, metadata)
@@ -348,7 +366,7 @@ export const scorerLogic = kea<scorerLogicType>([
                 if (!isNew) {
                     actions.initialize(saved)
                 }
-                posthog.capture('llma scorer saved', { operation, kind: saved.kind })
+                posthog.capture('llma scorer saved', { operation, kind: saved.kind, calculation: saved.calculation })
                 lemonToast.success(isNew ? 'Scorer created.' : 'Scorer saved.')
                 router.actions.replace(urls.aiObservabilityScorers())
             } catch (error) {
@@ -359,7 +377,11 @@ export const scorerLogic = kea<scorerLogicType>([
                         ? 'This scorer has a newer version. Reload the scorer and review your changes before saving.'
                         : getApiErrorDetail(error) || 'Could not save this scorer. Try again.'
                 )
-                posthog.capture('llma scorer save failed', { operation, kind: draft.kind })
+                posthog.capture('llma scorer save failed', {
+                    operation,
+                    kind: draft.kind,
+                    calculation: draft.calculation,
+                })
             } finally {
                 actions.setSaving(false)
             }
@@ -383,6 +405,7 @@ export const scorerLogic = kea<scorerLogicType>([
             actions.setError(null)
             try {
                 const saved = await llmAnalyticsScoreDefinitionsNewVersionCreate(teamId, definition.id, {
+                    ...(definition.calculation === 'composite' ? { composition: definition.composition } : {}),
                     config:
                         definition.kind === 'boolean'
                             ? buildConfigFromDraft(createDraft('config', definition))

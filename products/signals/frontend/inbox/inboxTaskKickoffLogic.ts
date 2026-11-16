@@ -9,26 +9,30 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { retryImport } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { SidePanelTab, UserType } from '~/types'
 
 import {
     chatContextLogic,
     chatSendItems,
-    runStreamLogic,
     taskRunDefaultsLogic,
     wrapWithPosthogContext,
-} from 'products/posthog_ai/frontend/api/logics'
+} from 'products/posthog_ai/frontend/api/launch'
 import { submitWithWarmRunRetry } from 'products/posthog_ai/frontend/utils/warmRunSubmission'
+import type { SelfDrivingTrialStatusApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     tasksCreate,
     tasksRunCreate,
@@ -47,8 +51,15 @@ import {
     WarmTaskRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { signalsReportArtefactsCreate } from '../generated/api'
 import type { SignalReportCheckApi } from '../generated/api.schemas'
-import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
+import {
+    InboxReportActionSurface,
+    InboxReportActionType,
+    captureInboxReportAction,
+    captureInboxReportActionCompleted,
+} from './inboxAnalytics'
+import { selfDrivingTrialLogic } from './logics/selfDrivingTrialLogic'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -109,6 +120,12 @@ const REPORT_FALLBACK_RUNTIME: ClaudeRuntimeSelection = {
 // project and personal defaults means sending none. `defaultModel` is the server's own resolution
 // for this user, but it also reads null while `@me/config` is still in flight, so wait for that
 // answer first: a fallback sent over a default nobody has looked up yet would silently win.
+// Lazy: the stream logic is the largest part of the agent-run code, and only a started run needs it.
+// A static import puts it in the first load of the home page.
+function loadRunStreamLogic(): Promise<typeof import('products/posthog_ai/frontend/api/logics')> {
+    return retryImport(() => import('products/posthog_ai/frontend/api/logics'))
+}
+
 async function launchSelection(values: inboxTaskKickoffLogicValues): Promise<ReportRuntimeSelection> {
     if (!values.defaultsResolved) {
         await taskRunDefaultsLogic.asyncActions.loadMyConfig()
@@ -298,24 +315,22 @@ export function buildDiscussReportPrompt(
     return wrapWithPosthogContext(discussReportMessage(question), [...instructions, ...contextItems])
 }
 
-// The per-report cap 429 carries code `signal_report_task_cap` with its message under `error`
-// (TaskRunErrorResponseSerializer); the per-user creation throttle is DRF's `throttled` 429 with
-// `detail`; the free-trial refusal is a 402 with code `self_driving_free_trial` and `detail`. All
-// are user-facing copy the server owns. Matching on code, not status: other 429s (e.g. the
-// compute-quota gate) are not task limits and belong on the generic failure path.
+// TaskRunErrorResponseSerializer puts user-facing copy under `error`; DRF uses `detail`.
 function taskLimitMessage(error: any): string | null {
     if (
         error?.code === 'signal_report_task_cap' ||
         error?.code === 'throttled' ||
-        error?.code === 'self_driving_free_trial'
+        error?.code === 'self_driving_free_trial' ||
+        (error?.status === 429 &&
+            (error?.code === 'usage_limit_exceeded' ||
+                error?.code === 'posthog_code_billing_limit_exceeded' ||
+                error?.data?.type === 'billing_limit'))
     ) {
-        return error?.data?.error || error?.detail || 'Task limit reached for this report. Try again later.'
+        return error?.data?.error || error?.detail || 'Task limit reached. Try again later.'
     }
     return null
 }
 
-// Shared error tail of both kickoff listeners: a recognized task-limit 429 gets the server's copy
-// and a `limited` outcome; anything else is a plain failure.
 function handleKickoffError(
     error: any,
     report: SignalReport,
@@ -323,18 +338,15 @@ function handleKickoffError(
     fallbackMessage: string
 ): void {
     const limitMessage = taskLimitMessage(error)
-    if (limitMessage) {
-        lemonToast.error(limitMessage)
-        captureInboxReportActionCompleted({
-            report,
-            actionType,
-            outcome: 'limited',
-            limitCode: error?.code ?? null,
-        })
-        return
-    }
-    lemonToast.error(error?.detail || error?.message || fallbackMessage)
-    captureInboxReportActionCompleted({ report, actionType, outcome: 'failure' })
+    lemonToast.error(limitMessage || error?.detail || error?.message || fallbackMessage)
+    captureInboxReportActionCompleted({
+        report,
+        actionType,
+        outcome: limitMessage ? 'limited' : 'failure',
+        limitCode: limitMessage ? (error?.code ?? null) : null,
+        status: error?.status ?? null,
+        code: error?.code ?? null,
+    })
 }
 
 // Mirrors `signal_report_discussion_question`'s `max_length` in the tasks `TaskCreateSerializer`
@@ -436,13 +448,17 @@ function panelStillOnReport(context: ReportChatContext | null, reportId: string)
 export interface inboxTaskKickoffLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    isPhaiSandboxFlagOn: boolean // aiShellLogic
     pageItems: AttachedContextItem[] // chatContextLogic
     picks: AttachedContextItem[] // chatContextLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
+    trial: SelfDrivingTrialStatusApi | null // selfDrivingTrialLogic
     defaultModel: string | null // taskRunDefaultsLogic
     defaultsResolved: boolean // taskRunDefaultsLogic
+    currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
     aiConsentDisabledReason: string | null
     createPrDisabledReason: string | null
     freeTrialDisabledReason: string | null
@@ -508,10 +524,12 @@ export interface inboxTaskKickoffLogicActions {
     }
     createPrFromReport: (
         report: SignalReport,
-        feedback?: string
+        feedback?: string,
+        repository?: string
     ) => {
         feedback: string | undefined
         report: SignalReport
+        repository: string | undefined
     }
     createPrSuccess: () => {
         value: true
@@ -538,6 +556,19 @@ export interface inboxTaskKickoffLogicActions {
     }
     discussReportSuccess: () => {
         value: true
+    }
+    implementReport: (
+        report: SignalReport,
+        feedback: string | undefined,
+        surface: InboxReportActionSurface,
+        openedFromLink?: boolean,
+        repository?: string
+    ) => {
+        feedback: string | undefined
+        openedFromLink: boolean
+        report: SignalReport
+        repository: string | undefined
+        surface: InboxReportActionSurface
     }
     openReportCheckMetricSuggestion: (
         report: SignalReport,
@@ -597,7 +628,10 @@ export interface inboxTaskKickoffLogicMeta {
             dataProcessingAccepted: boolean,
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
-        freeTrialDisabledReason: (featureFlags: FeatureFlagsSet) => string | null
+        freeTrialDisabledReason: (
+            featureFlags: FeatureFlagsSet,
+            trial: SelfDrivingTrialStatusApi | null
+        ) => string | null
         createPrDisabledReason: (
             aiConsentDisabledReason: string | null,
             freeTrialDisabledReason: string | null
@@ -626,8 +660,14 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions'],
         ],
         values: [
+            aiShellLogic,
+            ['isPhaiSandboxFlagOn'],
             projectLogic,
             ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user'],
             chatContextLogic({}),
             ['pageItems', 'picks'],
             runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }),
@@ -638,6 +678,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason'],
             featureFlagLogic,
             ['featureFlags'],
+            selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId! }),
+            ['trial'],
         ],
     })),
 
@@ -673,7 +715,24 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             pullRequestUrl,
             background,
         }),
-        createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
+        createPrFromReport: (report: SignalReport, feedback?: string, repository?: string) => ({
+            report,
+            feedback,
+            repository,
+        }),
+        implementReport: (
+            report: SignalReport,
+            feedback: string | undefined,
+            surface: InboxReportActionSurface,
+            openedFromLink: boolean = false,
+            repository?: string
+        ) => ({
+            report,
+            feedback,
+            surface,
+            openedFromLink,
+            repository,
+        }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
         releaseReportDiscussionWarm: true,
         setReportWarmLease: (lease: ReportWarmLease | null) => ({ lease }),
@@ -763,12 +822,15 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             (dataProcessingAccepted: boolean, dataProcessingApprovalDisabledReason: string | null): string | null =>
                 aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
         ],
-        // The flag is keyed on the organization group, so it resolves once the org group is
-        // registered and flags are re-fetched. The server refuses the call regardless.
         freeTrialDisabledReason: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): string | null =>
-                featureFlags[FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL] ? FREE_TRIAL_PR_DISABLED_REASON : null,
+            (s) => [s.featureFlags, s.trial],
+            (featureFlags: FeatureFlagsSet, trial: SelfDrivingTrialStatusApi | null): string | null => {
+                const restricted =
+                    featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] && trial
+                        ? trial.legacy_pr_restricted
+                        : featureFlags[FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL]
+                return restricted ? FREE_TRIAL_PR_DISABLED_REASON : null
+            },
         ],
         // Why Create PR is unavailable before any report is considered: consent first, then the
         // trial. Discuss keeps only the consent reason, because a trial org can still discuss.
@@ -781,6 +843,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
 
     listeners(({ actions, cache, values, selectors }) => ({
         openReportCheckMetricSuggestion: ({ report, check }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                return
+            }
             if (values.metricCheckReplacementDisabledReason) {
                 return
             }
@@ -803,6 +868,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         openReportDiscussion: ({ report, reportUrl }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                return
+            }
             actions.alignReportDiscussion(report, reportUrl)
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
             if (!values.isCreatingPr) {
@@ -810,6 +878,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         warmReportDiscussion: async ({ report }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                return
+            }
             if (values.aiConsentDisabledReason || values.currentProjectId == null) {
                 return
             }
@@ -918,6 +989,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
         discussReport: async ({ report, reportUrl, question, agentQuestion, intent, pullRequestUrl, background }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                actions.discussReportFailure()
+                return
+            }
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             const disabledReason =
@@ -938,6 +1013,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 }
                 return
             }
+            // Starts the download now, so it overlaps the report refetch. The quick ask shows no thread.
+            const runStreamModule = background ? null : loadRunStreamLogic()
+            // The await below reports a failed download. This keeps an early return from leaving it unhandled.
+            runStreamModule?.catch(() => {})
             // The sidebar context can belong to another report, and the quick ask shows no attachments.
             const contextItems = background ? [] : chatSendItems(values.pageItems, values.picks)
             // The composer renders from a snapshot that can go stale between load and submit (the
@@ -999,6 +1078,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 } else if (!background && cache.warmingReportId === report.id) {
                     cache.warmReleaseRequested = true
                 }
+                // Before the task exists, so a failed download fails the ask with no run started, and no
+                // await sits between the panel check below and the optimistic stream.
+                const runStream = await runStreamModule
                 const { taskId, runId } = await createReportTask(
                     String(values.currentProjectId),
                     cache.disposables,
@@ -1017,9 +1099,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                         toastId: `report-quick-ask-${runId}`,
                         button: { label: 'View', action: () => actions.openReportTask(report, taskId, runId) },
                     })
-                } else if (panelStillOnReport(values.reportChatContext, report.id)) {
+                } else if (runStream && panelStillOnReport(values.reportChatContext, report.id)) {
                     const streamKey = `report-discussion-${uuid()}`
-                    const stream = runStreamLogic({ streamKey })
+                    const stream = runStream.runStreamLogic({ streamKey })
                     cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
                         pauseOnPageHidden: false,
                     })
@@ -1039,23 +1121,115 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 }
             }
         },
-        createPrFromReport: async ({ report, feedback }) => {
-            // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
-            const githubAccess = await import('./logics/reportGithubAccessLogic').catch((error) => {
-                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
-                return null
-            })
-            if (!githubAccess) {
+        implementReport: async ({ report, feedback, surface, openedFromLink, repository }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                return
+            }
+            // A repeated press while the lazy chunks load would start the run twice.
+            if (cache.implementationPending || values.isCreatingPr) {
+                return
+            }
+            cache.implementationPending = true
+            try {
+                // Lazy: these carry the signals API client and the inbox dialogs, which the shell bundle must not.
+                const modules = await Promise.all([
+                    import('./utils/reportActions'),
+                    import('./utils/reportClaim'),
+                    import('./components/shell/ImplementClaimDialog'),
+                    import('./logics/inboxBulkActionsLogic'),
+                ]).catch((error) => {
+                    handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                    return null
+                })
+                if (!modules) {
+                    return
+                }
+                const [{ implementationClaimStep }, { requestReportClaim }, { openImplementClaimDialog }, bulkActions] =
+                    modules
+                const currentUserUuid = values.user?.uuid ?? null
+                const step = implementationClaimStep(report, currentUserUuid)
+                const start = (target: SignalReport): void => {
+                    captureInboxReportAction({
+                        report,
+                        actionType: 'create_pr',
+                        surface,
+                        extra: { has_feedback: !!feedback, claim_step: step.kind, opened_from_link: openedFromLink },
+                    })
+                    if (repository) {
+                        actions.createPrFromReport(target, feedback, repository)
+                    } else {
+                        actions.createPrFromReport(target, feedback)
+                    }
+                }
+                if (step.kind === 'blocked') {
+                    lemonToast.error(step.reason)
+                    return
+                }
+                if (step.kind === 'start') {
+                    start(report)
+                    return
+                }
+                const takeOverAndStart = async (): Promise<void> => {
+                    if (values.currentTeamId == null || cache.implementationPending) {
+                        return
+                    }
+                    cache.implementationPending = true
+                    try {
+                        // A confirmed takeover names the claim the user saw, so it fails rather than taking a newer one.
+                        const outcome = await requestReportClaim(String(values.currentTeamId), report, true, {
+                            currentUserUuid,
+                            takeover: true,
+                        })
+                        if (!outcome.ok) {
+                            lemonToast.error(outcome.message)
+                            // The claim changed under the dialog, so the open list and detail reload it before a retry.
+                            bulkActions.inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([report.id])
+                            return
+                        }
+                        bulkActions.inboxBulkActionsLogic
+                            .findMounted()
+                            ?.actions.reportClaimChanged(report.id, outcome.updated.assignee)
+                        start({ ...report, assignee: outcome.updated.assignee })
+                    } finally {
+                        cache.implementationPending = false
+                    }
+                }
+                openImplementClaimDialog({
+                    report,
+                    surface,
+                    step,
+                    onConfirm: () => (step.kind === 'take_over' ? void takeOverAndStart() : start(report)),
+                })
+            } finally {
+                cache.implementationPending = false
+            }
+        },
+        createPrFromReport: async ({ report, feedback, repository }) => {
+            if (!values.isPhaiSandboxFlagOn) {
                 actions.createPrFailure()
                 return
             }
-            const { reportGithubAccessLogic } = githubAccess
+            // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
+            const modules = await Promise.all([import('./logics/reportGithubAccessLogic'), loadRunStreamLogic()]).catch(
+                (error) => {
+                    handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                    return null
+                }
+            )
+            if (!modules) {
+                actions.createPrFailure()
+                return
+            }
+            const [{ reportGithubAccessLogic }, { runStreamLogic }] = modules
+            const githubAccessLogic =
+                reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
+                reportGithubAccessLogic.findMounted({ report })
             const disabledReason =
                 values.createPrDisabledReason ??
-                (
-                    reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
-                    reportGithubAccessLogic.findMounted({ report })
-                )?.values.disabledReason
+                (githubAccessLogic?.values.repositoryRequired && !repository
+                    ? 'Select a repository to implement this report.'
+                    : null) ??
+                githubAccessLogic?.values.disabledReason
             if (disabledReason) {
                 lemonToast.error(disabledReason)
                 captureInboxReportActionCompleted({
@@ -1081,6 +1255,20 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 if (values.currentProjectId == null) {
                     throw new Error('Project is required')
                 }
+                if (repository) {
+                    await signalsReportArtefactsCreate(String(values.currentProjectId), report.id, {
+                        artefact_type: 'repo_selection',
+                        content: {
+                            repository,
+                            reason: 'Selected by the user for implementation.',
+                            research_context: report.research_context ?? null,
+                            autostart_eligible: false,
+                        },
+                    })
+                    if (disposables.isDisposed) {
+                        return
+                    }
+                }
                 const { taskId, runId } = await createReportTask(
                     String(values.currentProjectId),
                     disposables,
@@ -1105,6 +1293,18 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 if (values.activeCreation?.streamKey === streamKey) {
                     disposables.dispose(OPTIMISTIC_REPORT_STREAM)
                     actions.clearActiveCreation()
+                }
+                if (error?.code === 'report_implementation_repository_unresolved') {
+                    githubAccessLogic?.actions.requireRepositorySelection()
+                    lemonToast.error(error?.detail || "Couldn't start the PR task. Try again.")
+                    captureInboxReportActionCompleted({
+                        report,
+                        actionType: 'create_pr',
+                        outcome: 'blocked',
+                        blockedReason: error.code,
+                    })
+                    actions.createPrFailure()
+                    return
                 }
                 handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
                 actions.createPrFailure()

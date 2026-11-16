@@ -19,15 +19,14 @@ from products.warehouse_sources.sources.sdk import (
     retry_with_deadline,
 )
 
-# Source version labels. The legacy label predates versioning and keeps sending
-# api-version 7.1 so existing syncs are unchanged; 7.2 is the current GA stable API.
+# Source version labels. The legacy label predates versioning and sends api-version 7.1, the
+# newest released version. Azure DevOps serves 7.2 only as a preview ("7.2-preview.N") and
+# rejects a plain "7.2" with a 400, so there is no 7.2 label.
 AZURE_DEVOPS_VERSION_LEGACY = UNVERSIONED_API_VERSION
-AZURE_DEVOPS_VERSION_7_2 = "7.2"
 
 # Source label → `api-version` query param actually sent on the wire.
 _WIRE_API_VERSION: dict[str, str] = {
     AZURE_DEVOPS_VERSION_LEGACY: "7.1",
-    AZURE_DEVOPS_VERSION_7_2: "7.2",
 }
 
 

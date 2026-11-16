@@ -15,7 +15,7 @@ from rest_framework import status
 from posthog.models import Organization, Team
 
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund, SignalTeamConfig
 from products.signals.backend.quota import SELF_DRIVING_QUOTA_ENFORCEMENT_FLAG
 from products.signals.backend.tasks import (
     _OUT_OF_PERIOD_SYNC_ERROR,
@@ -24,6 +24,7 @@ from products.signals.backend.tasks import (
     sync_signals_refund_credit,
 )
 from products.signals.backend.test.test_billing import _make_pr_run, _make_report
+from products.signals.backend.trial.policy import PRICING_LAUNCHED_AT
 
 _PERIOD = ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"]
 _NOW = "2026-06-15T12:00:00Z"
@@ -545,6 +546,10 @@ class TestSignalReportRefundFlagGate(APIBaseTest):
         flag_mock.side_effect = lambda key, *args, **kwargs: usage_based_pricing if key == "self-driving-ubp" else True
         self.organization.usage = {"period": _PERIOD}
         self.organization.save()
+        SignalTeamConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"onboarding": {"completed_at": (PRICING_LAUNCHED_AT - timedelta(days=1)).isoformat()}},
+        )
         report = _make_report(self.team)
         _make_pr_run(self.team, report, created_at=datetime(2026, 6, 15, 8, tzinfo=UTC))
 
@@ -564,9 +569,10 @@ class TestSignalReportRefundFlagGate(APIBaseTest):
         org_id = str(self.organization.id)
         flag_mock.assert_any_call(
             "self-driving-ubp",
-            org_id,
+            self.user.distinct_id,
             groups={"organization": org_id},
             group_properties={"organization": {"id": org_id}},
+            send_feature_flag_events=False,
         )
 
     @patch("posthoganalytics.feature_enabled")

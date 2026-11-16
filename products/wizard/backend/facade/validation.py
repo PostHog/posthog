@@ -13,6 +13,7 @@ _EXACT_WIZARD_VERSION_PATTERN = re.compile(
     r"(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
+_CONTEXT_MILL_VERSION_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _PROGRAM_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _WIZARD_ERROR_CODE_PATTERN = re.compile(WIZARD_ERROR_CODE_PATTERN)
 
@@ -45,6 +46,20 @@ def validate_wizard_version(value: object) -> str:
 def is_executable_wizard_version(value: object) -> bool:
     try:
         validate_wizard_version(value)
+    except ValueError:
+        return False
+    return True
+
+
+def validate_context_mill_version(value: object) -> str:
+    if not isinstance(value, str) or _CONTEXT_MILL_VERSION_PATTERN.fullmatch(value) is None:
+        raise ValueError("Invalid Wizard program")
+    return value
+
+
+def is_context_mill_version(value: object) -> bool:
+    try:
+        validate_context_mill_version(value)
     except ValueError:
         return False
     return True

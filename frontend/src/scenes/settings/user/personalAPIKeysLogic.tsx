@@ -11,12 +11,13 @@ import { ApiError } from 'lib/api-error'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { clearManualError, showServerFormError } from 'lib/forms/manualFormErrors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SCOPE_DOCS } from 'lib/scopeDocs.generated'
 import {
     APIScope,
     API_SCOPES,
-    SCOPES_IMPLYING_FEATURE_FLAG_WRITE,
     type ScopePickerGroup,
     type ScopeAccessLevel,
     type ScopePickerRow,
@@ -73,11 +74,10 @@ export type PersonalAPIKeyScopeRow = ScopePickerRow & { scope: APIScope }
 
 export type PersonalAPIKeyScopeGroup = ScopePickerGroup<PersonalAPIKeyScopeRow>
 
-// The scopes array with each key set to its level. A write on a survey or early access feature also
-// writes a feature flag (targeting / linked flag), so it implies feature_flag:write (see
-// SCOPES_IMPLYING_FEATURE_FLAG_WRITE). Auto-select it so the key works out of the box. Scoped to
-// these toggle actions only, not every scopes change, so it stays visible and removable if the key
-// only manages plain surveys.
+// The scopes array with each key set to its level. Writing some objects also writes another one,
+// such as the feature flag a survey targets, so a write auto-selects the scope its ScopeDoc requires
+// and the key works out of the box. Only these toggle actions do it, not every scopes change, so the
+// extra scope stays visible and removable if the key only manages plain surveys.
 const withScopeLevels = (scopes: string[], levels: [string, ScopeAccessLevel][]): string[] => {
     const scopesObject = scopesArrayToObject(scopes)
     for (const [key, level] of levels) {
@@ -86,12 +86,9 @@ const withScopeLevels = (scopes: string[], levels: [string, ScopeAccessLevel][])
         } else {
             scopesObject[key] = level
         }
-        if (
-            level === 'write' &&
-            key in SCOPES_IMPLYING_FEATURE_FLAG_WRITE &&
-            scopesObject['feature_flag'] !== 'write'
-        ) {
-            scopesObject['feature_flag'] = 'write'
+        const required = level === 'write' ? SCOPE_DOCS[key]?.writeRequires?.scope.split(':') : undefined
+        if (required && scopesObject[required[0]] !== 'write') {
+            scopesObject[required[0]] = required[1] as ScopeAccessLevel
         }
     }
     return scopesObjectToArray(scopesObject)
@@ -771,23 +768,16 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             }
         },
         submitEditingKeyFailure: ({ error }) => {
-            // kea-forms swallows the rejected API call, so the server's message has to be copied to the form here
-            if (!(error instanceof ApiError)) {
-                return
-            }
-            if (error.attr && error.attr in values.editingKey) {
-                actions.setEditingKeyManualErrors({ [error.attr]: error.detail || error.message })
-            } else {
-                lemonToast.error(error.detail || 'Could not save the personal API key. Try again.')
-            }
+            showServerFormError(
+                error,
+                values.editingKey,
+                actions.setEditingKeyManualErrors,
+                'Could not save the personal API key. Try again.'
+            )
         },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
-            // kea-forms only drops a manual error on blur, and a stale one blocks a resubmit from the Enter key
-            if (key in values.editingKeyManualErrors) {
-                const { [key]: _stale, ...remainingErrors } = values.editingKeyManualErrors
-                actions.setEditingKeyManualErrors(remainingErrors)
-            }
+            clearManualError(key, values.editingKeyManualErrors, actions.setEditingKeyManualErrors)
             // When we select a preset, update the scopes
             if (key === 'preset' && value) {
                 const preset = API_KEY_SCOPE_PRESETS.find((preset) => preset.value === value)

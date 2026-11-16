@@ -33,6 +33,8 @@ function check(
 const PASS = { checks: [check('completed', 'success')] }
 const FAIL = { checks: [check('completed', 'failure')] }
 
+const SCOPE = { host: 'https://app.example.com', projectId: 2 }
+
 describe('selected pull request checks', () => {
     beforeEach(() => {
         jest.useFakeTimers()
@@ -88,6 +90,7 @@ describe('selected pull request checks', () => {
             expect(result.current.status).toBe('passing')
             expect(result.current.observedAt).toEqual(expect.any(Number))
             expect(fetchReportPullRequestChecks).toHaveBeenLastCalledWith(
+                SCOPE,
                 'report-1',
                 'canonical-pr-one',
                 expect.any(AbortSignal)

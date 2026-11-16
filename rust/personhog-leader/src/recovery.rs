@@ -30,6 +30,9 @@ pub struct RecoveryConfig {
     pub recv_timeout: Duration,
     /// Number of pooled consumers, bounding concurrent recoveries.
     pub pool_size: usize,
+    /// The cluster the pool's startup consumers dial, which is the live
+    /// changelog's. `None` dials the `kafka` endpoint.
+    pub cluster: Option<Arc<ClusterEndpoint>>,
 }
 
 /// Classifies a failed fetch step for the retry loop: transient failures
@@ -86,16 +89,17 @@ impl ChangelogRecovery {
             return Err("recovery pool size must be at least 1".to_string());
         }
         let group = format!("personhog-leader-recovery-{pod}", pod = cfg.pod_name);
+        let startup_kafka = changelog_kafka(&cfg.kafka, cfg.cluster.as_deref());
         let mut idle = VecDeque::with_capacity(cfg.pool_size);
         for _ in 0..cfg.pool_size {
             idle.push_back(
-                make_consumer(&cfg.kafka, &group)
+                make_consumer(&startup_kafka, &group)
                     .map_err(|e| format!("create recovery consumer: {e}"))?,
             );
         }
         Ok(Self {
             recv_timeout: cfg.recv_timeout,
-            idle: Mutex::new(HashMap::from([(None, idle)])),
+            idle: Mutex::new(HashMap::from([(cfg.cluster, idle)])),
             permits: Semaphore::new(cfg.pool_size),
             kafka: cfg.kafka,
             group,
@@ -126,15 +130,19 @@ impl ChangelogRecovery {
             .expect("recovery pool lock poisoned")
             .get_mut(&cluster.cloned())
             .and_then(VecDeque::pop_front);
-        // The default deque never runs dry under a permit: only default
-        // checkouts take from it, and at most pool_size are out at once.
-        let consumer = match (idle, cluster) {
-            (Some(consumer), _) => consumer,
-            (None, None) => unreachable!("a permit guarantees an idle default consumer"),
-            (None, Some(other)) => {
-                make_consumer(&changelog_kafka(&self.kafka, Some(other)), &self.group)
-                    .map_err(|e| format!("create recovery consumer for {}: {e}", other.name))?
-            }
+        // The startup cluster's deque never runs dry under a permit, because at
+        // most pool_size consumers are out at once. Another cluster's deque
+        // fills as the consumers built for it come home.
+        let consumer = match idle {
+            Some(consumer) => consumer,
+            None => make_consumer(
+                &changelog_kafka(&self.kafka, cluster.map(Arc::as_ref)),
+                &self.group,
+            )
+            .map_err(|e| {
+                let name = cluster.map_or("the base endpoint", |c| c.name.as_str());
+                format!("create recovery consumer for {name}: {e}")
+            })?,
         };
         Ok(PooledConsumer {
             pool: self,

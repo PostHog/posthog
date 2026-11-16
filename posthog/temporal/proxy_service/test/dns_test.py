@@ -10,14 +10,18 @@ import grpc.aio
 import requests
 import dns.resolver
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL
 from posthog.temporal.proxy_service.cloudflare import CLOUDFLARE_API_TIMEOUT_S
+from posthog.temporal.proxy_service.create import WaitForDNSRecordsInputs, wait_for_dns_records
 from posthog.temporal.proxy_service.monitor import (
     CHECK_START_TO_CLOSE,
     CLOUDFLARE_IPS_TIMEOUT_S,
     DNS_LOOKUP_LIFETIME_S,
     PROXY_LIVE_CHECK_TIMEOUT_S,
     CheckActivityInput,
+    _resolve_dns,
     check_certificate_status,
     check_dns,
     check_proxy_is_live,
@@ -134,7 +138,7 @@ class TestProxyChecksKeepTheEventLoopFree(SimpleTestCase):
         mock_get_record.return_value = _record()
         probe = _BlockingCall(requests.exceptions.Timeout())
 
-        with patch("posthog.temporal.proxy_service.monitor.requests.post", side_effect=probe):
+        with patch("posthog.temporal.proxy_service.monitor.pinned_request", side_effect=probe):
             check = asyncio.create_task(check_proxy_is_live(CheckActivityInput(proxy_record_id=RECORD_ID)))
             await probe.release_when_entered()
             await check
@@ -174,3 +178,38 @@ class TestActivityBudgetsCoverTheirNetworkCalls(SimpleTestCase):
     )
     def test_the_worst_case_fits_inside_the_budget(self, _name, worst_case_seconds):
         assert worst_case_seconds < CHECK_START_TO_CLOSE.total_seconds()
+
+
+class TestOutOfBandDomainsAreNotResolved(SimpleTestCase):
+    LISTED = "abc.oast.live"
+
+    @parameterized.expand([("on_cloud", True), ("off_cloud", False)])
+    def test_the_dns_check_refuses_a_listed_domain_on_cloud_only(self, _name: str, cloud: bool) -> None:
+        record = _record()
+        record.domain = self.LISTED
+        with (
+            patch("posthog.temporal.proxy_service.monitor.is_cloud", return_value=cloud),
+            patch("posthog.temporal.proxy_service.monitor.dnssec_resolver") as resolver,
+        ):
+            output = _resolve_dns(record)
+
+        self.assertEqual(resolver.called, not cloud)
+        self.assertEqual(output.errors == [OOB_DOMAIN_REFUSAL], cloud)
+
+    def test_waiting_for_dns_records_refuses_a_listed_domain(self) -> None:
+        inputs = WaitForDNSRecordsInputs(
+            organization_id=uuid.uuid4(),
+            proxy_record_id=RECORD_ID,
+            domain=self.LISTED,
+            target_cname="x.cf-prod-us-proxy.proxyhog.com.",
+        )
+        with (
+            patch("posthog.temporal.proxy_service.create.is_cloud", return_value=True),
+            patch("posthog.temporal.proxy_service.create.record_exists", AsyncMock(return_value=True)),
+            patch("posthog.temporal.proxy_service.create.async_dnssec_resolver") as resolver,
+            self.assertRaises(ApplicationError) as raised,
+        ):
+            asyncio.run(wait_for_dns_records(inputs))
+
+        resolver.assert_not_called()
+        self.assertTrue(raised.exception.non_retryable)

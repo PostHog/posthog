@@ -24,7 +24,8 @@ interface TileGroupDrag {
     showTakeOutDropZone: boolean
     startTileDrag: (item: LayoutItem, element: HTMLElement | null) => void
     trackTileDrag: (event: Event) => void
-    finishTileDrag: (item: LayoutItem | null, element: HTMLElement | null, event: Event) => void
+    /** Returns true when the tile left its section, so the source grid's own layout report is not a change. */
+    finishTileDrag: (item: LayoutItem | null, element: HTMLElement | null, event: Event) => boolean
 }
 
 /**
@@ -43,7 +44,7 @@ function sectionKeyUnderPointer(event: Event, dashboardRoot: Element): string | 
     for (const element of elements) {
         const section = element.closest('[data-dashboard-section]')
         if (section) {
-            // A page can show several dashboards, and their bands share keys like `tiles-start`.
+            // A page can show several dashboards, and their bands share keys like `tiles-0`.
             return dashboardRoot.contains(section) ? section.getAttribute('data-dashboard-section') : null
         }
     }
@@ -117,11 +118,11 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
     }, [])
 
     const finishTileDrag = useCallback(
-        (item: LayoutItem | null, element: HTMLElement | null, event: Event): void => {
+        (item: LayoutItem | null, element: HTMLElement | null, event: Event): boolean => {
             const current = drag.current
             stopTracking()
             if (!current || !item || !latest.current.enabled) {
-                return
+                return false
             }
             // Autoscroll moves bands under a still pointer, so read the band at the drop point.
             const keyAtDrop = dropKeyUnderPointer(event, current)
@@ -131,10 +132,10 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
             if (dropKey === null) {
                 // The source grid has no lower edge, so it kept the tile at whatever row the drag reached.
                 queueMicrotask(() => latest.current.restoreLayout(current.layoutAtStart))
-                return
+                return true
             }
             if (dropKey === current.sourceKey) {
-                return
+                return false
             }
             // A closed group shows no grid, so a drop there has no cell and goes to the bottom of the group.
             const grid = current.dashboardRoot.querySelector(`[data-dashboard-section-grid="${CSS.escape(dropKey)}"]`)
@@ -152,6 +153,7 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
                     : null
             const sectionKey = dropKey === TAKE_OUT_DROP_ZONE_KEY ? null : dropKey
             queueMicrotask(() => latest.current.moveTileToSection(Number(item.i), sectionKey, cell))
+            return true
         },
         [stopTracking]
     )

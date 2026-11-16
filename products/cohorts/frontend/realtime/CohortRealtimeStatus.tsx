@@ -78,8 +78,9 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 label: <span className="text-secondary">Unavailable</span>,
                 tooltip: (
                     <div>
-                        Feature flags can't target this cohort yet because PostHog hasn't prepared it. Contact support
-                        if this doesn't change.
+                        {realtime.reason === 'too_large_to_build'
+                            ? "Feature flags can't target this cohort yet. The events in its criteria happen too often for PostHog to prepare it automatically. Contact support to have it prepared."
+                            : "Feature flags can't target this cohort yet because PostHog hasn't prepared it. Contact support if this doesn't change."}
                     </div>
                 ),
             }
@@ -88,8 +89,9 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 label: <span className="text-secondary">Unavailable</span>,
                 tooltip: (
                     <div>
-                        Feature flags can't target this cohort. Its criteria are matched in the once-a-day calculation,
-                        which feature flags can't read.
+                        {realtime.reason === 'history_over_limit' && realtime.history_limit_days !== null
+                            ? `Feature flags can't target this cohort. Realtime cohorts can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Its members come from the once-a-day calculation, which feature flags can't read.`
+                            : "Feature flags can't target this cohort. Its criteria are matched in the once-a-day calculation, which feature flags can't read."}
                     </div>
                 ),
             }

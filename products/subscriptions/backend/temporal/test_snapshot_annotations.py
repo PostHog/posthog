@@ -6,10 +6,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from posthog.test.base import APIBaseTest
 
-from parameterized import parameterized
-
-from products.annotations.backend.api.annotation_context import resolve_snapshot_date_range
-from products.annotations.backend.models.annotation import Annotation
+from products.annotations.backend.facade import testing as annotations_testing
+from products.annotations.backend.facade.enums import AnnotationScope
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.temporal.snapshot_activities import _load_annotations_section
 
@@ -19,51 +17,6 @@ def _snap_with_range(date_from: str | None, date_to: str | None) -> dict:
     if date_from is not None and date_to is not None:
         qr["resolved_date_range"] = {"date_from": date_from, "date_to": date_to}
     return {"insights": [{"id": 1, "query_results": qr}]}
-
-
-class TestResolveSnapshotDateRange:
-    @parameterized.expand(
-        [
-            ("no_snapshots", [], False),
-            ("snapshot_without_insights", [{"insights": []}], False),
-            ("missing_resolved_date_range", [_snap_with_range(None, None)], False),
-            (
-                "malformed_dates",
-                [
-                    {
-                        "insights": [
-                            {
-                                "id": 1,
-                                "query_results": {
-                                    "resolved_date_range": {"date_from": "garbage", "date_to": "also-garbage"}
-                                },
-                            }
-                        ]
-                    }
-                ],
-                False,
-            ),
-            (
-                "single_valid_range",
-                [_snap_with_range("2025-04-01T00:00:00Z", "2025-04-15T00:00:00Z")],
-                True,
-            ),
-        ]
-    )
-    def test_resolve_snapshot_date_range(self, _name: str, snapshots: list[dict], expect_window: bool) -> None:
-        result = resolve_snapshot_date_range(snapshots)
-        assert (result is not None) is expect_window
-
-    def test_combines_ranges_across_snapshots(self) -> None:
-        snapshots = [
-            _snap_with_range("2025-04-01T00:00:00Z", "2025-04-07T00:00:00Z"),
-            _snap_with_range("2025-04-10T00:00:00Z", "2025-04-20T00:00:00Z"),
-        ]
-        result = resolve_snapshot_date_range(snapshots)
-        assert result is not None
-        date_from, date_to = result
-        assert date_from == datetime(2025, 4, 1, tzinfo=ZoneInfo("UTC"))
-        assert date_to == datetime(2025, 4, 20, tzinfo=ZoneInfo("UTC"))
 
 
 @pytest.mark.django_db
@@ -82,13 +35,13 @@ class TestLoadAnnotationsSection(APIBaseTest):
 
     def test_renders_annotations_for_insight_in_window(self) -> None:
         insight = Insight.objects.create(team=self.team, name="Pageviews")
-        Annotation.objects.create(
-            organization=self.organization,
-            team=self.team,
+        annotations_testing.create_annotation(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
             content="rolled out new home page flag",
             date_marker=datetime(2025, 4, 5, tzinfo=ZoneInfo("UTC")),
-            scope=Annotation.Scope.INSIGHT,
-            dashboard_item=insight,
+            scope=AnnotationScope.INSIGHT,
+            insight_id=insight.id,
         )
         snapshots = [_snap_with_range("2025-04-01T00:00:00Z", "2025-04-15T00:00:00Z")]
 

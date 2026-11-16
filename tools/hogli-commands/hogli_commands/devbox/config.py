@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import time
 import uuid
 import fcntl
 from collections.abc import Iterator, Mapping, Sequence
@@ -46,6 +47,7 @@ WORKTREE_AUTO_SOURCES = (
     "orca",
     "conductor",
     "worktrunk",
+    "paseo",
     "other",
 )
 WORKTREE_PROVIDERS = ("coder", "hogland")
@@ -382,9 +384,33 @@ def claim_worktree_box(
     return None
 
 
-def forget_worktree_boxes(worktree_paths: list[Path]) -> None:
+def forget_worktree_boxes(records: Mapping[Path, WorktreeBoxRecord]) -> None:
+    """Drop each record that is still the one the caller read, so a worktree that claimed the path since keeps its own."""
     with _locked_worktree_boxes():
         boxes = load_worktree_boxes()
-        remaining = {path: record for path, record in boxes.items() if path not in {str(p) for p in worktree_paths}}
+        stale = {str(path) for path, record in records.items() if boxes.get(str(path)) == record}
+        remaining = {path: record for path, record in boxes.items() if path not in stale}
         if remaining != boxes:
             _save_worktree_boxes(remaining)
+
+
+@contextmanager
+def worktree_prune_lock(timeout: float = 0) -> Iterator[bool]:
+    """Yield whether this process holds the prune lock, trying for up to *timeout* seconds.
+
+    Two hooks, or a hook and `worktrees:clean`, can contend for it.
+    """
+    path = get_worktree_boxes_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_name(f"{path.name}.prune.lock").open("a") as lock:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(0.5)
+        yield True

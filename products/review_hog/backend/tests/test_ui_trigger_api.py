@@ -211,7 +211,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
     def test_comment_facade_gates_on_the_commented_environment_not_its_parent(self, mock_start):
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
         with patch(
-            "products.review_hog.backend.facade.reviews.posthog_feature_flag_enabled",
+            "products.review_hog.backend.requested_reviews.posthog_feature_flag_enabled",
             side_effect=lambda *_args, team_id, **_kwargs: team_id == self.team.id,
         ):
             outcome = request_pr_review_from_comment(

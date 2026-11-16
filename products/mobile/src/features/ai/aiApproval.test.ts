@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 
 import { fetchOrganization, type OrganizationApi } from '@/api/users'
+import { loadAccount } from '@/auth/account'
 import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
 import { aiConsentKey, useAiConsentStore, waitForAiConsent } from '@/features/chat/aiConsentStore'
@@ -8,6 +9,7 @@ import { aiConsentKey, useAiConsentStore, waitForAiConsent } from '@/features/ch
 import { cancelAiApproval, checkAiApproval, requestAiApproval, useAiApproval, useAiApprovalStore } from './aiApproval'
 
 jest.mock('@/api/users', () => ({ fetchOrganization: jest.fn() }))
+jest.mock('@/auth/account', () => ({ ...jest.requireActual('@/auth/account'), loadAccount: jest.fn() }))
 
 const HOST = 'https://app.example.com'
 const USER = { id: 1, uuid: 'person-1', distinctId: 'distinct-1', email: 'person@example.com', name: 'Person' }
@@ -18,7 +20,15 @@ const ORG: OrganizationApi = {
     is_ai_data_processing_approved: true,
     membership_level: 1,
 }
+const LINKED_ORG: OrganizationApi = {
+    id: 'org-2',
+    name: 'Other',
+    teams: [{ id: 9, name: 'Linked' }],
+    is_ai_data_processing_approved: true,
+    membership_level: 1,
+}
 const fetchOrg = jest.mocked(fetchOrganization)
+const reload = jest.mocked(loadAccount)
 
 beforeEach(async () => {
     await waitForAiConsent()
@@ -35,6 +45,7 @@ beforeEach(async () => {
         projects: [{ id: 7, name: 'Project', organizationId: ORG.id, organizationName: ORG.name }],
     })
     fetchOrg.mockReset().mockResolvedValue(ORG)
+    reload.mockReset().mockRejectedValue(new Error('Offline'))
 })
 afterEach(cancelAiApproval)
 
@@ -167,3 +178,24 @@ test.each(['unmount', 'context'] as const)(
         expect(useAiConsentStore.getState().accepted).toEqual({})
     }
 )
+
+test('verifies a linked project the cached account predates, instead of dead-ending', async () => {
+    useAiConsentStore.getState().accept(aiConsentKey(HOST, USER.uuid))
+    reload.mockResolvedValue({
+        user: USER,
+        organizations: [ORG, LINKED_ORG].map((organization) => ({
+            id: organization.id,
+            name: organization.name,
+            aiDataProcessingApproved: true,
+            membershipLevel: 1 as const,
+        })),
+        projects: [
+            { id: 7, name: 'Project', organizationId: ORG.id, organizationName: ORG.name },
+            { id: 9, name: 'Linked', organizationId: LINKED_ORG.id, organizationName: LINKED_ORG.name },
+        ],
+        webTeamId: null,
+    })
+    fetchOrg.mockResolvedValue(LINKED_ORG)
+    await expect(requestAiApproval('handoff', undefined, 9)).resolves.toBe(true)
+    expect(fetchOrg).toHaveBeenCalledWith(LINKED_ORG.id, expect.anything())
+})

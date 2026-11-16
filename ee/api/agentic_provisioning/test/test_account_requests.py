@@ -239,20 +239,28 @@ class TestAccountRequests(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("block", 403, "suspicious_attempt_blocked", False),
-            ("challenge", 200, None, True),
+            ("unverified_radar_block", False, "block", "newuser@example.com", 403, "suspicious_attempt_blocked"),
+            ("unverified_radar_challenge", False, "challenge", "newuser@example.com", 200, None),
+            ("verified_ignores_radar_block", True, "block", "newuser@example.com", 200, None),
+            ("verified_disposable_email", True, "allow", "newuser@mailinator.com", 403, "access_blocked"),
+            ("verified_disposable_subdomain", True, "allow", "newuser@inbox.mailinator.com", 403, "access_blocked"),
         ]
     )
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test-key")
-    def test_new_user_radar_verdict(self, verdict, expected_status, expected_error_code, gets_account):
+    def test_new_user_signup_risk_check(
+        self, _name, partner_verified, verdict, email, expected_status, expected_error_code
+    ):
+        self.partner.is_verified = partner_verified
+        self.partner.save(update_fields=["is_verified"])
+
         with patch("posthog.workos_radar.requests.post") as mock_radar:
             mock_radar.return_value.status_code = 200
             mock_radar.return_value.json.return_value = {"verdict": verdict}
-            res = self._post_account_request(self._account_request_payload())
+            res = self._post_account_request(self._account_request_payload(email=email))
 
         assert res.status_code == expected_status, res.json()
         assert res.json().get("error", {}).get("code") == expected_error_code
-        assert User.objects.filter(email="newuser@example.com").exists() is gets_account
+        assert User.objects.filter(email=email).exists() is (expected_status == 200)
 
 
 class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):

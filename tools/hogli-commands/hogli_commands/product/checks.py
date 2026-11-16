@@ -449,6 +449,8 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
         return "legacy interface leak block present (external seal incomplete)"
     if not status.has_real_facade:
         return "facade/api.py is a re-export, not real functions"
+    if status.skip_withheld_reason:
+        return f"DevEx decision: {status.skip_withheld_reason}"
     return None
 
 
@@ -555,7 +557,10 @@ class PackageJsonScriptsCheck(ProductCheck):
         # absence check below still keys on plain eligibility, so the five products that deliberately
         # keep script+broad while un-narrowed aren't told to drop it.
         require_contract_check_script = (
-            needs_contract_check and not status.facade_leaks and not status.unapproved_wiring
+            needs_contract_check
+            and not status.facade_leaks
+            and not status.unapproved_wiring
+            and status.skip_withheld_reason is None
         )
         required = ["backend:test"] + (["backend:contract-check"] if require_contract_check_script else [])
         for script in required:
@@ -567,7 +572,14 @@ class PackageJsonScriptsCheck(ProductCheck):
                 )
 
         # --- absence check: must NOT have contract-check when not safe for isolation ---
-        if not needs_contract_check and "backend:contract-check" in scripts:
+        if status.skip_withheld_reason and "backend:contract-check" in scripts:
+            result.lines.append("✗ must not have 'backend:contract-check'")
+            result.issues.append(
+                f"the contract-check skip is withheld for this product ({status.skip_withheld_reason}). "
+                "Remove 'backend:contract-check' from package.json. Only a DevEx-reviewed change to "
+                "SKIP_WITHHELD in hogli_commands/product/isolation.py can turn the skip on"
+            )
+        elif not needs_contract_check and "backend:contract-check" in scripts:
             if status.has_legacy_leaks:
                 reason = "has legacy interface leaks (core imports internals directly)"
             elif status.deferred_count > 0:
@@ -1361,9 +1373,10 @@ class OrphanedTestFilesCheck(ProductCheck):
 class WatchedChannelsCheck(ProductCheck):
     """Hold the modules that outside suites run without an import edge in the contract-check inputs.
 
-    watched_channels.py finds them: receivers on a sender the product does not own, and modules that
-    outside tests name by dotted path. Only a product with 'backend:contract-check' skips the suite,
-    so no other product runs this check.
+    watched_channels.py finds them: receivers on a sender the product does not own, modules that
+    outside tests or core settings name by dotted path, modules core loads by name, backend/apps.py
+    and what it imports, and registrations into another boundary's hook. Only a product with
+    'backend:contract-check' skips the suite, so no other product runs this check.
     """
 
     label = "watched channels"

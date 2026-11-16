@@ -95,6 +95,7 @@ class TestTrinoShadowMaterialization(BaseTest):
             expansion_mode=TrinoExpansionMode.DJANGO,
             select_transform=ANY,
             preserve_clickhouse_output_names=True,
+            target=None,
         )
         connect.assert_called_once_with(
             str(self.organization.pk),

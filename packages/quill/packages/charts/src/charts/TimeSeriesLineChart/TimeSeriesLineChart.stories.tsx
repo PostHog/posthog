@@ -1,8 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { ChartHoverSync } from '../../core/hover-sync'
 import type { Series } from '../../core/types'
-import { Stage, useReactiveTheme } from '../../story-helpers'
+import { playHoverAtFraction, Stage, useReactiveTheme } from '../../story-helpers'
 import type { TimeInterval } from '../../utils/dates'
 import { ciRanges } from '../../utils/statistics'
 import type { YAxisConfig } from '../../utils/use-axis-formatters'
@@ -260,6 +261,43 @@ export const YAxisRange: Story = {
     ),
 }
 
+const LATENCY_SERIES: Series[] = [
+    { key: 'api', label: 'api', data: [120, 140, 130, 160, 150, 170, 155] },
+    { key: 'web', label: 'web', data: [220, 260, 240, 300, 280, 320, 290] },
+    { key: 'worker', label: 'worker', data: [400, 460, 430, NaN, 480, 560, 510] },
+    { key: 'cron', label: 'cron', data: [60, 65, 58, 72, 70, 66, 61] },
+]
+
+/** `legend.table` turns the legend into a table of per-series summaries, formatted like the axis.
+ *  Click a header to sort by it; rows still isolate and toggle their series. */
+export const LegendValues: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
+                {(['bottom', 'right'] as const).map((position) => (
+                    <Stage key={position} width={560} height={320}>
+                        <TimeSeriesLineChart
+                            series={LATENCY_SERIES}
+                            labels={DAYS}
+                            theme={theme}
+                            config={{
+                                yAxis: { showGrid: true, suffix: ' ms' },
+                                legend: {
+                                    show: true,
+                                    position,
+                                    table: { values: ['mean', 'max', 'last'], defaultSort: { by: 'mean' } },
+                                },
+                            }}
+                        />
+                    </Stage>
+                ))}
+            </div>
+        )
+    },
+}
+
 const DERIVED_SERIES: Series[] = [
     { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] },
     { key: 'signups', label: 'Sign-ups', data: [4, 8, 6, 14, 11, 19, 13] },
@@ -383,6 +421,60 @@ export const DateAxis: Story = {
                 ))}
             </div>
         )
+    },
+}
+
+const SYNC_HOURS = Array.from({ length: 24 }, (_, i) => `2026-03-01T${String(i).padStart(2, '0')}:00:00Z`)
+const SYNC_HALF_HOURS = Array.from(
+    { length: 48 },
+    (_, i) => `2026-03-01T${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}:00Z`
+)
+
+/** Charts inside a `ChartHoverSync` share the hovered x: hovering one draws a crosshair at the same
+ *  time on the others, even when their points sit on different grids (hourly above, half-hourly
+ *  below). Only the hovered chart shows its tooltip. */
+export const SyncedHover: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config = { xAxis: { timezone: 'UTC', interval: 'hour' as const }, yAxis: { showGrid: true } }
+        return (
+            <ChartHoverSync>
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <Stage height={200}>
+                        <TimeSeriesLineChart
+                            series={[
+                                {
+                                    key: 'rps',
+                                    label: 'Requests',
+                                    data: SYNC_HOURS.map((_, i) => 200 + 80 * Math.sin(i / 3)),
+                                },
+                            ]}
+                            labels={SYNC_HOURS}
+                            theme={theme}
+                            config={config}
+                        />
+                    </Stage>
+                    <Stage height={200}>
+                        <TimeSeriesLineChart
+                            series={[
+                                {
+                                    key: 'p99',
+                                    label: 'p99',
+                                    data: SYNC_HALF_HOURS.map((_, i) => 120 + 40 * Math.cos(i / 5)),
+                                },
+                            ]}
+                            labels={SYNC_HALF_HOURS}
+                            theme={theme}
+                            config={config}
+                        />
+                    </Stage>
+                </div>
+            </ChartHoverSync>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        await playHoverAtFraction(canvasElement, 0.5)
     },
 }
 

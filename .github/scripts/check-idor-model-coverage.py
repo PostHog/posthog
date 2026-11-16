@@ -172,6 +172,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # never by user-supplied CommentSlackThread id through an API. Fail-closed via
         # TeamScopedManager (TeamScopedRootMixin) on top.
         "CommentSlackThread",
+        # Watch rows for a DAG node. The watch and unwatch actions resolve the node from the URL
+        # first and write the row through it, and no endpoint takes a user-supplied row id.
+        # Fail-closed via TeamScopedManager (TeamScopedRootMixin) on top.
+        "NodeSubscription",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
         "StreamlitAppVersion",
@@ -334,6 +338,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DevStackImageTarget",
         "DevStackImageAttempt",
         "License",
+        "SandboxSenderTenantState",
         # --- Deprecated ---
         "Prompt",
         "PromptSequence",
@@ -355,6 +360,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ResourceTransfer",
         # --- Organization-scoped (correctly above team level) ---
         "OrganizationDomain",
+        "OrganizationIPRestrictions",
         "OrganizationIntegration",
         "OrganizationInvite",
         "OrganizationMembership",
@@ -378,6 +384,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "GlobalRateLimitThresholdConfig",
         "MessagingRecord",
         "UserActivitySummaryQueueCursor",  # one global read position per input source, no rows of a team
+        "MailgunDomainRegistration",  # sending domains this region added to the shared Mailgun account; outlives teams
     }
 
     # Baseline violations — these models SHOULD have team_id but don't yet.
