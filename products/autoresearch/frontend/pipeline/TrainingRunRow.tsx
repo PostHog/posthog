@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdownWithMermaid'
 import { urls } from 'scenes/urls'
 
-import { runHeadline } from '../agentSearch'
+import { formatRunDuration, runHeadline } from '../agentSearch'
 import { autoresearchPipelineLogic, trainingRunProgress } from '../autoresearchPipelineLogic'
 import {
     type AutoresearchRunApi,
@@ -79,7 +79,7 @@ export function TrainingRunRow({
     runNumber: number
     children?: ReactNode
 }): JSX.Element {
-    const { expandedRunId, artifactsByRun, artifactsByRunLoading, featureFlags, runRoles } =
+    const { expandedRunId, artifactsByRun, artifactsByRunLoading, featureFlags, runRoles, notMadeLiveReasons } =
         useValues(autoresearchPipelineLogic)
     const { toggleRunArtifacts, viewArtifact, reportNotebookOpened } = useActions(autoresearchPipelineLogic)
     const reportNotebookShortId = featureFlags[FEATURE_FLAGS.AUTORESEARCH_REPORT_NOTEBOOK]
@@ -89,8 +89,8 @@ export function TrainingRunRow({
     const paths = artifactsByRun[run.id]
     const progress = trainingRunProgress(run)
     const startedAt = run.started_at ?? run.created_at
-    const duration =
-        run.started_at && run.completed_at ? dayjs(run.completed_at).from(dayjs(run.started_at), true) : null
+    const duration = run.started_at && run.completed_at ? formatRunDuration(run.started_at, run.completed_at) : null
+    const notMadeLive = notMadeLiveReasons[run.id]
     const runStatus = RUN_STATUS[run.status]
     const role = runRoles[run.id] ? RUN_ROLE[runRoles[run.id]] : null
     const { headline, detail } = runHeadline(run, runNumber)
@@ -160,6 +160,11 @@ export function TrainingRunRow({
                             </LemonTag>
                         )}
                     </div>
+                    {notMadeLive && (
+                        <div className="text-xs text-secondary" data-attr="autoresearch-run-not-made-live">
+                            Not made live: {notMadeLive}
+                        </div>
+                    )}
                     {detail && <div className="text-xs text-secondary">{detail}</div>}
                 </div>
             </div>

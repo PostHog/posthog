@@ -7,7 +7,7 @@ import { AutoresearchModelApi, AutoresearchModelRoleEnumApi } from '../generated
 import { FeatureImportanceChart } from './FeatureImportanceChart'
 
 const ROLE_LABEL: Record<AutoresearchModelRoleEnumApi, string> = {
-    champion: 'Champion',
+    champion: 'Live model',
     challenger: 'Challenger',
     archived: 'Archived',
 }
@@ -57,7 +57,7 @@ export function RunFeatureComparison({ runId }: { runId: string }): JSX.Element 
                 {compareWithChampion && (
                     <FeatureImportanceChart
                         explanation={champion.model_explanation}
-                        header={`Current champion · ${holdoutLabel(champion)}`}
+                        header={`Live model · ${holdoutLabel(champion)}`}
                     />
                 )}
             </div>

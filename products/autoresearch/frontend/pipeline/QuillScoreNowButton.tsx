@@ -26,7 +26,7 @@ export function QuillScoreNowButton(): JSX.Element | null {
                     ? 'Resume the model to score it'
                     : hasChampion
                       ? undefined
-                      : 'Train a champion model first'
+                      : 'Train a model first'
             }
         >
             <IconRefresh />

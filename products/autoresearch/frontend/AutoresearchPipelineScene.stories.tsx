@@ -42,6 +42,7 @@ const pipeline = {
     training_phase: 'maintain',
     next_research_at: '2026-11-12T00:00:00Z',
     not_promoted_reason: null,
+    promotion_margin: 0.005,
     success_auc: null,
     plateau_iterations: 5,
     output_person_property: 'p_file_shared_7d',
