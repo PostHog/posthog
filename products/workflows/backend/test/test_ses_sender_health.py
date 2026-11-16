@@ -4,12 +4,15 @@ from typing import Any
 from unittest.mock import patch
 
 from django.core import mail
+from django.db import OperationalError
 
 import posthoganalytics
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.integrations import IntegrationManager, IntegrationPatch
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.integration.email import SES_SENDING_STATUS_KEY
 from posthog.models.user import User
 from posthog.tasks.email import send_email_sender_domain_sending_stopped
 
@@ -162,6 +165,55 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
 
         assert len(mail.outbox) == 1
         assert len(stored_notifications_for_team(self.team.id)) == 1
+
+    def test_tells_the_admins_on_the_next_check_when_saving_the_stop_fails(self) -> None:
+        self.deliver_notices()
+        sender = self.verified_sender(f"hello@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
+        mail.outbox.clear()
+        credentials = IntegrationManager.email.credentials
+        write = credentials.update_where
+
+        def fail_every_write_after_the_mark(team_id: int, *, where: Any, patch: IntegrationPatch) -> Any:
+            if patch.config_patch and SES_SENDING_STATUS_KEY not in patch.config_patch:
+                raise OperationalError
+            return write(team_id, where=where, patch=patch)
+
+        with patch.object(credentials, "update_where", side_effect=fail_every_write_after_the_mark):
+            with self.assertRaises(OperationalError):
+                check_ses_sender_health()
+        check_ses_sender_health()
+
+        assert self.sending_stopped(sender)
+        assert len(mail.outbox) == 1
+
+    def test_keeps_a_newer_stop_pending_when_an_older_check_finishes_late(self) -> None:
+        self.deliver_notices()
+        self.verified_sender(f"hello@{DOMAIN}")
+        identity = self.world.ses.identities[DOMAIN]
+        identity.forced_verification_status = "Failed"
+        mail.outbox.clear()
+        queue_email = send_email_sender_domain_sending_stopped.delay
+        publishes = 0
+
+        def recover_and_stop_again_while_publishing(*args: Any, **kwargs: Any) -> None:
+            nonlocal publishes
+            publishes += 1
+            if publishes == 2:
+                raise ConnectionError
+            identity.forced_verification_status = None
+            check_ses_sender_health()
+            identity.forced_verification_status = "Failed"
+            check_ses_sender_health()
+            queue_email(*args, **kwargs)
+
+        with patch.object(
+            send_email_sender_domain_sending_stopped, "delay", side_effect=recover_and_stop_again_while_publishing
+        ):
+            check_ses_sender_health()
+        check_ses_sender_health()
+
+        assert len(mail.outbox) == 2
 
     @parameterized.expand(
         [

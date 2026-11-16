@@ -1,6 +1,7 @@
 from collections.abc import Iterable, Iterator, Mapping
 from functools import cache
 
+from django.db import transaction
 from django.utils import timezone
 from django.utils.text import Truncator
 
@@ -45,11 +46,11 @@ def record_ses_sending_status(failed_domains: Iterable[str]) -> None:
     for sender in _one_sender_per_project_domain(where_in={"domain": failed}):
         if rolled_out(sender.team_id) is not True:
             continue
-        stopped_at = _stop_awaiting_notice(sender, _patch_domain(sender, _MARK))
+        stopped_at = _mark_stop_awaiting_notice(sender)
         if (
             stopped_at
             and _queue_sending_stopped_email(sender.team_id, sender.config["domain"], stopped_at)
-            and _patch_domain(sender, _NOTICE_SENT).changed_ids
+            and _patch_domain(sender, _NOTICE_SENT, pending_since=stopped_at).changed_ids
         ):
             _create_sending_stopped_notification(sender.team_id, sender.config["domain"])
     for sender in _one_sender_per_project_domain(where={SES_SENDING_STATUS_KEY: SES_SENDING_FAILED}):
@@ -69,20 +70,23 @@ def _rolled_out(team_id: int) -> bool | None:
     )
 
 
-def _stop_awaiting_notice(sender: IntegrationRecord, marked: UpdatedRows) -> str | None:
-    if marked.changed_ids:
-        stopped_at = timezone.now().isoformat()
-        _patch_domain(sender, IntegrationPatch(config_patch={_NOTICE_PENDING_KEY: stopped_at}))
-        return stopped_at
+def _mark_stop_awaiting_notice(sender: IntegrationRecord) -> str | None:
+    with transaction.atomic():
+        marked = _patch_domain(sender, _MARK)
+        if marked.changed_ids:
+            stopped_at = timezone.now().isoformat()
+            _patch_domain(sender, IntegrationPatch(config_patch={_NOTICE_PENDING_KEY: stopped_at}))
+            return stopped_at
     return next((row.config[_NOTICE_PENDING_KEY] for row in marked.records if _NOTICE_PENDING_KEY in row.config), None)
 
 
-def _patch_domain(sender: IntegrationRecord, patch: IntegrationPatch) -> UpdatedRows:
-    return IntegrationManager.email.credentials.update_where(
-        sender.team_id,
-        where={"domain": sender.config["domain"], "provider": "ses", "verified": True},
-        patch=patch,
-    )
+def _patch_domain(
+    sender: IntegrationRecord, patch: IntegrationPatch, *, pending_since: str | None = None
+) -> UpdatedRows:
+    where = {"domain": sender.config["domain"], "provider": "ses", "verified": True}
+    if pending_since is not None:
+        where[_NOTICE_PENDING_KEY] = pending_since
+    return IntegrationManager.email.credentials.update_where(sender.team_id, where=where, patch=patch)
 
 
 def _one_sender_per_project_domain(
