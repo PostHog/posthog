@@ -149,6 +149,9 @@ Resources:
             IamInstanceProfile:
                 Ref: HostInstanceProfile
             InstanceInitiatedShutdownBehavior: terminate
+            MetadataOptions:
+                HttpTokens: required
+                HttpPutResponseHopLimit: 1
             PropagateTagsToVolumeOnCreation: true
             UserData:
                 Fn::Base64:

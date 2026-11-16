@@ -774,11 +774,14 @@ export class FakeCloud implements Aws {
                 ? parameters[(value as { Ref: string }).Ref]
                 : value
         const template = (properties.LaunchTemplate ?? {}) as Record<string, unknown>
+        const metadata = (properties.MetadataOptions ?? {}) as Record<string, unknown>
         return (
             resolved(template.LaunchTemplateId) === HOST_LAUNCH_TEMPLATE.id &&
             resolved(template.Version) === HOST_LAUNCH_TEMPLATE.version &&
             properties.BlockDeviceMappings === undefined &&
-            properties.Volumes === undefined
+            properties.Volumes === undefined &&
+            metadata.HttpTokens === 'required' &&
+            metadata.HttpPutResponseHopLimit === 1
         )
     }
 
