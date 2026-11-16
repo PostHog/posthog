@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from copy import copy
 from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
@@ -1198,7 +1199,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # Viewers of a shared dashboard never get the tile details panel, so the people
                 # who created and last modified the dashboard and its tiles stay out of the payload
                 dashboard_context = {**context, "hide_extra_details": True}
-                dashboard_data = DashboardSerializer(resource.dashboard, context=dashboard_context).data
+                dashboard = resource.dashboard
+                if is_export_render and isinstance(resource, ExportedAsset):
+                    dashboard = copy(dashboard)
+                    dashboard.filters = resource.get_dashboard_filters()
+                dashboard_data = DashboardSerializer(dashboard, context=dashboard_context).data
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})

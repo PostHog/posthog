@@ -1629,6 +1629,40 @@ class TestExportCacheKeyFlow(APIBaseTest):
     sharing_config: SharingConfiguration
     exported_asset: ExportedAsset
 
+    @parameterized.expand([("render", True), ("shared", False)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @mock_exporter_template
+    def test_dashboard_export_uses_selected_filters_without_saving_them(
+        self, _name: str, is_renderer: bool, mock_calculate: MagicMock
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Export filters", filters={"date_from": "-7d"})
+        self.insight.query = {
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        }
+        self.insight.save(update_fields=["query"])
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        self._calculated_result(mock_calculate)
+        selected_filters = {"date_from": "-90d", "date_to": "2026-01-01"}
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"filters_override": selected_filters},
+        )
+        share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        url = f"/exporter?token={get_render_access_token(asset)}" if is_renderer else f"/shared/{share.access_token}"
+        separator = "&" if is_renderer else "?"
+        response = self.client.get(f"{url}{separator}filters_override={quote(json.dumps(selected_filters))}")
+        assert response.status_code == 200
+        assert _exported_data(response)["dashboard"]["filters"] == (
+            selected_filters if is_renderer else {"date_from": "-7d"}
+        )
+        exported_query = _exported_data(response)["dashboard"]["tiles"][0]["insight"]["query"]
+        assert exported_query["source"]["dateRange"]["date_from"] == ("-90d" if is_renderer else "-7d")
+        dashboard.refresh_from_db()
+        assert dashboard.filters == {"date_from": "-7d"}
+
     @classmethod
     def setUpTestData(cls) -> None:
         super().setUpTestData()
