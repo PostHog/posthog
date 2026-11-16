@@ -1,5 +1,6 @@
 import hashlib
 import datetime as dt
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -548,10 +549,10 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         # Mirrored here rather than in the serializer, because the scout writer and the MaxTool
         # layer both save scanners without one. Must run before the version comparison below, so
         # a scope that moves with its source store bumps `scanner_version`.
-        self._mirror_scope_from_legacy_stores()
         update_fields = kwargs.get("update_fields")
+        mirrored = self._mirror_scope_from_legacy_stores(update_fields)
         if update_fields is not None:
-            update_fields = [*update_fields, "sweep_paused_until", "scope"]
+            update_fields = [*update_fields, "sweep_paused_until", *(["scope"] if mirrored else [])]
             kwargs["update_fields"] = update_fields
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]
             track_enabled = "enabled" in update_fields
@@ -650,7 +651,9 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
             return config_experiment_scope(self.scanner_config)
         return self.experiment_targeting
 
-    def _mirror_scope_from_legacy_stores(self) -> None:
+    _SCOPE_SOURCE_FIELDS = frozenset({"scanner_type", "scanner_config", "experiment_targeting"})
+
+    def _mirror_scope_from_legacy_stores(self, update_fields: "Iterable[str] | None" = None) -> bool:
         """Track the `scope` column to whichever older store holds this scanner's experiment.
 
         The mirror follows its source store in every direction, so a retarget moves the scope and a
@@ -660,13 +663,21 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
 
         A scope that matches no older store is left alone: it was set directly, which is how the
         API writes one once it accepts a scope as input.
+
+        A partial save that persists none of the source fields leaves `scope` alone and returns
+        False. Such a save keeps whatever the row already holds, and this instance can be older
+        than the row: a sweep that loaded the scanner before a retarget would otherwise write the
+        experiment it still holds in memory over the one the row now targets.
         """
         from products.replay_vision.backend.scope.load import derive_scope  # noqa: PLC0415
 
+        if update_fields is not None and not (self._SCOPE_SOURCE_FIELDS & set(update_fields)):
+            return False
         derived = derive_scope(self)
         if derived is None and not self._scope_came_from_a_legacy_store():
-            return
+            return False
         self.scope = derived
+        return True
 
     def _scope_came_from_a_legacy_store(self) -> bool:
         """Whether the stored `scope` is this row's own mirror of an older store.
