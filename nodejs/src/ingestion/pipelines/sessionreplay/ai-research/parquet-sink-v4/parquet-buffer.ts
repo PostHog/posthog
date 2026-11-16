@@ -1,4 +1,4 @@
-/** Encode already-mapped records into a Snappy/Parquet buffer via an in-memory sink — parquetjs only
+/** Encode already-mapped records into a Parquet buffer via an in-memory sink — parquetjs only
  *  writes to a stream, so this is the openStream/collect plumbing. Schema + record shape are the caller's. */
 import { ParquetSchema, ParquetWriter } from '@dsnp/parquetjs'
 import { Writable } from 'stream'

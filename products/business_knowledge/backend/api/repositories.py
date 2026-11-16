@@ -3,7 +3,7 @@ from typing import Any, cast
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
@@ -15,7 +15,6 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from products.business_knowledge.backend.github_repos import (
-    GITHUB_REPOS_FLAG,
     GithubReposError,
     RepositoryFile,
     RepositorySearchOutcome,
@@ -42,28 +41,12 @@ _READ_ACTIONS = frozenset({"status", "search", "read_file"})
 _WRITE_ACTIONS = frozenset({"connect", "disconnect", "select"})
 
 
-class BusinessKnowledgeGithubReposPermission(BasePermission):
-    """Both the product flag and the repository flag. The stock checker returns on the first hit."""
-
-    def has_permission(self, request: Request, view: Any) -> bool:
-        checker = PostHogFeatureFlagPermission()
-        for flag in ("product-business-knowledge", GITHUB_REPOS_FLAG):
-            view.posthog_feature_flag = flag
-            if not checker.has_permission(request, view):
-                self.message = checker.message
-                code = getattr(checker, "code", None)
-                if code is not None:
-                    self.code = code
-                return False
-        return True
-
-
 class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
     scope_object = "business_knowledge"
     # Plain ViewSet: object permissions never run, so resource-level access is checked here.
     requires_resource_level_access = True
-    permission_classes = [IsAuthenticated, APIScopePermission, BusinessKnowledgeGithubReposPermission]
-    posthog_feature_flag = GITHUB_REPOS_FLAG
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
     pagination_class = None
 

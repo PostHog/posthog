@@ -28,11 +28,6 @@ function formatCompactPercentage(value: number): string {
     return formatPercentage(value, { compact: true })
 }
 
-// A zoomed axis can span less than one percent, so whole-number ticks would repeat.
-function formatPrecisePercentage(value: number): string {
-    return formatPercentage(value, { precise: true, compact: true })
-}
-
 function buildConfig(
     timezone: string,
     interval: TimeInterval,
@@ -218,7 +213,8 @@ export function ToolQualityCharts({
     const successRateConfig = useChartConfig(
         () =>
             buildConfig(timezone, interval, {
-                tickFormatter: formatPrecisePercentage,
+                format: 'percentage',
+                decimalPlaces: 3,
                 startAtZero: views.successRate !== 'zoom',
             }),
         [timezone, interval, views.successRate]

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 from unittest.mock import patch
 
@@ -5,6 +7,7 @@ from django.test import override_settings
 
 from posthog.models import Organization, Team, User
 
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.compute_quota import (
     ComputeQuotaDenialReason,
     get_compute_quota_denial_reason,
@@ -103,3 +106,17 @@ class TestComputeQuota:
 
     def test_unknown_origin_is_ineligible(self):
         assert not is_billable_compute(origin_product=None, client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+
+    @pytest.mark.parametrize(
+        "bills_compute,provenance,billable",
+        [
+            (True, TaskClientProvenance.POSTHOG_DESKTOP, True),
+            (False, TaskClientProvenance.POSTHOG_DESKTOP, False),
+            (True, None, False),
+        ],
+    )
+    def test_profiled_task_bills_compute_by_its_profile(self, bills_compute, provenance, billable):
+        profile = replace(get_task_profile("business_knowledge"), key="test.billing", bills_compute=bills_compute)
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            assert is_task_billable_compute(self.task(profile=profile.key, client_provenance=provenance)) is billable

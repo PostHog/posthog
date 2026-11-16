@@ -1,9 +1,13 @@
+from dataclasses import replace
+
+import pytest
 import time_machine
 from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Integration, Organization, Team
@@ -13,18 +17,16 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
-from products.tasks.backend.constants import (
-    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-    DEFAULT_SANDBOX_WORKING_DIR,
-    SNAPSHOT_KIND_DIRECTORY,
-)
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
+from products.tasks.backend.exceptions import CredentialUnavailableError, ProcessTaskFatalError
+from products.tasks.backend.facade.profiles import TaskProfile, get_task_profile
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
     POSTHOG_MCP_DESCRIPTION,
     GitHubCredentialSource,
     McpServerConfig,
+    PrAuthorshipMode,
     RunState,
     build_imported_mcp_server_configs,
     build_sandbox_environment_variables,
@@ -33,6 +35,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_github_token,
     get_imported_mcp_server_configs,
     get_models_for_runtime_adapter,
+    get_pr_authorship_mode,
     get_relayed_mcp_server_names,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
@@ -41,15 +44,20 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     get_user_github_integration,
     get_user_mcp_server_configs,
+    include_personal_mcp_for_task,
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    mcp_exclude_tools_for_task,
     mcp_exclude_tools_from_state,
     mcp_exec_skills_env_vars,
     parse_run_state,
+    resolve_user_github_integration_for_task,
     sanitize_mcp_exclude_tools,
     upgrade_run_to_user_authorship,
 )
+
+BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 
 class TestRuntimeModelCapabilities(SimpleTestCase):
@@ -132,33 +140,16 @@ class TestRunStateResumeCompatibility(SimpleTestCase):
         self.assertEqual(parsed.same_run_resume_idle, expected_idle)
 
 
-class TestRunStateSnapshotPaths(TestCase):
+class TestRunStateSnapshotPaths(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "new_directory_snapshot",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY},
-                DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-            ),
-            (
-                "stored_directory_snapshot_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
-                DEFAULT_SANDBOX_WORKING_DIR,
-            ),
+            ("workspace_path", {"snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR}, DEFAULT_SANDBOX_WORKING_DIR),
             # A disallowed stored path invalidates the snapshot (None) — it must NOT be remapped
             # to the default: the snapshot's content layout only fits the path it was captured
             # from. "/tmp" is the legacy default whose re-mount killed the sandbox.
-            (
-                "legacy_tmp_directory_snapshot",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
-                None,
-            ),
-            (
-                "unsupported_directory_snapshot_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp/agent-env"},
-                None,
-            ),
-            ("filesystem_snapshot", {"snapshot_kind": "filesystem"}, None),
+            ("legacy_tmp_path", {"snapshot_mount_path": "/tmp"}, None),
+            ("unsupported_path", {"snapshot_mount_path": "/tmp/agent-env"}, None),
+            ("no_path", {}, None),
         ]
     )
     def test_resume_snapshot_mount_path(self, _name: str, state: dict[str, str], expected_path: str | None) -> None:
@@ -166,19 +157,9 @@ class TestRunStateSnapshotPaths(TestCase):
 
     @parameterized.expand(
         [
-            (
-                "directory_workspace_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
-                True,
-            ),
-            ("directory_no_path", {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY}, True),
-            (
-                "directory_legacy_tmp_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
-                False,
-            ),
-            ("filesystem", {"snapshot_kind": "filesystem"}, True),
-            ("no_kind", {}, True),
+            ("workspace_path", {"snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR}, True),
+            ("legacy_tmp_path", {"snapshot_mount_path": "/tmp"}, False),
+            ("no_path", {}, False),
         ]
     )
     def test_resume_snapshot_is_usable(self, _name: str, state: dict[str, str], expected: bool) -> None:
@@ -190,30 +171,25 @@ class TestRunStateSnapshotPaths(TestCase):
                 "directory_full_triple",
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 },
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 },
             ),
             (
-                "filesystem_no_mount_path",
-                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
-                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
-            ),
-            (
-                "legacy_no_kind",
+                "legacy_no_mount_path",
                 {"snapshot_external_id": "im-old"},
-                {"snapshot_external_id": "im-old", "snapshot_kind": "filesystem"},
+                {},
             ),
             (
                 "unusable_directory",
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": "/tmp",
                 },
                 {},
@@ -453,6 +429,50 @@ class TestMcpExcludeTools(SimpleTestCase):
         assert mcp_exclude_tools_from_state({"mcp_exclude_tools": "docs-search"}) == []
         assert mcp_exclude_tools_from_state(None) == []
 
+    @parameterized.expand(
+        [
+            ("no_profile", None, ["docs-search"], ["docs-search"]),
+            ("profile_only", ("user-get",), None, ["user-get"]),
+            ("profile_and_run", ("user-get",), ["docs-search", "user-get"], ["user-get", "docs-search"]),
+            ("profile_hides_nothing", (), ["docs-search"], ["docs-search"]),
+        ]
+    )
+    def test_mcp_exclude_tools_for_task_adds_the_run_to_the_profile(
+        self, _name: str, profile_tools: tuple[str, ...] | None, run_tools: list[str] | None, expected: list[str]
+    ) -> None:
+        task = MagicMock()
+        task.stored_profile = (
+            None if profile_tools is None else replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        )
+        state = None if run_tools is None else {"mcp_exclude_tools": run_tools}
+        assert mcp_exclude_tools_for_task(task, state) == expected
+
+    @parameterized.expand(
+        [
+            ("profile_and_run_fill_the_cap", 31, 1, False),
+            ("run_overflows_the_cap", 31, 2, True),
+            ("run_alone_overflows_the_cap", 0, 34, True),
+        ]
+    )
+    def test_mcp_exclude_tools_for_task_refuses_a_run_past_the_cap(
+        self, _name: str, profile_count: int, run_count: int, refused: bool
+    ) -> None:
+        profile_tools = tuple(f"profile-{i}" for i in range(profile_count))
+        run_tools = [f"run-{i}" for i in range(run_count)]
+        task = MagicMock()
+        task.stored_profile = replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        labels = {"profile": BUSINESS_KNOWLEDGE.key}
+        before = REGISTRY.get_sample_value("posthog_tasks_mcp_exclude_tools_over_cap_total", labels) or 0
+
+        if refused:
+            with pytest.raises(ProcessTaskFatalError):
+                mcp_exclude_tools_for_task(task, {"mcp_exclude_tools": run_tools})
+        else:
+            assert mcp_exclude_tools_for_task(task, {"mcp_exclude_tools": run_tools}) == [*profile_tools, *run_tools]
+
+        after = REGISTRY.get_sample_value("posthog_tasks_mcp_exclude_tools_over_cap_total", labels) or 0
+        assert after - before == (1 if refused else 0)
+
 
 class TestMcpServerConfigToDict(SimpleTestCase):
     def test_description_is_serialized_for_the_sandbox(self) -> None:
@@ -515,22 +535,41 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             {"name": "x-posthog-mcp-consumer", "value": consumer},
         ]
 
-    @parameterized.expand([(None, True), ("account_audit", False)])
+    @parameterized.expand(
+        [
+            ("no_profile", None, None, True),
+            ("account_audit", "account_audit", None, False),
+            ("profile_without_store_servers", None, BUSINESS_KNOWLEDGE, False),
+            (
+                "profile_agent",
+                None,
+                replace(BUSINESS_KNOWLEDGE, key="test.support", mcp_store_servers=True, mcp_agent="support"),
+                True,
+            ),
+        ]
+    )
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
     def test_builds_configs_from_facade_results(
-        self, origin_product: str | None, mounts_store: bool, mock_facade, mock_api_url
+        self,
+        _name: str,
+        origin_product: str | None,
+        profile: TaskProfile | None,
+        mounts_store: bool,
+        mock_facade,
+        mock_api_url,
     ) -> None:
         mock_api_url.return_value = self.API_BASE
         installation = self._make_installation()
         mock_facade.return_value = SandboxInstallations(mounted=(installation,))
 
         configs = get_user_mcp_server_configs(
-            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product
+            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product, profile=profile
         ).configs
 
         if not mounts_store:
             assert configs == []
+            mock_facade.assert_not_called()
             return
 
         mock_facade.assert_called_once_with(
@@ -542,6 +581,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            has_profile=profile is not None,
+            profile_agent_key=profile.mcp_agent if profile is not None else None,
         )
         assert configs == [
             McpServerConfig(
@@ -672,6 +713,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=["server-1"],
+            has_profile=False,
+            profile_agent_key=None,
         )
         assert configs == [
             McpServerConfig(
@@ -685,6 +728,19 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             ),
         ]
         assert all(header["name"] != "X-PostHog-Task-Id" for header in configs[0].headers)
+
+    @parameterized.expand(
+        [
+            ("internal", True, None, False),
+            ("user_created", False, None, True),
+            ("profile_without_personal_mcp", False, BUSINESS_KNOWLEDGE, False),
+        ]
+    )
+    def test_include_personal_mcp_for_task(
+        self, _name: str, internal: bool, profile: TaskProfile | None, expected: bool
+    ) -> None:
+        task = MagicMock(internal=internal, stored_profile=profile)
+        assert include_personal_mcp_for_task(task) is expected
 
     @parameterized.expand([(True,), (False,)])
     @patch(MOCK_API_URL)
@@ -704,6 +760,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            has_profile=False,
+            profile_agent_key=None,
         )
 
     @patch(MOCK_API_URL)
@@ -751,6 +809,7 @@ class TestGetGitIdentityEnvVars(TestCase):
     def _make_task(origin_product: str, user: object | None = None) -> MagicMock:
         task = MagicMock(spec=Task)
         task.origin_product = origin_product
+        task.stored_profile = None
         task.created_by = user
         return task
 
@@ -1166,6 +1225,26 @@ class TestGetUserGithubIntegration(TestCase):
         assert resolved.integration.integration_id == "222"
 
 
+class TestResolveUserGithubIntegrationForTask(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_access", {"github_access": "none"}, False),
+            ("read_access", {"github_access": "read"}, True),
+            ("no_limit", None, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    def test_a_task_without_github_access_resolves_no_personal_integration(
+        self, _name: str, options: dict | None, resolves: bool, mock_get_identity: MagicMock
+    ) -> None:
+        identity = MagicMock(name="identity")
+        mock_get_identity.return_value = identity
+
+        resolved = resolve_user_github_integration_for_task(Task(options=options), actor_user=MagicMock())
+
+        assert resolved is (identity if resolves else None)
+
+
 class TestGetSandboxGitHubToken(SimpleTestCase):
     @parameterized.expand(
         [
@@ -1233,6 +1312,33 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("no_access_user_authored", {"github_access": "none"}, "user", None),
+            ("no_access_bot_authored", {"github_access": "none"}, "bot", None),
+            ("read_access_user_authored", {"github_access": "read"}, "user", "ghp_cached"),
+            ("no_limit_bot_authored", None, "bot", "ghs_team"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token", return_value="ghs_team")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token", return_value="ghp_cached")
+    def test_a_task_without_github_access_resolves_no_token(
+        self,
+        _name: str,
+        options: dict | None,
+        mode: str,
+        expected: str | None,
+        _mock_cached: MagicMock,
+        _mock_get_github_token: MagicMock,
+    ) -> None:
+        task = Task(options=options, github_integration_id=123)
+
+        token = get_sandbox_github_token(
+            123, run_id="run-1", state={"pr_authorship_mode": mode}, task=task, repository="posthog/posthog"
+        )
+
+        assert token == expected
+
+    @parameterized.expand(
+        [
             ("reauthorization",),
             ("empty_token",),
         ]
@@ -1270,6 +1376,18 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             ("task_repository", {}, "acme/api", ["acme/api"]),
             ("pinned_list_ignores_changed_task_repository", {"repositories": ["acme/api"]}, "acme/new", ["acme/api"]),
             ("empty_pinned_list_ignores_task_repository", {"repositories": []}, "acme/api", []),
+            (
+                "access_list_widens_clone_list",
+                {"repositories": ["acme/api"], "github_access_repositories": ["acme/api", "acme/assets"]},
+                "acme/api",
+                ["acme/api", "acme/assets"],
+            ),
+            (
+                "empty_access_list_keeps_clone_list",
+                {"repositories": ["acme/api"], "github_access_repositories": []},
+                "acme/api",
+                ["acme/api"],
+            ),
         ]
     )
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
@@ -1827,6 +1945,11 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
         self.task.origin_product = Task.OriginProduct.SIGNAL_REPORT
         self.task.save(update_fields=["origin_product"])
 
+    def _profile_without_user_authorable_prs(self) -> None:
+        self.connect_personal_github()
+        self.task.profile = "business_knowledge"
+        self.task.save(update_fields=["profile"])
+
     def _set_state(self, state: dict) -> None:
         self.task_run.state = state
         self.task_run.save(update_fields=["state"])
@@ -1839,6 +1962,7 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
             ("already_user_authored",),
             ("caller_token_run",),
             ("signal_report_origin",),
+            ("profile_without_user_authorable_prs",),
             ("a_different_actor_than_the_creator",),
         ]
     )
@@ -1874,18 +1998,44 @@ class TestIsBotAuthorshipFallback(_AuthorshipFixture):
         self.task.origin_product = Task.OriginProduct.SIGNAL_REPORT
         self.task.save(update_fields=["origin_product"])
 
+    def _profile_without_user_authorable_prs(self) -> None:
+        self.task.profile = "business_knowledge"
+        self.task.save(update_fields=["profile"])
+
     @parameterized.expand(
         [
             ("user_authored",),
             ("caller_token_run",),
             ("signal_report_run",),
             ("signal_report_origin",),
+            ("profile_without_user_authorable_prs",),
         ]
     )
     def test_nothing_is_flagged(self, case: str) -> None:
         getattr(self, f"_{case}")()
 
         assert is_bot_authorship_fallback(self.task, str(self.task_run.id), self.task_run.state) is False
+
+
+class TestGetPrAuthorshipMode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("profile_wins_over_origin", "business_knowledge", None, PrAuthorshipMode.BOT),
+            ("unregistered_profile_uses_origin", "test.unregistered", None, PrAuthorshipMode.USER),
+            (
+                "run_state_wins_over_profile",
+                "business_knowledge",
+                {"pr_authorship_mode": "user"},
+                PrAuthorshipMode.USER,
+            ),
+        ]
+    )
+    def test_reads_run_state_then_profile_then_origin(
+        self, _name: str, profile: str, state: dict | None, expected: PrAuthorshipMode
+    ) -> None:
+        task = Task(origin_product=Task.OriginProduct.USER_CREATED, profile=profile)
+
+        assert get_pr_authorship_mode(task, state) == expected
 
 
 class TestMcpExecSkillsEnvVars(SimpleTestCase):
@@ -1896,23 +2046,26 @@ class TestMcpExecSkillsEnvVars(SimpleTestCase):
             ("eval_flag_on", "eval", None, True, True),
             ("desktop_keeps_bundled_skills_even_with_flag_on", None, None, True, False),
             ("web_phai_flag_off", "posthog_ai", None, False, False),
+            ("caller_disables_skills", None, "signal_report", False, True, True),
             ("web_phai_task_without_interaction_origin_flag_on", None, "posthog_ai", True, True),
             ("web_phai_task_without_interaction_origin_flag_off", None, "posthog_ai", False, False),
         ]
     )
-    def test_strips_bundled_skills_only_for_learn_capable_runs_with_the_flag_on(
+    def test_strips_bundled_skills_for_caller_or_learn_capable_runs(
         self,
         _name: str,
         interaction_origin: str | None,
         origin_product: str | None,
         flag_enabled: bool,
         expect_stripped: bool,
+        disable_skills: bool = False,
     ) -> None:
         ctx = MagicMock(
             interaction_origin=interaction_origin,
             origin_product=origin_product,
             organization_id="org-1",
             distinct_id="user-1",
+            state={"disable_skills": disable_skills},
         )
         with patch(
             "products.tasks.backend.temporal.process_task.utils.is_mcp_exec_skills_enabled", return_value=flag_enabled
@@ -1920,7 +2073,7 @@ class TestMcpExecSkillsEnvVars(SimpleTestCase):
             env = mcp_exec_skills_env_vars(ctx)
 
         assert env == ({"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"} if expect_stripped else {})
-        if interaction_origin is None and origin_product is None:
+        if disable_skills or (interaction_origin is None and origin_product is None):
             flag_check.assert_not_called()
         else:
             flag_check.assert_called_once_with("org-1", "user-1")

@@ -9,6 +9,8 @@ A PostHog **workflow** is a directed graph: a list of **action nodes** (`actions
 
 The single biggest failure mode is **getting the graph JSON structurally wrong**. The backend stores `actions`/`config` as loose JSON, but the visual editor parses every node against a strict schema, so a malformed node saves but then **breaks the editor view** for the whole workflow. Before composing or editing any graph, read [references/graph-schema.md](references/graph-schema.md). It is the contract; do not improvise node shapes from these examples alone.
 
+A one-off email that the user's code sends to one person, such as a password reset, a sign-in code or a receipt, is a transactional email, not a workflow. Use the `sending-transactional-emails` skill for it.
+
 ## Before the first messaging workflow
 
 When the user asks to set up workflows or messaging, or asks for an email, SMS or push workflow in a project that may not send yet, call `workflows-setup-status` before composing anything. It says which setup steps are open and links each one in the app. Walk the user through the open steps, set the sending rules, then offer suggested workflows. Read [references/onboarding.md](references/onboarding.md) for the flow and the defaults to recommend.

@@ -22,12 +22,24 @@ from prometheus_client import Counter
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
-from posthog.hogql.constants import (
-    MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-    HogQLQuerySettings,
-    get_default_hogql_global_settings,
-)
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import Table
+from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
+from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
+    ExperimentMetricEventsPreaggregatedTable,
+)
+from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
+from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
+from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
+from posthog.hogql.database.schema.preaggregation_results import PreaggregationResultsTable
+from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
+from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
+from posthog.hogql.database.schema.web_sessions_preaggregated import WebSessionsPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_frustration_preaggregated import WebStatsFrustrationPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
+from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders
@@ -37,7 +49,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
-from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.event.new_events_schema import events_read_settings, use_new_events_schema
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -178,10 +190,12 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
 
 def _get_insert_settings(
     team_id: int,
+    table: "LazyComputationTable",
     *,
     spill_to_disk: bool = False,
     read_after_write: bool = True,
     overrides: Mapping[str, int | str] | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
@@ -199,6 +213,12 @@ def _get_insert_settings(
     minutes later (background builders) gets no consistency from it — only the
     failure mode where a downed or stale-registered replica turns every build
     into TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
+
+    `load_balancing` comes from the HogQL table that reads `table`, so the INSERT and the
+    later SELECT choose replicas the same way. A table that sets none uses the profile default.
+
+    `modifiers` are the ones the INSERT's SELECT was printed with. The native read settings follow the
+    events table that SELECT reads, which a per-query modifier can switch away from the team's default.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
@@ -214,9 +234,10 @@ def _get_insert_settings(
             # Uses the legacy name of `distributed_foreground_insert` (renamed in ClickHouse 23.x)
             # for version compatibility.
             "insert_distributed_sync": 1,
-            **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
+            **_read_table_load_balancing(table),
         }
     )
+    settings.update(events_read_settings(use_new_events_schema(team_id, modifiers)))
     if spill_to_disk:
         # Spill heavy GROUP BYs to disk instead of OOMing. This is a spill
         # *threshold*, not a memory reservation — it lowers peak RAM (vs. holding
@@ -592,6 +613,33 @@ class LazyComputationTable(StrEnum):
     WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED = "web_sessions_dimensional_preaggregated"
 
 
+# The HogQL table that reads each target table. The two dimensional web tables are read
+# without HogQL, so they have no entry.
+_READ_TABLES: dict[LazyComputationTable, Table] = {
+    LazyComputationTable.PREAGGREGATION_RESULTS: PreaggregationResultsTable(),
+    LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED: ExperimentExposuresPreaggregatedTable(),
+    LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED: ExperimentMetricEventsPreaggregatedTable(),
+    LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED: MarketingTouchpointsPreaggregatedTable(),
+    LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED: MarketingConversionsPreaggregatedTable(),
+    LazyComputationTable.MARKETING_COSTS_PREAGGREGATED: MarketingCostsPreaggregatedTable(),
+    LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED: WebOverviewPreaggregatedTable(),
+    LazyComputationTable.WEB_STATS_PREAGGREGATED: WebStatsPreaggregatedTable(),
+    LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED: WebStatsPathsPreaggregatedTable(),
+    LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED: WebVitalsPathsPreaggregatedTable(),
+    LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED: WebStatsFrustrationPreaggregatedTable(),
+    LazyComputationTable.WEB_GOALS_PREAGGREGATED: WebGoalsPreaggregatedTable(),
+    LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED: WebSessionsPreaggregatedTable(),
+}
+
+
+def _read_table_load_balancing(table: LazyComputationTable) -> dict[str, str]:
+    read_table = _READ_TABLES.get(table)
+    if read_table is None or read_table.top_level_settings is None:
+        return {}
+    load_balancing = read_table.top_level_settings.load_balancing
+    return {"load_balancing": load_balancing} if load_balancing is not None else {}
+
+
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
 # so an expires_at just after midnight would round down to a time *before* the PG
 # job expires. We add an extra day of buffer for these tables.
@@ -625,6 +673,13 @@ class LazyComputationQuery:
     modifiers: HogQLQueryModifiers | None = None
 
 
+@frozen
+class ServedWindow:
+    start: datetime
+    end: datetime
+    computed_at: datetime | None
+
+
 @dataclass(frozen=True)
 class LazyComputationResult:
     """Result of executing lazy computation jobs."""
@@ -651,8 +706,15 @@ class LazyComputationResult:
     freshly_built: bool = False
     # Oldest `computed_at` across the served jobs — the moment the stalest window in the
     # range was last materialized. None when nothing was served (not ready) or a served
-    # job predates the column. Callers surface it as "data as of X".
+    # job predates the column.
     computed_at: datetime | None = None
+    # Every served job's range and computed_at, so a caller can ask how fresh a specific part of the
+    # range is (for example the latest day) instead of only the oldest stamp.
+    served_windows: tuple[ServedWindow, ...] = ()
+
+
+def _served_windows(jobs: list[PreaggregationJob]) -> tuple[ServedWindow, ...]:
+    return tuple(ServedWindow(start=j.time_range_start, end=j.time_range_end, computed_at=j.computed_at) for j in jobs)
 
 
 def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
@@ -703,6 +765,13 @@ def get_daily_windows(start: datetime, end: datetime) -> list[tuple[datetime, da
     Each window is [day_start, day_start + 1 day).
     """
     windows = []
+
+    # Windows are UTC days, so a team-local bound must become UTC before its date is taken. Otherwise the
+    # edge hours of a local day fall into UTC windows that are never built or served.
+    if start.tzinfo is not None:
+        start = start.astimezone(UTC)
+    if end.tzinfo is not None:
+        end = end.astimezone(UTC)
 
     # Normalize to start of day in UTC
     current = datetime(start.year, start.month, start.day, tzinfo=UTC)
@@ -1081,7 +1150,7 @@ def run_lazy_computation_insert(
             sync_execute(
                 insert_sql,
                 values,
-                settings=_get_insert_settings(team.id),
+                settings=_get_insert_settings(team.id, query_info.table, modifiers=query_info.modifiers),
             )
         )
 
@@ -1284,6 +1353,7 @@ class LazyComputationExecutor:
                             job_ids=[j.id for j in covering],
                             stale=True,
                             computed_at=_oldest_computed_at(covering),
+                            served_windows=_served_windows(covering),
                         )
                         _log_execution("stale_hit", result)
                         return result
@@ -1548,6 +1618,7 @@ class LazyComputationExecutor:
             job_ids=[j.id for j in final_ready],
             freshly_built=jobs_created > 0 or bool(waited_job_ids),
             computed_at=_oldest_computed_at(final_ready),
+            served_windows=_served_windows(final_ready),
         )
         _log_execution("success", result)
         return result
@@ -1876,9 +1947,11 @@ def ensure_precomputed(
                     values,
                     settings=_get_insert_settings(
                         t.id,
+                        table,
                         spill_to_disk=spill_to_disk,
                         read_after_write=read_after_write,
                         overrides=insert_settings,
+                        modifiers=modifiers,
                     ),
                 )
             )

@@ -266,6 +266,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         actor_slack_user_id=target,
         turn_trace_id=input.trace_id,
         turn_person_message=person_message,
+        include_thread_cost=True,
     )
 
     if handler.proactive_notifications_muted() and not is_explicit_slack_reply(task_run, input.message_id):

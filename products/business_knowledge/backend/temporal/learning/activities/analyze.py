@@ -27,6 +27,7 @@ from products.business_knowledge.backend import learning_settings, logic
 from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK_QUERY_EMBEDDING_TIMEOUT
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef
 from products.business_knowledge.backend.learning.providers import get_learning_provider
+from products.business_knowledge.backend.llm_telemetry import RetrievalTrace, stable_trace_id
 from products.business_knowledge.backend.models import KnowledgeLearningRun, LearningRunResult, LearningRunStatus
 
 from ..constants import (
@@ -116,6 +117,11 @@ class LearningOutputTruncated(LearningAnalysisError):
         super().__init__(f"{stage}_output_truncated")
 
 
+class LearningConflictingOutput(LearningAnalysisError):
+    def __init__(self, stage: str) -> None:
+        super().__init__(f"{stage}_conflicting_output")
+
+
 class _SupersessionUnavailable(Exception):
     """The conflicting source is not one this job may replace, so the candidate must not be published."""
 
@@ -202,12 +208,19 @@ def _log_model_failure(team: Team, stage: str, trace_id: str, error: Exception, 
     )
 
 
-def _parse_tool_result(content: object, output_model: type[ModelOutput], stage: str) -> ModelOutput:
+def _parse_tool_result(
+    content: object, output_model: type[ModelOutput], stage: str, *, first_call_wins: bool
+) -> ModelOutput:
     tool_name = output_model.__name__
     blocks = content if isinstance(content, list) else []
     tool_results = [block for block in blocks if isinstance(block, ToolUseBlock) and block.name == tool_name]
-    if len(tool_results) != 1:
+    if not tool_results:
         raise LearningAnalysisError(f"invalid_{stage}_output")
+    if len(tool_results) > 1:
+        # The request disables parallel tool use. Several calls can still arrive.
+        logger.warning("business_knowledge.learning.multiple_tool_calls", stage=stage, count=len(tool_results))
+        if not first_call_wins and any(block.input != tool_results[0].input for block in tool_results[1:]):
+            raise LearningConflictingOutput(stage)
     return output_model.model_validate(tool_results[0].input)
 
 
@@ -220,6 +233,7 @@ def _invoke_structured_model(
     payload: dict[str, object],
     output_model: type[ModelOutput],
     max_tokens: int = LEARNING_MAX_TOKENS,
+    first_call_wins: bool = False,
 ) -> ModelOutput:
     try:
         client = build_ai_gateway_anthropic_client(
@@ -250,11 +264,13 @@ def _invoke_structured_model(
                         "input_schema": output_model.model_json_schema(),
                     }
                 ],
-                tool_choice={"type": "tool", "name": tool_name},
+                tool_choice={"type": "tool", "name": tool_name, "disable_parallel_tool_use": True},
                 extra_headers={"X-PostHog-Privacy-Mode": "true"},
             )
         try:
-            return _parse_tool_result(response.content, output_model, stage)
+            return _parse_tool_result(response.content, output_model, stage, first_call_wins=first_call_wins)
+        except LearningConflictingOutput:
+            raise
         except (LearningAnalysisError, ValidationError) as error:
             if response.stop_reason == "max_tokens":
                 logger.warning(
@@ -292,6 +308,8 @@ def _extract_candidate(team: Team, bundle: EvidenceBundle, trace_id: str) -> Ext
         system_prompt=_EXTRACTION_SYSTEM_PROMPT,
         payload={"public_human_replies": list(bundle.replies)},
         output_model=ExtractedKnowledge,
+        # Every later gate checks the candidate this stage returns, so any one of several candidates is safe to keep.
+        first_call_wins=True,
     )
 
 
@@ -458,7 +476,7 @@ def _contradiction_gate_rejection(
     return "none"
 
 
-def _search_existing_knowledge(team: Team, query: str) -> list[logic.KnowledgeSearchResult]:
+def _search_existing_knowledge(team: Team, query: str, *, run_id: UUID) -> list[logic.KnowledgeSearchResult]:
     embedding = generate_embedding(
         team,
         query,
@@ -473,6 +491,8 @@ def _search_existing_knowledge(team: Team, query: str) -> list[logic.KnowledgeSe
         limit=LEARNING_SEARCH_LIMIT,
         use_semantic=True,
         query_embedding=embedding,
+        # Keyed on the run, so a retried analysis is counted once.
+        trace=RetrievalTrace(surface="learning", trace_id=stable_trace_id("learning", run_id)),
     )
 
 
@@ -552,6 +572,7 @@ def _log_analysis_failure(run: KnowledgeLearningRun, error: Exception) -> None:
         provider=run.provider,
         evidence_key=run.evidence_key,
         error_type=type(error).__name__,
+        error_code=error.code if isinstance(error, LearningAnalysisError) else None,
     )
 
 
@@ -736,18 +757,28 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
         return _finish_without_knowledge(run, rejection_code=rejection_code)
 
     generated_text = f"{extracted.canonical_topic}\n{extracted.canonical_answer}"
-    if _model_pii_verdict(run.team, extracted, trace_id).verdict != "safe":
+    try:
+        pii_verdict = _model_pii_verdict(run.team, extracted, trace_id)
+    except LearningConflictingOutput:
+        return _finish_without_knowledge(run, rejection_code="pii")
+    if pii_verdict.verdict != "safe":
         return _finish_without_knowledge(run, rejection_code="pii")
 
     try:
-        results = _search_existing_knowledge(run.team, generated_text)
+        results = _search_existing_knowledge(run.team, generated_text, run_id=run.id)
     except Exception:
         raise LearningAnalysisError("knowledge_search_failed") from None
     retrieved = _render_search_context(results)
-    decision = _promotion_decision(run.team, bundle, extracted, retrieved, trace_id)
+    try:
+        decision = _promotion_decision(run.team, bundle, extracted, retrieved, trace_id)
+    except LearningConflictingOutput:
+        return _finish_without_knowledge(run, rejection_code="low_confidence")
     conflicting = _conflicting_search_result(decision, results, len(retrieved))
     if conflicting is not None:
-        confirmation = _confirm_contradiction(run.team, extracted, conflicting, trace_id)
+        try:
+            confirmation = _confirm_contradiction(run.team, extracted, conflicting, trace_id)
+        except LearningConflictingOutput:
+            return _finish_without_knowledge(run, rejection_code="already_known")
         if _is_confirmed_contradiction(confirmation):
             if not conflicting.is_generated:
                 # Learning may retire what it wrote. A source a person wrote stays until a person changes it.

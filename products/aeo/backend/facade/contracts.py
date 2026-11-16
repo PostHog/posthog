@@ -193,6 +193,72 @@ class PromptStats:
     top_words: tuple[PromptSearchWord, ...]
 
 
+def _rate(part: int, whole: int) -> float | None:
+    return part / whole if whole else None
+
+
+@frozen
+class PromptSetCounts:
+    """Checks across the prompt set in one window, all engines. Rates leave failed checks out."""
+
+    checks: int
+    failed: int
+    cited: int
+    mentioned: int
+    # Distinct prompts that ran at least once in the window, and how many of them were cited at least once.
+    prompts: int
+    prompts_cited: int
+
+    @property
+    def citation_rate(self) -> float | None:
+        return _rate(self.cited, self.checks - self.failed)
+
+    @property
+    def mention_rate(self) -> float | None:
+        return _rate(self.mentioned, self.checks - self.failed)
+
+
+@frozen
+class PromptSetEngineCounts(PromptSetCounts):
+    engine: str
+
+
+@frozen
+class PromptSetTopicCounts(PromptSetCounts):
+    """Checks that ran with this topic in the window, and the active prompts that have it now."""
+
+    topic: str
+    active_prompts: int
+
+
+@frozen
+class PromptSetDomain:
+    """How many answers across the set cited a domain in the window."""
+
+    domain: str
+    answers: int
+    share_of_answers: float
+    is_target: bool
+
+
+@frozen
+class PromptSetOverview:
+    """How the whole prompt set did over the last `days` days, against the `days` days before."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    # Active, unarchived prompts: the ones the next daily run takes.
+    prompts_tracked: int
+    target_domains: tuple[str, ...]
+    brand_names: tuple[str, ...]
+    current: PromptSetCounts
+    previous: PromptSetCounts
+    engines: tuple[PromptSetEngineCounts, ...]
+    topics: tuple[PromptSetTopicCounts, ...]
+    top_domains: tuple[PromptSetDomain, ...]
+
+
 @frozen
 class PromptImport:
     prompt: str

@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 
 import { performQuery } from '~/queries/query'
 import { PathsLink, PathsQuery } from '~/queries/schema/schema-general'

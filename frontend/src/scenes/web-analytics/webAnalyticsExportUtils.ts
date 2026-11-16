@@ -14,7 +14,8 @@ import {
     getInsightExportAdapter,
 } from '~/queries/nodes/InsightViz/exportAdapters'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { GRADE_PER_BAND, WebVitalsRow } from '~/queries/nodes/WebVitals/definitions'
+import { GRADE_PER_BAND } from '~/queries/nodes/WebVitals/definitions'
+import { isWebStatsTableQuery } from '~/queries/schema/node-guards'
 import {
     DataTableNode,
     NodeKind,
@@ -33,7 +34,6 @@ import {
 import {
     isWebExternalClicksQuery,
     isWebGoalsQuery,
-    isWebStatsTableQuery,
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
 } from '~/queries/utils'
@@ -289,8 +289,8 @@ function webVitalsColumnName(metric: WebVitalsMetric, percentile: string): strin
 function webVitalsTrendsAdapter(response: WebVitalsQueryResponse, query: WebVitalsQuery): TrendsAdapter {
     return new TrendsAdapter({
         ...response,
-        results: ((response.results ?? []) as WebVitalsRow[]).map((item) => {
-            const node = getResultSeries(query.source, { order: item.order }).node
+        results: (response.results ?? []).map((item) => {
+            const node = getResultSeries(query.source, item).node
             return node?.custom_name && node.math
                 ? { ...item, label: webVitalsColumnName(node.custom_name as WebVitalsMetric, node.math) }
                 : item

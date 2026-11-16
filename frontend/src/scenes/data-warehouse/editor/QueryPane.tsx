@@ -5,8 +5,8 @@ import { IconCheck, IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
-import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { cn } from 'lib/utils/css-classes'
 

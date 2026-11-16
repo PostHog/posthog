@@ -604,12 +604,10 @@ export interface ActionApi {
     readonly user_access_level: string | null
 }
 
-export interface PaginatedActionListApi {
+export interface ActionListResponseApi {
+    /** Number of actions that match the filters. Without `limit`, it is `offset` plus the number of actions returned. */
     count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+    /** Actions on this page, or every matching action without `limit`. */
     results: ActionApi[]
 }
 

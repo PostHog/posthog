@@ -10,28 +10,41 @@ recorded as a failure on the report instead, so the team can see the gap and fix
 from __future__ import annotations
 
 import re
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
 
+from django.db import models
 from django.utils import timezone
 
 import structlog
+from redis.exceptions import RedisError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationKind, IntegrationRecord
 from posthog.models.integration import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
     GitHubIntegration,
     GitLabIntegration,
-    Integration,
     JiraIntegration,
     LinearIntegration,
     external_issue_url,
 )
+from posthog.redis import get_client
 
 from products.signals.backend.github_actor import github_mention_for_user
-from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
+from products.signals.backend.implementation_pr import close_implementation_pr_for_report
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportMonitoringAttempt,
+    SignalReportTrackerIssue,
+    SignalTeamConfig,
+)
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 
@@ -40,10 +53,10 @@ logger = structlog.get_logger(__name__)
 # Target fields the team must supply per provider, on top of what the integration itself carries.
 # GitLab needs none: its integration is already bound to one project.
 TRACKER_TARGET_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
-    Integration.IntegrationKind.GITHUB.value: ("repository",),
-    Integration.IntegrationKind.GITLAB.value: (),
-    Integration.IntegrationKind.LINEAR.value: ("team_id",),
-    Integration.IntegrationKind.JIRA.value: ("project_key",),
+    IntegrationKind.GITHUB.value: ("repository",),
+    IntegrationKind.GITLAB.value: (),
+    IntegrationKind.LINEAR.value: ("team_id",),
+    IntegrationKind.JIRA.value: ("project_key",),
 }
 
 # A GitHub repository name is interpolated into the issues path, so anything holding a path or
@@ -66,7 +79,7 @@ ABANDONED_CLAIM_REASON = "Tracker issue creation stopped before it returned a re
 class TrackerIssueTarget:
     """Where a team wants its self-driving tracker issues to land."""
 
-    integration: Integration
+    integration: IntegrationRecord
     config: dict[str, Any]
 
     @property
@@ -111,7 +124,7 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
     kind = target.integration.kind
     label = target.label
 
-    if kind == Integration.IntegrationKind.GITHUB:
+    if kind == IntegrationKind.GITHUB:
         config: dict[str, Any] = {
             "repository": validated_github_repository(target.config["repository"]),
             "title": title,
@@ -125,10 +138,10 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
         context["repository"] = repository if "/" in repository else f"{github.organization()}/{repository}"
         return context
 
-    if kind == Integration.IntegrationKind.GITLAB:
+    if kind == IntegrationKind.GITLAB:
         return GitLabIntegration(target.integration).create_issue({"title": title, "body": body})
 
-    if kind == Integration.IntegrationKind.LINEAR:
+    if kind == IntegrationKind.LINEAR:
         # Linear's client attaches the report link to the new issue itself, so the auditor can
         # walk issue → report without the description.
         return LinearIntegration(target.integration).create_issue(
@@ -136,7 +149,7 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
             {"team_id": target.config["team_id"], "title": title, "description": body},
         )
 
-    if kind == Integration.IntegrationKind.JIRA:
+    if kind == IntegrationKind.JIRA:
         return JiraIntegration(target.integration).create_issue(
             {"project_key": target.config["project_key"], "title": title, "description": body}
         )
@@ -172,7 +185,7 @@ def _claim_tracker_issue(
         report_id=report_id,
         defaults={
             "team_id": team_id,
-            "integration": target.integration,
+            "integration_id": target.integration.id,
             "provider": target.integration.kind,
             "status": SignalReportTrackerIssue.Status.PENDING,
         },
@@ -189,7 +202,7 @@ def _claim_tracker_issue(
         if claim.failure_reason == ABANDONED_CLAIM_REASON:
             return None
         claim.status = SignalReportTrackerIssue.Status.PENDING
-        claim.integration = target.integration
+        claim.integration_id = target.integration.id
         claim.provider = target.integration.kind
         claim.save(update_fields=["status", "integration", "provider", "updated_at"])
         return claim
@@ -265,7 +278,7 @@ def _pr_body_reference(tracker: SignalReportTrackerIssue, *, pr_repository: str)
     """The line appended to the pull request body so the pull request names its tracker issue."""
     context = tracker.external_context or {}
 
-    if tracker.provider == Integration.IntegrationKind.GITHUB:
+    if tracker.provider == IntegrationKind.GITHUB:
         repository, number = context.get("repository"), context.get("number")
         if not repository or not number:
             return None
@@ -319,7 +332,7 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
         if outcome != BodyEditOutcome.WRITTEN:
             return False
 
-        if tracker.provider == Integration.IntegrationKind.LINEAR and tracker.integration is not None:
+        if tracker.provider == IntegrationKind.LINEAR and tracker.integration is not None:
             # Best-effort: the description reference already links the two, and this attachment
             # needs a Linear scope the team may not have granted.
             try:
@@ -350,76 +363,251 @@ def _close_notice(*, report_link: str, actor_mention: str | None) -> str:
     return f"🔕 The {report_link} was closed in PostHog, so this issue is closed too."
 
 
-def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str, actor_mention: str | None) -> None:
+def _comment_before_close(
+    tracker: SignalReportTrackerIssue, *, report_link: str, actor_mention: str | None, priority: Priority
+) -> None:
     """Best-effort note on the issue naming who closed the report. Only GitHub takes one today.
 
     Explain first, close second, as the implementation pull request does. A failed comment must
     not stop the close: an issue left open would grow the backlog this close exists to prevent,
     while a missing comment costs only the attribution.
     """
-    if tracker.provider != Integration.IntegrationKind.GITHUB or tracker.integration is None:
+    if (
+        tracker.provider != IntegrationKind.GITHUB
+        or tracker.integration is None
+        or tracker.close_comment_posted_at is not None
+    ):
         return
     context = tracker.external_context or {}
     try:
-        GitHubIntegration(
+        result = GitHubIntegration(
             tracker.integration, source="signals_tracker_issues", priority=Priority.BATCH
         ).comment_on_issue(
             context["repository"],
             int(context["number"]),
             _close_notice(report_link=report_link, actor_mention=actor_mention),
         )
+        if result.get("success"):
+            tracker.close_comment_posted_at = timezone.now()
+            tracker.save(update_fields=["close_comment_posted_at", "updated_at"])
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        if priority == Priority.BATCH:
+            raise
     except Exception:
         logger.warning("signals.tracker_issue_close_comment_failed", tracker_id=str(tracker.id), exc_info=True)
 
 
-def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool) -> None:
+def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool, priority: Priority) -> None:
     integration = tracker.integration
     if integration is None:
         raise ValueError("Tracker issue has no integration left to close it through")
     context = tracker.external_context or {}
 
-    if tracker.provider == Integration.IntegrationKind.GITHUB:
-        GitHubIntegration(integration, source="signals_tracker_issues", priority=Priority.CRITICAL).close_issue(
+    if tracker.provider == IntegrationKind.GITHUB:
+        GitHubIntegration(integration, source="signals_tracker_issues", priority=priority).close_issue(
             context["repository"], int(context["number"]), completed=completed
         )
-    elif tracker.provider == Integration.IntegrationKind.GITLAB:
+    elif tracker.provider == IntegrationKind.GITLAB:
         GitLabIntegration(integration).close_issue(int(context["issue_id"]))
-    elif tracker.provider == Integration.IntegrationKind.LINEAR:
+    elif tracker.provider == IntegrationKind.LINEAR:
         LinearIntegration(integration).close_issue(str(context["id"]), completed=completed)
-    elif tracker.provider == Integration.IntegrationKind.JIRA:
+    elif tracker.provider == IntegrationKind.JIRA:
         JiraIntegration(integration).close_issue(str(context["key"]))
     else:
         raise ValueError(f"Unsupported tracker provider {tracker.provider}")
 
 
-def close_tracker_issue_for_report(
-    *, team_id: int, report_id: str, completed: bool = False, actor_user_id: int | None = None
+def _current_completion_attempt(
+    *, team_id: int, report_id: str, monitoring_attempt_id: str
+) -> SignalReportMonitoringAttempt | None:
+    return (
+        SignalReportMonitoringAttempt.objects.for_team(team_id)
+        .filter(
+            id=monitoring_attempt_id,
+            report_id=report_id,
+            aggregation_state="passed",
+            tracker_issue_close_processed_at__isnull=True,
+            monitoring_started_at=models.F("report__monitoring_started_at"),
+        )
+        .filter(
+            models.Q(report__status=SignalReport.Status.RESOLVED)
+            | models.Q(
+                report__status=SignalReport.Status.SUPPRESSED,
+                report__status_before_suppression=SignalReport.Status.RESOLVED,
+            )
+        )
+        .first()
+    )
+
+
+def _close_tracker_issue_for_report(
+    *,
+    team_id: int,
+    report_id: str,
+    completed: bool,
+    actor_user_id: int | None,
+    monitoring_attempt_id: str | None,
+    priority: Priority,
 ) -> bool:
-    """Close the report's tracker issue once the report is dismissed or completed. Never raises.
+    """Close the report's tracker issue once the report is dismissed or completed.
 
     A dismissed report will not produce a pull request, so its work item is finished. Leaving it
-    open would grow a backlog of tracker issues that no pull request will ever answer.
+    open would grow a backlog of tracker issues that no pull request will ever answer. Batch rate
+    limits propagate so the sweep can honor the provider's retry window.
     """
+
+    def can_complete() -> bool:
+        return (
+            monitoring_attempt_id is None
+            or _current_completion_attempt(
+                team_id=team_id, report_id=report_id, monitoring_attempt_id=monitoring_attempt_id
+            )
+            is not None
+        )
+
     try:
+        pr_completed = True
+        if monitoring_attempt_id is not None:
+            attempt = _current_completion_attempt(
+                team_id=team_id, report_id=report_id, monitoring_attempt_id=monitoring_attempt_id
+            )
+            if attempt is None:
+                return True
+            if attempt.close_pr_on_resolve:
+                pr_completed = close_implementation_pr_for_report(
+                    team_id,
+                    report_id,
+                    reason="resolved",
+                    actor_user_id=actor_user_id,
+                    comment_marker=f"<!-- monitoring-completion:{attempt.id} -->",
+                    before_close=can_complete,
+                    priority=priority,
+                    require_all=True,
+                )
         tracker = (
             SignalReportTrackerIssue.objects.for_team(team_id)
             .select_related("integration")
-            .filter(report_id=report_id, status=SignalReportTrackerIssue.Status.CREATED)
+            .filter(
+                report_id=report_id,
+                status__in=[SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED],
+            )
             .first()
         )
         if tracker is None or tracker.closed_at is not None:
+            return monitoring_attempt_id is not None and pr_completed
+        if tracker.status == SignalReportTrackerIssue.Status.PENDING:
             return False
 
+        if not can_complete():
+            return True
         report_url = build_report_url(team_id, report_id, ReportLinkSource.TRACKER)
         _comment_before_close(
             tracker,
             report_link=f"[linked PostHog report]({report_url})",
             actor_mention=github_mention_for_user(actor_user_id),
+            priority=priority,
         )
-        _close_provider_issue(tracker, completed=completed)
+        if not can_complete():
+            return True
+        _close_provider_issue(tracker, completed=completed, priority=priority)
         tracker.closed_at = timezone.now()
         tracker.save(update_fields=["closed_at", "updated_at"])
-        return True
+        return pr_completed
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        if priority == Priority.BATCH:
+            raise
+        return False
     except Exception:
         logger.warning("signals.tracker_issue_close_failed", report_id=report_id, team_id=team_id, exc_info=True)
         return False
+
+
+@contextmanager
+def tracker_issue_completion_lock(*, team_id: int, report_id: str) -> Iterator[bool]:
+    lock = None
+    acquired = False
+    try:
+        lock = get_client().lock(f"signals:tracker-close:{team_id}:{report_id}", timeout=120)
+        acquired = lock.acquire(blocking=False)
+    except RedisError:
+        logger.warning("signals.tracker_issue_close_lock_failed", report_id=report_id, team_id=team_id, exc_info=True)
+        yield False
+        return
+    try:
+        yield acquired
+    finally:
+        if acquired and lock is not None:
+            try:
+                lock.release()
+            except RedisError:
+                logger.warning("signals.tracker_issue_close_lock_release_failed", report_id=report_id, exc_info=True)
+
+
+def close_tracker_issue_for_report(
+    *,
+    team_id: int,
+    report_id: str,
+    completed: bool = False,
+    actor_user_id: int | None = None,
+    monitoring_attempt_id: str | None = None,
+    priority: Priority = Priority.CRITICAL,
+) -> bool:
+    with tracker_issue_completion_lock(team_id=team_id, report_id=report_id) as acquired:
+        if not acquired:
+            return False
+        return _close_tracker_issue_for_report(
+            team_id=team_id,
+            report_id=report_id,
+            completed=completed,
+            actor_user_id=actor_user_id,
+            monitoring_attempt_id=monitoring_attempt_id,
+            priority=priority,
+        )
+
+
+def complete_monitoring_tracker_issues(*, deadline: float, limit: int = 100) -> None:
+    now = timezone.now()
+    due = models.Q(tracker_issue_close_next_attempt_at__isnull=True) | models.Q(
+        tracker_issue_close_next_attempt_at__lte=now
+    )
+    attempts = (
+        SignalReportMonitoringAttempt.objects.unscoped()
+        .filter(tracker_issue_close_requested_at__isnull=False, tracker_issue_close_processed_at__isnull=True)
+        .filter(due)
+        .order_by(
+            models.F("tracker_issue_close_next_attempt_at").asc(nulls_first=True),
+            "tracker_issue_close_requested_at",
+            "id",
+        )[:limit]
+    )
+    for attempt in attempts:
+        if time.monotonic() >= deadline:
+            break
+        claimed = (
+            SignalReportMonitoringAttempt.objects.for_team(attempt.team_id)
+            .filter(id=attempt.id, tracker_issue_close_processed_at__isnull=True)
+            .filter(due)
+            .update(tracker_issue_close_next_attempt_at=now + timedelta(minutes=5))
+        )
+        if not claimed:
+            continue
+        try:
+            completed = close_tracker_issue_for_report(
+                team_id=attempt.team_id,
+                report_id=str(attempt.report_id),
+                completed=True,
+                monitoring_attempt_id=str(attempt.id),
+                priority=Priority.BATCH,
+            )
+        except (GitHubEgressBudgetExhausted, GitHubRateLimitError) as error:
+            retry_after = 300
+            if isinstance(error, GitHubRateLimitError):
+                retry_after = max(retry_after, error.retry_after or 0, (error.reset_at or 0) - int(time.time()))
+            SignalReportMonitoringAttempt.objects.for_team(attempt.team_id).filter(
+                id=attempt.id, tracker_issue_close_processed_at__isnull=True
+            ).update(tracker_issue_close_next_attempt_at=timezone.now() + timedelta(seconds=retry_after))
+            return
+        if completed:
+            SignalReportMonitoringAttempt.objects.for_team(attempt.team_id).filter(id=attempt.id).update(
+                tracker_issue_close_processed_at=timezone.now()
+            )
