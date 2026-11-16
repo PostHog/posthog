@@ -230,6 +230,9 @@ export const TILES_ALLOWED_ON_PRE_AGGREGATED = [
     TileId.GEOGRAPHY,
 ]
 
+export const PRECOMPUTE_TOGGLE_DESCRIPTION =
+    'When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.'
+
 export const TILE_LABELS: Record<TileId, string> = {
     [TileId.OVERVIEW]: 'Overview stats',
     [TileId.GRAPHS]: 'Trends',

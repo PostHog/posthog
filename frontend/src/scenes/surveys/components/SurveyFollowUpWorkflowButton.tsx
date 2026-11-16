@@ -31,28 +31,33 @@ function surveyFollowUpTrigger(surveyId: string): WorkflowTriggerConfig {
     }
 }
 
+export const SURVEY_FOLLOW_UP_WORKFLOW_LABEL = 'Email everyone who responds'
+export const SURVEY_FOLLOW_UP_WORKFLOW_TOOLTIP = 'Open a workflow that emails each person who responds to this survey'
+
+export function startSurveyFollowUpWorkflow(surveyId: string): void {
+    captureMessageAudienceClicked(SOURCE, 'workflow')
+    router.actions.push(
+        urlForNewWorkflowWithTrigger(
+            surveyFollowUpTrigger(surveyId),
+            SOURCE,
+            draftMessage({ kind: 'survey_responded' }),
+            { source: 'survey', source_id: surveyId }
+        )
+    )
+}
+
 export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string }): JSX.Element {
     const accessDisabledReason = messageAudienceAccessDisabledReason()
     return (
         <ButtonPrimitive
             menuItem
-            tooltip="Open a workflow that emails each person who responds to this survey"
-            onClick={() => {
-                captureMessageAudienceClicked(SOURCE, 'workflow')
-                router.actions.push(
-                    urlForNewWorkflowWithTrigger(
-                        surveyFollowUpTrigger(surveyId),
-                        SOURCE,
-                        draftMessage({ kind: 'survey_responded' }),
-                        { source: 'survey', source_id: surveyId }
-                    )
-                )
-            }}
+            tooltip={SURVEY_FOLLOW_UP_WORKFLOW_TOOLTIP}
+            onClick={() => startSurveyFollowUpWorkflow(surveyId)}
             disabledReasons={accessDisabledReason ? { [accessDisabledReason]: true } : {}}
             data-attr="survey-start-follow-up-workflow"
         >
             <IconSend />
-            Email everyone who responds
+            {SURVEY_FOLLOW_UP_WORKFLOW_LABEL}
         </ButtonPrimitive>
     )
 }

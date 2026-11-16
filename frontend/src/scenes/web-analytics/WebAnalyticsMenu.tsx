@@ -16,7 +16,7 @@ import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider, ScenePanelLabe
 import { isWebAnalyticsAchievementsEnabled } from './achievements/gating'
 import { webAnalyticsAchievementsLogic } from './achievements/webAnalyticsAchievementsLogic'
 import { webAnalyticsAchievementsPreferencesLogic } from './achievements/webAnalyticsAchievementsPreferencesLogic'
-import { ProductTab, TILE_LABELS, TileId } from './common'
+import { PRECOMPUTE_TOGGLE_DESCRIPTION, ProductTab, TILE_LABELS, TileId } from './common'
 import { shareNudgeLogic } from './shareNudgeLogic'
 import { exportAllTilesAsCsvZip } from './webAnalyticsExportUtils'
 
@@ -44,7 +44,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
         productTab,
         showFocusMode,
         tiles,
-        useWebAnalyticsPrecompute,
+        isPrecomputeAllowed,
         webQueryModifiers,
     } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -113,15 +113,13 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                 <>
                     <ScenePanelDivider />
                     <ScenePanelActionsSection>
-                        <Tooltip title="When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
+                        <Tooltip title={PRECOMPUTE_TOGGLE_DESCRIPTION}>
                             <ButtonPrimitive
                                 menuItem
-                                onClick={() => {
-                                    // `null` (untouched) is treated as on, so toggling off opts out explicitly.
-                                    setUseWebAnalyticsPrecompute(!(useWebAnalyticsPrecompute ?? true))
-                                }}
+                                // Toggling off from the untouched state stores an explicit opt-out.
+                                onClick={() => setUseWebAnalyticsPrecompute(!isPrecomputeAllowed)}
                             >
-                                <LemonSwitch checked={useWebAnalyticsPrecompute ?? true} size="xsmall" />
+                                <LemonSwitch checked={isPrecomputeAllowed} size="xsmall" />
                                 Allow precompute
                             </ButtonPrimitive>
                         </Tooltip>

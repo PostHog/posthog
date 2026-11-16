@@ -11,14 +11,11 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { UseMaxToolReturn } from 'scenes/max/useMaxTool'
@@ -41,6 +38,7 @@ import {
 import { SurveyHeadline } from 'scenes/surveys/SurveyHeadline'
 import { SurveyTab, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
+import { SurveySceneMenuBar } from 'scenes/surveys/SurveySceneMenuBar'
 import { getSurveyStatus, isSurveyDraft, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
@@ -49,12 +47,6 @@ import { canUseSurveyWizard } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -81,6 +73,7 @@ import { SurveyDraftReview } from 'products/surveys/frontend/draftReview/SurveyD
 import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from '../constants'
 import { QuillSurveyStatusAction } from './QuillSurveyStatusAction'
+import { SurveyDetailsDrawer, SurveyDetailsDrawerTab } from './SurveyDetailsDrawer'
 import { SurveyResultsFiltersBar } from './SurveyFilters'
 import { SurveyResponseExpandedRow } from './SurveyResponseExpandedRow'
 import { SurveyDetailsPanel, SurveyExportPanel } from './SurveySidebar'
@@ -97,8 +90,6 @@ export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['ope
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { push } = useActions(router)
     const { location, searchParams, hashParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const isUnsavedSurvey = survey.id === NEW_SURVEY.id
     const isInitialSurveyLoad = surveyLoading && isUnsavedSurvey
 
@@ -153,7 +144,8 @@ export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['ope
 
     useEffect(() => {
         const tabFromUrl = searchParams[panelTabSearchParam]
-        if (typeof tabFromUrl !== 'string') {
+        // Until the survey loads it reads as a draft, which has no Export tab, so a valid `export` would be dropped.
+        if (typeof tabFromUrl !== 'string' || isUnsavedSurvey) {
             return
         }
         if (validPanelTabKeys.includes(tabFromUrl) && panelTabKey !== tabFromUrl) {
@@ -164,7 +156,16 @@ export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['ope
             const { [panelTabSearchParam]: _invalid, ...nextSearchParams } = searchParams
             router.actions.replace(location.pathname, nextSearchParams, hashParams)
         }
-    }, [hashParams, location.pathname, panelTabKey, searchParams, setPanelTab, validPanelTabKeys])
+    }, [hashParams, isUnsavedSurvey, location.pathname, panelTabKey, searchParams, setPanelTab, validPanelTabKeys])
+
+    const urlPanelTab = searchParams[panelTabSearchParam]
+    const isDetailsDrawerOpen =
+        todayRailNav && typeof urlPanelTab === 'string' && validPanelTabKeys.includes(urlPanelTab)
+    const openDetailsDrawer = (): void => setPanelTab(validPanelTabKeys.includes(panelTabKey) ? panelTabKey : 'details')
+    const closeDetailsDrawer = (): void => {
+        const { [panelTabSearchParam]: _closed, ...nextSearchParams } = searchParams
+        router.actions.replace(location.pathname, nextSearchParams, hashParams)
+    }
 
     if (isInitialSurveyLoad) {
         return <LemonSkeleton />
@@ -172,89 +173,7 @@ export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['ope
 
     return (
         <SceneContent className="gap-y-4 flex-1 min-h-full">
-            {sceneMenuBarEnabled && (
-                <SceneMenuBar>
-                    <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
-                        <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                        {canCopyToProject && surveyIdForTransfer && (
-                            <SceneMenuBarItem
-                                onClick={() => push(urls.resourceTransfer('Survey', surveyIdForTransfer))}
-                                data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
-                            >
-                                <IconCopy />
-                                Copy to another project
-                            </SceneMenuBarItem>
-                        )}
-                        {(!survey.archived || canDeleteSurvey(survey)) && <SceneMenuBarSeparator />}
-                        {!survey.archived && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Survey}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={survey.user_access_level}
-                            >
-                                {({ disabledReason }) => (
-                                    <SceneMenuBarItem
-                                        variant="destructive"
-                                        opensFloatingUi
-                                        disabled={!!disabledReason}
-                                        onClick={() => openArchiveSurveyDialog(survey, archiveSurvey)}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-archive`}
-                                    >
-                                        <IconArchive />
-                                        Archive
-                                    </SceneMenuBarItem>
-                                )}
-                            </AccessControlAction>
-                        )}
-                        {canDeleteSurvey(survey) && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Survey}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={survey.user_access_level}
-                            >
-                                {({ disabledReason }) => (
-                                    <SceneMenuBarItem
-                                        variant="destructive"
-                                        opensFloatingUi
-                                        disabled={!!disabledReason}
-                                        onClick={() => openDeleteSurveyDialog(survey, () => deleteSurvey(survey.id))}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
-                                    >
-                                        <IconTrash />
-                                        Delete permanently
-                                    </SceneMenuBarItem>
-                                )}
-                            </AccessControlAction>
-                        )}
-                    </SceneMenuBarMenu>
-                    <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                        <SceneMenuBarItem
-                            onClick={() => {
-                                const existingSurvey = survey as Survey
-                                if (hasMultipleProjects) {
-                                    setSurveyToDuplicate(existingSurvey)
-                                } else {
-                                    duplicateSurvey(existingSurvey)
-                                }
-                            }}
-                            data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
-                        >
-                            <IconCopy />
-                            Duplicate
-                        </SceneMenuBarItem>
-                        {!isDraft && (
-                            <SceneMenuBarItem
-                                opensFloatingUi
-                                onClick={() => setSqlHelperOpen(true)}
-                                data-attr={`${RESOURCE_TYPE}-menubar-sql-query`}
-                            >
-                                <IconCode />
-                                SQL query
-                            </SceneMenuBarItem>
-                        )}
-                    </SceneMenuBarMenu>
-                </SceneMenuBar>
-            )}
+            <SurveySceneMenuBar onOpenSqlHelper={() => setSqlHelperOpen(true)} onOpenDetails={openDetailsDrawer} />
             <ScenePanel>
                 <ScenePanelInfoSection>
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
@@ -464,6 +383,16 @@ export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['ope
                 />
             </div>
 
+            {todayRailNav && (
+                <SurveyDetailsDrawer
+                    open={isDetailsDrawerOpen}
+                    tab={panelTabKey as SurveyDetailsDrawerTab}
+                    showExport={!isDraft}
+                    surveyName={survey.name}
+                    onTabChange={(tab) => setPanelTab(tab)}
+                    onClose={closeDetailsDrawer}
+                />
+            )}
             <DuplicateToProjectModal />
             <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
         </SceneContent>

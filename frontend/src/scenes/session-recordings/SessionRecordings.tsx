@@ -54,6 +54,7 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
+import { SessionRecordingsSceneMenuBar } from './SessionRecordingsSceneMenuBar'
 import { SCENE_PLAYLIST_LOGIC_PROPS, humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 
 const HedgehogExplorer = pngHoggie(explorerPng)
@@ -381,18 +382,21 @@ function ReplayTitleSection(): JSX.Element {
     const collectionsUnderRecordings = tab === ReplayTabs.Playlists && isNewReplayLayout(replayLayout)
     const replayName = sceneConfigurations[Scene.Replay].name
     return (
-        <SceneTitleSection
-            name={collectionsUnderRecordings ? humanFriendlyTabName(tab) : replayName}
-            resourceType={{
-                type: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
-            }}
-            forceBackTo={
-                collectionsUnderRecordings
-                    ? { key: Scene.Replay, name: replayName, path: urls.replay(ReplayTabs.Home) }
-                    : undefined
-            }
-            actions={<Header />}
-        />
+        <>
+            <SessionRecordingsSceneMenuBar />
+            <SceneTitleSection
+                name={collectionsUnderRecordings ? humanFriendlyTabName(tab) : replayName}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
+                }}
+                forceBackTo={
+                    collectionsUnderRecordings
+                        ? { key: Scene.Replay, name: replayName, path: urls.replay(ReplayTabs.Home) }
+                        : undefined
+                }
+                actions={<Header />}
+            />
+        </>
     )
 }
 

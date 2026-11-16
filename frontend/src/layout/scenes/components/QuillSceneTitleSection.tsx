@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { Button, cn } from '@posthog/quill'
@@ -16,11 +17,12 @@ import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { QuillSceneHeader } from './QuillSceneHeader'
 import { QuillSceneName } from './QuillSceneName'
 import { QuillSceneTrail } from './QuillSceneTrail'
+import { SceneActionsMenu } from './SceneActionsMenu'
 import { SceneDescription } from './SceneDescription'
+import { SceneMenuBarHelpMenu } from './SceneMenuBar'
 import { useRegisterSceneMenuBarSlot, useSceneMenuBarSlotFilled } from './SceneMenuBarSlotProvider'
 import { sceneResourceIcon } from './sceneResourceIcon'
 import type { SceneMainTitleProps } from './SceneTitleSection'
-import { SceneTitleSettingsButton } from './SceneTitleSettingsButton'
 
 export function QuillSceneTitleSection({
     name,
@@ -89,8 +91,16 @@ export function QuillSceneTitleSection({
     )
     const [menuBarSlot, setMenuBarSlot] = useState<HTMLDivElement | null>(null)
     useRegisterSceneMenuBarSlot(menuBarSlot)
-    // The menu bar's Help menu carries the settings link, so the title shows its own only without a bar.
     const menuBarShown = useSceneMenuBarSlotFilled()
+    const helpOnlyMenu =
+        menuBarSlot && !menuBarShown
+            ? createPortal(
+                  <SceneActionsMenu helpOnly>
+                      <SceneMenuBarHelpMenu />
+                  </SceneActionsMenu>,
+                  menuBarSlot
+              )
+            : null
 
     return (
         <>
@@ -149,21 +159,15 @@ export function QuillSceneTitleSection({
                                 }
                             />
                         )}
-                        {/* The scene menu bar portals in here, so its menus follow the name after a short divider. A narrow scene wraps
-                            the menus onto their own line, where the divider would lead the line, so it hides there. */}
                         <div
                             ref={setMenuBarSlot}
                             className="flex shrink-0 items-center empty:hidden before:mx-1 before:h-4 before:w-px before:shrink-0 before:bg-[var(--border)] before:content-[''] @max-xl/main-content:before:hidden"
                         />
                     </>
                 }
-                actions={
-                    <>
-                        {actions}
-                        {!menuBarShown && <SceneTitleSettingsButton />}
-                    </>
-                }
+                actions={actions}
             />
+            {helpOnlyMenu}
             {descriptionShown && (
                 <div className={cn(noPadding && cn('pl-4 pr-2', className))}>
                     <SceneDescription

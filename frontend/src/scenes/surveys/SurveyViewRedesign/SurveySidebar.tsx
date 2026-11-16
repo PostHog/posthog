@@ -9,7 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
-import { SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
+import { NewSurvey, SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getNextPreviewPageIndex } from 'scenes/surveys/surveyPreviewNavigation'
@@ -76,14 +76,102 @@ function formatSurveySchedule(survey: Survey): string {
 // Panel Components
 // ============================================================================
 
+export interface SurveyAtAGlanceRow {
+    key: string
+    label: string
+    value: ReactNode
+}
+
+export function getSurveyAtAGlanceRows(survey: Survey, hasTargetingSet: boolean): SurveyAtAGlanceRow[] {
+    const collectionLimitSummary = getSurveyCollectionLimitSummary(survey)
+    const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
+    const rows: (SurveyAtAGlanceRow | null)[] = [
+        {
+            key: 'status',
+            label: 'Status',
+            value: !survey.start_date ? 'Draft' : survey.end_date ? 'Complete' : 'Running',
+        },
+        { key: 'type', label: 'Type', value: SURVEY_TYPE_LABEL_MAP[survey.type] },
+        { key: 'schedule', label: 'Schedule', value: formatSurveySchedule(survey) },
+        scheduleInfo
+            ? {
+                  key: 'auto-closes',
+                  label: 'Auto-closes',
+                  value: scheduleInfo.autoCloseDate
+                      ? scheduleInfo.autoCloseDate.isBefore(dayjs())
+                          ? 'Soon'
+                          : scheduleInfo.autoCloseDate.format('MMMM D, YYYY')
+                      : `After ${pluralize(scheduleInfo.totalDurationDays, 'day')}`,
+              }
+            : null,
+        { key: 'audience', label: 'Audience', value: hasTargetingSet ? 'Targeted' : 'All users' },
+        survey.start_date ? { key: 'started', label: 'Started', value: <TZLabel time={survey.start_date} /> } : null,
+        survey.end_date ? { key: 'ended', label: 'Ended', value: <TZLabel time={survey.end_date} /> } : null,
+        collectionLimitSummary
+            ? { key: 'collection-limit', label: collectionLimitSummary.label, value: collectionLimitSummary.value }
+            : null,
+    ]
+    return rows.filter((row): row is SurveyAtAGlanceRow => row !== null)
+}
+
+export function getSurveyPreviewPageOptions(
+    survey: Pick<Survey | NewSurvey, 'questions' | 'appearance'>
+): { label: string; value: number }[] {
+    return [
+        ...getIntroScreenPageOptions(survey),
+        ...survey.questions.map((question, index) => ({
+            label: `${index + 1}. ${question.question ?? ''}`,
+            value: index,
+        })),
+        ...(survey.appearance?.displayThankYouMessage
+            ? [{ label: 'Thank you message', value: survey.questions.length }]
+            : []),
+    ]
+}
+
+export const SURVEY_NO_RESPONSES_TO_EXPORT = 'No responses to export yet.'
+
+export const SURVEY_API_DOCS_URL = 'https://posthog.com/docs/surveys/implementing-custom-surveys'
+
+interface SurveyResponsesExport {
+    disabledReason: string | null
+    exportResponses: (format: ExporterFormat.CSV | ExporterFormat.XLSX) => void
+}
+
+export function useSurveyResponsesExport(): SurveyResponsesExport {
+    const { survey, responsesExportQuery } = useValues(surveyLogic)
+    const { startExport } = useActions(exportsLogic)
+
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
+
+    return {
+        disabledReason: !responsesExportQuery
+            ? SURVEY_NO_RESPONSES_TO_EXPORT
+            : (exportAccessControlDisabledReason ?? null),
+        exportResponses: (format) => {
+            if (!responsesExportQuery) {
+                return
+            }
+            startExport({
+                export_format: format,
+                export_context: {
+                    source: responsesExportQuery,
+                    columns: responsesExportQuery.columns,
+                    filename: `survey-${survey.name}-responses`,
+                },
+            })
+        },
+    }
+}
+
 export function SurveyDetailsPanel(): JSX.Element {
     const { survey, selectedPageIndex, hasTargetingSet } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
     const isNonApiSurvey = survey.type !== SurveyType.API
-    const statusLabel = !survey.start_date ? 'Draft' : survey.end_date ? 'Complete' : 'Running'
     const conditionsSummary = hasTargetingSet ? getSurveyDisplayConditionsSummary(survey as Survey) : []
-    const collectionLimitSummary = getSurveyCollectionLimitSummary(survey)
-    const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
     const effectivePageIndex = clampPreviewPageIndex(selectedPageIndex, survey)
 
     return (
@@ -109,16 +197,7 @@ export function SurveyDetailsPanel(): JSX.Element {
                             fullWidth
                             value={effectivePageIndex}
                             onChange={(pageIndex) => setSelectedPageIndex(pageIndex)}
-                            options={[
-                                ...getIntroScreenPageOptions(survey),
-                                ...survey.questions.map((question, index) => ({
-                                    label: `${index + 1}. ${question.question ?? ''}`,
-                                    value: index,
-                                })),
-                                ...(survey.appearance?.displayThankYouMessage
-                                    ? [{ label: 'Thank you message', value: survey.questions.length }]
-                                    : []),
-                            ]}
+                            options={getSurveyPreviewPageOptions(survey)}
                         />
                     </div>
                 </PanelSection>
@@ -127,52 +206,12 @@ export function SurveyDetailsPanel(): JSX.Element {
             {/* Survey info */}
             <PanelSection title="At a glance">
                 <div className="flex flex-col gap-1.5 text-sm">
-                    <div className="flex justify-between">
-                        <span className="text-muted">Status</span>
-                        <span>{statusLabel}</span>
-                    </div>
-                    <div className="flex justify-between">
-                        <span className="text-muted">Type</span>
-                        <span>{SURVEY_TYPE_LABEL_MAP[survey.type]}</span>
-                    </div>
-                    <div className="flex justify-between">
-                        <span className="text-muted">Schedule</span>
-                        <span>{formatSurveySchedule(survey as Survey)}</span>
-                    </div>
-                    {scheduleInfo && (
-                        <div className="flex justify-between">
-                            <span className="text-muted">Auto-closes</span>
-                            <span>
-                                {scheduleInfo.autoCloseDate
-                                    ? scheduleInfo.autoCloseDate.isBefore(dayjs())
-                                        ? 'Soon'
-                                        : scheduleInfo.autoCloseDate.format('MMMM D, YYYY')
-                                    : `After ${pluralize(scheduleInfo.totalDurationDays, 'day')}`}
-                            </span>
+                    {getSurveyAtAGlanceRows(survey as Survey, hasTargetingSet).map((row) => (
+                        <div key={row.key} className="flex justify-between">
+                            <span className="text-muted">{row.label}</span>
+                            <span>{row.value}</span>
                         </div>
-                    )}
-                    <div className="flex justify-between">
-                        <span className="text-muted">Audience</span>
-                        <span>{hasTargetingSet ? 'Targeted' : 'All users'}</span>
-                    </div>
-                    {survey.start_date && (
-                        <div className="flex justify-between">
-                            <span className="text-muted">Started</span>
-                            <TZLabel time={survey.start_date} />
-                        </div>
-                    )}
-                    {survey.end_date && (
-                        <div className="flex justify-between">
-                            <span className="text-muted">Ended</span>
-                            <TZLabel time={survey.end_date} />
-                        </div>
-                    )}
-                    {collectionLimitSummary && (
-                        <div className="flex justify-between">
-                            <span className="text-muted">{collectionLimitSummary.label}</span>
-                            <span>{collectionLimitSummary.value}</span>
-                        </div>
-                    )}
+                    ))}
                     {survey.type === SurveyType.ExternalSurvey && (
                         <div className="flex flex-col gap-2 pt-1">
                             <span className="text-muted text-xs">Share link</span>
@@ -185,7 +224,7 @@ export function SurveyDetailsPanel(): JSX.Element {
                     {survey.type === SurveyType.API && (
                         <div className="flex justify-between">
                             <span className="text-muted">API docs</span>
-                            <Link to="https://posthog.com/docs/surveys/implementing-custom-surveys" target="_blank">
+                            <Link to={SURVEY_API_DOCS_URL} target="_blank">
                                 View docs
                             </Link>
                         </div>
@@ -203,28 +242,8 @@ export function SurveyDetailsPanel(): JSX.Element {
 }
 
 export function SurveyExportPanel(): JSX.Element {
-    const { survey, responsesExportQuery } = useValues(surveyLogic)
-    const { startExport } = useActions(exportsLogic)
-
-    // Creating an export requires editor access to the export resource.
-    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.Export,
-        AccessControlLevel.Editor
-    )
-
-    const handleExport = (format: ExporterFormat): void => {
-        if (!responsesExportQuery) {
-            return
-        }
-        startExport({
-            export_format: format,
-            export_context: {
-                source: responsesExportQuery,
-                columns: responsesExportQuery.columns,
-                filename: `survey-${survey.name}-responses`,
-            },
-        })
-    }
+    const { responsesExportQuery } = useValues(surveyLogic)
+    const { disabledReason, exportResponses } = useSurveyResponsesExport()
 
     return (
         <PanelSection title="Export" description="Download survey responses">
@@ -233,13 +252,13 @@ export function SurveyExportPanel(): JSX.Element {
                     items={[
                         {
                             label: 'Export as CSV',
-                            onClick: () => handleExport(ExporterFormat.CSV),
-                            disabledReason: exportAccessControlDisabledReason ?? undefined,
+                            onClick: () => exportResponses(ExporterFormat.CSV),
+                            disabledReason: disabledReason ?? undefined,
                         },
                         {
                             label: 'Export as Excel',
-                            onClick: () => handleExport(ExporterFormat.XLSX),
-                            disabledReason: exportAccessControlDisabledReason ?? undefined,
+                            onClick: () => exportResponses(ExporterFormat.XLSX),
+                            disabledReason: disabledReason ?? undefined,
                         },
                     ]}
                 >
@@ -254,7 +273,7 @@ export function SurveyExportPanel(): JSX.Element {
                     </LemonButton>
                 </LemonMenu>
             ) : (
-                <p className="text-xs text-muted m-0">No responses to export yet.</p>
+                <p className="text-xs text-muted m-0">{SURVEY_NO_RESPONSES_TO_EXPORT}</p>
             )}
         </PanelSection>
     )

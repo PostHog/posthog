@@ -64,7 +64,8 @@ export function SceneMenuBarAddToNotebook({
     }
 
     return (
-        <SceneMenuBarSubMenu label="Add to notebook">
+        // Two lists of notebook titles follow, so flattening them would bury the scene's rows and fill its search.
+        <SceneMenuBarSubMenu label="Add to notebook" keepAsSubmenu>
             <SceneMenuBarItem opensFloatingUi onClick={openNew} data-attr={`${dataAttrKey}-menubar-new-notebook`}>
                 <IconPlusSmall />
                 New notebook

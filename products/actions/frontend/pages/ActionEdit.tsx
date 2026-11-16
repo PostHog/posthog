@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect, useMemo } from 'react'
 
-import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
@@ -12,6 +12,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -29,6 +30,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,6 +41,7 @@ import {
     SceneMenuBar,
     SceneMenuBarItem,
     SceneMenuBarMenu,
+    SceneMenuBarPopover,
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -51,7 +54,14 @@ import {
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLogicalOperator } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActionStepType,
+    FilterLogicalOperator,
+    RecordingUniversalFilters,
+    ReplayTabs,
+} from '~/types'
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
@@ -109,6 +119,30 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
     )
 
     const actionId = typeof action?.id === 'number' ? action.id : null
+
+    const recordingsFilters: Partial<RecordingUniversalFilters> | null = id
+        ? {
+              filter_group: {
+                  type: FilterLogicalOperator.And,
+                  values: [
+                      {
+                          type: FilterLogicalOperator.And,
+                          values: [{ id, type: 'actions', order: 0, name: action.name }],
+                      },
+                  ],
+              },
+          }
+        : null
+    const addViewRecordingsIntent = (): void => {
+        addProductIntentForCrossSell({
+            from: ProductKey.ACTIONS,
+            to: ProductKey.SESSION_REPLAY,
+            intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
+        })
+    }
+    const saveTags = (tags: string[]): void => {
+        setActionValue('tags', tags)
+    }
 
     useFileSystemLogView({
         type: 'action',
@@ -176,14 +210,39 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                                 )}
                             </AccessControlAction>
                         </SceneMenuBarMenu>
+                        {recordingsFilters && (
+                            <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
+                                <SceneMenuBarItem
+                                    onClick={() => {
+                                        addViewRecordingsIntent()
+                                        newInternalTab(urls.replay(ReplayTabs.Home, recordingsFilters))
+                                    }}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-view-recordings`}
+                                >
+                                    <IconRewindPlay />
+                                    View recordings
+                                </SceneMenuBarItem>
+                            </SceneMenuBarMenu>
+                        )}
+                        <SceneMenuBarPopover
+                            label="Metadata"
+                            dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
+                            contentClassName="flex flex-col gap-2"
+                        >
+                            <SceneTagsCombobox
+                                onSave={saveTags}
+                                tags={action.tags || []}
+                                dataAttrKey={RESOURCE_TYPE}
+                                canEdit={canEdit}
+                            />
+                            <SceneActivityIndicator at={action.created_at} by={action.created_by} prefix="Created" />
+                        </SceneMenuBarPopover>
                     </SceneMenuBar>
                 )}
                 <ScenePanel>
                     <ScenePanelInfoSection>
                         <SceneTags
-                            onSave={(tags) => {
-                                setActionValue('tags', tags)
-                            }}
+                            onSave={saveTags}
                             tags={action.tags || []}
                             dataAttrKey={RESOURCE_TYPE}
                             canEdit={canEdit}
@@ -196,33 +255,10 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                     <ScenePanelDivider />
 
                     <ScenePanelActionsSection>
-                        {id && (
+                        {recordingsFilters && (
                             <ViewRecordingsPlaylistButton
-                                filters={{
-                                    filter_group: {
-                                        type: FilterLogicalOperator.And,
-                                        values: [
-                                            {
-                                                type: FilterLogicalOperator.And,
-                                                values: [
-                                                    {
-                                                        id: id,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                        name: action.name,
-                                                    },
-                                                ],
-                                            },
-                                        ],
-                                    },
-                                }}
-                                onClick={() => {
-                                    addProductIntentForCrossSell({
-                                        from: ProductKey.ACTIONS,
-                                        to: ProductKey.SESSION_REPLAY,
-                                        intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
-                                    })
-                                }}
+                                filters={recordingsFilters}
+                                onClick={addViewRecordingsIntent}
                                 data-attr={`${RESOURCE_TYPE}-view-recordings`}
                             />
                         )}

@@ -24,7 +24,7 @@ import {
 import { isWebAnalyticsAchievementsEnabled } from './achievements/gating'
 import { webAnalyticsAchievementsLogic } from './achievements/webAnalyticsAchievementsLogic'
 import { webAnalyticsAchievementsPreferencesLogic } from './achievements/webAnalyticsAchievementsPreferencesLogic'
-import { ProductTab, TILE_LABELS, TileId } from './common'
+import { PRECOMPUTE_TOGGLE_DESCRIPTION, ProductTab, TILE_LABELS, TileId } from './common'
 import { shareNudgeLogic } from './shareNudgeLogic'
 import { exportAllTilesAsCsvZip } from './webAnalyticsExportUtils'
 
@@ -95,6 +95,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
         hasSavedFocusMode,
         hiddenTiles,
         isFocusModeActive,
+        isPrecomputeAllowed,
         productTab,
         shouldFilterTestAccounts,
         showFocusMode,
@@ -107,6 +108,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
         openFocusModeModal,
         setShouldFilterTestAccounts,
         setTileVisibility,
+        setUseWebAnalyticsPrecompute,
         setWebQueryModifiers,
     } = useActions(webAnalyticsLogic)
     const { exportTriggered } = useActions(shareNudgeLogic)
@@ -135,8 +137,26 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
 
     return (
         <SceneMenuBar>
-            <SceneMenuBarMenu label="File" dataAttr="web-analytics-menubar-file" disabled={!hasFileItems}>
-                {hasFileItems && <SceneMenuBarFileItems dataAttrKey="web-analytics" />}
+            <SceneMenuBarMenu label="File" dataAttr="web-analytics-menubar-file">
+                <SceneMenuBarItem
+                    disabled={!!exportAllDisabledReason}
+                    tooltip={exportAllDisabledReason ?? undefined}
+                    onClick={() => {
+                        if (exportAllTilesAsCsvZip(tiles)) {
+                            exportTriggered()
+                        }
+                    }}
+                    data-attr="web-analytics-menubar-export-all-csv"
+                >
+                    <IconDownload />
+                    Export all as CSV (.zip)
+                </SceneMenuBarItem>
+                {hasFileItems && (
+                    <>
+                        <SceneMenuBarSeparator />
+                        <SceneMenuBarFileItems dataAttrKey="web-analytics" />
+                    </>
+                )}
             </SceneMenuBarMenu>
             {showQueryEngineToggle && (
                 <SceneMenuBarMenu label="Edit" dataAttr="web-analytics-menubar-edit">
@@ -172,19 +192,6 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                         Weekly recap
                     </SceneMenuBarItem>
                 )}
-                <SceneMenuBarItem
-                    disabled={!!exportAllDisabledReason}
-                    tooltip={exportAllDisabledReason ?? undefined}
-                    onClick={() => {
-                        if (exportAllTilesAsCsvZip(tiles)) {
-                            exportTriggered()
-                        }
-                    }}
-                    data-attr="web-analytics-menubar-export-all-csv"
-                >
-                    <IconDownload />
-                    Export all as CSV (.zip)
-                </SceneMenuBarItem>
                 <SceneMenuBarItem
                     onClick={() => window.location.assign(urls.sessionAttributionExplorer())}
                     data-attr="web-analytics-menubar-session-attribution"
@@ -230,8 +237,24 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                     onCheckedChange={(checked) => setShouldFilterTestAccounts(checked)}
                     data-attr="web-analytics-menubar-filter-test"
                 >
-                    Filter out internal and test users
+                    Filter test accounts
                 </SceneMenuBarCheckboxItem>
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
+                    <Tooltip>
+                        <TooltipTrigger
+                            render={
+                                <SceneMenuBarCheckboxItem
+                                    checked={isPrecomputeAllowed}
+                                    onCheckedChange={(checked) => setUseWebAnalyticsPrecompute(checked)}
+                                    data-attr="web-analytics-menubar-allow-precompute"
+                                >
+                                    Allow precompute
+                                </SceneMenuBarCheckboxItem>
+                            }
+                        />
+                        <TooltipContent className="max-w-80">{PRECOMPUTE_TOGGLE_DESCRIPTION}</TooltipContent>
+                    </Tooltip>
+                )}
                 {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_QUERY_MODIFIERS] && (
                     <SceneMenuBarCheckboxItem
                         checked={!!webQueryModifiers.useDimensionalTables}
@@ -244,7 +267,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                     </SceneMenuBarCheckboxItem>
                 )}
                 {showTileToggles && availableTiles.length > 0 && (
-                    <SceneMenuBarSubMenu label="Visible tiles">
+                    <SceneMenuBarSubMenu label="Visible tiles" keepAsSubmenu>
                         {availableTiles.map((tileId) => (
                             <SceneMenuBarCheckboxItem
                                 key={tileId}

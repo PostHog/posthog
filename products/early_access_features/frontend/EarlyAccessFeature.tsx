@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconCopy, IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
+import { IconCopy, IconExternal, IconFlag, IconPulse, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -18,6 +18,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -40,12 +41,14 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import {
     SceneMenuBar,
     SceneMenuBarItem,
     SceneMenuBarMenu,
+    SceneMenuBarPopover,
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -74,6 +77,7 @@ import {
     PropertyOperator,
     RecordingUniversalFilters,
     ReplayTabs,
+    SidePanelTab,
 } from '~/types'
 
 import {
@@ -92,6 +96,7 @@ import { InstructionsModal } from './InstructionsModal'
 import { QuillEarlyAccessFeatureActions } from './QuillEarlyAccessFeatureActions'
 
 const RESOURCE_TYPE = 'early-access-feature'
+const EARLY_ACCESS_FEATURES_DOCS_URL = 'https://posthog.com/docs/feature-flags/early-access-feature-management'
 
 const ACTIVE_STAGES = new Set([
     EarlyAccessFeatureStage.Alpha,
@@ -182,6 +187,9 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
+    const showMetalytics = metalyticsInstanceId != null && !!featureFlags[FEATURE_FLAGS.METALYTICS]
 
     const cancelEditing = (): void => {
         if (isEditingFeature) {
@@ -242,12 +250,98 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
               }
             : null
 
+    const stageSelect = (
+        <SceneSelect
+            onSave={(value) => {
+                // Check if user is promoting to General Availability
+                const isPromotingToGA = value === EarlyAccessFeatureStage.GeneralAvailability
+
+                if (isPromotingToGA) {
+                    showGAPromotionConfirmation((rolloutToAll: boolean) =>
+                        saveEarlyAccessFeature({
+                            ...earlyAccessFeature,
+                            stage: value as EarlyAccessFeatureStage,
+                            ...(rolloutToAll ? { rollout_to_all: true } : {}),
+                        })
+                    )
+                } else {
+                    saveEarlyAccessFeature({
+                        ...earlyAccessFeature,
+                        stage: value as EarlyAccessFeatureStage,
+                    })
+                }
+            }}
+            value={earlyAccessFeature.stage}
+            name="stage"
+            dataAttrKey={RESOURCE_TYPE}
+            canEdit={!accessControlDisabledReason}
+            buttonProps={{ tooltip: accessControlDisabledReason ?? undefined }}
+            options={[
+                {
+                    label: 'Draft (default)',
+                    value: 'draft',
+                    disabled: true,
+                },
+                {
+                    label: 'Concept',
+                    value: 'concept',
+                },
+                {
+                    label: 'Alpha',
+                    value: 'alpha',
+                },
+                {
+                    label: 'Beta',
+                    value: 'beta',
+                },
+                {
+                    label: 'General availability',
+                    value: 'general-availability',
+                },
+            ]}
+        />
+    )
+    const assigneeField = isNewEarlyAccessFeature ? null : (
+        <ScenePanelLabel title="Assignee">
+            <AssigneeSelect
+                assignee={earlyAccessFeature.assignee ?? null}
+                onChange={(assignee) => {
+                    if (isEditingFeature) {
+                        setEarlyAccessFeatureValue('assignee', assignee)
+                    } else {
+                        saveEarlyAccessFeature({ ...earlyAccessFeature, assignee })
+                    }
+                }}
+                fullWidth
+            >
+                {(displayAssignee, isOpen) => (
+                    <ButtonPrimitive
+                        fullWidth
+                        variant="panel"
+                        disabled={!!accessControlDisabledReason}
+                        tooltip={accessControlDisabledReason ?? undefined}
+                        data-state={isOpen ? 'open' : 'closed'}
+                        data-attr={`${RESOURCE_TYPE}-assignee`}
+                    >
+                        <AssigneeIconDisplay assignee={displayAssignee} size="small" />
+                        <AssigneeLabelDisplay assignee={displayAssignee} size="small" />
+                        <MenuOpenIndicator className="ml-auto" />
+                    </ButtonPrimitive>
+                )}
+            </AssigneeSelect>
+        </ScenePanelLabel>
+    )
+
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <SceneContent>
-                {sceneMenuBarEnabled && !isNewEarlyAccessFeature && (
+                {sceneMenuBarEnabled && (
                     <SceneMenuBar>
-                        <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
+                        <SceneMenuBarMenu
+                            label="File"
+                            dataAttr={`${RESOURCE_TYPE}-menubar-file`}
+                            disabled={isNewEarlyAccessFeature}
+                        >
                             <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
                             {canCopyToProject && earlyAccessFeatureId && (
                                 <SceneMenuBarItem
@@ -265,7 +359,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             <SceneMenuBarSeparator />
                             <SceneMenuBarItem
                                 variant="destructive"
-                                opensFloatingUi
                                 disabled={!!accessControlDisabledReason}
                                 tooltip={accessControlDisabledReason ?? undefined}
                                 onClick={() => {
@@ -296,6 +389,35 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 Delete
                             </SceneMenuBarItem>
                         </SceneMenuBarMenu>
+                        <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
+                            {showMetalytics && (
+                                <SceneMenuBarItem
+                                    opensFloatingUi
+                                    onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
+                                >
+                                    <IconPulse />
+                                    View metalytics
+                                </SceneMenuBarItem>
+                            )}
+                            <SceneMenuBarItem
+                                onClick={() => window.open(EARLY_ACCESS_FEATURES_DOCS_URL, '_blank', 'noopener')}
+                                data-attr={`${RESOURCE_TYPE}-menubar-docs`}
+                            >
+                                <IconExternal />
+                                Early access features docs
+                            </SceneMenuBarItem>
+                        </SceneMenuBarMenu>
+                        {!isNewEarlyAccessFeature && (
+                            <SceneMenuBarPopover
+                                label="Metadata"
+                                dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
+                                contentClassName="flex flex-col gap-2"
+                            >
+                                {stageSelect}
+                                {assigneeField}
+                            </SceneMenuBarPopover>
+                        )}
                     </SceneMenuBar>
                 )}
                 <SceneTitleSection
@@ -435,91 +557,10 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
 
                 <ScenePanel>
                     <ScenePanelInfoSection>
-                        <SceneSelect
-                            onSave={(value) => {
-                                // Check if user is promoting to General Availability
-                                const isPromotingToGA = value === EarlyAccessFeatureStage.GeneralAvailability
-
-                                if (isPromotingToGA) {
-                                    showGAPromotionConfirmation((rolloutToAll: boolean) =>
-                                        saveEarlyAccessFeature({
-                                            ...earlyAccessFeature,
-                                            stage: value as EarlyAccessFeatureStage,
-                                            ...(rolloutToAll ? { rollout_to_all: true } : {}),
-                                        })
-                                    )
-                                } else {
-                                    saveEarlyAccessFeature({
-                                        ...earlyAccessFeature,
-                                        stage: value as EarlyAccessFeatureStage,
-                                    })
-                                }
-                            }}
-                            value={earlyAccessFeature.stage}
-                            name="stage"
-                            dataAttrKey={RESOURCE_TYPE}
-                            canEdit={!accessControlDisabledReason}
-                            buttonProps={{ tooltip: accessControlDisabledReason ?? undefined }}
-                            options={[
-                                {
-                                    label: 'Draft (default)',
-                                    value: 'draft',
-                                    disabled: true,
-                                },
-                                {
-                                    label: 'Concept',
-                                    value: 'concept',
-                                },
-                                {
-                                    label: 'Alpha',
-                                    value: 'alpha',
-                                },
-                                {
-                                    label: 'Beta',
-                                    value: 'beta',
-                                },
-                                {
-                                    label: 'General availability',
-                                    value: 'general-availability',
-                                },
-                            ]}
-                        />
-                        {!isNewEarlyAccessFeature && (
-                            <ScenePanelLabel title="Assignee">
-                                <AssigneeSelect
-                                    assignee={earlyAccessFeature.assignee ?? null}
-                                    onChange={(assignee) => {
-                                        if (isEditingFeature) {
-                                            setEarlyAccessFeatureValue('assignee', assignee)
-                                        } else {
-                                            saveEarlyAccessFeature({ ...earlyAccessFeature, assignee })
-                                        }
-                                    }}
-                                    fullWidth
-                                >
-                                    {(displayAssignee, isOpen) => (
-                                        <ButtonPrimitive
-                                            fullWidth
-                                            variant="panel"
-                                            disabled={!!accessControlDisabledReason}
-                                            tooltip={accessControlDisabledReason ?? undefined}
-                                            data-state={isOpen ? 'open' : 'closed'}
-                                            data-attr={`${RESOURCE_TYPE}-assignee`}
-                                        >
-                                            <AssigneeIconDisplay assignee={displayAssignee} size="small" />
-                                            <AssigneeLabelDisplay assignee={displayAssignee} size="small" />
-                                            <MenuOpenIndicator className="ml-auto" />
-                                        </ButtonPrimitive>
-                                    )}
-                                </AssigneeSelect>
-                            </ScenePanelLabel>
-                        )}
+                        {stageSelect}
+                        {assigneeField}
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />
-                        <Link
-                            to="https://posthog.com/docs/feature-flags/early-access-feature-management"
-                            target="_blank"
-                            className="text-xs"
-                        >
+                        <Link to={EARLY_ACCESS_FEATURES_DOCS_URL} target="_blank" className="text-xs">
                             Learn more about early access features
                         </Link>
                     </ScenePanelInfoSection>

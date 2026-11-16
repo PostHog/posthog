@@ -232,6 +232,7 @@ export interface webAnalyticsLogicValues {
     isFocusModeActive: boolean
     isGreaterThanMd: boolean
     isPathCleaningEnabled: boolean
+    isPrecomputeAllowed: boolean
     marketingCrossSellDismissed: boolean
     pathTab: string
     preZoomDateFilter: {
@@ -692,6 +693,7 @@ export interface webAnalyticsLogicMeta {
             focusModeEnabled: boolean,
             focusModeConcerns: WebAnalyticsConcern[]
         ) => boolean
+        isPrecomputeAllowed: (useWebAnalyticsPrecompute: boolean | null) => boolean
         tilesWithoutQueryModifiers: (
             productTab: ProductTab,
             tabs: {
@@ -1755,6 +1757,10 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             (s) => [s.showFocusMode, s.focusModeEnabled, s.focusModeConcerns],
             (showFocusMode: boolean, focusModeEnabled: boolean, focusModeConcerns: WebAnalyticsConcern[]): boolean =>
                 showFocusMode && focusModeEnabled && focusModeConcerns.length > 0,
+        ],
+        isPrecomputeAllowed: [
+            (s) => [s.useWebAnalyticsPrecompute],
+            (useWebAnalyticsPrecompute: boolean | null): boolean => useWebAnalyticsPrecompute ?? true,
         ],
         tilesWithoutQueryModifiers: [
             (s) => [

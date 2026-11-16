@@ -193,9 +193,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         showCohort ||
         isSavedInsight /* add-to-dashboard, add-to-notebook, subscribe, alerts, share */
     const showMetadataMenu = true // tags + activity always shown
-    const showStateMenu = isSavedInsight // favorite + view-source toggle
     // The Today layout pins insights per person instead, so the project-wide favorite would read as a duplicate.
-    const showFavorite = !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+    const showFavorite = isSavedInsight && !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     // Collections exist only in the Today navigation.
     const collectionTarget: ShareToSpaceTarget | null =
         isSavedInsight && featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
@@ -432,27 +431,23 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                             </SceneMenuBarItem>
                         )}
                         <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
-                        {showStateMenu && (
-                            <>
-                                <SceneMenuBarSeparator />
-                                {showFavorite && (
-                                    <SceneMenuBarCheckboxItem
-                                        checked={!!insight.favorited}
-                                        onCheckedChange={(checked) => setInsightMetadata({ favorited: checked })}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-favorite`}
-                                    >
-                                        Favorite
-                                    </SceneMenuBarCheckboxItem>
-                                )}
-                                <SceneMenuBarCheckboxItem
-                                    checked={showQueryEditor}
-                                    onCheckedChange={handleToggleQueryEditorPanel}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-view-source`}
-                                >
-                                    View source
-                                </SceneMenuBarCheckboxItem>
-                            </>
+                        <SceneMenuBarSeparator />
+                        {showFavorite && (
+                            <SceneMenuBarCheckboxItem
+                                checked={!!insight.favorited}
+                                onCheckedChange={(checked) => setInsightMetadata({ favorited: checked })}
+                                data-attr={`${RESOURCE_TYPE}-menubar-favorite`}
+                            >
+                                Favorite
+                            </SceneMenuBarCheckboxItem>
                         )}
+                        <SceneMenuBarCheckboxItem
+                            checked={showQueryEditor}
+                            onCheckedChange={handleToggleQueryEditorPanel}
+                            data-attr={`${RESOURCE_TYPE}-menubar-view-source`}
+                        >
+                            View source
+                        </SceneMenuBarCheckboxItem>
                     </SceneMenuBarMenu>
                 )}
                 {showMetadataMenu && (
