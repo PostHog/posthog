@@ -300,7 +300,9 @@ class TestPushDispatcher(TestCase):
             notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=uuid4())
         mock_delay.assert_not_called()
 
-    @parameterized.expand([("mobile_push_enabled",), ("mobile_push_tasks_enabled",)])
+    @parameterized.expand(
+        [("mobile_push_enabled",), ("mobile_push_tasks_enabled",), ("mobile_push_chat_completions_enabled",)]
+    )
     @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     @patch("posthog.tasks.push_notifications.send_push_to_user")
@@ -310,7 +312,15 @@ class TestPushDispatcher(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_completed(self.task_run)
         send_user_push(
-            self.user.id, "PostHog", "Finished", {"taskId": str(self.task.id), "projectId": self.task.team_id}
+            self.user.id,
+            "PostHog",
+            "Finished",
+            {
+                "type": "task",
+                "taskId": str(self.task.id),
+                "projectId": self.task.team_id,
+                "notificationKind": "completed",
+            },
         )
         mock_delay.assert_not_called()
         mock_send.assert_not_called()
