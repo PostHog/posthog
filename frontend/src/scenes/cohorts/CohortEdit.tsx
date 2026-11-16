@@ -19,7 +19,6 @@ import { LemonBanner, LemonDivider, LemonMenu, LemonSnack, LemonTabs, LemonTag, 
 import { Button } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { cohortReadsFlagCalls } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
 import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -41,7 +40,9 @@ import { pluralize } from 'lib/utils/strings'
 import { StaticCohortMode, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
+import { storesFlagCallsOutsideEvents } from 'scenes/feature-flags/flagEvaluationsTable'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -60,6 +61,7 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { Query } from '~/queries/Query/Query'
 import { ActivityScope, CohortType, SidePanelTab } from '~/types'
 
+import { cohortFlagCallProblem, flagCallProblemText } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
 import {
@@ -214,6 +216,8 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const flagCallProblem = cohortFlagCallProblem(cohort)
+    const { currentTeam } = useValues(teamLogic)
     const accessDisabledReason = messageAudienceAccessDisabledReason()
     const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort) ?? accessDisabledReason
     const broadcastLogic = messageAudienceOpenLogic({ audience: cohortBroadcastAudience(cohort) })
@@ -832,15 +836,12 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             ) : cohort.is_static ? null : (
                                 <>
                                     <SceneDivider />
-                                    {!isNewCohort && (
-                                        <FlagCalledRebuildBanner
-                                            artifactType="cohort"
-                                            readsFlagCalls={cohortReadsFlagCalls(cohort)}
-                                        >
-                                            This cohort has a criterion on Feature flag called, directly or through an
-                                            action. That criterion won't see flag calls made after your organization's
-                                            flag calls move out of the events table, so the cohort can include or leave
-                                            out the wrong people. Remove that criterion.
+                                    {!isNewCohort && flagCallProblem !== null && (
+                                        <FlagCalledRebuildBanner artifactType="cohort">
+                                            {`A criterion on Feature flag called needs a change. ${flagCallProblemText(
+                                                flagCallProblem,
+                                                storesFlagCallsOutsideEvents(currentTeam)
+                                            )}`}
                                         </FlagCalledRebuildBanner>
                                     )}
                                     {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
