@@ -1,7 +1,7 @@
 """Stage 7, after the review: a drafted judge is shown only when the model it will run on agrees with the review.
 
 The review labels every call it read for each card. The card's judge prompt then grades the review's fails and
-passes on the team's runtime judge model, one call per request, each call rendered as the review read it. A small
+passes on the team's runtime judge model, one call per request, with the runtime judge's own prompts. A small
 model can miss most of the failures a strong model finds, so a card is kept only when its judge catches most of
 the review's fails without flagging many of its passes.
 """
@@ -23,6 +23,7 @@ from google.genai import (
     errors as genai_errors,
     types as genai_types,
 )
+from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import (
@@ -34,9 +35,15 @@ from posthog.llm.gateway_client import (
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.llm.providers.gemini import GeminiConfig
+from products.ai_observability.backend.logic.evaluations.judge_prompts import (
+    BooleanWithNAEvalResult,
+    build_system_prompt,
+    build_user_prompt,
+)
+from products.ai_observability.backend.logic.message_utils import format_tool_definitions
 
 from . import call_review
-from .call_review import Rendering, ReviewCard, Verdict, parse_verdict
+from .call_review import Rendering, ReviewCard, Verdict
 from .config import AI_PRODUCT
 from .prices import MODEL_PRICES
 
@@ -66,13 +73,14 @@ GATEWAY_PROVIDERS: dict[str, Provider] = {
 # google-genai raises httpx transport failures, such as a connection reset or a read timeout, without wrapping them.
 _CALL_ERRORS = (anthropic.APIError, openai.APIError, genai_errors.APIError, httpx.TransportError)
 
+# BooleanWithNAEvalResult's fields, in the subset every provider's structured output accepts.
 _VERDICT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "reasoning": {"type": "string"},
-        "verdict": {"type": "string", "enum": ["pass", "fail", "na"]},
+        "outcome": {"type": "string", "enum": ["pass", "fail", "not_applicable"]},
     },
-    "required": ["reasoning", "verdict"],
+    "required": ["reasoning", "outcome"],
     "additionalProperties": False,
 }
 _VERDICT_TOOL: ToolParam = {
@@ -80,20 +88,7 @@ _VERDICT_TOOL: ToolParam = {
     "description": "Record the verdict on the generation.",
     "input_schema": _VERDICT_SCHEMA,
 }
-
-
-def _system(judge_prompt: str) -> str:
-    # Mirrors build_system_prompt for a boolean judge with N/A in posthog/temporal/ai_observability/
-    # evaluation_llm_judge.py, so the judge grades here as the accepted evaluation will. Keep the two in step.
-    return f"""You are an evaluator. Evaluate the following generation according to this criteria:
-
-{judge_prompt}
-
-First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case mark it as not applicable.
-
-Return:
-- reasoning: a brief explanation (1 sentence)
-- verdict: "pass" if the generation meets the criteria, "fail" if it does not, "na" if the criteria doesn't apply to this input/output"""
+_OUTCOME_VERDICTS: dict[str, Verdict] = {"pass": "pass", "fail": "fail", "not_applicable": "na"}
 
 
 @frozen
@@ -189,7 +184,36 @@ def calibration_calls(card: ReviewCard) -> list[int]:
 
 
 def judge_request(card: ReviewCard, rendering: Rendering, number: int, model: str) -> JudgeRequest:
-    return JudgeRequest(model=model, system=_system(card.judge_prompt), prompt=rendering.calls[number].text)
+    """The request the accepted evaluation will send for this call: the draft is a boolean judge that allows N/A,
+    and the call is rendered by the runtime judge's own prompt builder."""
+    row = rendering.calls[number].row
+    # A catalog cut by the calls query's cap no longer parses, so it is left out rather than shown in pieces.
+    catalog = _parsed(row.tools)
+    tools = format_tool_definitions(catalog) if isinstance(catalog, list | dict) else ""
+    prompt = build_user_prompt(_parsed(row.input), _parsed(row.output), tools)
+    return JudgeRequest(
+        model=model,
+        system=build_system_prompt(card.judge_prompt, allows_na=True),
+        # The calls query caps an output far below the judge's text limit, so the builder always returns a prompt.
+        prompt=prompt or "",
+    )
+
+
+def _parsed(text: str) -> Any:
+    """The JSON messages in `text`, or `text` itself. The runtime builder reads only messages and strings, and a
+    bare number or null would make it raise."""
+    try:
+        value = json.loads(text)
+    except (ValueError, RecursionError):
+        return text
+    return value if isinstance(value, list | dict | str) else text
+
+
+def _verdict(answer: Any) -> Verdict | None:
+    try:
+        return _OUTCOME_VERDICTS[BooleanWithNAEvalResult.model_validate(answer).outcome]
+    except ValidationError:
+        return None
 
 
 def _max_attempt_cost_usd(request: JudgeRequest) -> float:
@@ -264,8 +288,7 @@ def _attempt(client: JudgeClient, request: JudgeRequest) -> JudgeCall:
             if tokens
             else _max_attempt_cost_usd(request)
         )
-    verdict = parse_verdict(answer.get("verdict")) if isinstance(answer, dict) else None
-    return JudgeCall(verdict=verdict, cost_usd=cost)
+    return JudgeCall(verdict=_verdict(answer), cost_usd=cost)
 
 
 def _rate_limited(error: Exception) -> bool:
