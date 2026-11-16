@@ -190,10 +190,12 @@ export interface toolbarLogicActions {
     setOAuthTokens: (
         accessToken: string,
         refreshToken: string | null,
-        clientId: string
+        clientId: string,
+        project: import('../toolbarProject').ToolbarProject
     ) => {
         accessToken: string
         clientId: string
+        project: import('../toolbarProject').ToolbarProject
         refreshToken: string | null
     } // toolbarConfigLogic
     completeGracefulExit: () => {

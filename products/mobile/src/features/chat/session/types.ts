@@ -50,6 +50,7 @@ export interface SessionUserItem {
 }
 
 export interface SessionAssistantItem {
+    copyText?: string
     timestamp?: string
     traceId?: string
     projectUrl?: string
@@ -64,6 +65,19 @@ export interface SessionThoughtItem {
     id: string
     text: string
     complete: boolean
+    projectUrl?: string
+}
+
+export interface SessionVisualizationItem {
+    copyText?: string
+    kind: 'visualization'
+    id: string
+    query?: unknown
+    shortId?: string
+    title?: string
+    result?: unknown
+    traceId?: string
+    webUrl?: string
 }
 
 export interface SessionToolItem {
@@ -108,6 +122,7 @@ export interface SessionProgressItem {
 export type SessionThreadItem =
     | SessionUserItem
     | SessionAssistantItem
+    | SessionVisualizationItem
     | SessionThoughtItem
     | SessionToolItem
     | SessionTurnEndItem
