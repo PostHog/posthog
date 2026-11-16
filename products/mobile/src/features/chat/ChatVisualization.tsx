@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
-import { memo, type ReactElement, type ReactNode, useId, useMemo } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { memo, type ReactElement, type ReactNode, useEffect, useId, useMemo } from 'react'
 import { ActivityIndicator, Text, View } from 'react-native'
 import { stableStringify } from '@/api/query'
 import { scopeKey } from '@/api/reports'
@@ -24,7 +24,7 @@ import type { ChartCanvasSlot } from '@/ui/chart/types'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
-import { queuedChartRead, useChatChartResource } from './ChatChartResources'
+import { queuedChartRead, releaseChartRead, useChatChartResource } from './ChatChartResources'
 import { readChatVisualization } from './chatVisualizationRead'
 import { visualizationQuery, visualizationSnapshot, visualizationUrl } from './visualizationModel'
 import { openReplyUrl } from './webLinks'
@@ -153,6 +153,7 @@ export function ChatVisualization({
     const scope = useProjectScope()
     const resource = useChatChartResource()
     const instanceId = useId()
+    const client = useQueryClient()
     const normalizedQuery = useMemo(() => visualizationQuery(query), [query])
     const supported = query ? queryDisplay(normalizedQuery) !== 'web' : !!shortId
     const inline = useMemo(() => {
@@ -160,19 +161,38 @@ export function ChatVisualization({
         const snapshot = visualizationSnapshot(normalizedQuery, result, title)
         return snapshot.lastRefreshAt ? snapshot : undefined
     }, [query, normalizedQuery, result, title])
+    const queryKey = ['chat-visualization', ...scopeKey(scope), shortId, stableStringify(normalizedQuery), title]
+    const enabled = !!scope && resource.visible && supported && !inline
     const data = useQuery({
-        queryKey: ['chat-visualization', ...scopeKey(scope), shortId, stableStringify(normalizedQuery), title],
-        queryFn: () =>
-            queuedChartRead(
-                resource.group,
-                stableStringify([scopeKey(scope), shortId, normalizedQuery, title]),
-                shortId && !query ? 'insights' : 'query',
-                (signal) => readChatVisualization({ query: normalizedQuery, shortId, title, scope, signal })
-            ),
-        enabled: !!scope && resource.visible && supported && !inline,
+        queryKey,
+        queryFn: () => {
+            const owner = client.getQueryCache().find({ queryKey, exact: true })
+            if (!owner) throw new Error('Chart query unavailable')
+            return queuedChartRead(owner, shortId && !query ? 'insights' : 'query', (signal) =>
+                readChatVisualization({
+                    query: normalizedQuery,
+                    shortId,
+                    title,
+                    scope,
+                    signal,
+                    onCached: (snapshot) => {
+                        if (!signal.aborted && client.getQueryCache().find({ queryKey, exact: true }) === owner)
+                            client.setQueryData(queryKey, snapshot)
+                    },
+                })
+            )
+        },
+        enabled,
         staleTime: 5 * 60_000,
         retry: false,
     })
+    const owner = client.getQueryCache().find({ queryKey, exact: true })
+    useEffect(() => {
+        if (owner && !enabled) releaseChartRead(owner)
+        return () => {
+            if (owner) releaseChartRead(owner)
+        }
+    }, [owner, enabled])
     const snapshot = inline ?? data.data
     const url =
         webUrl ??
@@ -203,7 +223,10 @@ export function ChatVisualization({
                           : 'Open this chart on the web to view it.'}
                 </Text>
             )}
-            {data.isError ? (
+            {snapshot && (data.isError || snapshot.refreshFailed) ? (
+                <Text style={styles.detail}>Could not refresh chart. Showing cached data.</Text>
+            ) : null}
+            {data.isError || snapshot?.refreshFailed ? (
                 <Pressable44
                     style={styles.action}
                     accessibilityRole="button"

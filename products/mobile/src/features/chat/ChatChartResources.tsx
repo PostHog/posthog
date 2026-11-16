@@ -1,3 +1,4 @@
+import type { Query } from '@tanstack/react-query'
 import { useIsFocused } from 'expo-router'
 import {
     createContext,
@@ -8,6 +9,7 @@ import {
     useContext,
     useEffect,
     useId,
+    useLayoutEffect,
     useMemo,
     useRef,
 } from 'react'
@@ -38,11 +40,19 @@ interface ChartViewport {
     viewport: (offset: number, height: number) => void
     chart: (key: string, row: string, bounds: RowBounds) => void
     remove: (key: string) => void
+    removeRow: (key: string) => void
+    dispose: () => void
     watch: (row: string, measure: () => void) => () => void
 }
 
 const ViewportContext = createContext<ChartViewport | null>(null)
-const RowContext = createContext<{ key: string; index: number; ref: RefObject<ViewInstance | null> } | null>(null)
+const RowContext = createContext<{
+    key: string
+    index: number
+    ref: RefObject<ViewInstance | null>
+    slots: Map<string, number>
+    nextSlot: { current: number }
+} | null>(null)
 const outside = createStore<ViewportState>(() => ({
     offset: 0,
     height: 0,
@@ -75,36 +85,70 @@ function ChartViewportProvider({ active, children }: { active: boolean; children
             charts: new Map(),
         }))
         const measurements = new Map<string, Set<() => void>>()
+        const rowsPending = new Map<string, RowBounds | null>()
+        const chartsPending = new Map<string, (RowBounds & { row: string }) | null>()
+        let frame: number | null = null
+        let offset = 0
+        let height = 0
         const report = (): void =>
             canvas.setVisibleKeys(
                 [...store.getState().charts.keys()].filter((key) => chartVisible(store.getState(), key))
             )
+        const schedule = (): void => {
+            if (frame !== null) return
+            frame = requestAnimationFrame(() => {
+                frame = null
+                const rows = new Map(store.getState().rows)
+                const charts = new Map(store.getState().charts)
+                for (const [key, value] of rowsPending) {
+                    if (value) rows.set(key, value)
+                    else rows.delete(key)
+                }
+                for (const [key, value] of chartsPending) {
+                    if (value && rows.has(value.row)) charts.set(key, value)
+                    else charts.delete(key)
+                }
+                for (const [key, value] of charts) if (!rows.has(value.row)) charts.delete(key)
+                rowsPending.clear()
+                chartsPending.clear()
+                store.setState({ rows, charts, offset, height })
+                report()
+            })
+        }
         return {
             store,
             layout: (key, bounds) => {
-                const rows = new Map(store.getState().rows)
-                rows.set(key, bounds)
-                store.setState({ rows })
+                rowsPending.set(key, bounds)
                 measurements.get(key)?.forEach((measure) => {
                     measure()
                 })
-                report()
+                schedule()
             },
-            viewport: (offset, height) => {
+            viewport: (nextOffset, nextHeight) => {
+                offset = nextOffset
+                height = nextHeight
                 store.setState({ offset, height })
                 report()
             },
             chart: (key, row, bounds) => {
-                const charts = new Map(store.getState().charts)
-                charts.set(key, { row, ...bounds })
-                store.setState({ charts })
-                report()
+                chartsPending.set(key, { row, ...bounds })
+                schedule()
             },
             remove: (key) => {
-                const charts = new Map(store.getState().charts)
-                charts.delete(key)
-                store.setState({ charts })
-                report()
+                chartsPending.set(key, null)
+                schedule()
+            },
+            removeRow: (key) => {
+                rowsPending.set(key, null)
+                measurements.delete(key)
+                schedule()
+            },
+            dispose: () => {
+                if (frame !== null) cancelAnimationFrame(frame)
+                frame = null
+                rowsPending.clear()
+                chartsPending.clear()
+                measurements.clear()
             },
             watch: (row, measure) => {
                 const watchers = measurements.get(row) ?? new Set()
@@ -121,13 +165,14 @@ function ChartViewportProvider({ active, children }: { active: boolean; children
         api.store.setState({ active })
         api.viewport(api.store.getState().offset, api.store.getState().height)
     }, [api, active])
+    useEffect(() => () => api.dispose(), [api])
     return <ViewportContext.Provider value={api}>{children}</ViewportContext.Provider>
 }
 
 export function ChatChartResources({ children }: { children: ReactNode }): ReactElement {
     const active = useIsFocused()
     return (
-        <ChartCanvasBudget active={active}>
+        <ChartCanvasBudget active={active} prioritizeVisible>
             <ChartViewportProvider active={active}>{children}</ChartViewportProvider>
         </ChartCanvasBudget>
     )
@@ -144,7 +189,10 @@ export function ChatChartRow({
 }): ReactElement {
     const api = useContext(ViewportContext)
     const ref = useRef<ViewInstance>(null)
-    const value = useMemo(() => ({ key: rowKey, index, ref }), [rowKey, index])
+    const slots = useRef(new Map<string, number>()).current
+    const nextSlot = useRef(0)
+    const value = useMemo(() => ({ key: rowKey, index, ref, slots, nextSlot }), [rowKey, index, slots])
+    useLayoutEffect(() => () => api?.removeRow(rowKey), [api, rowKey])
     return (
         <RowContext.Provider value={value}>
             <View ref={ref} collapsable={false} onLayout={({ nativeEvent }) => api?.layout(rowKey, nativeEvent.layout)}>
@@ -177,45 +225,95 @@ export function useChatChartResource(): {
     const group = useId()
     const ref = useRef<ViewInstance>(null)
     const visible = useStore(api?.store ?? outside, (state) => !row || chartVisible(state, group))
-    const position = useStore(api?.store ?? outside, (state) => {
-        const chart = state.charts.get(group)
-        return chart ? (state.rows.get(chart.row)?.y ?? 0) + chart.y : (row?.index ?? 0)
-    })
+    const position = useMemo(() => {
+        if (!row) return 0
+        let ordinal = row.slots.get(group)
+        if (ordinal === undefined) {
+            ordinal = row.nextSlot.current++
+            row.slots.set(group, ordinal)
+        }
+        return row.index + ordinal / (ordinal + 1)
+    }, [row, group])
     const canvasSlot = useMemo(() => (row ? { key: group, index: position } : undefined), [row, group, position])
+    const measurement = useRef(0)
     const onLayout = useCallback((): void => {
+        const version = ++measurement.current
         const ancestor = row?.ref.current
         if (api && row && ancestor)
             ref.current?.measureLayout(ancestor, (_x, y, _width, height) => {
-                if (ref.current) api.chart(group, row.key, { y, height })
+                if (ref.current && version === measurement.current) api.chart(group, row.key, { y, height })
             })
     }, [api, row, group])
     useEffect(() => (row ? api?.watch(row.key, onLayout) : undefined), [api, row, onLayout])
-    useEffect(() => () => api?.remove(group), [api, group])
-    useEffect(() => {
-        if (!visible) viewsQueue.leave(group)
-        return () => viewsQueue.leave(group)
-    }, [group, visible])
+    useLayoutEffect(
+        () => () => {
+            measurement.current++
+            row?.slots.delete(group)
+            api?.remove(group)
+        },
+        [api, row, group]
+    )
     return { visible, canvasSlot, group, ref, onLayout }
 }
 
-export async function queuedChartRead<T>(
+const readGroups = new WeakMap<Query, string>()
+const reads = new WeakMap<Query, Promise<unknown>>()
+let nextReadGroup = 0
+
+function readGroup(query: Query): string {
+    let group = readGroups.get(query)
+    if (!group) {
+        group = `chat-read:${++nextReadGroup}`
+        readGroups.set(query, group)
+    }
+    return group
+}
+
+export function releaseChartRead(query: Query): void {
+    queueMicrotask(() => {
+        if (query.isActive()) return
+        const group = readGroups.get(query)
+        if (!group) return
+        viewsQueue.leave(group)
+        if (!viewsQueue.isKeyBusy(group)) reads.delete(query)
+    })
+}
+
+export function queuedChartRead<T>(
+    query: Query,
+    family: BudgetFamily,
+    read: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+    const previous = reads.get(query)
+    if (previous) return previous as Promise<T>
+    const group = readGroup(query)
+    const promise = runChartRead(group, family, read).finally(() => {
+        if (reads.get(query) === promise) reads.delete(query)
+    })
+    reads.set(query, promise)
+    return promise
+}
+
+async function runChartRead<T>(
     group: string,
-    key: string,
     family: BudgetFamily,
     read: (signal: AbortSignal) => Promise<T>
 ): Promise<T> {
     let value: T | undefined
     let failure: unknown
     const result = await viewsQueue.enqueue({
-        key: `chat:${group}:${key}`,
+        key: group,
         group,
         family,
         mode: 'blocking',
         // React Query owns this card's stale time and explicit retries.
         userRetry: true,
+        trackFreshness: false,
         run: async (_mode, signal) => {
             try {
                 value = await read(signal)
+                failure = undefined
+                if (signal.aborted) throw abortError()
                 return { status: 'ok', computed: false }
             } catch (error) {
                 failure = error
