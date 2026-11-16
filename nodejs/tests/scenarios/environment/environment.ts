@@ -7,9 +7,27 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { Profile, ROLE_RESTART_BACKOFF_MS } from '../cards'
+import { Aws, awsCli } from '../cloud/aws'
+import type { RunManifest } from '../cloud/lease'
+import type { CpuPoint } from '../judge/bars'
+import type { DriveWindow } from '../judge/measurements'
+import type { WriterSample } from '../probe/writer-probe'
 import { FaultHold, FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
+import { FailoverJournal, FailoverOptions, failOver, sqlIdentityOf } from './failover'
+import { nameOf } from './identity'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
-import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
+import {
+    ConsumerGroup,
+    Replicas,
+    Role,
+    RoleId,
+    RoleSpec,
+    consumerGroupsOf,
+    portOf,
+    roleIdsOf,
+    roleSpecs,
+    secretsOf,
+} from './roles'
 import {
     Hogli,
     STACK,
@@ -17,6 +35,7 @@ import {
     deleteUnfinishedJobs,
     downServices,
     forgetSesBucket,
+    groupLag,
     groupMembers,
     missingTemplates,
     postgresServersOf,
@@ -27,29 +46,40 @@ import {
     terminateRoleConnections,
 } from './stack'
 import { RoleExit, createSupervisor } from './supervisor'
+import { writerCpuOf } from './writer-cpu'
 
 export type { RoleExit } from './supervisor'
 
 export interface Environment {
     up(): Promise<void>
-    reset(settings: Profile['settings']): Promise<void>
+    reset(settings: Profile['settings'], replicas?: Replicas): Promise<void>
     edgeUrl(): string
     role(name: Role): RoleHandle
+    roles(): RoleHandle[]
     actuate(action: Action): Promise<Actuation>
     dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
+    groupLag(group: string): Promise<number>
+    writerCpu(manifest: RunManifest, window: DriveWindow, signal: AbortSignal): Promise<CpuPoint[]>
     down(): Promise<void>
 }
 
-export type RoleHandle = { name: Role; url: string; metricsUrl: string }
+export type RoleHandle = { name: Role; replica: number; url: string; metricsUrl: string }
 
 export type Action =
     | { kind: 'kill'; role: Role }
     | { kind: 'freeze'; role: Role }
     | { kind: 'pg.terminate'; share: number }
     | { kind: 'edge.fault'; rule: FaultRule }
+    | {
+          kind: 'rds.failover'
+          manifest: RunManifest
+          holdMs: number
+          commits: () => readonly WriterSample[]
+          signal: AbortSignal
+      }
 
-export type Actuation = FaultHold
+export type Actuation = FaultHold & { journal?(): FailoverJournal }
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
@@ -66,7 +96,14 @@ const KILL_OBSERVED_WITHIN_MS = 10_000
 const FREEZE_OBSERVED_WITHIN_MS = 10_000
 
 const portsOf = (specs: RoleSpec[]): { port: number; owner: string }[] =>
-    specs.map(({ role }) => ({ port: ROLE_PORTS[role], owner: role }))
+    specs.map((spec) => ({ port: spec.port, owner: nameOf(spec) }))
+
+const handleOf = (id: RoleId): RoleHandle => ({
+    name: id.role,
+    replica: id.replica,
+    url: `http://127.0.0.1:${portOf(id)}`,
+    metricsUrl: `http://127.0.0.1:${portOf(id)}/_metrics`,
+})
 
 export function defaultStateDir(env: NodeJS.ProcessEnv): string {
     return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'posthog-scenarios')
@@ -83,6 +120,8 @@ export type EnvironmentOptions = {
     postgresUrl: string
     sesRateLimiterValkey: { host: string; port: number }
     roleHealthyWithinMs: number
+    aws: Aws
+    failover: Partial<Pick<FailoverOptions, 'identity' | 'pollMs' | 'observeWithinMs'>>
 }
 
 export function createEnvironment({
@@ -91,6 +130,8 @@ export function createEnvironment({
     postgresUrl = STACK.postgresUrl,
     sesRateLimiterValkey = STACK.sesRateLimiterValkey,
     roleHealthyWithinMs = ROLE_HEALTHY_WITHIN_MS,
+    aws,
+    failover = {},
 }: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
     let stateDir = defaultStateDir(env)
@@ -105,9 +146,11 @@ export function createEnvironment({
     })
     let edge: ProviderEdge | undefined
     let postgresServers = [postgresUrl]
+    let cyclotronUrl = STACK.cyclotronNodeUrl
     let releaseLock: (() => Promise<void>) | undefined
+    let running: RoleId[] = roleIdsOf()
 
-    const logOf = (role: Role): string => path.join(stateDir, `${role}.log`)
+    const logOf = (id: RoleId): string => path.join(stateDir, `${nameOf(id)}.log`)
 
     return {
         async up() {
@@ -125,10 +168,10 @@ export function createEnvironment({
             }
         },
 
-        async reset(settings) {
+        async reset(settings, replicas = {}) {
             const edge = startedEdge('reset')
             try {
-                await resetRoles(edge, settings)
+                await resetRoles(edge, settings, replicas)
             } catch (error) {
                 await stop()
                 throw error
@@ -137,11 +180,9 @@ export function createEnvironment({
 
         edgeUrl: () => startedEdge('edgeUrl').url,
 
-        role: (name) => ({
-            name,
-            url: `http://127.0.0.1:${ROLE_PORTS[name]}`,
-            metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics`,
-        }),
+        role: (name) => handleOf({ role: name, replica: 0 }),
+
+        roles: () => running.map(handleOf),
 
         async dependencyHealth() {
             const down = await downServices(edge?.url, postgresUrl, sesRateLimiterValkey)
@@ -151,12 +192,12 @@ export function createEnvironment({
         async actuate(action) {
             switch (action.kind) {
                 case 'kill': {
-                    const gone = supervisor.kill(action.role, KILL_OBSERVED_WITHIN_MS)
+                    const gone = supervisor.kill({ role: action.role, replica: 0 }, KILL_OBSERVED_WITHIN_MS)
                     gone.catch(() => undefined)
                     return { observed: () => gone, release: () => Promise.resolve() }
                 }
                 case 'freeze':
-                    return supervisor.freeze(action.role, FREEZE_OBSERVED_WITHIN_MS)
+                    return supervisor.freeze({ role: action.role, replica: 0 }, FREEZE_OBSERVED_WITHIN_MS)
                 case 'pg.terminate': {
                     let terminated = 0
                     for (const server of postgresServers) {
@@ -166,10 +207,24 @@ export function createEnvironment({
                 }
                 case 'edge.fault':
                     return startedEdge('actuate').hold(action.rule)
+                case 'rds.failover':
+                    return failOver({
+                        identity: () => sqlIdentityOf(cyclotronUrl),
+                        ...failover,
+                        aws: aws ?? awsCli(env),
+                        manifest: action.manifest,
+                        holdMs: action.holdMs,
+                        commits: action.commits,
+                        signal: action.signal,
+                    })
             }
         },
 
         exits: (): RoleExit[] => supervisor.exits(),
+
+        groupLag: (group) => groupLag(group, docker),
+
+        writerCpu: (manifest, window, signal) => writerCpuOf(aws ?? awsCli(env), manifest, window, signal),
 
         down: stop,
     }
@@ -181,10 +236,11 @@ export function createEnvironment({
         return edge
     }
 
-    async function resetRoles(edge: ProviderEdge, settings: Profile['settings']): Promise<void> {
+    async function resetRoles(edge: ProviderEdge, settings: Profile['settings'], replicas: Replicas): Promise<void> {
         const exitsBefore = supervisor.exits().length
         await supervisor.stop()
-        const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey)
+        const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
+        running = specs
         const groups = consumerGroupsOf(specs)
         await waitForExpect(
             async () => {
@@ -200,7 +256,8 @@ export function createEnvironment({
         )
         edge.clearFaults()
         postgresServers = postgresServersOf(specs[0], postgresUrl)
-        await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
+        cyclotronUrl = cyclotronUrlOf(specs[0])
+        await deleteUnfinishedJobs(cyclotronUrl)
         await forgetSesBucket(sesRateLimiterValkey)
         for (const group of groups) {
             await seekToEnd(group, docker)
@@ -212,17 +269,17 @@ export function createEnvironment({
 
     async function untilHealthy(specs: RoleSpec[], exitsBefore: number): Promise<void> {
         const deadline = Date.now() + roleHealthyWithinMs
-        const roles = specs.map((spec) => spec.role)
+        const names = specs.map(nameOf)
         for (;;) {
             const notReady = await rolesNotReady(specs)
             const exit = supervisor
                 .exits()
                 .slice(exitsBefore)
-                .find(({ role }) => roles.includes(role))
+                .find((id) => names.includes(nameOf(id)))
             if (exit) {
                 const how = exit.error ?? `code ${exit.code}, signal ${exit.signal}`
                 throw new Error(
-                    `${exit.role} exited while the runner waited for /_health (${how}); see ${logOf(exit.role)}`
+                    `${nameOf(exit)} exited while the runner waited for /_health (${how}); see ${logOf(exit)}`
                 )
             }
             if (notReady.length === 0) {
@@ -230,7 +287,7 @@ export function createEnvironment({
             }
             if (Date.now() > deadline) {
                 throw new Error(
-                    `${notReady.join(', ')} did not answer /_health within ${roleHealthyWithinMs / 1000}s; see ${notReady.map(logOf).join(', ')}`
+                    `${notReady.map(nameOf).join(', ')} did not answer /_health within ${roleHealthyWithinMs / 1000}s; see ${notReady.map(logOf).join(', ')}`
                 )
             }
             await sleep(PROBE_INTERVAL_MS)
@@ -284,9 +341,12 @@ export function createEnvironment({
             port: EDGE_PORT,
             trackingKeys: secrets.encryptionSaltKeys,
             caDir: path.join(stateDir, 'edge-ca'),
+            feedbackUrl: `http://127.0.0.1:${portOf({ role: 'cdp-api', replica: 0 })}/public/m/ses_webhook`,
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
+        running = specs
         postgresServers = postgresServersOf(specs[0], postgresUrl)
+        cyclotronUrl = cyclotronUrlOf(specs[0])
         const api = specs.filter((spec) => spec.role === 'cdp-api')
         const others = specs.filter((spec) => spec.role !== 'cdp-api')
         await supervisor.start(api)

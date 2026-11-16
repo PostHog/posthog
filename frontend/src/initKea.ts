@@ -9,7 +9,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
+import { ApiError, isAccessDeniedError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -90,6 +90,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRunDiff', // The Wizard run drawer renders its own diff error banner with a retry
     'loadRunArtifacts', // The Wizard run drawer renders its own artifact error banner with a retry
     'loadRuns', // The Wizard runs table shows a persistent stale-data banner; a poll failure must not toast every 10s
+    'checkForFirstCodeSend', // The first-send status line says its checks failed and offers a retry; a poll failure must not toast every 10s
     'loadRunDetails', // The Wizard run drawer shows a stale-state banner with a retry
     'cancelRunRequest', // wizardRunDetailsLogic shows its own cancel-failure toast
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
@@ -129,9 +130,10 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
-    // The prompts view shows its own error, and falls back to an unfiltered list when topics fail to load
+    // The prompts view shows its own error
     loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
-    loadAeoPromptTopics: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
+    // The AI visibility filter bar shows a retry in place of the topic filter
+    loadPromptTopics: 'products.webAnalytics.contentAutopilot.contentAutopilotFilterBarLogic',
     // The prompt detail modal shows an error state for each section it loads
     loadAeoPrompt: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
     loadAeoPromptStats: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
@@ -195,7 +197,22 @@ const NOT_FOUND_SELF_HANDLED = new Set([
     'loadOfflineResultPayload',
     'loadDatasetItemDetails', // The dataset item modal renders a deleted, stale, or foreign item as an inline error
     'loadDatasetItemVersions',
+    'loadPluginConfig', // The legacy plugin page renders NotFound for a deleted or mistyped config id
 ])
+
+// The same as NOT_FOUND_SELF_HANDLED, for an action name that other logics also use and do not handle.
+const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    // The workflow scene and the notebook node views that show the workflow render NotFound
+    loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
+}
+
+function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {
+    return (
+        isUnavailableEndpointError(error) &&
+        (NOT_FOUND_SELF_HANDLED.has(actionKey) ||
+            isOwnedByLogic(NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath))
+    )
+}
 
 /*
 Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
@@ -410,8 +427,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                const isSelfHandledNotFound =
-                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
+                const isSelfHandledNotFound = isNotFoundSelfHandled(error, String(actionKey), logic.pathString)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
                 if (
@@ -421,7 +437,12 @@ export function initKea({
                     !isExpectedFailureOwnedByLogic(error, actionKey, logic.pathString) &&
                     !isSelfHandledValidationError
                 ) {
-                    posthog.captureException(error)
+                    if (error instanceof ApiError && error.requestId) {
+                        // The request id joins the exception to the backend logs of the request that failed.
+                        posthog.captureException(error, { http_request_id: error.requestId })
+                    } else {
+                        posthog.captureException(error)
+                    }
                 }
             },
         }),

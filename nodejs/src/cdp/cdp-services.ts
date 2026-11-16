@@ -4,6 +4,7 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { limitNewConnectionsWith } from '~/common/utils/connection-rate-limiter'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -442,6 +443,7 @@ export function createCdpCoreServices(
 
     const redisReader = createCdpReaderRedisPool(config, redis, redisName)
     const valkeyShadow = createCdpValkeyShadowPools(config, redisName)
+    limitNewConnectionsWith(redis)
 
     // Every CDP process funnels through here, so this is the one place the per-feature read
     // source has to be applied for `dualRead` / `dualWrite` to see it.
