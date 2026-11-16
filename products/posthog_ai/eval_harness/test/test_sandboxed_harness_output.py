@@ -485,7 +485,9 @@ async def test_suite_enrolls_every_scorer_in_offline_publishing(
     assert suite.tags == ("team:surfaces", f"component:{component}")
     if domain == "experiments":
         assert run.call_args.kwargs["send_to_posthog"] is True
-        assert set(suite.scorer_kinds.values()) == {"boolean"}
+        numeric = {name for name, kind in suite.scorer_kinds.items() if kind == "numeric"}
+        assert numeric == ({"execute_sql_calls_before_create"} if module_name == "eval_guided_creation" else set())
+        assert set(suite.scorer_kinds.values()) - {"numeric"} == {"boolean"}
     elif domain == "sql":
         assert suite.scorer_kinds == {
             "exit_code_zero": "boolean",
