@@ -207,10 +207,9 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert re.fullmatch(r"1 in \d+ traces ends on a failed call", errors.headline)
         assert all("GraphInterrupt" not in e["reason"] for e in errors.evidence)
 
-        # The noise: links counted as sensitive data, and dispatcher calls counted as loops.
+        # The noise: dispatcher calls counted as loops.
         run.refresh_from_db()
         measured = run.stages["measure"]["checks"]
-        assert measured["sensitive_data"]["failed"] == 0
         assert measured["repeated_tool_calls"]["failed"] == 0
         # Paid stages were off, and the handoff is gone once the run published.
         assert run.stages["screening"] == {"status": "skipped", "detail": "free stages only"}

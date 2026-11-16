@@ -11,7 +11,7 @@ from collections.abc import Sequence
 
 from posthog.dataclasses import frozen
 
-from .adapters import REFUSALS, REPEAT_THRESHOLD, REPEATED_TOOL_CALLS, SENSITIVE_DATA, UNRECOVERED_ERRORS, AdaptedCheck
+from .adapters import REFUSALS, REPEAT_THRESHOLD, REPEATED_TOOL_CALLS, UNRECOVERED_ERRORS, AdaptedCheck
 from .catalog import EvalTemplate
 from .coverage import DEAD_LOOKBACK, EvalFix
 from .profile import StructuredGap
@@ -72,16 +72,6 @@ CHECKS: dict[str, _CheckWords] = {
         plural="are refusals",
         checks="Checks the final answer of every {scope}trace for a refusal.",
         reason="The final answer refuses the request. Refusals in earlier steps or in tool output don't count.",
-    ),
-    SENSITIVE_DATA: _CheckWords(
-        noun="answers",
-        singular="includes an email address, card number or secret key",
-        plural="include an email address, card number or secret key",
-        checks="Checks the final answer of every {scope}trace for email addresses, card numbers and secret keys.",
-        reason=(
-            "The final answer contains an email address, a card number, or a secret key. "
-            "Links and version numbers don't count."
-        ),
     ),
 }
 
