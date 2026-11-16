@@ -40,6 +40,7 @@ class SuggestionOutcome(StrEnum):
     REVIVED = "revived"
     EXPIRED = "expired"
     AUTO_RESOLVED = "auto resolved"
+    ASSET_OUTCOME_CHANGED = "asset outcome changed"
 
 
 def report_candidates(kind: WarehouseSuggestionKind, count: int) -> None:
@@ -74,6 +75,13 @@ def _properties(suggestion: WarehouseSuggestion, now: datetime, *, is_system: bo
         "rules_version": suggestion.rules_version,
         "reproposed_count": suggestion.reproposed_count,
         "reason": suggestion.dismissal_reason,
+        "note": suggestion.dismissal_note,
+        "has_note": bool(suggestion.dismissal_note),
+        "waiting_seconds_saved_per_month": suggestion.payload.get("waiting_seconds_saved_per_month"),
+        "background_seconds_saved_per_month": suggestion.payload.get("background_seconds_saved_per_month"),
+        "asset_outcome": suggestion.asset_outcome,
+        "realized_seconds_saved_per_month": suggestion.realized_seconds_saved_per_month,
+        "realized_bytes_saved_per_month": suggestion.realized_bytes_saved_per_month,
         "days_open": (now - suggestion.surfaced_at).total_seconds() / SECONDS_PER_DAY
         if suggestion.surfaced_at
         else None,

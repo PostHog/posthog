@@ -92,6 +92,10 @@ def _surface(request: ValidatedRequest) -> WarehouseSuggestionSurface | None:
     return _surface_from(request.validated_query_data)
 
 
+def _bulk(request: ValidatedRequest) -> bool:
+    return bool(request.validated_query_data.get("bulk"))
+
+
 def _surface_from(data: dict[str, Any]) -> WarehouseSuggestionSurface | None:
     surface = data.get("surface")
     return WarehouseSuggestionSurface(surface) if surface else None
@@ -226,6 +230,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 note=request.validated_data.get("note") or None,
                 subject_kinds=self._subject_kinds,
                 surface=_surface(request),
+                bulk=_bulk(request),
             )
         )
 
@@ -246,6 +251,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 was_impersonated=is_impersonated(request),
                 subject_kinds=self._subject_kinds,
                 surface=_surface(request),
+                bulk=_bulk(request),
             )
         )
 

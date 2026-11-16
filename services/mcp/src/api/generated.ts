@@ -39076,6 +39076,9 @@ export namespace Schemas {
     /**
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other
      */
     export type WarehouseSuggestionDismissalReasonEnum = typeof WarehouseSuggestionDismissalReasonEnum[keyof typeof WarehouseSuggestionDismissalReasonEnum];
@@ -39084,6 +39087,9 @@ export namespace Schemas {
     export const WarehouseSuggestionDismissalReasonEnum = {
       NotUseful: 'not_useful',
       NotNow: 'not_now',
+      WrongEstimate: 'wrong_estimate',
+      AlreadyHandled: 'already_handled',
+      NotOwner: 'not_owner',
       Other: 'other',
     } as const;
 
@@ -39092,6 +39098,9 @@ export namespace Schemas {
        *
        * * `not_useful` - Not useful
        * * `not_now` - Not now
+       * * `wrong_estimate` - Wrong estimate
+       * * `already_handled` - Already handled
+       * * `not_owner` - Someone else decides
        * * `other` - Other */
       reason: WarehouseSuggestionDismissalReasonEnum;
       /**
@@ -85682,6 +85691,9 @@ export namespace Schemas {
        *
        * * `not_useful` - Not useful
        * * `not_now` - Not now
+       * * `wrong_estimate` - Wrong estimate
+       * * `already_handled` - Already handled
+       * * `not_owner` - Someone else decides
        * * `other` - Other */
       dismissal_reason: WarehouseSuggestionDismissalReasonEnum | null;
       /** What happened to the asset an accepted suggestion created.
@@ -148480,6 +148492,10 @@ export namespace Schemas {
 
     export type WarehouseSuggestionsAcceptCreateParams = {
     /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean;
+    /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
      * * `models` - Models
@@ -148498,6 +148514,10 @@ export namespace Schemas {
     } as const;
 
     export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean;
     /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
