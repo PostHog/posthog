@@ -17,7 +17,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ExperimentExposureConfig } from '~/queries/schema/schema-general'
+import { ExperimentExposureConfig, NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, GroupType, GroupTypeIndex, MultivariateFlagVariant, SDKKey } from '~/types'
 
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
@@ -115,7 +115,8 @@ function reportAgentPromptCopied(
     })
 }
 
-/** The event or action an exposure config names, or null when it is the default exposure the flag read records. */
+/** The event or action an exposure config names, or null when there is none to name: the default exposure the flag
+ * read records, or exposures a warehouse query reads. */
 function promptEvent(config: ExperimentExposureConfig | undefined): ExperimentAgentPromptEvent | null {
     if (!config) {
         return null
@@ -124,6 +125,9 @@ function promptEvent(config: ExperimentExposureConfig | undefined): ExperimentAg
         return [EXPOSURE_DEFAULT_EVENT, EXPERIMENT_EXPOSURE_EVENT].includes(config.event)
             ? null
             : { kind: 'event', name: config.event }
+    }
+    if (config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return null
     }
     return { kind: 'action', name: config.name ?? String(config.id) }
 }
