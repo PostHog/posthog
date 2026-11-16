@@ -7975,7 +7975,9 @@
                     "next_refresh_at",
                     "created_at",
                     "updated_at",
-                    "library_ids"
+                    "library_ids",
+                    "cited_run_count",
+                    "last_cited_at"
                 ],
                 "selectable": false
             },
