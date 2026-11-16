@@ -47,7 +47,7 @@
   {
     "temporal_workflow_type": "aeo-brand-sentiment",
     "product": "aeo",
-    "task_queues": "LLMA_EVALS_TASK_QUEUE"
+    "task_queues": "AEO_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "ai-observability-trace-summary",
@@ -393,6 +393,21 @@
     "temporal_workflow_type": "customer-analytics-ownership-claims-sweep",
     "product": "customer_analytics",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-catalog-effectiveness",
+    "product": "data_catalog",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-catalog-usage-scan",
+    "product": "data_catalog",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-catalog-usage-schedule",
+    "product": "data_catalog",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "data-catalog-weekly-digest",
@@ -1000,6 +1015,16 @@
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "pylon-import-batch",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "pylon-import-coordinator",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "rasterize-recording",
     "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
@@ -1221,6 +1246,11 @@
   },
   {
     "temporal_workflow_type": "signal-emitter",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signal-grouping-record-cleanup",
     "product": "signals",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
