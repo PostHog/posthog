@@ -144,7 +144,7 @@ export function KpiTiles({
             // Person identity (email/name) is resolved on the Sessions tab, so that's the drill-down for "who".
             href: sessionsHref,
             format: formatNumber,
-            color: theme.colors[2],
+            color: theme.colors[0],
             loading: kpisLoading || usersLoading,
             failed: kpisFailed || usersFailed,
             onRetry: () =>
