@@ -74,8 +74,9 @@ from posthog.utils import get_safe_cache, safe_cache_set
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Resource, Subject
-from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.querysets import filter_projects
 from products.legal_documents.backend.facade.api import SIGNED_BAA_ANNOTATION, annotate_signed_baa, has_signed_baa
 
 
@@ -104,20 +105,6 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
             return True
         organization = extract_organization(object, view)
         return can_in_organization(request, organization, Action.DELETE if request.method == "DELETE" else Action.EDIT)
-
-
-def _visible_teams(organization: Organization, user: User) -> QuerySet[Team]:
-    """The teams of `organization` that `user` can see."""
-    visible = authorization.list_objects(
-        resource=Resource(type=ResourceType.PROJECT, organization_id=organization.id),
-        action=Action.VIEW,
-        subject=Subject(user_id=user.pk),
-    )
-    teams = organization.teams.all()
-    if not visible.complete:
-        return teams.none()
-    team_ids = [int(team_id) for team_id in visible.ids]
-    return teams.exclude(id__in=team_ids) if visible.excluded else teams.filter(id__in=team_ids)
 
 
 tracer = trace.get_tracer(__name__)
@@ -462,7 +449,7 @@ class OrganizationSerializer(
         if (access := self.user_access_control) is not None:
             authorization.reuse_current_rules(access, self.user_permissions)
         visible_teams = (
-            _visible_teams(instance, user)
+            filter_projects(instance.teams.all(), organization_id=instance.id, subject=Subject(user_id=user.pk))
             .select_related("project")
             .prefetch_related(
                 Prefetch(
@@ -1046,9 +1033,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
         organization = self.get_object()
-        visible_teams = _visible_teams(organization, cast(User, request.user)).only(
-            "id", "project_id", "ingested_event"
-        )
+        visible_teams = filter_projects(
+            organization.teams.all(), organization_id=organization.id, subject=Subject(user_id=request.user.pk)
+        ).only("id", "project_id", "ingested_event")
         results = get_organization_data_freshness(str(organization.id), list(visible_teams))
         return Response(
             OrganizationDataFreshnessSerializer(
