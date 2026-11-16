@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 from django.contrib.admin.models import LogEntry
 from django.contrib.auth.models import Group
 from django.test import Client, SimpleTestCase
-from django.utils import timezone
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
@@ -17,6 +16,7 @@ from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.session.models import Session
 
 _PAIR = [("ada@old.example.com", "a.lovelace@new.example.com")]
+VERIFIED_AT = "2024-01-01T00:00:00Z"
 
 
 class TestChangeMemberEmailsForm(SimpleTestCase):
@@ -73,7 +73,7 @@ class TestChangeMemberEmails(BaseTest):
         self.client.force_login(self.user)
         Group.objects.get_or_create(name=PLATFORM_FEATURES.staff_group)[0].user_set.add(self.user)
         for domain in ("old.example.com", "new.example.com"):
-            OrganizationDomain.objects.create(organization=self.organization, domain=domain, verified_at=timezone.now())
+            OrganizationDomain.objects.create(organization=self.organization, domain=domain, verified_at=VERIFIED_AT)
         self.member = self._create_user("ada@old.example.com", first_name="Ada")
         self.url = self._url("old--example--com")
 
@@ -97,7 +97,7 @@ class TestChangeMemberEmails(BaseTest):
         self._create_user("staff@old.example.com", is_staff=True)
         # A domain that differs from old.example.com only by a hyphen in place of a dot.
         OrganizationDomain.objects.create(
-            organization=self.organization, domain="old-example.com", verified_at=timezone.now()
+            organization=self.organization, domain="old-example.com", verified_at=VERIFIED_AT
         )
         self._create_user("linus@old-example.com")
 
