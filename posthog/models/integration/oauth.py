@@ -535,6 +535,11 @@ OAUTH_CLIENT_CREDENTIAL_KEYS: dict[str, _ClientCredentialKeys] = {
         client_secret="HELPSCOUT_APP_CLIENT_SECRET",
         not_configured="Help Scout app not configured",
     ),
+    "oura-ring": _ClientCredentialKeys(
+        client_id="OURA_APP_CLIENT_ID",
+        client_secret="OURA_APP_CLIENT_SECRET",
+        not_configured="Oura app not configured",
+    ),
     "linear": _ClientCredentialKeys(
         client_id="LINEAR_APP_CLIENT_ID",
         client_secret="LINEAR_APP_CLIENT_SECRET",
@@ -619,6 +624,7 @@ class OauthIntegration:
         "instagram",
         "intercom",
         "helpscout",
+        "oura-ring",
         "linear",
         "clickup",
         "jira",
@@ -917,6 +923,18 @@ class OauthIntegration:
                 # Help Scout decodes the state one extra time and drops everything after the first `&`, so the
                 # token and team_id never come back. A hex string has no characters that it can change.
                 opaque_state=True,
+            )
+        elif kind == "oura-ring":
+            return OauthConfig(
+                authorize_url="https://cloud.ouraring.com/oauth/authorize",
+                token_url="https://api.ouraring.com/oauth/token",
+                token_info_url="https://api.ouraring.com/v2/usercollection/personal_info",
+                # `personal` and `email` cover the personal_info lookup that names the integration. The
+                # rest are the data scopes the warehouse tables read.
+                scope="email personal daily heartrate workout tag session spo2 heart_health",
+                id_path="id",
+                name_path="email",
+                token_info_config_fields=["id", "email"],
             )
         elif kind == "linear":
             return OauthConfig(

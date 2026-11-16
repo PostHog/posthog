@@ -254,6 +254,7 @@ export interface PaginatedIntegrationConfigListApi {
  * * `linear` - Linear
  * * `linkedin-ads` - Linkedin Ads
  * * `meta-ads` - Meta Ads
+ * * `oura-ring` - Oura Ring
  * * `pardot` - Pardot
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
@@ -309,6 +310,7 @@ export const IntegrationKindEnumApi = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    OuraRing: 'oura-ring',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
@@ -369,6 +371,7 @@ export interface IntegrationConfigCreateApi {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `oura-ring` - Oura Ring
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -1169,6 +1172,7 @@ export interface IntegrationAccessRequestApi {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `oura-ring` - Oura Ring
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -1336,6 +1340,7 @@ export type IntegrationsListParams = {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `oura-ring` - Oura Ring
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -1402,6 +1407,7 @@ export const IntegrationsListKind = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    OuraRing: 'oura-ring',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',

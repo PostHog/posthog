@@ -6,4 +6,4 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class OuraSourceConfig(config.Config):
-    access_token: str
+    oura_integration_id: int = config.value(converter=config.str_to_int)

@@ -134,6 +134,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Neon": "driver",
     "OpenMeteo": "no-request",
     "OpenWeather": "no-request",
+    "Oura": "database",
     "Pardot": "database",
     "PinterestAds": "database",
     "PlanetScaleMySQL": "driver",

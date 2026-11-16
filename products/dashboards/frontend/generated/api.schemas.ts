@@ -5818,6 +5818,7 @@ export const IntegrationKindApi = {
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
     Pardot: 'pardot',
+    OuraRing: 'oura-ring',
     CustomerioApp: 'customerio-app',
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',

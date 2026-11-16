@@ -28,6 +28,7 @@ import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
+import IconOura from 'public/services/oura.png'
 import IconPardot from 'public/services/pardot.png'
 import IconPinterest from 'public/services/pinterest_ads.png'
 import IconPostgres from 'public/services/postgres.png'
@@ -126,6 +127,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     jira: IconJira,
     'pinterest-ads': IconPinterest,
     pardot: IconPardot,
+    'oura-ring': IconOura,
     'customerio-app': IconCustomerIO,
     'customerio-webhook': IconCustomerIO,
     'customerio-track': IconCustomerIO,
@@ -177,6 +179,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Azure Blob Storage'
         case 'pinterest-ads':
             return 'Pinterest Ads'
+        case 'oura-ring':
+            return 'Oura'
         case 'email':
             return 'email'
         case 'email_sandbox':

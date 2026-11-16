@@ -146,6 +146,7 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "Motherduck": "driver",
     "MySQL": "driver",
     "Neon": "driver",
+    "Oura": "database",
     "Pardot": "database",
     "PinterestAds": "database",
     "PlanetScaleMySQL": "driver",
