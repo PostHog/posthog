@@ -41,9 +41,10 @@ Transitions draft → running. Activates the feature flag and sets `start_date`.
 
 No request body needed.
 
-One optional item worth a single mention at launch, when the change is user-facing and substantial: a
-short survey, shown when users finish the experimented flow (e.g. triggered by the form's submit event),
-collects qualitative feedback (a rating, an optional comment) alongside the metrics, from day one. Offer it once as setup advice, drop it if declined, and
+A short survey, shown when users finish the experimented flow (e.g. triggered by the form's submit event),
+collects qualitative feedback (a rating, an optional comment) alongside the metrics, from day one.
+For a user-facing and substantial change, it's one of the options in the closing question below, so it comes up once.
+Leave it out if you offered it at creation, drop it if declined, and
 never let it delay the launch. Do **not** raise it at end or ship-variant time — there it reads as a gate
 on rolling out. → See [`references/qualitative-feedback.md`](../diagnosing-experiment-health/references/qualitative-feedback.md) in [[diagnosing-experiment-health]]
 
