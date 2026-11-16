@@ -107,6 +107,9 @@ Intent-topic runs register before reading source events or writing derived data.
 New sync runs use bounded ad-hoc inference followed by synchronous inserts into the model table on the main cluster.
 They stop scheduling work before the activity timeout and resume partially processed hours without advancing past missing vectors.
 Only an explicit confirmation of these inserts completes a sync registration. Failed or interrupted registrations do not expire, and legacy Kafka runs remain pending because enqueue success does not confirm ClickHouse delivery.
+Hourly and daily rollup inserts also wait for distributed delivery, disable asynchronous buffering, and require the same replica quorum as assignment writes.
+Quorum waits time out after 60 seconds; tests and local development disable quorum on their single-node ClickHouse.
+This confirms write completion but does not prove that every replica has completed a later deletion.
 `has_pending_registered_writers` checks only these registrations. Legacy session, snapshot and embedding-cache writers, queued embedding output, and physical derivative cleanup need separate coverage.
 The barrier has no reopening or deletion-completion operation. These primitives do not make event or person erasure complete for intent topics.
 

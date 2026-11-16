@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from clickhouse_driver import Client
 from parameterized import parameterized
 
 from posthog.schema import DateRange, HogQLQueryModifiers, MCPIntentTopicsQuery
@@ -137,6 +138,7 @@ class TestRebuildTopicDaily(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         with (
             self.settings(CLICKHOUSE_EVENTS_OFFLINE_HOST="events-only.invalid"),
             events_route_scope(HogQLQueryModifiers(useNewEventsSchema=native_events)),
+            patch.object(Client, "execute", autospec=True, side_effect=Client.execute) as execute,
         ):
             insert_hourly_calls(
                 self.team.pk,
@@ -152,6 +154,22 @@ class TestRebuildTopicDaily(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
             rebuild_topic_daily(
                 team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
             )
+
+        writes = {
+            call.args[1].split()[2]: call.kwargs["settings"]
+            for call in execute.call_args_list
+            if call.args[1].lstrip().startswith("INSERT INTO writable_mcp_intent_")
+        }
+        for table in ("writable_mcp_intent_calls_hourly", "writable_mcp_intent_topic_daily"):
+            assert {
+                key: writes[table].get(key)
+                for key in ("insert_distributed_sync", "async_insert", "insert_quorum", "insert_quorum_timeout")
+            } == {
+                "insert_distributed_sync": 1,
+                "async_insert": 0,
+                "insert_quorum": 0,
+                "insert_quorum_timeout": 60_000,
+            }
 
         assert self._daily() == [
             (DAY.date().isoformat(), "query-funnel", "topic-b", 1, 1, 0, 1),

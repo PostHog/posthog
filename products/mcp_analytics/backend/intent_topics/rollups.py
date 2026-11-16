@@ -11,6 +11,8 @@ from datetime import UTC, datetime, time, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
+
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
@@ -33,7 +35,12 @@ INSERT_BATCH_SIZE = 10_000
 
 # Each insert returns only once every shard has its rows. A run counts as written when it finishes, so a
 # deletion that waits for finished runs could otherwise sweep before a background forward lands.
-_CONFIRMED_INSERT_SETTINGS: dict[str, object] = {"insert_distributed_sync": 1, "async_insert": 0}
+_CONFIRMED_INSERT_SETTINGS: dict[str, int | str] = {
+    "insert_distributed_sync": 1,
+    "async_insert": 0,
+    "insert_quorum": 0 if settings.TEST or settings.DEBUG else "auto",
+    "insert_quorum_timeout": 60_000,
+}
 
 _HOURLY_INSERT_SQL = (
     "INSERT INTO "
