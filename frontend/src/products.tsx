@@ -140,6 +140,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
     '/feature-flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
+    '/support': ['SupportOverview', 'supportOverview'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
@@ -545,7 +546,6 @@ export const productRedirects: Record<
         combineUrl(urls.aiObservabilityUsers(), searchParams, hashParams).url,
     '/llm-observability/playground': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityPlayground(), searchParams, hashParams).url,
-    '/support': '/support/tickets',
     '/customer_analytics': (_params, searchParams, hashParams) => {
         const defaultTab = posthog.getFeatureFlag(FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP)
             ? '/customer_analytics/accounts'
@@ -853,6 +853,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'data_pipeline',
     },
     CohortsStaffTools: { instanceLevel: true, name: 'Cohorts staff tools' },
+    SupportOverview: { name: 'Support overview', projectBased: true, layout: 'app-container' },
     SupportTickets: {
         name: 'Ticket list',
         description:
@@ -3385,7 +3386,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
-        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings', 'MyTickets'],
+        sceneKeys: ['SupportOverview', 'SupportTickets', 'SupportTicketDetail', 'SupportSettings', 'MyTickets'],
     },
     {
         path: 'Surveys',

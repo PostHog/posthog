@@ -183,6 +183,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-06-11',
         featureFlags: {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
@@ -273,6 +274,16 @@ export const ReportReadyToImplement: Story = {
             />
         </Frame>
     ),
+}
+
+export const ReportWithoutPostHogAiAccess: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: {
+            ...ReportReadyToImplement.parameters?.featureFlags,
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false,
+        },
+    },
 }
 
 export const ReportImplementButtonInHeader: Story = {

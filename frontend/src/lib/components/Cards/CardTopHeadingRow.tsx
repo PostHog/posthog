@@ -1,3 +1,5 @@
+import React from 'react'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function CardTopHeadingRow({
@@ -17,8 +19,13 @@ export function CardTopHeadingRow({
     /** Render a • before children when a label/date precedes; leave off for inline adornments (e.g. the freshness clock). */
     separateChildren?: boolean
     children?: React.ReactNode
-}): JSX.Element {
+}): JSX.Element | null {
     const showLabelSegment = Boolean(showTypeLabel && typeLabel)
+    const hasChildren = React.Children.toArray(children).length > 0
+
+    if (!showLabelSegment && !dateText && !hasChildren) {
+        return null
+    }
 
     return (
         <div className="flex items-center gap-1">
@@ -35,7 +42,7 @@ export function CardTopHeadingRow({
                     )}
                 </>
             ) : null}
-            {children ? (
+            {hasChildren ? (
                 <>
                     {separateChildren && (showLabelSegment || dateText) ? <span>•</span> : null}
                     {children}

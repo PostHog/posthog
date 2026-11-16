@@ -11,8 +11,8 @@ export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'fail
 // SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
 export const CYCLOTRON_COUNTER_MAX = 32767
 
-// Past this a job is in a retry loop it will not leave on its own. Set above normal work: live p99 is ~5k and the highest row ~19.5k.
 export const CYCLOTRON_TRANSITION_CHURN_THRESHOLD = 20000
+export const CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR = 600
 
 export type CyclotronV2PoolConfig = {
     dbUrl: string
@@ -201,7 +201,7 @@ export type CyclotronV2CancelUnclaimedResult =
 
 export type CyclotronV2RescheduleUnclaimedResult =
     | { outcome: 'rescheduled'; job: JobRow; rescheduledAt: Date }
-    | { outcome: 'canceled' | 'claimed' | 'not_found' }
+    | { outcome: 'canceled' | 'claimed' | 'not_found' | 'too_far' }
 
 /**
  * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
@@ -224,7 +224,12 @@ export interface CyclotronV2JobProducer {
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
     cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult>
-    rescheduleUnclaimed(teamId: number, id: string, scheduled: Date): Promise<CyclotronV2RescheduleUnclaimedResult>
+    rescheduleUnclaimed(
+        teamId: number,
+        id: string,
+        scheduled: Date,
+        options?: { maxAheadOfCreatedMs?: number }
+    ): Promise<CyclotronV2RescheduleUnclaimedResult>
     resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
     resumeParkedBatchResolver(options: {
         teamId: number
