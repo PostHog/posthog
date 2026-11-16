@@ -269,6 +269,7 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
             "insight": resource.insight.pk if resource.insight else None,
             "dashboard": resource.dashboard.pk if resource.dashboard else None,
             "export_format": "image/png",
+            "export_context": {"sharing_configuration_id": resource.pk},
         },
         context={"team_id": cast(Team, resource.team).pk},
     )
@@ -1548,6 +1549,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             insight=resource.insight or None,
             dashboard=resource.dashboard or None,
             export_format=ExportedAsset.ExportFormat.PNG.value,
+            export_context={"sharing_configuration_id": resource.pk},
+            created_by__isnull=True,
+            source_authentication__isnull=True,
         )
 
         if exported_asset_matches.exists():

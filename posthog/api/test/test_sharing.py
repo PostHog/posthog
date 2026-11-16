@@ -668,6 +668,29 @@ class TestSharing(APIBaseTest):
         patched_exporter_task.side_effect = add_content_location_on_task_run
 
     @parameterized.expand(["insights", "dashboards"])
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_shared_preview_ignores_exports_with_selected_filters(self, type: str, _exporter: Mock) -> None:
+        target = self.insight if type == "insights" else self.dashboard
+        ExportedAsset.objects.create(
+            team=self.team,
+            insight=self.insight if type == "insights" else None,
+            dashboard=self.dashboard if type == "dashboards" else None,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"filters_override": {"date_from": "-90d"}},
+            content_location="selected-filters.png",
+            created_by=self.user,
+        )
+        share_response = self.client.patch(
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing", {"enabled": True}
+        )
+
+        response = self.client.get(f"/shared/{share_response.json()['access_token']}.png")
+
+        assert response.status_code == 302
+        assert response["Location"] == "/static/blank-dashboard-hog.png"
+        assert ExportedAsset.objects.count() == 2
+
+    @parameterized.expand(["insights", "dashboards"])
     @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_shared_insight_can_regenerate_stale_existing_generated_open_graph_image(
