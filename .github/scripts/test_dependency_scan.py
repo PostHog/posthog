@@ -215,6 +215,7 @@ TARBALL = scanner.Package("npm", "tarball-dep", "https://example.com/tarball-dep
         (["no_risks_detected", "low", "suspicious"], [], True),
         (["no_risks_detected", "high_risk"], [], False),
         (["no_risks_detected", "not_scanned"], [], False),
+        (["no_risks_detected", "a_label_from_a_later_guarddog"], [], False),
         (["no_risks_detected"], [TARBALL], False),
     ],
 )

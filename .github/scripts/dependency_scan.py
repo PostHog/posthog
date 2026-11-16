@@ -25,6 +25,8 @@ MAX_PACKAGES = 300
 BLOCKING_LABEL = "high_risk"
 CLEAN_LABEL = "no_risks_detected"
 NOT_SCANNED = "not_scanned"
+# The labels a gate passes. A label GuardDog adds in a later version is refused until it is listed here.
+PASSING_LABELS = (CLEAN_LABEL, "low", "suspicious")
 SCANNER_PATH = ".github/scripts/dependency_scan.py"
 
 NPM_NAME = re.compile(r"(@[A-Za-z0-9][A-Za-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0-9._~-]*")
@@ -320,7 +322,11 @@ def sarif_output(findings: list[Finding], locations: dict[Package, Location]) ->
 
 
 def is_clean(findings: list[Finding], skipped: list[Package]) -> bool:
-    return not skipped and all(finding.label not in (BLOCKING_LABEL, NOT_SCANNED) for finding in findings)
+    return not skipped and all(finding.label in PASSING_LABELS for finding in findings)
+
+
+def scanner_is_broken(findings: list[Finding]) -> bool:
+    return bool(findings) and all(finding.label == NOT_SCANNED for finding in findings)
 
 
 def scan_additions(
@@ -355,8 +361,7 @@ def report() -> int:
         with open(output_path, "a") as handle:
             handle.write(f"findings={findings_output(findings, skipped)}\n")
             handle.write(f"sarif={sarif_output(findings, locations)}\n")
-    scanner_is_broken = bool(findings) and all(finding.label == NOT_SCANNED for finding in findings)
-    return 1 if scanner_is_broken else 0
+    return 1 if scanner_is_broken(findings) else 0
 
 
 def gate() -> int:
@@ -368,7 +373,8 @@ def gate() -> int:
     clean = is_clean(findings, skipped)
     with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
         handle.write(f"clean={'true' if clean else 'false'}\n")
-    return 0
+    # A scanner that fails on every package fails the job, so the outage shows instead of a neutral proof.
+    return 1 if scanner_is_broken(findings) else 0
 
 
 MODES = {"report": report, "gate": gate}
