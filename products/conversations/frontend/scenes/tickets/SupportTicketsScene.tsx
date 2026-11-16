@@ -1,15 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -22,9 +21,11 @@ import { SupportTicketsBanner } from '../../components/SupportTicketsBanner/Supp
 import { TicketListFilters } from '../../components/TicketListFilters/TicketListFilters'
 import { supportEmptyState } from '../../emptyState/supportEmptyState'
 import { type Ticket } from '../../types'
+import { QuillSupportTicketsSceneContent } from './QuillSupportTicketsSceneContent'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 import { buildTicketColumns } from './ticketColumns'
 import { ticketColumnsLogic } from './ticketColumnsLogic'
+import { openTicketRow, ticketRowUrl } from './ticketRowNavigation'
 
 export const scene: SceneExport = {
     component: SupportTicketsScene,
@@ -39,19 +40,10 @@ interface SupportTicketsTableProps {
 
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const {
-        tickets,
-        ticketsLoading,
-        currentPage,
-        totalCount,
-        sorting,
-        selectedTicketIds,
-        searchQuery,
-        hasActiveFilters,
-    } = useValues(logic)
+    const { tickets, ticketsLoading, currentPage, totalCount, pageCount, sorting, selectedTicketIds, emptyStateKind } =
+        useValues(logic)
     const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
-    const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
@@ -123,7 +115,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     ])
 
     const emptyState =
-        searchQuery && hasActiveFilters ? (
+        emptyStateKind === 'search-with-filters' ? (
             <div className="flex flex-col items-center gap-2 py-2">
                 <span>No tickets match your search with the current filters applied.</span>
                 <LemonButton type="secondary" size="small" onClick={() => clearFiltersKeepingSearch()}>
@@ -153,35 +145,24 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                 pageSize: SUPPORT_TICKETS_PAGE_SIZE,
                 entryCount: totalCount,
                 onBackward: currentPage > 1 ? () => setCurrentPage(currentPage - 1) : undefined,
-                onForward:
-                    currentPage * SUPPORT_TICKETS_PAGE_SIZE < totalCount
-                        ? () => setCurrentPage(currentPage + 1)
-                        : undefined,
+                onForward: currentPage < pageCount ? () => setCurrentPage(currentPage + 1) : undefined,
             }}
             onRow={(ticket) => {
-                // Carry the active filters / saved view (the list's query string) onto the
-                // ticket URL so the ticket's back arrow can return to this exact view. Skip it
-                // when embedded (e.g. the person side panel), where the host page's query
-                // string isn't the ticket filters.
-                const ticketUrl = combineUrl(
-                    urls.supportTicketDetail(ticket.ticket_number),
-                    embedded ? {} : searchParams
-                ).url
+                const ticketUrl = ticketRowUrl(ticket, searchParams, embedded)
                 return {
                     onClick: (e: React.MouseEvent) => {
-                        if (e.metaKey || e.ctrlKey) {
+                        const inNewTab = e.metaKey || e.ctrlKey
+                        if (inNewTab) {
                             e.preventDefault()
                             e.stopPropagation()
-                            newInternalTab(ticketUrl)
-                        } else {
-                            push(ticketUrl)
                         }
+                        openTicketRow(ticketUrl, inNewTab)
                     },
                     onAuxClick: (e: React.MouseEvent) => {
                         if (e.button === 1) {
                             e.preventDefault()
                             e.stopPropagation()
-                            newInternalTab(ticketUrl)
+                            openTicketRow(ticketUrl, true)
                         }
                     },
                 }
@@ -199,6 +180,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 export function SupportTicketsScene(): JSX.Element {
     const { aiEnabled } = useValues(supportTicketsSceneLogic)
     const ticketsTitle = useTodayPeopleTitle('support')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <SceneContent className="pb-4">
@@ -208,10 +190,16 @@ export function SupportTicketsScene(): JSX.Element {
                 resourceType={ticketsTitle?.resourceType ?? { type: 'conversation' }}
                 actions={<ComposeTicketButton />}
             />
-            <SupportTicketsBanner aiEnabled={aiEnabled} />
-            <ScenesTabs />
-            <TicketListFilters />
-            <SupportTicketsTable />
+            {todayRailNav ? (
+                <QuillSupportTicketsSceneContent aiEnabled={aiEnabled} />
+            ) : (
+                <>
+                    <SupportTicketsBanner aiEnabled={aiEnabled} />
+                    <ScenesTabs />
+                    <TicketListFilters />
+                    <SupportTicketsTable />
+                </>
+            )}
         </SceneContent>
     )
 }

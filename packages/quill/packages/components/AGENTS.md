@@ -32,7 +32,7 @@ const columns: ColumnDef<Person>[] = [
   fullWidth
   size="sm"                      // tighten cell padding; pair with Card size="sm"
   onPageChange={(page, nextPage) => track(page, nextPage)} // one-based page numbers
-  onRowClick={(row) => open(row)} // ignores links, buttons, and form controls inside the row
+  onRowClick={(row, event) => open(row, event.metaKey)} // ignores links, buttons, and form controls inside the row
   selectable                     // checkbox column; shift-click selects a range
   getRowId={(row) => row.id}
   rowSelection={rowSelection}    // { [rowId]: true }
@@ -52,7 +52,7 @@ Rules:
 - Pagination is opt-in via `pageSize`; the component owns page state, reports user navigation through `onPageChange`, and resets to page 0 when `pageSize` changes. The pager is suppressed when the table has no rows — an empty table shows only its empty state, never a "0–0 of 0" pager.
 - Custom empty state via the `empty` prop (ReactNode); default is a minimal "No results".
 - `rowClassName` accepts a class string or a function of the row data to style matching rows.
-- `onRowClick` makes non-interactive parts of each row clickable and keyboard accessible. Links, buttons, form controls, editable content, and custom controls keep their own behavior. Add `data-row-click-ignore` to a custom descendant that must not activate the row.
+- `onRowClick` makes non-interactive parts of each row clickable and keyboard accessible. It receives the row and the click or key event, so a caller can read the modifier keys, for example to open the record in a new tab on cmd/ctrl. Links, buttons, form controls, editable content, and custom controls keep their own behavior. Add `data-row-click-ignore` to a custom descendant that must not activate the row.
 - `selectable` is the selection variant: it adds a leading checkbox column, marks each selected row with `data-state="selected"`, and gives the header a checkbox that selects or clears every selectable row on the page. Shift-click a second checkbox to set every row between it and the one clicked last to the clicked row's new state, as LemonTable's `bulkSelection` does. To disable some rows, pass `rowSelectionDisabledReason`: a reason disables the row's checkbox and shows in its tooltip, `null` keeps the row selectable, and a shift-click range skips the disabled rows. `rowSelection` and `onRowSelectionChange` control the selection, as `{ [rowId]: true }`. Pass `getRowId` so the selection follows rows across a re-sort or a newly loaded page, and `rowSelectionLabel` to name each checkbox for screen readers. Put the bulk actions outside the table, shown while anything is selected, and clear the selection when the filters change.
 - Don't rebuild tables from `Table` primitives when the data is row/column shaped and needs sorting or pagination — that's what DataTable is for. Drop to the `Table` primitive only for fully custom layouts.
 

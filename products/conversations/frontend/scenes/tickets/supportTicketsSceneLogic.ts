@@ -14,6 +14,7 @@ import {
 } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -29,6 +30,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
 import { assigneeSelectLogic } from '../../components/Assignee'
+import { decodeAssigneeEntry, encodeAssigneeEntry } from '../../components/Assignee/types'
 import { conversationsTicketsBulkUpdateStatusCreate, conversationsViewsRetrieve } from '../../generated/api'
 import type { AiTriageResultEnumApi } from '../../generated/api.schemas'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
@@ -45,6 +47,12 @@ import type {
     TicketTagsMatch,
     TicketViewFilters,
 } from '../../types'
+import {
+    type TicketBulkActionState,
+    type TicketListEmptyKind,
+    type TicketsLoadState,
+    ticketBulkActionState,
+} from './ticketListState'
 
 export const SUPPORT_TICKETS_PAGE_SIZE = 20
 
@@ -63,6 +71,26 @@ const DEFAULT_TICKET_FILTERS: TicketViewFilters = {
     tagsExclude: [],
     sorting: { columnKey: 'updated_at', order: -1 },
     search: '',
+}
+
+// pinned: analytics event names, renaming breaks dashboards. Properties carry names and counts, never values.
+const BULK_STATUS_UPDATED_EVENT = 'support tickets bulk status updated'
+const FILTER_CHANGED_EVENT = 'support tickets filter changed'
+
+type TrackedTicketFilter =
+    | 'status'
+    | 'priority'
+    | 'channel'
+    | 'sla'
+    | 'ai_result'
+    | 'assignee'
+    | 'tags'
+    | 'tags_exclude'
+    | 'tags_match'
+    | 'date_range'
+
+function captureFilterChanged(filter: TrackedTicketFilter): void {
+    posthog.capture(FILTER_CHANGED_EVENT, { filter })
 }
 
 const DEFAULT_SORTING: Sorting = { columnKey: 'updated_at', order: -1 }
@@ -94,11 +122,6 @@ function orderByToSorting(orderBy: string): Sorting {
     return { columnKey: orderBy.replace(/^-/, ''), order: orderBy.startsWith('-') ? -1 : 1 }
 }
 
-function encodeAssigneeEntry(entry: AssigneeFilterEntry): string {
-    // 'unassigned' and 'me' are string tokens; concrete entries encode as type:id.
-    return typeof entry === 'string' ? entry : `${entry.type}:${entry.id}`
-}
-
 // kea-router hands back arrays for multi-value params, but a hand-typed single
 // value can arrive as a bare string — coerce both to a string array.
 function toStringArray(value: unknown): string[] {
@@ -112,15 +135,7 @@ function toStringArray(value: unknown): string[] {
 }
 
 function decodeAssignee(value: unknown): AssigneeFilterEntry[] {
-    const entries = toStringArray(value).map((token): AssigneeFilterEntry | null => {
-        if (token === 'unassigned' || token === 'me') {
-            return token
-        }
-        const separator = token.indexOf(':')
-        const type = token.slice(0, separator)
-        const id = token.slice(separator + 1)
-        return (type === 'user' || type === 'role') && id ? { type, id } : null
-    })
+    const entries = toStringArray(value).map(decodeAssigneeEntry)
     return normalizeAssigneeFilter(entries.filter((entry): entry is AssigneeFilterEntry => entry !== null))
 }
 
@@ -211,6 +226,7 @@ export interface supportTicketsSceneLogicValues {
     assigneeFilter: AssigneeFilterEntry[]
     assigneeFilterEntries: AssigneeFilterEntry[]
     breadcrumbs: Breadcrumb[]
+    bulkActionState: TicketBulkActionState
     bulkUpdating: boolean
     channelFilter: TicketChannel | 'all'
     currentFilters: TicketViewFilters
@@ -222,8 +238,10 @@ export interface supportTicketsSceneLogicValues {
     } | null
     dateTo: string | null
     editableSelectedTicketIds: string[]
+    emptyStateKind: TicketListEmptyKind
     hasActiveFilters: boolean
     orderBy: string
+    pageCount: number
     priorityFilter: TicketPriority[]
     searchQuery: string
     selectedTicketIds: string[]
@@ -235,6 +253,7 @@ export interface supportTicketsSceneLogicValues {
     tagsFilter: string[]
     tagsMatch: TicketTagsMatch
     tickets: Ticket[]
+    ticketsLoadState: TicketsLoadState
     ticketsLoading: boolean
     totalCount: number
 }
@@ -274,6 +293,12 @@ export interface supportTicketsSceneLogicActions {
     }
     loadTickets: (debounce?: boolean) => {
         debounce: boolean
+    }
+    loadTicketsFailed: () => {
+        value: true
+    }
+    markSelectedTicketsAs: (status: TicketStatus) => {
+        status: TicketStatus
     }
     resetFilters: () => {
         value: true
@@ -357,6 +382,13 @@ export interface supportTicketsSceneLogicMeta {
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
         editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
+        bulkActionState: (
+            selectedTicketIds: string[],
+            selectedTickets: Ticket[],
+            editableSelectedTicketIds: string[]
+        ) => TicketBulkActionState
+        pageCount: (totalCount: number) => number
+        emptyStateKind: (searchQuery: string, hasActiveFilters: boolean) => TicketListEmptyKind
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
             statusFilter: TicketStatus[],
@@ -418,6 +450,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setSearchQuery: (query: string) => ({ query }),
         setCurrentPage: (page: number) => ({ page }),
         loadTickets: (debounce: boolean = true) => ({ debounce }),
+        loadTicketsFailed: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTotalCount: (count: number) => ({ count }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
@@ -431,6 +464,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         clearFiltersKeepingSearch: true,
         setDateRangeBeforeView: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
+        markSelectedTicketsAs: (status: TicketStatus) => ({ status }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
         setSelectedTicketIds: (ids: string[]) => ({ ids }),
         clearSelectedTickets: true,
@@ -448,6 +482,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 loadTickets: () => true,
                 setTickets: () => false,
                 setTicketsLoading: (_, { loading }) => loading,
+                loadTicketsFailed: () => false,
+            },
+        ],
+        ticketsLoadState: [
+            'unloaded' as TicketsLoadState,
+            {
+                setTickets: () => 'loaded',
+                loadTicketsFailed: () => 'failed',
             },
         ],
         currentPage: [
@@ -644,6 +686,24 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                     )
                     .map((ticket) => ticket.id),
         ],
+        bulkActionState: [
+            (s) => [s.selectedTicketIds, s.selectedTickets, s.editableSelectedTicketIds],
+            (
+                selectedTicketIds: string[],
+                selectedTickets: Ticket[],
+                editableSelectedTicketIds: string[]
+            ): TicketBulkActionState =>
+                ticketBulkActionState(selectedTicketIds, selectedTickets, editableSelectedTicketIds),
+        ],
+        pageCount: [
+            (s) => [s.totalCount],
+            (totalCount: number): number => Math.max(1, Math.ceil(totalCount / SUPPORT_TICKETS_PAGE_SIZE)),
+        ],
+        emptyStateKind: [
+            (s) => [s.searchQuery, s.hasActiveFilters],
+            (searchQuery: string, hasActiveFilters: boolean): TicketListEmptyKind =>
+                searchQuery && hasActiveFilters ? 'search-with-filters' : 'no-tickets',
+        ],
         assigneeFilterEntries: [
             (s) => [s.assigneeFilter],
             (assigneeFilter: AssigneeFilterEntry[]): AssigneeFilterEntry[] => normalizeAssigneeFilter(assigneeFilter),
@@ -791,7 +851,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                     throw error
                 }
                 lemonToast.error('Failed to load tickets')
-                actions.setTicketsLoading(false)
+                actions.loadTicketsFailed()
             }
         },
         applyViewFilters: () => {
@@ -823,42 +883,52 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setCurrentPage(1)
         },
         setStatusFilter: () => {
+            captureFilterChanged('status')
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setPriorityFilter: () => {
+            captureFilterChanged('priority')
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setChannelFilter: () => {
+            captureFilterChanged('channel')
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setSlaFilter: () => {
+            captureFilterChanged('sla')
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setAiTriageResultFilter: () => {
+            captureFilterChanged('ai_result')
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setAssigneeFilter: () => {
+            captureFilterChanged('assignee')
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setTagsFilter: () => {
+            captureFilterChanged('tags')
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setTagsMatch: () => {
+            captureFilterChanged('tags_match')
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setTagsExcludeFilter: () => {
+            captureFilterChanged('tags_exclude')
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setDateRange: () => {
+            captureFilterChanged('date_range')
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
@@ -924,6 +994,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 dateTo: null,
             })
         },
+        markSelectedTicketsAs: ({ status }) => {
+            const ids = values.editableSelectedTicketIds
+            // Marking tickets with the status they already share is a no-op, and a second submit waits for the first.
+            if (values.bulkUpdating || ids.length === 0 || status === values.bulkActionState.currentStatus) {
+                return
+            }
+            actions.bulkUpdateStatus(ids, status)
+        },
         bulkUpdateStatus: async ({ ids, status }) => {
             actions.setBulkUpdating(true)
             try {
@@ -936,10 +1014,16 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                         status,
                     }
                 )
+                posthog.capture(BULK_STATUS_UPDATED_EVENT, {
+                    ticket_count: ids.length,
+                    status,
+                    outcome: 'completed',
+                })
                 lemonToast.success(`Updated ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
                 actions.clearSelectedTickets()
                 actions.loadTickets()
             } catch {
+                posthog.capture(BULK_STATUS_UPDATED_EVENT, { ticket_count: ids.length, status, outcome: 'failed' })
                 lemonToast.error('Failed to update tickets')
             } finally {
                 actions.setBulkUpdating(false)

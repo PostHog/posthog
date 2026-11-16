@@ -1,4 +1,4 @@
-import { useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import {
@@ -14,7 +14,7 @@ import {
     slaOptions,
     statusMultiselectOptions,
 } from '../../types'
-import type { AssigneeFilterEntry } from '../Assignee/types'
+import { type AssigneeFilterEntry, isSameAssigneeEntry } from '../Assignee/types'
 
 export type AppliedTicketFilter =
     | { key: string; kind: 'status'; value: TicketStatus; label: string }
@@ -113,6 +113,52 @@ export function useAppliedTicketFilters(): AppliedTicketFilter[] {
         tagsMatch,
         tagsExcludeFilter,
     })
+}
+
+/** Drops one applied filter, the way its chip's close button does. */
+export function useRemoveAppliedTicketFilter(): (chip: AppliedTicketFilter) => void {
+    const logic = useMountedLogic(supportTicketsSceneLogic)
+    const { statusFilter, priorityFilter, aiTriageResultFilter, assigneeFilterEntries, tagsFilter, tagsExcludeFilter } =
+        useValues(logic)
+    const {
+        setStatusFilter,
+        setPriorityFilter,
+        setChannelFilter,
+        setSlaFilter,
+        setAiTriageResultFilter,
+        setAssigneeFilter,
+        setTagsFilter,
+        setTagsExcludeFilter,
+    } = useActions(logic)
+
+    return (chip: AppliedTicketFilter): void => {
+        switch (chip.kind) {
+            case 'status':
+                setStatusFilter(statusFilter.filter((status) => status !== chip.value))
+                break
+            case 'priority':
+                setPriorityFilter(priorityFilter.filter((priority) => priority !== chip.value))
+                break
+            case 'channel':
+                setChannelFilter('all')
+                break
+            case 'sla':
+                setSlaFilter('all')
+                break
+            case 'ai':
+                setAiTriageResultFilter(aiTriageResultFilter.filter((result) => result !== chip.value))
+                break
+            case 'tag':
+                setTagsFilter(tagsFilter.filter((tag) => tag !== chip.value))
+                break
+            case 'tag-exclude':
+                setTagsExcludeFilter(tagsExcludeFilter.filter((tag) => tag !== chip.value))
+                break
+            case 'assignee':
+                setAssigneeFilter(assigneeFilterEntries.filter((entry) => !isSameAssigneeEntry(entry, chip.entry)))
+                break
+        }
+    }
 }
 
 function assigneeChipKey(entry: AssigneeFilterEntry): string {

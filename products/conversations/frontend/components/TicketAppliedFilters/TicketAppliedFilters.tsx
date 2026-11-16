@@ -1,60 +1,15 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
-
 import { LemonSnack } from '@posthog/lemon-ui'
 
-import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee/AssigneeDisplay'
-import { type AssigneeFilterEntry, isSameAssigneeEntry, toTicketAssignee } from '../Assignee/types'
-import { type AppliedTicketFilter, useAppliedTicketFilters } from './appliedTicketFilters'
+import { type AssigneeFilterEntry, toTicketAssignee } from '../Assignee/types'
+import { useAppliedTicketFilters, useRemoveAppliedTicketFilter } from './appliedTicketFilters'
 
 export function TicketAppliedFilters(): JSX.Element | null {
-    const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { statusFilter, priorityFilter, aiTriageResultFilter, assigneeFilterEntries, tagsFilter, tagsExcludeFilter } =
-        useValues(logic)
-    const {
-        setStatusFilter,
-        setPriorityFilter,
-        setChannelFilter,
-        setSlaFilter,
-        setAiTriageResultFilter,
-        setAssigneeFilter,
-        setTagsFilter,
-        setTagsExcludeFilter,
-    } = useActions(logic)
-
+    const removeAppliedFilter = useRemoveAppliedTicketFilter()
     const chips = useAppliedTicketFilters()
 
     if (chips.length === 0) {
         return null
-    }
-
-    const onRemove = (chip: AppliedTicketFilter): void => {
-        switch (chip.kind) {
-            case 'status':
-                setStatusFilter(statusFilter.filter((status) => status !== chip.value))
-                break
-            case 'priority':
-                setPriorityFilter(priorityFilter.filter((priority) => priority !== chip.value))
-                break
-            case 'channel':
-                setChannelFilter('all')
-                break
-            case 'sla':
-                setSlaFilter('all')
-                break
-            case 'ai':
-                setAiTriageResultFilter(aiTriageResultFilter.filter((result) => result !== chip.value))
-                break
-            case 'tag':
-                setTagsFilter(tagsFilter.filter((tag) => tag !== chip.value))
-                break
-            case 'tag-exclude':
-                setTagsExcludeFilter(tagsExcludeFilter.filter((tag) => tag !== chip.value))
-                break
-            case 'assignee':
-                setAssigneeFilter(assigneeFilterEntries.filter((entry) => !isSameAssigneeEntry(entry, chip.entry)))
-                break
-        }
     }
 
     return (
@@ -62,7 +17,7 @@ export function TicketAppliedFilters(): JSX.Element | null {
             {chips.map((chip) => (
                 <LemonSnack
                     key={chip.key}
-                    onClose={() => onRemove(chip)}
+                    onClose={() => removeAppliedFilter(chip)}
                     data-attr="ticket-applied-filter"
                     title={chip.kind === 'assignee' ? undefined : chip.label}
                 >
