@@ -989,6 +989,7 @@ def _fetch_contacts(client: SendGridClient, context: ImportContext) -> Iterator[
                 rows=everyone,
             ),
             contact_lists,
+            contacts.other_spellings,
         ),
     )
 
