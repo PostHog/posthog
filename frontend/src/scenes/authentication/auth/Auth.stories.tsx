@@ -133,8 +133,7 @@ export default meta
 const ERROR_DETAILS: Record<string, string> = {
     invalid_credentials: 'Invalid email or password.',
     login_code_email_undeliverable: "We can't send email to this address, so we can't send you a login code.",
-    login_code_send_limit_reached:
-        "We've sent too many login codes to this account. Try again in an hour. If you didn't ask for these codes, someone else may know your password.",
+    login_code_send_limit_reached: "We've sent too many login codes to this account. Try again in 42 minutes.",
 }
 
 const Template: StoryFn<StoryArgs> = ({

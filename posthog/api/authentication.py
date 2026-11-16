@@ -273,11 +273,16 @@ class LoginCodeEmailUndeliverable(APIException):
 
 class LoginCodeSendLimitReached(APIException):
     status_code = 429
-    default_detail = (
-        "We've sent too many login codes to this account. Try again in an hour. "
-        "If you didn't ask for these codes, someone else may know your password."
-    )
+    default_detail = "We've sent too many login codes to this account. Try again later."
     default_code = "login_code_send_limit_reached"
+
+    def __init__(self, retry_after_seconds: int):
+        minutes = max(1, math.ceil(retry_after_seconds / 60))
+        wait = "1 hour" if minutes >= 60 else f"{minutes} minute{'' if minutes == 1 else 's'}"
+        super().__init__(
+            detail=f"We've sent too many login codes to this account. Try again in {wait}.",
+            code=self.default_code,
+        )
 
 
 def _send_login_code(request: HttpRequest, user: User, *, is_resend: bool = False) -> bool:
@@ -285,8 +290,8 @@ def _send_login_code(request: HttpRequest, user: User, *, is_resend: bool = Fals
         return code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=is_resend)
     except EmailRecipientUndeliverableError:
         raise LoginCodeEmailUndeliverable()
-    except CodeBasedVerificationSendLimitReached:
-        raise LoginCodeSendLimitReached()
+    except CodeBasedVerificationSendLimitReached as e:
+        raise LoginCodeSendLimitReached(e.retry_after_seconds)
 
 
 class EmailVerificationPending(APIException):
@@ -318,6 +323,10 @@ def is_email_verified_for_login(user: User) -> bool:
     if is_email_verification_disabled(user):
         return True
 
+    try:
+        code_based_verifier.reserve_login_email(user)
+    except CodeBasedVerificationSendLimitReached as e:
+        raise LoginCodeSendLimitReached(e.retry_after_seconds)
     email_verification_code_verifier.send_code(user)
     if user.is_email_verified is False:
         return False

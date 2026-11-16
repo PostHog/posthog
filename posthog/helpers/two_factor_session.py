@@ -268,14 +268,16 @@ CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
 
 # A correct password is all it takes to send a login code, and the failed-login lockout never counts a
 # correct password. So someone else who knows the password could flood the owner's inbox with codes.
-# Cap the emails per account. Each attempt restarts the window, so the cap lifts after an hour with no attempts.
+# Cap the emails per account. The window starts at the first email, and refused attempts do not extend it.
 CODE_MAX_SENDS = 5
 CODE_SENDS_WINDOW_SECONDS = 3600
 CODE_SENDS_REDIS_KEY_PREFIX = "code_based_verification_sends"
 
 
 class CodeBasedVerificationSendLimitReached(Exception):
-    pass
+    def __init__(self, retry_after_seconds: int):
+        super().__init__(f"Login code send limit reached, retry after {retry_after_seconds} seconds")
+        self.retry_after_seconds = retry_after_seconds
 
 
 class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
@@ -386,11 +388,7 @@ class CodeBasedVerifier:
         if not self.should_send_code_based_verification(user):
             return False
 
-        if self._reserve_send(user) > CODE_MAX_SENDS:
-            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_limited").inc()
-            mfa_logger.info("Code-based verification email not sent: send limit reached", user_id=user.pk)
-            self._capture_send_limit_reached_event(user)
-            raise CodeBasedVerificationSendLimitReached()
+        self.reserve_login_email(user)
 
         try:
             issued_at = int(time.time())
@@ -432,20 +430,37 @@ class CodeBasedVerifier:
         password_digest = salted_hmac(CODE_SENDS_REDIS_KEY_PREFIX, user.password).hexdigest()[:16]
         return f"{CODE_SENDS_REDIS_KEY_PREFIX}:{user.pk}:{password_digest}"
 
-    def _reserve_send(self, user: User) -> int:
-        """Count this email against the account's send budget and return the running total.
+    def reserve_login_email(self, user: User) -> None:
+        """Count one login email against the account's budget. Call it before every email that a login sends.
 
-        Fails open on a Redis error (returns 0), so a Redis outage does not block every password login.
+        Raises CodeBasedVerificationSendLimitReached when the account is over CODE_MAX_SENDS in the window.
+        """
+        sends, retry_after_seconds = self._reserve_send(user)
+        if sends > CODE_MAX_SENDS:
+            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_limited").inc()
+            mfa_logger.info("Login email not sent: send limit reached", user_id=user.pk)
+            self._capture_send_limit_reached_event(user)
+            raise CodeBasedVerificationSendLimitReached(retry_after_seconds)
+
+    def _reserve_send(self, user: User) -> tuple[int, int]:
+        """Count this email against the account's send budget.
+
+        Returns the running total and the seconds until the window ends. Fails open when Redis is unavailable
+        (returns a total of 0). Failing closed would block every password login without TOTP or passkey 2FA,
+        and the code check itself does not need Redis.
         """
         key = self._sends_redis_key(user)
         try:
-            client = get_client()
-            count = int(client.incr(key))
-            client.expire(key, CODE_SENDS_WINDOW_SECONDS)
-            return count
+            # One MULTI/EXEC block, so the key cannot expire between the SET and the INCR and stay without a TTL.
+            pipeline = get_client().pipeline(transaction=True)
+            pipeline.set(key, 0, ex=CODE_SENDS_WINDOW_SECONDS, nx=True)
+            pipeline.incr(key)
+            pipeline.ttl(key)
+            _, count, ttl = pipeline.execute()
+            return int(count), int(ttl) if int(ttl) > 0 else CODE_SENDS_WINDOW_SECONDS
         except Exception:
             mfa_logger.exception("Failed to reserve code-based verification send; allowing", user_id=user.pk)
-            return 0
+            return 0, 0
 
     def _capture_send_limit_reached_event(self, user: User) -> None:
         try:
