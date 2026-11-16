@@ -154,6 +154,7 @@ type Process struct {
 	metricsEnabled atomic.Bool
 
 	restartCount int // consecutive rapid autorestarts since the last healthy run
+	startGen     int // incremented by every start, so a spawn can tell that a newer start replaced it
 }
 
 // SetLogDir enables per-process log file teeing. When non-empty, Start opens
@@ -305,7 +306,7 @@ func (p *Process) drainScrollbackLocked() {
 	for i := range sb.Len() {
 		p.history = append(p.history, trimRowPadding(sb.Line(i).Render()))
 	}
-	sb.Clear()
+	p.emulator.ClearScrollback()
 	if p.maxLines > 0 && len(p.history) > p.maxLines {
 		p.history = p.history[len(p.history)-p.maxLines:]
 	}
@@ -364,12 +365,15 @@ func Snapshots(procs []*Process) []Snapshot {
 	snaps := make([]Snapshot, len(procs))
 	for i, p := range procs {
 		p.sampleMetrics(tree)
-		snaps[i] = p.snapshot()
+		snaps[i] = p.LastSnapshot()
 	}
 	return snaps
 }
 
-func (p *Process) snapshot() Snapshot {
+// LastSnapshot returns a view of the process with the metrics the background
+// sampler stored last. It never reads the host process table, so the TUI can
+// call it on its update loop.
+func (p *Process) LastSnapshot() Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -504,6 +508,8 @@ func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 	if !isAutoRestart {
 		p.restartCount = 0
 	}
+	p.startGen++
+	gen := p.startGen
 	p.status = StatusPending
 	// Preserve the current emulator dimensions (set by Resize) so the
 	// child process sees the correct terminal size from the start.
@@ -549,8 +555,8 @@ func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 		// started twice, so the pipe fallback needs a fresh command.
 		pipeCmd := p.buildCmd()
 		pipeCmd.Env = cmd.Env
-		if pipeErr := p.startWithPipe(pipeCmd, send); pipeErr != nil {
-			p.failStart(pipeErr, send)
+		if pipeErr := p.startWithPipe(pipeCmd, send, gen); pipeErr != nil {
+			p.failStart(pipeErr, send, gen)
 			return pipeErr
 		}
 		return nil
@@ -564,6 +570,11 @@ func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 	waitDone := make(chan struct{})
 
 	p.mu.Lock()
+	if p.startGen != gen {
+		p.mu.Unlock()
+		abandonChild(cmd, ptmx)
+		return nil
+	}
 	p.cmd = cmd
 	p.ptmx = ptmx
 	p.waitDone = waitDone
@@ -628,7 +639,7 @@ func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 
 // startWithPipe is the fallback when PTY allocation fails. It uses a combined
 // stdout/stderr pipe instead.
-func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
+func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg), gen int) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdinR, stdinW, err := os.Pipe()
@@ -661,6 +672,11 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	waitDone := make(chan struct{})
 
 	p.mu.Lock()
+	if p.startGen != gen {
+		p.mu.Unlock()
+		abandonChild(cmd, stdinW, stdoutR)
+		return nil
+	}
 	p.cmd = cmd
 	p.ptmx = nil
 	p.stdinPipe = stdinW
@@ -716,8 +732,12 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 // failStart writes the spawn error into the output, because the TUI and IPC
 // callers run Start in a goroutine and drop its error.
-func (p *Process) failStart(err error, send func(tea.Msg)) {
+func (p *Process) failStart(err error, send func(tea.Msg), gen int) {
 	p.mu.Lock()
+	if p.startGen != gen {
+		p.mu.Unlock()
+		return
+	}
 	if p.status == StatusPending {
 		p.status = StatusCrashed
 	}
@@ -729,6 +749,17 @@ func (p *Process) failStart(err error, send func(tea.Msg)) {
 	p.mu.Unlock()
 	p.writeNotice(fmt.Sprintf("[phrocs] could not start %s: %v\r\n", p.Name, err), send)
 	send(StatusMsg{Name: p.Name, Status: finalStatus})
+}
+
+// abandonChild kills a child whose start was replaced by a newer one while it
+// spawned. A Stop followed by a quick Start can run during pty.Start, and
+// without this the older child would run on outside of p.cmd.
+func abandonChild(cmd *exec.Cmd, files ...*os.File) {
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	for _, f := range files {
+		_ = f.Close()
+	}
+	go func() { _ = cmd.Wait() }()
 }
 
 // handleExit updates process status after cmd.Wait returns and triggers

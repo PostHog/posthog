@@ -564,11 +564,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			m.dbg("stop: proc=%s", p.Name)
 			// Stop waits up to the grace period for the process to exit, which
 			// would freeze the TUI if it ran in Update.
-			send := m.mgr.Send()
-			go func() {
-				p.Stop()
-				send(process.StatusMsg{Name: p.Name, Status: process.StatusStopped})
-			}()
+			go p.Stop()
 		}
 
 	case key.Matches(msg, m.keys.ClearLogs):
