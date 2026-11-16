@@ -17,6 +17,7 @@ from django.conf import settings
 import pyarrow as pa
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
+from clickhouse_connect.driver.httpclient import HttpClient
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -542,6 +543,24 @@ class TestGetClientTransientRetry:
             with pytest.raises(ClickHouseConnectionError, match="did not return a valid ClickHouse response"):
                 self._connect()
         assert mock_get_client.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("single_integer_line", b"200\n"),
+            ("empty_body", b""),
+            ("html_page", b"<html><body>It works</body></html>\n"),
+            ("too_many_columns", b"a\tb\tc\n"),
+        ]
+    )
+    def test_wraps_non_clickhouse_probe_body(self, _name, body):
+        response = MagicMock(data=body, headers={})
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(HttpClient, "_raw_request", return_value=response),
+        ):
+            with pytest.raises(ClickHouseConnectionError, match="did not return a valid ClickHouse response"):
+                self._connect()
         mock_sleep.assert_not_called()
 
 
