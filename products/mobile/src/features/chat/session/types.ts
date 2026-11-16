@@ -42,6 +42,7 @@ export interface SessionAttachment {
 }
 
 export interface SessionUserItem {
+    timestamp?: string
     kind: 'user'
     id: string
     text: string
@@ -49,6 +50,7 @@ export interface SessionUserItem {
 }
 
 export interface SessionAssistantItem {
+    timestamp?: string
     traceId?: string
     projectUrl?: string
     kind: 'assistant'

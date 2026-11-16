@@ -387,7 +387,7 @@ export const getAlertsSimulateCreateUrl = (projectId: string) => {
 }
 
 /**
- * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
+ * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI and forecast detectors make real model calls, so those modes need the 'alert:write' scope. The forecast detector scores every point with a one-step forecast from the points before it.
  */
 export const alertsSimulateCreate = async (
     projectId: string,

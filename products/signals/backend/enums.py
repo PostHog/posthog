@@ -24,6 +24,7 @@ class ReportTaskActionKind(LabeledStrEnum):
     # A report action that starts an agent run from the API. See `report_task_actions.py`.
     GET_IT_MERGED = "get_it_merged", "Get it merged"
     MAKE_IT_GREEN = "make_it_green", "Make it green"
+    RESOLVE_CONFLICTS = "resolve_conflicts", "Resolve conflicts"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
     ASK = "ask", "Ask"
 
@@ -248,6 +249,18 @@ class SignalSourceProduct(StrEnum):
     AMAZON_CLOUDWATCH = "amazon_cloudwatch"
     LOGICMONITOR = "logicmonitor"
     MUX = "mux"
+    # Tier-2 code, secret and cloud security scanners
+    SONARCLOUD = "sonarcloud"
+    CHECKMARX = "checkmarx"
+    VERACODE = "veracode"
+    VERACODE_SCA = "veracode_sca"
+    SEMGREP_SCA = "semgrep_sca"
+    GITGUARDIAN = "gitguardian"
+    INFISICAL = "infisical"
+    AWS_MACIE = "aws_macie"
+    SENTINELONE = "sentinelone"
+    JFROG_XRAY = "jfrog_xray"
+    DYNATRACE_SECURITY = "dynatrace_security"
 
 
 class SignalSourceType(StrEnum):
@@ -423,6 +436,17 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.AMAZON_CLOUDWATCH: "Amazon CloudWatch",
     SignalSourceProduct.LOGICMONITOR: "LogicMonitor",
     SignalSourceProduct.MUX: "Mux",
+    SignalSourceProduct.SONARCLOUD: "SonarCloud",
+    SignalSourceProduct.CHECKMARX: "Checkmarx",
+    SignalSourceProduct.VERACODE: "Veracode",
+    SignalSourceProduct.VERACODE_SCA: "Veracode SCA",
+    SignalSourceProduct.SEMGREP_SCA: "Semgrep Supply Chain",
+    SignalSourceProduct.GITGUARDIAN: "GitGuardian",
+    SignalSourceProduct.INFISICAL: "Infisical",
+    SignalSourceProduct.AWS_MACIE: "AWS Macie",
+    SignalSourceProduct.SENTINELONE: "SentinelOne",
+    SignalSourceProduct.JFROG_XRAY: "JFrog Xray",
+    SignalSourceProduct.DYNATRACE_SECURITY: "Dynatrace Application Security",
 }
 
 

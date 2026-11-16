@@ -53,7 +53,7 @@ export interface ReleaseFlagAudience {
 
 export type ReleaseEventKind = 'release' | 'flag' | 'experiment' | 'early_access' | 'schedule' | 'broadcast' | 'survey'
 
-export const CALENDAR_DAYS_BEFORE = 17
+export const CALENDAR_DAYS_BEFORE = 60
 export const CALENDAR_DAYS_AFTER = 60
 
 export interface ReleaseEvent {
@@ -87,6 +87,7 @@ export interface ReleaseSpan {
     to: string
     label?: string
     href: string
+    count?: number
 }
 
 export interface ReleaseRow {
