@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from itertools import product
+from typing import Any
 
 from unittest.mock import ANY, patch
 
@@ -77,13 +78,20 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
             "dmarc": ["verified"],
         }
         assert not self.is_verified(sender)
+        self.world.dns.publish_txt(ROOT_DOMAIN, "v=spf1 include:sendgrid.net ~all")
+        self.world.dns.publish_txt(f"resend._domainkey.{ROOT_DOMAIN}", "p=MIGfMA0GCSqGSIb3DQEB")
 
         assert self.verify(sender).status_code == status.HTTP_200_OK
         assert self.status_body(sender)["verified"] is True
         assert self.is_verified(sender) and self.is_verified(sibling)
         assert TeamWorkflowsConfig.objects.get(team_id=self.team.id).default_email_integration_id == sender
         assert self.verified_events() == [
-            ((ANY, "email domain verified", {"method": "agent", "seconds_since_created": ANY}), {"team": ANY})
+            {
+                "method": "agent",
+                "seconds_since_created": ANY,
+                "previous_email_providers": ["SendGrid", "Resend"],
+                "$set_once": {"email": self.user.email},
+            }
         ]
         self.reload_workers.assert_called_once_with(self.team.id, sorted([sender, sibling]))
         assert self.world.ses.writes.count("verify_domain_identity") == 3
@@ -148,6 +156,23 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
             report = EmailIntegration(Integration.objects.get(id=sender)).status(refresh=False)
 
         assert (report.check.status, report.verified) == ("verified", False)
+
+    @parameterized.expand([("cache_outage",), ("unanswered_spf_lookup",)])
+    def test_a_failed_previous_provider_lookup_still_verifies_and_reports_unknown_providers(self, fault: str) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        self.world.dns.publish_txt(ROOT_DOMAIN, "v=spf1 include:sendgrid.net ~all")
+
+        with patch("products.workflows.backend.services.existing_email_tools.cache") as tools_cache:
+            tools_cache.get.return_value = None
+            if fault == "cache_outage":
+                tools_cache.get.side_effect = ConnectionError("Redis is down")
+            else:
+                self.world.faults.inject(dns_operation(ROOT_DOMAIN, "TXT"), DnsFault.TIMEOUT)
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+
+        assert self.is_verified(sender)
+        assert [event["previous_email_providers"] for event in self.verified_events()] == [None]
 
     def test_a_browser_session_poll_reports_but_only_email_verify_records_the_verification(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
@@ -637,6 +662,19 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         assert "10.0.0.53" not in self.world.dns.queried_addresses
 
 
+def _add_sender(test: "TestEmailDomainStatusChaos", email: str) -> Any:
+    return test.client.post(
+        f"/api/projects/{test.team.id}/integrations",
+        {"kind": "email", "config": {"email": email, "name": "Other", "provider": "ses"}},
+        format="json",
+    )
+
+
+def _verify_after_mail_from_expired(test: "TestEmailDomainStatusChaos") -> Any:
+    test.world.ses.identities[DOMAIN].mail_from_setup_expired = True
+    return test.verify(test.sender)
+
+
 class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -665,6 +703,42 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
 
         self.world.faults.clear()
         assert self.status_body(self.sender, refresh=False)["status"] == "verified"
+
+    @parameterized.expand(
+        [
+            ("verify_identity", "ses.verify_domain_identity", lambda test: test.verify(test.sender)),
+            ("verify_dkim", "ses.verify_domain_dkim", lambda test: test.verify(test.sender)),
+            ("verify_restarts_mail_from", "ses.set_identity_mail_from_domain", _verify_after_mail_from_expired),
+            ("add_sender", "ses.verify_domain_identity", lambda test: _add_sender(test, f"other@{DOMAIN}")),
+            (
+                "add_sender_on_new_domain",
+                "ses.set_identity_mail_from_domain",
+                lambda test: _add_sender(test, f"hello@send.{ROOT_DOMAIN}"),
+            ),
+            (
+                "change_mail_from",
+                "ses.set_identity_mail_from_domain",
+                lambda test: test.client.patch(
+                    f"/api/projects/{test.team.id}/integrations/{test.sender}/email",
+                    {"config": {**Integration.objects.get(id=test.sender).config, "mail_from_subdomain": "bounce"}},
+                    format="json",
+                ),
+            ),
+        ]
+    )
+    def test_ses_denying_domain_setup_answers_400_with_a_next_step(
+        self, _name: str, operation: str, send: Callable[["TestEmailDomainStatusChaos"], Any]
+    ) -> None:
+        senders_before = list(Integration.objects.filter(kind="email").values("id", "config"))
+        self.world.faults.inject(operation, AwsFault.ACCESS_DENIED)
+
+        response = send(self)
+
+        assert (response.status_code, response.json()["detail"]) == (
+            status.HTTP_400_BAD_REQUEST,
+            "Our email provider refused to set up this domain. Contact support for help.",
+        )
+        assert list(Integration.objects.filter(kind="email").values("id", "config")) == senders_before
 
     @parameterized.expand(
         product(

@@ -1311,6 +1311,7 @@ class ClickHousePrinter(BasePrinter):
             )
             and self.context.team_id is not None
         ):
+            pushdown_in_values = table.postgres_pushdown_in_values(self.context)
             # The HogQL `team_id` field may map to a differently named DB column (e.g.
             # system.teams exposes it as an alias of `id`), so filter the real column, not
             # the HogQL name. Skip the wrap when the field isn't a plain column.
@@ -1321,6 +1322,11 @@ class ClickHousePrinter(BasePrinter):
                     column_name = getattr(table.fields[field_name], "name", None)
                     if column_name:
                         conditions.append(f"{column_name} = {self.context.add_value(value)}")
+                for field_name, values in pushdown_in_values.items():
+                    column_name = getattr(table.fields[field_name], "name", None)
+                    if column_name:
+                        # `IN ()` is not valid SQL, and an empty set keeps no rows.
+                        conditions.append(f"{column_name} IN {self.context.add_value(values)}" if values else "1 = 0")
                 retention_start = self._postgres_retention_start(table)
                 if retention_start is not None:
                     conditions.append(f"{table.retention_field} >= {self.context.add_value(retention_start)}")

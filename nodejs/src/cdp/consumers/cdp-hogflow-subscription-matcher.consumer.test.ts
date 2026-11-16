@@ -1778,65 +1778,140 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })
 
         beforeEach(() => {
-            ;(matcher as any).teamsWithLiveWatchers = new Set([1])
+            // A watcher of a flow the cache does not hold, so every event of team 1 is looked up.
+            ;(matcher as any).liveWatcherFlowsByTeam = new Map([[1, new Map([['flow-1', 0]])]])
         })
 
-        const goalFlow = (teamId: number): HogFlow =>
+        const flowEditedAt = Date.parse('2026-11-01T00:00:00Z')
+        const hours = (n: number): number => n * 60 * 60 * 1000
+
+        const goalFlow = (teamId: number, conversion?: any): HogFlow =>
             makeHogFlow({
                 id: `goal-flow-${teamId}`,
                 team_id: teamId,
                 waitUntil: false,
-                conversion: { events: [{ filters: { bytecode: eventBytecode('wuc_cancelled'), events: [] } }] } as any,
+                updated_at: flowEditedAt,
+                conversion: conversion ?? {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: eventBytecode('wuc_cancelled'),
+                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
+                            },
+                        },
+                    ],
+                },
             })
 
         it.each([
             {
                 // A run of a goal flow enrolled after the last refresh has a watcher the set does not know of yet.
                 name: 'a goal-flow team the last refresh has not seen',
-                liveWatcherTeams: [],
+                liveWatchers: [],
                 flows: [goalFlow(1)],
                 expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
             },
             {
                 name: 'only the teams that can have a watcher',
-                liveWatcherTeams: [1],
+                liveWatchers: [[1, 'paused-flow', flowEditedAt]],
                 flows: [makeHogFlow({ id: 'wait-flow-2', team_id: 2 })],
                 expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
             },
             {
                 name: 'nothing when no team can have a watcher',
-                liveWatcherTeams: [],
+                liveWatchers: [],
                 flows: [makeHogFlow({ id: 'wait-flow-1' }), makeHogFlow({ id: 'wait-flow-2', team_id: 2 })],
                 expectedPairs: null,
             },
             {
                 name: 'a team whose flows changed since the last refresh',
-                liveWatcherTeams: [],
+                liveWatchers: [],
                 flows: [],
                 flowsChanged: 'after refresh',
                 expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
             },
             {
-                name: 'nothing for a flow change the last refresh already saw',
-                liveWatcherTeams: [],
+                name: 'an hour after a flow change the last refresh already saw',
+                liveWatchers: [],
                 flows: [],
                 flowsChanged: 'before refresh',
+                expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
+            },
+            {
+                name: 'nothing once that hour has passed',
+                liveWatchers: [],
+                flows: [],
+                flowsChanged: 'over an hour before refresh',
                 expectedPairs: null,
             },
-        ])('looks up watchers for $name', async ({ liveWatcherTeams, flows, flowsChanged, expectedPairs }) => {
-            if (flowsChanged === 'before refresh') {
+            {
+                name: 'nothing for an event no goal names',
+                liveWatchers: [[1, 'goal-flow-1', flowEditedAt + hours(2)]],
+                flows: [goalFlow(1)],
+                eventName: 'wuc_other',
+                expectedPairs: null,
+            },
+            {
+                name: 'any event when a watcher predates the last edit of its flow',
+                liveWatchers: [[1, 'goal-flow-1', flowEditedAt + hours(0.5)]],
+                flows: [goalFlow(1)],
+                eventName: 'wuc_other',
+                expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
+            },
+            {
+                name: 'any event when a watcher belongs to a flow the cache does not hold',
+                liveWatchers: [
+                    [1, 'goal-flow-1', flowEditedAt + hours(2)],
+                    [1, 'paused-flow', flowEditedAt + hours(2)],
+                ],
+                flows: [goalFlow(1)],
+                eventName: 'wuc_other',
+                expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
+            },
+            {
+                name: 'any event for a property goal',
+                liveWatchers: [],
+                flows: [goalFlow(1, { filters: [{ key: 'plan' }], bytecode: ['_H', 1, 29], events: [] })],
+                eventName: 'wuc_other',
+                expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
+            },
+            {
+                name: 'any event for a goal on an action',
+                liveWatchers: [],
+                flows: [
+                    goalFlow(1, {
+                        events: [{ filters: { bytecode: eventBytecode('wuc_cancelled'), actions: [{ id: 7 }] } }],
+                    }),
+                ],
+                eventName: 'wuc_other',
+                expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
+            },
+        ])('looks up watchers for $name', async ({ liveWatchers, flows, flowsChanged, eventName, expectedPairs }) => {
+            if (flowsChanged === 'before refresh' || flowsChanged === 'over an hour before refresh') {
                 matcher.pubSubHandlers['reload-hog-flows']({ teamId: 1, hogFlowIds: ['goal-flow-1'] })
             }
+            const now = jest.spyOn(Date, 'now')
+            if (flowsChanged === 'over an hour before refresh') {
+                now.mockReturnValue(Date.now() + hours(2))
+            }
             await (matcher as any).refreshTeamsWithLiveWatchers()
+            now.mockRestore()
             if (flowsChanged === 'after refresh') {
                 matcher.pubSubHandlers['reload-hog-flows']({ teamId: 1, hogFlowIds: ['goal-flow-1'] })
             }
-            ;(matcher as any).teamsWithLiveWatchers = new Set(liveWatcherTeams)
+            const liveWatcherFlowsByTeam = new Map<number, Map<string, number>>()
+            for (const [teamId, functionId, oldestCreatedAt] of liveWatchers as [number, string, number][]) {
+                liveWatcherFlowsByTeam.set(
+                    teamId,
+                    (liveWatcherFlowsByTeam.get(teamId) ?? new Map()).set(functionId, oldestCreatedAt)
+                )
+            }
+            ;(matcher as any).liveWatcherFlowsByTeam = liveWatcherFlowsByTeam
             matcher.setHogFlows(Object.fromEntries(flows.map((flow) => [flow.id, flow])))
             matcher.calls = []
 
             await matcher.runWake([
-                cancelledEvent(),
+                makeGlobals({ event: { ...makeGlobals({}).event, event: eventName ?? 'wuc_cancelled' } }),
                 makeGlobals({
                     project: { id: 2, name: 'Other', url: '' },
                     event: { ...makeGlobals({}).event, event: 'wuc_cancelled', distinct_id: 'user-2' },

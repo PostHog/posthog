@@ -14,7 +14,7 @@ from rest_framework.request import Request
 from rest_framework.views import APIView
 
 from posthog.scope_docs import SCOPE_GROUPS, get_scope_docs
-from posthog.scopes import PRIVILEGED_SCOPES, RISKY_SCOPE_WARNINGS, APIScopeActions, get_oauth_scopes_supported
+from posthog.scopes import OAUTH_SCOPES_SUPPORTED, PRIVILEGED_SCOPES, RISKY_SCOPE_WARNINGS, APIScopeActions
 
 CACHE_MAX_AGE_SECONDS = 60 * 60
 
@@ -79,7 +79,7 @@ def scope_reference() -> dict:
 
 
 def _build_scope_reference() -> dict:
-    oauth_scopes = frozenset(get_oauth_scopes_supported())
+    oauth_scopes = frozenset(OAUTH_SCOPES_SUPPORTED)
     return {
         "groups": list(SCOPE_GROUPS),
         "objects": [
