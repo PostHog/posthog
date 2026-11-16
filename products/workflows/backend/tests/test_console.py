@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urlencode
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -119,6 +120,32 @@ class TestEmailSendingConsolePanel(BaseTest):
 
         assert re.search(r'<option value="2"\s+selected>', content)
         assert re.search(r'name="pinned"[^>]*\bchecked\b', content)
+
+    @parameterized.expand(
+        [
+            ("pin", False, "1", True),
+            ("unpin", True, "0", False),
+            ("unpin_spelled_out", True, "false", False),
+        ]
+    )
+    def test_set_tier_form_takes_the_tier_pin_and_reason_from_a_link(
+        self, _name: str, pinned_now: bool, pinned_param: str, expect_checked: bool
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": pinned_now}
+        )
+        query = urlencode({"tier": "2", "pinned": pinned_param, "reason": "Ticket 81291: tier 1 to 2"})
+
+        content = self.client.get(f"{self._operation_url('set-tier')}?{query}").content.decode()
+
+        assert re.search(r'<option value="2"\s+selected>', content)
+        assert bool(re.search(r'name="pinned"[^>]*\bchecked\b', content)) is expect_checked
+        assert ">Ticket 81291: tier 1 to 2</textarea>" in content
+
+    def test_a_link_cannot_fill_the_reason_of_an_operation_that_does_not_allow_it(self) -> None:
+        content = self.client.get(f"{self._operation_url('suspend')}?reason=Spoofed+reason").content.decode()
+
+        assert "Spoofed reason" not in content
 
     def test_set_tier_refuses_a_tier_outside_the_table(self) -> None:
         response = self.client.post(self._operation_url("set-tier"), {"tier": "99", "reason": "Raise"})

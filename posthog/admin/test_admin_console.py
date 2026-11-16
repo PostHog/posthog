@@ -383,6 +383,17 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "undo_hint",
             ),
             (
+                "operation_fills_a_field_its_form_lacks_from_a_link",
+                lambda: Operation(
+                    key="note",
+                    label="Note",
+                    handler=lambda request, obj, form: None,
+                    form_class=ReasonForm,
+                    query_fields=frozenset({"reason", "note"}),
+                ),
+                "does not have",
+            ),
+            (
                 "danger_tool_operation_without_reason",
                 lambda: ToolOperation(
                     key="wipe",
