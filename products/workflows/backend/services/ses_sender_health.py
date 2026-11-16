@@ -94,7 +94,7 @@ def _one_sender_per_project_domain(
 def _queue_sending_stopped_email(team_id: int, domain: str) -> bool:
     try:
         send_email_sender_domain_sending_stopped.delay(
-            team_id=team_id, domain=domain, stopped_at=timezone.now().isoformat()
+            team_id=team_id, domain=domain, stopped_on=timezone.now().date().isoformat()
         )
     except Exception as error:
         logger.exception("ses_sending_stopped_email_dispatch_failed", team_id=team_id, domain=domain)

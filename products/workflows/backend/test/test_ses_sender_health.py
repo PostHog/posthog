@@ -131,14 +131,26 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         assert DOMAIN in notification.body
         assert notification.source_url == f"/project/{self.team.id}/workflows/channels"
 
-    def test_retries_the_notice_on_the_next_check_when_the_email_cannot_be_queued(self) -> None:
+    @parameterized.expand(
+        [
+            ("the_broker_refuses_it", False),
+            ("the_broker_takes_it_but_the_publish_still_fails", True),
+        ]
+    )
+    def test_tells_the_admins_once_when_queueing_the_email_fails(self, _name: str, broker_took_it: bool) -> None:
         self.deliver_notices()
         sender = self.verified_sender(f"hello@{DOMAIN}")
         self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
         mail.outbox.clear()
-        with patch.object(send_email_sender_domain_sending_stopped, "delay", side_effect=ConnectionError):
+        queue_email = send_email_sender_domain_sending_stopped.delay
+
+        def failing_publish(*args: Any, **kwargs: Any) -> None:
+            if broker_took_it:
+                queue_email(*args, **kwargs)
+            raise ConnectionError
+
+        with patch.object(send_email_sender_domain_sending_stopped, "delay", side_effect=failing_publish):
             check_ses_sender_health()
-        assert mail.outbox == []
         assert stored_notifications_for_team(self.team.id) == []
 
         check_ses_sender_health()
