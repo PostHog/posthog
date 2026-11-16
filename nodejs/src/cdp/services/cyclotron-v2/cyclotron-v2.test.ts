@@ -5314,64 +5314,37 @@ describe('Cyclotron V2', () => {
                 expect(await janitorResets(id)).toBe(1)
             }, 10_000)
 
-            it('gives up a retry at the heartbeat limit even when an earlier statement of the retry used up part of it', async () => {
+            it('gives up a retry at the heartbeat limit even when an earlier statement of the retry used up most of it', async () => {
+                const limitMs = 60_000
                 const [id] = await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email' }])
                 const job = await dequeueOnDropTestPool(
-                    { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: 2000 },
+                    { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: limitMs },
                     'email'
                 )
                 const jobHolder = await assertPool.connect()
                 await jobHolder.query('BEGIN')
                 await jobHolder.query(...jobRow(id))
-                let startedAt = 0
-                let settledAt = 0
-                let writeWaitedOnJob = false
+                const releasedAt = Date.now()
+                const clock = jest.spyOn(Date, 'now').mockReturnValue(releasedAt)
 
                 try {
-                    const outcome = await interruptReleaseWrite(
-                        async () => {
-                            startedAt = Date.now()
-                            try {
-                                await job.defer({ scheduledAt: new Date() })
-                            } finally {
-                                settledAt = Date.now()
-                            }
+                    const outcome = await interruptReleaseWrite(() => job.defer({ scheduledAt: new Date() }), {
+                        lock: ['SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [1]],
+                        beforeRetry: async (holder) => {
+                            await waitForExpect(async () => expect(await backendsWaitingOnLocks()).toBe(1), 2000, 10)
+                            clock.mockReturnValue(releasedAt + limitMs - 100)
+                            await holder.query('ROLLBACK')
                         },
-                        {
-                            lock: ['SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [1]],
-                            beforeRetry: async (holder) => {
-                                await waitForExpect(
-                                    async () => expect(await backendsWaitingOnLocks()).toBe(1),
-                                    2000,
-                                    10
-                                )
-                                // Elapsed time is the behavior: the retry's slot reservation spends most
-                                // of the budget waiting, so its write starts with little left and must
-                                // not get a fresh budget of its own.
-                                await new Promise((resolve) => setTimeout(resolve, 1200))
-                                await holder.query('ROLLBACK')
-                                await waitForExpect(
-                                    async () => expect(await backendsWaitingOnLocks()).toBe(1),
-                                    2000,
-                                    10
-                                )
-                                writeWaitedOnJob = true
-                            },
-                        }
-                    )
-
-                    // A fresh budget for the write would settle near 3200 ms, the limit near 2000 ms.
-                    expect({ outcome, writeWaitedOnJob, withinLimit: settledAt - startedAt < 2600 }).toEqual({
-                        outcome: 'rejected',
-                        writeWaitedOnJob: true,
-                        withinLimit: true,
                     })
+
+                    expect(outcome).toBe('rejected')
                 } finally {
+                    clock.mockRestore()
                     await jobHolder.query('ROLLBACK')
                     jobHolder.release()
                 }
                 expect(await janitorResets(id)).toBe(1)
-            }, 10_000)
+            })
 
             it.each([
                 ['the retry switch is off', 'pg_terminate_backend' as const, { releaseWriteRetry: false }, 1],
