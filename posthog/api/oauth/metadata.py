@@ -10,7 +10,8 @@ from posthog.api import id_jag
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
-from posthog.scopes import AUTHORIZATION_SERVER_SCOPES_SUPPORTED, OAUTH_SCOPES_SUPPORTED, get_scope_descriptions
+from posthog.scopes.exposure import get_scope_descriptions
+from posthog.scopes.oauth import AUTHORIZATION_SERVER_SCOPES_SUPPORTED, OAUTH_SCOPES_SUPPORTED
 from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 
 type Document = dict[str, object]
