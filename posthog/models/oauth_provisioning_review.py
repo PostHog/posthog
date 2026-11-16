@@ -21,11 +21,9 @@ class ProvisioningReviewStatus(models.TextChoices):
 
 
 class ProvisioningReviewStage(models.TextChoices):
-    # Another client on the same registrable domain was already accepted.
-    DOMAIN_ALREADY_ACCEPTED = "domain_already_accepted", "Domain already accepted"
-    # Jev judged the client from its registration alone.
-    SCREEN = "screen", "Screen"
-    # Jev judged the client again with the homepage and web search results.
+    # Jev could not settle it, but another client on the same host was already accepted.
+    HOST_ALREADY_ACCEPTED = "host_already_accepted", "Host already accepted"
+    # Jev judged the client with its homepage and web search results.
     RESEARCH = "research", "Research"
     # The pipeline failed, so the review went to staff without a verdict.
     PIPELINE_FAILED = "pipeline_failed", "Pipeline failed"
@@ -47,7 +45,6 @@ class CIMDProvisioningReview(UUIDModel):
     # The client metadata document the partner registered with. The app row keeps only some of its
     # fields, and the rest (client_uri, policy links, contacts) is evidence for the review.
     metadata_document = models.JSONField(null=True, blank=True)
-    screen_judgment = models.JSONField(null=True, blank=True)
     research_evidence = models.JSONField(null=True, blank=True)
     research_judgment = models.JSONField(null=True, blank=True)
     # What each workflow step did, in order, for staff to read in the console without Temporal.

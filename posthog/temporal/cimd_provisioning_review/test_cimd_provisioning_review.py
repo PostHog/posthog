@@ -26,9 +26,9 @@ from posthog.models.oauth_provisioning_review import (
     ProvisioningReviewStage,
     ProvisioningReviewStatus,
 )
-from posthog.temporal.cimd_provisioning_review.activities import _research, _screen
+from posthog.temporal.cimd_provisioning_review.activities import _research
 from posthog.temporal.cimd_provisioning_review.judgment import (
-    SCREEN_THRESHOLDS,
+    THRESHOLDS,
     PartnerJudgment,
     PartnerRegistration,
     outcome_for,
@@ -50,18 +50,18 @@ class TestOutcomeFor(SimpleTestCase):
             ("clearly_malicious", 0.1, 0.97, 0.9, ReviewOutcome.REJECT),
             # A lookalike of a real brand reads as both, and must not get in.
             ("legitimate_and_malicious", 0.95, 0.97, 0.9, ReviewOutcome.REJECT),
-            ("legitimate_on_a_shared_host", 0.95, 0.01, 0.2, ReviewOutcome.RESEARCH),
-            ("unsure", 0.6, 0.3, 0.9, ReviewOutcome.RESEARCH),
-            ("legitimate_with_some_doubt", 0.95, 0.2, 0.9, ReviewOutcome.RESEARCH),
-            ("legitimacy_refused", None, 0.01, 0.9, ReviewOutcome.RESEARCH),
-            ("abuse_refused", 0.95, None, 0.9, ReviewOutcome.RESEARCH),
-            ("own_site_refused", 0.95, 0.01, None, ReviewOutcome.RESEARCH),
+            ("legitimate_on_a_shared_host", 0.95, 0.01, 0.2, ReviewOutcome.NEEDS_HUMAN),
+            ("unsure", 0.6, 0.3, 0.9, ReviewOutcome.NEEDS_HUMAN),
+            ("legitimate_with_some_doubt", 0.95, 0.2, 0.9, ReviewOutcome.NEEDS_HUMAN),
+            ("legitimacy_refused", None, 0.01, 0.9, ReviewOutcome.NEEDS_HUMAN),
+            ("abuse_refused", 0.95, None, 0.9, ReviewOutcome.NEEDS_HUMAN),
+            ("own_site_refused", 0.95, 0.01, None, ReviewOutcome.NEEDS_HUMAN),
         ]
     )
     def test_thresholds(self, _name, legitimate, malicious, own_site, expected):
         judgment = PartnerJudgment(model="jev", legitimate=legitimate, malicious=malicious, own_site=own_site)
 
-        assert outcome_for(judgment, SCREEN_THRESHOLDS, unsettled=ReviewOutcome.RESEARCH) == expected
+        assert outcome_for(judgment, THRESHOLDS, unsettled=ReviewOutcome.NEEDS_HUMAN) == expected
 
 
 def _registration(client_uri: str | None) -> PartnerRegistration:
@@ -191,7 +191,7 @@ class TestSettleReview(APIBaseTest):
             application=app, user=self.user, token="pha_review_token", expires=timezone.now() + timedelta(hours=1)
         )
 
-        settled = settle_review(str(app.pk), status=status, stage=ProvisioningReviewStage.SCREEN, reason="test")
+        settled = settle_review(str(app.pk), status=status, stage=ProvisioningReviewStage.RESEARCH, reason="test")
 
         assert settled is True
         app.refresh_from_db()
@@ -252,7 +252,7 @@ class TestReviewStages(APIBaseTest):
             ("posthog_domain", "posthog.com", "app.example.com", False, 0.9, False),
         ]
     )
-    def test_screen_reuses_an_accepted_host(
+    def test_research_reuses_an_accepted_host(
         self, _name, domain, second_host, accepted_disabled, own_site, expected_shortcut
     ):
         accepted = _make_app(client_id="https://app.example.com/client.json", active=True, disabled=accepted_disabled)
@@ -260,33 +260,17 @@ class TestReviewStages(APIBaseTest):
             application=accepted, domain=domain, status=ProvisioningReviewStatus.ACCEPTED
         )
         second = _make_app(client_id=f"https://{second_host}/staging-client.json")
-        CIMDProvisioningReview.objects.create(application=second, domain=domain)
+        CIMDProvisioningReview.objects.create(
+            application=second, domain=domain, research_evidence={"homepage": {"reachable": True}}
+        )
         jev = _FakeSystemOne(legitimate=0.5, malicious=0.02, own_site=own_site)
 
         with self._patch_jev(jev):
-            result = _screen(str(second.pk))
+            result = _research(str(second.pk))
 
-        expected = ReviewOutcome.ACCEPT if expected_shortcut else ReviewOutcome.RESEARCH
+        expected = ReviewOutcome.ACCEPT if expected_shortcut else ReviewOutcome.NEEDS_HUMAN
         assert result.outcome == expected
-        assert (result.stage == ProvisioningReviewStage.DOMAIN_ALREADY_ACCEPTED) is expected_shortcut
-
-    def test_screen_sends_unsure_registrations_to_research_and_keeps_the_judgment(self):
-        app = _make_app()
-        CIMDProvisioningReview.objects.create(application=app, domain="example.com")
-        jev = _FakeSystemOne(legitimate=0.6, malicious=None)
-
-        with self._patch_jev(jev):
-            result = _screen(str(app.pk))
-
-        assert result.outcome == ReviewOutcome.RESEARCH
-        assert jev.states[0]["client"]["domain"] == "example.com"
-        review = CIMDProvisioningReview.objects.get(application=app)
-        assert review.screen_judgment == {
-            "model": "jev-test",
-            "legitimate": 0.6,
-            "malicious": None,
-            "own_site": 0.9,
-        }
+        assert (result.stage == ProvisioningReviewStage.HOST_ALREADY_ACCEPTED) is expected_shortcut
 
     def test_research_retry_judges_the_saved_evidence_without_searching_again(self):
         app = _make_app()
@@ -305,6 +289,14 @@ class TestReviewStages(APIBaseTest):
 
         assert result.outcome == ReviewOutcome.ACCEPT
         assert jev.states[0]["evidence"] == saved
+        assert jev.states[0]["client"]["domain"] == "example.com"
+        review = CIMDProvisioningReview.objects.get(application=app)
+        assert review.research_judgment == {
+            "model": "jev-test",
+            "legitimate": 0.95,
+            "malicious": 0.01,
+            "own_site": 0.9,
+        }
 
     def test_research_without_firecrawl_hands_the_review_to_staff(self):
         app = _make_app()
@@ -326,10 +318,6 @@ class TestReviewStages(APIBaseTest):
 async def test_workflow_hands_the_review_to_staff_when_research_keeps_failing():
     settled: list[SettleReviewInputs] = []
 
-    @activity.defn(name="cimd-provisioning-review-screen")
-    async def screen(inputs: CIMDProvisioningReviewInputs) -> StageResult:
-        return StageResult(outcome=ReviewOutcome.RESEARCH, stage=ProvisioningReviewStage.SCREEN, reason="unsure")
-
     @activity.defn(name="cimd-provisioning-review-research")
     async def research(inputs: CIMDProvisioningReviewInputs) -> StageResult:
         raise ApplicationError("Firecrawl is down", non_retryable=True)
@@ -345,7 +333,7 @@ async def test_workflow_hands_the_review_to_staff_when_research_keeps_failing():
             env.client,
             task_queue=task_queue,
             workflows=[CIMDProvisioningReviewWorkflow],
-            activities=[screen, research, settle],
+            activities=[research, settle],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             outcome = await env.client.execute_workflow(

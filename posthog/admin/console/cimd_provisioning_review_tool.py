@@ -134,8 +134,7 @@ def _log_table(review: CIMDProvisioningReview) -> Table:
 
 def _evidence_text(review: CIMDProvisioningReview) -> str:
     sections = {
-        "Screen judgment": review.screen_judgment,
-        "Research judgment": review.research_judgment,
+        "Jev judgment": review.research_judgment,
         "Research evidence": review.research_evidence,
         "Metadata document": review.metadata_document,
     }

@@ -4,7 +4,7 @@ from temporalio import common, workflow
 from temporalio.exceptions import ActivityError
 
 from posthog.models.oauth_provisioning_review import ProvisioningReviewStage
-from posthog.temporal.cimd_provisioning_review.activities import research_partner, screen_partner, settle_partner_review
+from posthog.temporal.cimd_provisioning_review.activities import research_partner, settle_partner_review
 from posthog.temporal.cimd_provisioning_review.types import (
     CIMDProvisioningReviewInputs,
     ReviewOutcome,
@@ -25,9 +25,9 @@ _SETTLE_RETRY = common.RetryPolicy(initial_interval=timedelta(seconds=5), maximu
 
 @workflow.defn(name="cimd-provisioning-review")
 class CIMDProvisioningReviewWorkflow(PostHogWorkflow):
-    """Screens a self-registered provisioning partner with Jev, researches the web when the screen
-    is not sure, and settles the review. A pipeline failure hands the review to staff, so the
-    partner never stays pending with nothing working on it."""
+    """Researches a self-registered provisioning partner on the web, has Jev judge it with that
+    evidence, and settles the review. A pipeline failure hands the review to staff, so the partner
+    never stays pending with nothing working on it."""
 
     inputs_cls = CIMDProvisioningReviewInputs
 
@@ -35,18 +35,11 @@ class CIMDProvisioningReviewWorkflow(PostHogWorkflow):
     async def run(self, inputs: CIMDProvisioningReviewInputs) -> str:
         try:
             result: StageResult = await workflow.execute_activity(
-                screen_partner,
+                research_partner,
                 inputs,
-                start_to_close_timeout=timedelta(minutes=1),
+                start_to_close_timeout=timedelta(minutes=3),
                 retry_policy=_JUDGING_RETRY,
             )
-            if result.outcome == ReviewOutcome.RESEARCH:
-                result = await workflow.execute_activity(
-                    research_partner,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=3),
-                    retry_policy=_JUDGING_RETRY,
-                )
         except ActivityError as error:
             workflow.logger.warning(
                 "cimd provisioning review pipeline failed",

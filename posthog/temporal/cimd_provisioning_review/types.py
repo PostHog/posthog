@@ -6,8 +6,6 @@ from posthog.dataclasses import frozen
 class ReviewOutcome(StrEnum):
     ACCEPT = "accept"
     REJECT = "reject"
-    # Only the screen returns this: the registration alone did not settle it, so look further.
-    RESEARCH = "research"
     NEEDS_HUMAN = "needs_human"
     # The review was settled before this run reached it, by staff or by an earlier run.
     ALREADY_SETTLED = "already_settled"

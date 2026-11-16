@@ -44,8 +44,7 @@ class Migration(migrations.Migration):
                     models.CharField(
                         blank=True,
                         choices=[
-                            ("domain_already_accepted", "Domain already accepted"),
-                            ("screen", "Screen"),
+                            ("host_already_accepted", "Host already accepted"),
                             ("research", "Research"),
                             ("pipeline_failed", "Pipeline failed"),
                             ("staff", "Staff"),
@@ -56,7 +55,6 @@ class Migration(migrations.Migration):
                 ),
                 ("reason", models.TextField(blank=True, default="")),
                 ("metadata_document", models.JSONField(blank=True, null=True)),
-                ("screen_judgment", models.JSONField(blank=True, null=True)),
                 ("research_evidence", models.JSONField(blank=True, null=True)),
                 ("research_judgment", models.JSONField(blank=True, null=True)),
                 ("run_log", models.JSONField(blank=True, default=list)),

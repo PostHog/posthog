@@ -1,9 +1,9 @@
-"""Jev's two looks at a self-registered provisioning partner, and the thresholds that turn them into a verdict.
+"""Jev's judgment of a self-registered provisioning partner, and the thresholds that turn it into a verdict.
 
-The screen sees only what the client registered with, so it is cheap and settles the clear cases.
-Whatever it cannot settle goes to research, where Jev judges again with the homepage and web
-search results in ``state.evidence``. Every value here is public: the client publishes its
-metadata document, and the evidence comes from the open web.
+Jev judges the registration together with the homepage and web search results in
+``state.evidence``. Judging the registration alone settled almost nothing, because Jev cannot
+tell a real product from an invented one by its name and domain. Every value here is public: the
+client publishes its metadata document, and the evidence comes from the open web.
 """
 
 from collections.abc import Mapping
@@ -101,16 +101,10 @@ class Thresholds:
     accept_own_site_at_least: float
 
 
-# Tuned in November 2026 against 40 labeled registrations: well-known products, unknown products, brand
-# lookalikes and documents on public editors, forges, storage demos and tunnels. Each stage accepted no
+# Tuned in November 2026 against 58 labeled registrations: well-known products, unknown products, brand
+# lookalikes and documents on public editors, forges, storage demos and tunnels. They accepted no
 # malicious case and rejected no legitimate one, with a margin on both sides.
-SCREEN_THRESHOLDS = Thresholds(
-    accept_legitimate_at_least=0.7,
-    accept_malicious_at_most=0.05,
-    reject_malicious_at_least=0.8,
-    accept_own_site_at_least=0.8,
-)
-RESEARCH_THRESHOLDS = Thresholds(
+THRESHOLDS = Thresholds(
     accept_legitimate_at_least=0.65,
     accept_malicious_at_most=0.1,
     reject_malicious_at_least=0.8,

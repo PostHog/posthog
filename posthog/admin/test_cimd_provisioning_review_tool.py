@@ -72,12 +72,12 @@ class TestCIMDProvisioningReviewTool(BaseTest):
 
     def test_the_review_page_shows_what_the_run_did(self) -> None:
         review = self._review(ProvisioningReviewStatus.PENDING)
-        review.screen_judgment = {"model": "jev-test", "legitimate": 0.61, "malicious": 0.02}
+        review.research_judgment = {"model": "jev-test", "legitimate": 0.61, "malicious": 0.02}
         review.save()
-        append_run_log(str(self.app.pk), "screen", "Jev: legitimate 0.61, malicious 0.02. Next: research")
+        append_run_log(str(self.app.pk), "research", "Jev: legitimate 0.61, malicious 0.02. Next: needs_human")
 
         content = self.client.get(f"{TOOL_URL}?review={review.pk}").content.decode()
 
-        assert "Jev: legitimate 0.61, malicious 0.02. Next: research" in content
+        assert "Jev: legitimate 0.61, malicious 0.02. Next: needs_human" in content
         assert "jev-test" in content
         assert f"cimd-provisioning-review-{self.app.pk}" in content

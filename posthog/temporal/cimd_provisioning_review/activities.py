@@ -15,8 +15,7 @@ from posthog.models.oauth_provisioning_review import (
 )
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.cimd_provisioning_review.judgment import (
-    RESEARCH_THRESHOLDS,
-    SCREEN_THRESHOLDS,
+    THRESHOLDS,
     PartnerJudgment,
     PartnerRegistration,
     judge,
@@ -88,33 +87,12 @@ def _reuses_accepted_host(review: CIMDProvisioningReview, judgment: PartnerJudgm
     return (
         judgment.own_site is not None
         and judgment.malicious is not None
-        and judgment.own_site >= SCREEN_THRESHOLDS.accept_own_site_at_least
-        and judgment.malicious <= SCREEN_THRESHOLDS.accept_malicious_at_most
+        and judgment.own_site >= THRESHOLDS.accept_own_site_at_least
+        and judgment.malicious <= THRESHOLDS.accept_malicious_at_most
         and host_already_accepted(
             review.application.client_id, domain=review.domain, excluding_application_id=str(review.application_id)
         )
     )
-
-
-def _screen(application_id: str) -> StageResult:
-    review = _pending_review(application_id)
-    if review is None:
-        return _ALREADY_SETTLED
-
-    judgment = _judge(_registration(review))
-    review.screen_judgment = judgment.to_json()
-    review.save(update_fields=["screen_judgment"])
-    outcome = outcome_for(judgment, SCREEN_THRESHOLDS, unsettled=ReviewOutcome.RESEARCH)
-    if outcome == ReviewOutcome.RESEARCH and _reuses_accepted_host(review, judgment):
-        host = urlparse(review.application.client_id).hostname
-        reason = f"Another client on {host} was accepted, and Jev places this document on its own site"
-        append_run_log(application_id, "screen", f"Jev: {judgment.describe()}. {reason}")
-        return StageResult(
-            outcome=ReviewOutcome.ACCEPT, stage=ProvisioningReviewStage.DOMAIN_ALREADY_ACCEPTED, reason=reason
-        )
-    append_run_log(application_id, "screen", f"Jev: {judgment.describe()}. Next: {outcome.value}")
-    logger.info("cimd_provisioning_review_screened", application_id=application_id, outcome=outcome.value)
-    return StageResult(outcome=outcome, stage=ProvisioningReviewStage.SCREEN, reason=f"Screen: {judgment.describe()}")
 
 
 def _research(application_id: str) -> StageResult:
@@ -140,6 +118,7 @@ def _research(application_id: str) -> StageResult:
             "research",
             (
                 f"Homepage {found.homepage.url} {'reachable' if found.homepage.reachable else 'unreachable'}, "
+                f"{len(found.about_the_client.results)} results about the client, "
                 f"{len(found.about_the_domain.results)} results about the domain, "
                 f"{len(found.abuse_reports.results)} results for abuse reports"
             ),
@@ -148,7 +127,14 @@ def _research(application_id: str) -> StageResult:
     judgment = _judge(registration, evidence=evidence)
     review.research_judgment = judgment.to_json()
     review.save(update_fields=["research_judgment"])
-    outcome = outcome_for(judgment, RESEARCH_THRESHOLDS, unsettled=ReviewOutcome.NEEDS_HUMAN)
+    outcome = outcome_for(judgment, THRESHOLDS, unsettled=ReviewOutcome.NEEDS_HUMAN)
+    if outcome == ReviewOutcome.NEEDS_HUMAN and _reuses_accepted_host(review, judgment):
+        host = urlparse(review.application.client_id).hostname
+        reason = f"Another client on {host} was accepted, and Jev places this document on its own site"
+        append_run_log(application_id, "research", f"Jev: {judgment.describe()}. {reason}")
+        return StageResult(
+            outcome=ReviewOutcome.ACCEPT, stage=ProvisioningReviewStage.HOST_ALREADY_ACCEPTED, reason=reason
+        )
     append_run_log(application_id, "research", f"Jev: {judgment.describe()}. Next: {outcome.value}")
     logger.info("cimd_provisioning_review_researched", application_id=application_id, outcome=outcome.value)
     return StageResult(
@@ -165,13 +151,6 @@ def _settle(inputs: SettleReviewInputs) -> bool:
         status=status,
         stage=ProvisioningReviewStage(inputs.stage),
         reason=inputs.reason,
-    )
-
-
-@activity.defn(name="cimd-provisioning-review-screen")
-async def screen_partner(inputs: CIMDProvisioningReviewInputs) -> StageResult:
-    return await database_sync_to_async_pool(_logged_step)(
-        inputs.application_id, "screen", lambda: _screen(inputs.application_id)
     )
 
 
