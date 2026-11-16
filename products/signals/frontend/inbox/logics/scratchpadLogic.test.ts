@@ -668,4 +668,36 @@ describe('scratchpadLogic', () => {
         expect(keys(logic.values.entries).includes(TRUNCATED.key)).toBe(true)
         expect(logic.values.discardingKeys).toEqual([])
     })
+
+    it.each([
+        ['window', (): ScratchpadEntryApi[] | null => logic.values.entries],
+        ['search', (): ScratchpadEntryApi[] | null => logic.values.searchResults],
+    ])('keeps a %s read that was in flight during a delete from restoring the row', async (read, rowsOf) => {
+        let releaseRead: () => void = () => {}
+        const readHeld = new Promise<void>((resolve) => {
+            releaseRead = resolve
+        })
+        useMocks({
+            get: {
+                [SCRATCHPAD_URL]: async () => {
+                    await readHeld
+                    return [200, [TRUNCATED, WHOLE]]
+                },
+            },
+            post: { [`${SCRATCHPAD_URL}discard/`]: () => [200, { deleted: true }] },
+        })
+        if (read === 'window') {
+            logic.actions.loadEntries()
+        } else {
+            logic.actions.setSearchText('note')
+            await expectLogic(logic).toDispatchActions(['loadSearchResults'])
+        }
+
+        logic.actions.discardEntry(WHOLE.key)
+        await expectLogic(logic).toDispatchActions(['discardEntrySuccess'])
+        releaseRead()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((rowsOf() ?? []).map((row) => row.key)).toEqual([TRUNCATED.key])
+    })
 })
