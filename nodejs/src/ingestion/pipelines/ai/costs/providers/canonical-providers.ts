@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-13 10:04:14 UTC
+// Generated at: 2026-11-13 20:02:35 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -115,6 +115,7 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
+    | 'inferact-vllm-nvfp4'
     | 'inference-net-bf16'
     | 'inference-net-fast'
     | 'inference-net-fp4'
@@ -133,7 +134,6 @@ export type CanonicalProvider =
     | 'ionstream-fp8'
     | 'kt'
     | 'liquid'
-    | 'liquid-bf16'
     | 'liquid-fp8'
     | 'makora'
     | 'makora-fp4'
@@ -191,7 +191,6 @@ export type CanonicalProvider =
     | 'parasail-fp4'
     | 'parasail-fp8'
     | 'parasail-int4'
-    | 'pareto-alpha-us'
     | 'particle-ai-nvfp4'
     | 'particle-ai-us'
     | 'particle-ai-us-flex'
