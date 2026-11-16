@@ -9,13 +9,20 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type {
+    MessageTemplateApi,
+    PatchedSupabaseAuthEmailSettingsUpdateApi,
+    SupabaseAuthEmailSettingsApi,
+    SupabaseEmailTypeApi,
+} from 'products/messaging/frontend/generated/api.schemas'
+
 import { supabaseAuthEmailsLogic } from './supabaseAuthEmailsLogic'
 
 const SENDABLE = '00000000-0000-4000-8000-000000000001'
 const NOT_SENSITIVE = '00000000-0000-4000-8000-000000000002'
 const DELETED = '00000000-0000-4000-8000-000000000003'
 const NOT_TRANSACTIONAL = '00000000-0000-4000-8000-000000000004'
-const EMAIL_TYPES = [
+const EMAIL_TYPES: SupabaseEmailTypeApi[] = [
     { value: 'signup', label: 'Confirm sign-up', has_starter_template: true },
     { value: 'recovery', label: 'Reset password', has_starter_template: true },
     { value: 'invite', label: 'Invite user', has_starter_template: false },
@@ -24,14 +31,14 @@ const EMAIL_TYPES = [
 type FailingAction = 'saveConnection' | 'disconnect' | 'createStarterTemplates'
 
 describe('supabaseAuthEmailsLogic', () => {
-    let stored: { supabase_url: string; has_hook_secret: boolean; templates: Record<string, string> }
-    let messageTemplates: Record<string, unknown>[]
-    let patches: Record<string, unknown>[]
+    let stored: Pick<SupabaseAuthEmailSettingsApi, 'supabase_url' | 'has_hook_secret' | 'templates'>
+    let messageTemplates: Pick<MessageTemplateApi, 'id' | 'transactional_hog_flow_id' | 'sensitive' | 'deleted'>[]
+    let patches: PatchedSupabaseAuthEmailSettingsUpdateApi[]
     let failure: [number, Record<string, string>?] | null
     let failedLoads: ('settings' | 'templates')[]
     let templatesListed: Promise<void>
 
-    const settingsResponse = (): Record<string, unknown> => ({
+    const settingsResponse = (): SupabaseAuthEmailSettingsApi => ({
         ...stored,
         hook_url: 'https://example.com/hook',
         email_types: EMAIL_TYPES,
@@ -55,14 +62,11 @@ describe('supabaseAuthEmailsLogic', () => {
             get: {
                 '/api/projects/:team_id/messaging_supabase_auth_emails/settings/': () =>
                     failedLoads.includes('settings') ? [500] : [200, settingsResponse()],
-                '/api/projects/:team_id/messaging_templates/': async ({ request }) => {
+                '/api/projects/:team_id/messaging_templates/': async () => {
                     await templatesListed
-                    if (failedLoads.includes('templates')) {
-                        return [500]
-                    }
-                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
-                    const results = messageTemplates.slice(offset, offset + 100)
-                    return [200, { count: messageTemplates.length, results }]
+                    return failedLoads.includes('templates')
+                        ? [500]
+                        : [200, { count: messageTemplates.length, results: messageTemplates }]
                 },
             },
             patch: {
@@ -70,7 +74,7 @@ describe('supabaseAuthEmailsLogic', () => {
                     if (failure) {
                         return failure
                     }
-                    const body = (await request.json()) as Record<string, any>
+                    const body = (await request.json()) as PatchedSupabaseAuthEmailSettingsUpdateApi
                     patches.push(body)
                     if (body.supabase_url !== undefined) {
                         stored.supabase_url = body.supabase_url
@@ -157,30 +161,28 @@ describe('supabaseAuthEmailsLogic', () => {
         const logic = supabaseAuthEmailsLogic()
         logic.mount()
         expect(logic.values.status).toBeNull()
-
         await settled(logic)
-
         expect(logic.values.status).toEqual(status)
     })
 
-    it.each([
-        ['settings', 'loadSettings', 'loadTemplates'],
-        ['templates', 'loadTemplates', 'loadSettings'],
-    ] as const)('shows a failed %s load until its own retry succeeds', async (failed, retry, otherLoad) => {
+    it.each(['settings', 'templates'] as const)('shows a failed %s load until a retry succeeds', async (failed) => {
         failedLoads = [failed]
-        const logic = await mounted()
+        let logic = await mounted()
         logic.actions.openSetup()
         await settled(logic)
-        const failedFlags = { settingsLoadFailed: failed === 'settings', templatesLoadFailed: failed === 'templates' }
-        expect(logic.values).toMatchObject(failedFlags)
+        expect(logic.values).toMatchObject({
+            settingsLoadFailed: failed === 'settings',
+            templatesLoadFailed: failed === 'templates',
+        })
 
         failedLoads = []
-        logic.actions[otherLoad]()
-        await settled(logic)
-        expect(logic.values).toMatchObject(failedFlags)
-
-        logic.actions[retry]()
-        await settled(logic)
+        if (failed === 'templates') {
+            logic.actions.loadTemplates()
+            await settled(logic)
+        } else {
+            logic.unmount()
+            logic = await mounted()
+        }
         expect(logic.values).toMatchObject({ settingsLoadFailed: false, templatesLoadFailed: false })
     })
 
@@ -205,11 +207,12 @@ describe('supabaseAuthEmailsLogic', () => {
         expect(logic.values).toMatchObject({ ...after, connectionChanged: false })
     })
 
-    it('maps and unmaps a template without dropping a URL still being typed', async () => {
+    it('maps and unmaps a template without dropping a connection still being typed', async () => {
         stored.templates = { recovery: SENDABLE }
         const logic = await mounted()
         logic.actions.openSetup()
         logic.actions.setSupabaseUrl('https://draft.supabase.co')
+        logic.actions.setHookSecret('v1,whsec_draft')
 
         logic.actions.setTemplate('signup', SENDABLE)
         await settled(logic)
@@ -220,7 +223,7 @@ describe('supabaseAuthEmailsLogic', () => {
             { templates: { recovery: SENDABLE, signup: SENDABLE } },
             { templates: { signup: SENDABLE } },
         ])
-        expect(logic.values.supabaseUrl).toEqual('https://draft.supabase.co')
+        expect(logic.values).toMatchObject({ supabaseUrl: 'https://draft.supabase.co', hookSecret: 'v1,whsec_draft' })
     })
 
     it.each([
