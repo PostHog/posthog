@@ -393,6 +393,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
      */
     deliveredToRecipient?: boolean
     emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
+    parked?: boolean
     // The run was canceled rather than succeeding or failing. Only meaningful with
     // finished=true and no error: the job row and the lifecycle row both flip to
     // 'canceled'.

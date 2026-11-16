@@ -2353,6 +2353,7 @@ export namespace Schemas {
         color: DataColorToken | null;
         customColor: string | null;
         hidden: boolean | null;
+        label: string | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
         assignmentBy: string;
@@ -10706,6 +10707,8 @@ export namespace Schemas {
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
      * * `before` - What a change of the feature flag changed, as it was before the change, in words
      * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+     * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -10764,6 +10767,8 @@ export namespace Schemas {
         | "changed_setting"
         | "before"
         | "after"
+        | "before_filters"
+        | "after_filters"
         | "flag_service_call_percentage"
         | "event"
         | "event_received"
@@ -10833,6 +10838,8 @@ export namespace Schemas {
          * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
          * * `before` - What a change of the feature flag changed, as it was before the change, in words
          * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+         * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
          * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
          * * `event` - The name of an event that the check looked up
          * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -10900,6 +10907,8 @@ export namespace Schemas {
          * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
          * * `before` - What a change of the feature flag changed, as it was before the change, in words
          * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+         * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
          * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
          * * `event` - The name of an event that the check looked up
          * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -10995,9 +11004,21 @@ export namespace Schemas {
          */
         rule: ExperimentHealthCheckRule | null;
         /**
-         * What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list.
+         * What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. A release condition change also gives the conditions as the flag stores them, in before_filters and after_filters. Empty when the check reads no such list.
          */
-        rows: Array<Record<string, string | number | boolean | null>>;
+        rows: Array<
+            Record<
+                string,
+                | string
+                | number
+                | boolean
+                | {
+                      groups: Array<Record<string, unknown>>;
+                      aggregation_group_type_index: number | null;
+                  }
+                | null
+            >
+        >;
     };
     export type ExperimentHealthReleaseCondition = {
         /**
@@ -12038,6 +12059,7 @@ export namespace Schemas {
             id: string;
             source_type: string;
             access_method: string;
+            direct_query_enabled: boolean;
             supports_column_selection: boolean;
             supports_row_filters: boolean;
             requires_exact_column_metadata: boolean;

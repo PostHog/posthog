@@ -10,6 +10,7 @@ from typing import Any
 from rest_framework import status
 from rest_framework.response import Response
 
+from .archive_guards import SkillPublishRefused
 from .skill_services import (
     LLMSkillDescriptionTooLongError,
     LLMSkillEditError,
@@ -54,6 +55,8 @@ def skill_write_error_response(
         )
     if isinstance(err, LLMSkillVersionConflictError):
         return version_conflict_response(err.current_version)
+    if isinstance(err, SkillPublishRefused):
+        return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
     if isinstance(err, LLMSkillVersionLimitError):
         return Response(
             {

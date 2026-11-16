@@ -4,7 +4,8 @@ import { decodeParams, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel, scopeGroupLevel, scopeGroupTooltip } from 'lib/scopes'
+import { scopeGroupsStartOpen } from 'lib/oauthScopeRows'
+import { DEFAULT_OAUTH_SCOPES, type ScopeAccessLevel, scopeGroupLevel, scopeGroupTooltip } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -34,6 +35,12 @@ describe('oauthAuthorizeLogic', () => {
         delete (window as any).POSTHOG_APP_CONTEXT
     })
 
+    const setAllScopeAccess = (level: ScopeAccessLevel): void =>
+        logic.actions.setScopeGroupAccess(
+            logic.values.scopeRows.map((row) => row.key),
+            level
+        )
+
     const effectiveScopesCases: { name: string; scopes: string[]; apply?: () => void; expected: string[] }[] = [
         {
             name: 'grants both halves of the pair for an object at write level',
@@ -46,9 +53,9 @@ describe('oauthAuthorizeLogic', () => {
             expected: ['openid', 'feature_flag:write', 'insight:read'],
         },
         {
-            name: 'downgrades every write scope to read with the bulk read-only action',
+            name: 'downgrades every write scope to read with the list-wide read pick',
             scopes: ['openid', 'feature_flag:write', 'dashboard:write', 'query:read'],
-            apply: () => logic.actions.setAllScopeAccess('read'),
+            apply: () => setAllScopeAccess('read'),
             expected: ['openid', 'dashboard:read', 'feature_flag:read', 'query:read'],
         },
         {
@@ -58,17 +65,17 @@ describe('oauthAuthorizeLogic', () => {
             expected: ['openid', 'email'],
         },
         {
-            name: 'drops every optional object with the bulk deselect action',
+            name: 'drops every optional object with the list-wide no-access pick',
             scopes: ['openid', 'feature_flag:write', 'query:read'],
-            apply: () => logic.actions.setAllScopeAccess('none'),
+            apply: () => setAllScopeAccess('none'),
             expected: ['openid'],
         },
         {
-            name: 'clamps the bulk select-all action to each requested ceiling',
+            name: 'clamps the list-wide write pick to each requested ceiling',
             scopes: ['openid', 'feature_flag:write', 'query:read'],
             apply: () => {
-                logic.actions.setAllScopeAccess('none')
-                logic.actions.setAllScopeAccess('write')
+                setAllScopeAccess('none')
+                setAllScopeAccess('write')
             },
             expected: ['openid', 'feature_flag:write', 'query:read'],
         },
@@ -79,10 +86,10 @@ describe('oauthAuthorizeLogic', () => {
             expected: ['openid', 'query:read'],
         },
         {
-            name: 'lets a per-object pick override a previous bulk action',
+            name: 'lets a per-object pick override a previous list-wide pick',
             scopes: ['openid', 'feature_flag:write', 'dashboard:write'],
             apply: () => {
-                logic.actions.setAllScopeAccess('read')
+                setAllScopeAccess('read')
                 logic.actions.setScopeAccess('dashboard', 'write')
             },
             expected: ['openid', 'dashboard:write', 'feature_flag:read'],
@@ -98,11 +105,6 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setScopes(scopes)
         apply?.()
         expect(logic.values.effectiveScopes).toEqual(expected)
-    })
-
-    it('offers the bulk read-only action for wildcard requests', () => {
-        logic.actions.setScopes(['*'])
-        expect(logic.values.showReadOnlyBulkAction).toBe(true)
     })
 
     it('expands the wildcard to read scopes when set to read level', () => {
@@ -211,73 +213,72 @@ describe('oauthAuthorizeLogic', () => {
         })
     }
 
-    it('ignores a no-access pick on a fully required object and marks its row locked', () => {
+    it('ignores a no-access pick on a fully required object', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write', 'insight:read'])
         withRequiredScopes(['feature_flag:write'])
         logic.actions.setScopeAccess('feature_flag', 'none')
         expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
         const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
-        expect(row).toMatchObject({ locked: true, value: 'write' })
+        expect(row).toMatchObject({ minLevel: 'write', maxLevel: 'write', value: 'write' })
     })
 
-    it('keeps a required write scope at write level under the bulk read-only action', () => {
+    it('keeps a required write scope at write level under the list-wide read pick', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write', 'dashboard:write'])
         withRequiredScopes(['feature_flag:write'])
-        logic.actions.setAllScopeAccess('read')
+        setAllScopeAccess('read')
         expect(logic.values.effectiveScopes).toEqual(['openid', 'dashboard:read', 'feature_flag:write'])
     })
 
-    it('downgrades to read under the bulk read-only action when only the read level is required', () => {
+    it('downgrades to read under the list-wide read pick when only the read level is required', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
         withRequiredScopes(['feature_flag:read'])
-        logic.actions.setAllScopeAccess('read')
+        setAllScopeAccess('read')
         expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:read'])
-    })
-
-    it('marks all scopes required when every requested scope is required', () => {
-        logic.actions.setScopes(['experiment:read', 'dashboard:write'])
-        withRequiredScopes(['experiment:read', 'dashboard:write'])
-        expect(logic.values.allScopesRequired).toBe(true)
-        expect(logic.values.adjustableScopeRows).toEqual([])
-        expect(logic.values.showReadOnlyBulkAction).toBe(false)
-    })
-
-    it('does not mark all required when a requested scope is declinable', () => {
-        logic.actions.setScopes(['experiment:read', 'dashboard:write'])
-        withRequiredScopes(['experiment:read'])
-        expect(logic.values.allScopesRequired).toBe(false)
     })
 
     it('renders a locked row for required scopes the client did not request and grants them', () => {
         logic.actions.setScopes(['openid', 'insight:read'])
         withRequiredScopes(['feature_flag:read'])
         const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
-        expect(row).toMatchObject({ locked: true, value: 'read' })
+        expect(row).toMatchObject({ minLevel: 'read', maxLevel: 'read', value: 'read' })
         expect(logic.values.effectiveScopes).toEqual(
             expect.arrayContaining(['openid', 'insight:read', 'feature_flag:read'])
         )
         expect(logic.values.effectiveScopes).toHaveLength(3)
     })
 
-    it('locks scopes granted before, labels them, and keeps them in the grant under bulk actions', () => {
+    it('lists only what a step-up adds, and keeps what was granted before in the grant', () => {
         logic.actions.setScopes(['openid', 'insight:write', 'comment:write'])
-        logic.actions.setAlreadyGrantedScopes(['openid', 'insight:write'])
-        logic.actions.setAllScopeAccess('none')
+        logic.actions.setEarlierGrant(['openid', 'insight:write'], { scoped_teams: [22], scoped_organizations: [] })
+        logic.actions.setOauthAuthorizationValues({ access_type: 'teams', scoped_teams: [22] })
+        setAllScopeAccess('none')
+
+        expect(logic.values.scopeGroups.flatMap((group) => group.rows.map((row) => row.key))).toEqual(['comment'])
 
         expect(logic.values.scopeRows.find((r) => r.key === 'insight')).toMatchObject({
-            locked: true,
+            minLevel: 'write',
             alreadyGranted: true,
             value: 'write',
         })
         expect(logic.values.scopeRows.find((r) => r.key === 'comment')).toMatchObject({ alreadyGranted: false })
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
+
+        logic.actions.setOauthAuthorizationValue('scoped_teams', [33])
+
+        expect(logic.values.isStepUp).toBe(false)
+        expect(logic.values.scopeGroups.flatMap((group) => group.rows.map((row) => row.key))).toEqual([
+            'insight',
+            'openid',
+            'comment',
+        ])
+        expect(logic.values.effectiveScopes).toEqual(['openid'])
     })
 
     it('clamps an optional write above a required read floor to the floor, never below', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
         withRequiredScopes(['feature_flag:read'])
         const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
-        expect(row).toMatchObject({ locked: false, minLevel: 'read', maxLevel: 'write', value: 'write' })
+        expect(row).toMatchObject({ minLevel: 'read', maxLevel: 'write', value: 'write' })
         expect(logic.values.effectiveScopes).toContain('feature_flag:write')
 
         logic.actions.setScopeAccess('feature_flag', 'none')
@@ -291,15 +292,14 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setScopes(['openid', 'feature_flag:read'])
         withRequiredScopes(['feature_flag:write'])
         const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
-        expect(row).toMatchObject({ locked: true, value: 'write' })
-        expect(row?.description).toContain('Write')
+        expect(row).toMatchObject({ minLevel: 'write', maxLevel: 'write', value: 'write' })
         expect(logic.values.effectiveScopes).toContain('feature_flag:write')
         expect(logic.values.effectiveScopes).toContain('feature_flag:read')
     })
 
     it('resets access selections when scopes are reloaded', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
-        logic.actions.setAllScopeAccess('read')
+        setAllScopeAccess('read')
         logic.actions.setScopeAccess('feature_flag', 'none')
         logic.actions.setScopes(['openid', 'insight:write'])
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
@@ -462,7 +462,7 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.oauthAuthorization).toMatchObject(expected)
         expect(logic.values.scopeRows.find((r) => r.key === 'insight')).toMatchObject({
             alreadyGranted: true,
-            locked: true,
+            minLevel: 'write',
         })
     })
 
@@ -661,32 +661,37 @@ describe('oauthAuthorizeLogic', () => {
         })
     })
     describe('grouping', () => {
-        it('keeps a short request flat and groups only past the threshold', () => {
+        it('puts every row in its product-area group, required and identity rows included', () => {
             logic.actions.setScopes(['openid', 'feature_flag:write', 'session_recording:write', 'insight:write'])
-            expect(logic.values.scopeRowsGrouped).toBe(false)
-            logic.actions.setScopes([
-                'openid',
-                ...[
-                    'insight',
-                    'dashboard',
-                    'query',
-                    'cohort',
-                    'action',
-                    'person',
-                    'survey',
-                    'experiment',
-                    'notebook',
-                    'logs',
-                    'error_tracking',
-                ].map((object) => `${object}:read`),
-            ])
-            expect(logic.values.scopeRowsGrouped).toBe(true)
+            withRequiredScopes(['feature_flag:write', 'experiment:read'])
+
             const groups = logic.values.scopeGroups
-            expect(groups.flatMap((group) => group.rows)).toHaveLength(logic.values.adjustableScopeRows.length)
-            for (const group of groups) {
-                expect(group.rows.length).toBeGreaterThan(0)
-                expect(group.rows.map((row) => getScopeGroupLabel(row.key))).toEqual(group.rows.map(() => group.label))
-            }
+
+            expect(groups.map((group) => [group.label, group.rows.map((row) => row.key)])).toEqual([
+                ['Product analytics', ['insight']],
+                ['Session replay', ['session_recording']],
+                ['Feature flags, experiments & surveys', ['experiment', 'feature_flag']],
+                ['Organization & account', ['openid']],
+            ])
+            expect(groups[3].rows[0]).toMatchObject({ value: 'read', minLevel: 'read', maxLevel: 'read' })
+            expect(scopeGroupsStartOpen(groups)).toBe(true)
+        })
+
+        it('starts closed past the open threshold', () => {
+            logic.actions.setScopes(
+                ['insight', 'dashboard', 'query', 'cohort', 'action', 'person', 'survey', 'experiment', 'notebook'].map(
+                    (object) => `${object}:read`
+                )
+            )
+            expect(scopeGroupsStartOpen(logic.values.scopeGroups)).toBe(false)
+        })
+
+        it('gives the wildcard a group of its own', () => {
+            logic.actions.setScopes(['openid', '*'])
+            expect(logic.values.scopeGroups.map((group) => [group.label, group.rows.map((row) => row.key)])).toEqual([
+                ['Full access', ['*']],
+                ['Organization & account', ['openid']],
+            ])
         })
 
         it('sets every row of a group with one group action, clamped to each ceiling', () => {
@@ -699,9 +704,9 @@ describe('oauthAuthorizeLogic', () => {
             logic.actions.setScopes(['openid', 'session_recording:write', 'session_recording_playlist:read'])
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'none')
             expect(logic.values.effectiveScopes).toEqual(['openid'])
-            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('none')
-            expect(scopeGroupTooltip(logic.values.adjustableScopeRows, 'none')).toBeUndefined()
-            const [recordingRow, playlistRow] = logic.values.adjustableScopeRows
+            expect(scopeGroupLevel(logic.values.scopeRows)).toBe('none')
+            expect(scopeGroupTooltip(logic.values.scopeRows, 'none')).toBeUndefined()
+            const [recordingRow, playlistRow] = logic.values.scopeRows
             const requiredRows = [
                 {
                     ...recordingRow,
@@ -721,14 +726,14 @@ describe('oauthAuthorizeLogic', () => {
                 'session_recording:write',
                 'session_recording_playlist:read',
             ])
-            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('write')
-            expect(scopeGroupTooltip(logic.values.adjustableScopeRows, 'write')).toBe(
+            expect(scopeGroupLevel(logic.values.scopeRows)).toBe('write')
+            expect(scopeGroupTooltip(logic.values.scopeRows, 'write')).toBe(
                 '1 of these permissions stays at read: Not requested by Test app.'
             )
             logic.actions.setScopeAccess('session_recording', 'read')
-            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('read')
+            expect(scopeGroupLevel(logic.values.scopeRows)).toBe('read')
             logic.actions.setScopeAccess('session_recording_playlist', 'none')
-            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBeUndefined()
+            expect(scopeGroupLevel(logic.values.scopeRows)).toBeUndefined()
         })
     })
 })
