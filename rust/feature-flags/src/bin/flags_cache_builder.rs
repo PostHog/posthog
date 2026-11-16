@@ -1340,8 +1340,8 @@ mod tests {
     ) {
         // One build serves both messages, and it is reported as the higher-ranked
         // source. It must be credited with its own age, because reading the
-        // batch minimum instead would put the sweep's minutes into the edit path's
-        // sub-second p99 — the reading the `source` label exists to keep separable.
+        // batch minimum instead would put the lower-ranked path's wait into the
+        // reported path's latency histogram.
         let batch = &fold(items)[&7];
         assert_eq!(batch.reported_source(), expected_source);
         assert_eq!(batch.attributed_emitted_at(), ts(200));
