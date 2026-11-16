@@ -204,6 +204,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     class DeactivationReason(models.TextChoices):
         UNPAID_BALANCE = "Access revoked due to unpaid balance.", "Unpaid balance"
+        # Set and lifted only by Billing. Staff pausing by hand use UNPAID_BALANCE, which Billing never lifts.
+        UNPAID_INVOICE = "Access paused until your unpaid invoice is paid.", "Unpaid invoice (automatic)"
         COMPLIANCE_REVIEW = "Access disabled for compliance review.", "Compliance review"
         TERMS_OF_SERVICE_VIOLATION = (
             "Access revoked due to terms of service violation.",
@@ -213,6 +215,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
             "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
             "Desktop abuse",
         )
+
+        @classmethod
+        def staff_choices(cls) -> list[tuple[str, Any]]:
+            # Billing lifts an UNPAID_INVOICE pause at its next status, so staff picking it would see it undone.
+            return [choice for choice in cls.choices if choice[0] != cls.UNPAID_INVOICE]
 
     members = models.ManyToManyField(
         "posthog.User",

@@ -214,6 +214,8 @@ class CustomerInfo(TypedDict):
     discount_percent: Optional[int]
     discount_amount_usd: Optional[str]
     customer_trust_scores: dict[str, int]
+    # Absent on Billing versions that predate the automatic block.
+    access_blocked: NotRequired[bool]
 
 
 class BillingStatus(TypedDict):

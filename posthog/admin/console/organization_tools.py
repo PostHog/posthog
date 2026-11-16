@@ -28,7 +28,7 @@ class BulkDeactivateOrganizationsForm(forms.Form):
     )
     reason = forms.ChoiceField(
         label="Reason",
-        choices=[*Organization.DeactivationReason.choices, (CUSTOM_REASON, "Custom reason")],
+        choices=[*Organization.DeactivationReason.staff_choices(), (CUSTOM_REASON, "Custom reason")],
         initial=Organization.DeactivationReason.DESKTOP_ABUSE,
         help_text="Members of the organization see this reason.",
     )

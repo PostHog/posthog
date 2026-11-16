@@ -47,7 +47,8 @@ class OrganizationAdminForm(forms.ModelForm):
         fields = "__all__"
         widgets = {
             "is_not_active_reason": DatalistTextInput(
-                suggestions=list(Organization.DeactivationReason.values), attrs={"size": "60"}
+                suggestions=[value for value, _ in Organization.DeactivationReason.staff_choices()],
+                attrs={"size": "60"},
             )
         }
 

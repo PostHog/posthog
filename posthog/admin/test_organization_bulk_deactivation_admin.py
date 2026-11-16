@@ -30,6 +30,18 @@ class TestBulkDeactivateOrganizationsForm(SimpleTestCase):
         assert form.cleaned_data["organization_ids"] == [first_organization_id, second_organization_id]
         assert form.cleaned_data["resolved_reason"] == Organization.DeactivationReason.DESKTOP_ABUSE.value
 
+    def test_rejects_the_reason_that_billing_lifts_on_its_own(self) -> None:
+        form = BulkDeactivateOrganizationsForm(
+            {
+                "organization_ids": str(uuid4()),
+                "reason": Organization.DeactivationReason.UNPAID_INVOICE.value,
+                "custom_reason": "",
+            }
+        )
+
+        assert not form.is_valid()
+        assert "reason" in form.errors
+
     def test_custom_reason_is_required_when_custom_is_selected(self) -> None:
         organization_id = uuid4()
         form = BulkDeactivateOrganizationsForm(

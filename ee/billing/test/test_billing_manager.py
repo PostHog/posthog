@@ -1196,6 +1196,93 @@ class TestBillingManager(BaseTest):
         assert organization.usage["billing_status_computed_at"] == "2026-08-03T00:00:00+00:00"
 
 
+UNPAID_INVOICE = Organization.DeactivationReason.UNPAID_INVOICE.value
+UNPAID_BALANCE = Organization.DeactivationReason.UNPAID_BALANCE.value
+COMPLIANCE_REVIEW = Organization.DeactivationReason.COMPLIANCE_REVIEW.value
+ABSENT = object()
+
+
+@patch("ee.billing.billing_manager.posthoganalytics.feature_enabled", return_value=True)
+class TestUpdateOrgDetailsAccessBlock(BaseTest):
+    def _status(self, access_blocked: object, events_usage: int = 1000) -> BillingStatus:
+        customer: dict[str, Any] = {
+            "usage_summary": {
+                "events": {"usage": events_usage, "limit": None},
+                "recordings": {"usage": 0, "limit": None},
+            },
+            "billing_period": {
+                "current_period_start": "2026-08-01T00:00:00Z",
+                "current_period_end": "2026-09-01T00:00:00Z",
+            },
+        }
+        if access_blocked is not ABSENT:
+            customer["access_blocked"] = access_blocked
+        return cast(BillingStatus, {"customer": customer})
+
+    @parameterized.expand(
+        [
+            ("blocks_an_active_org", True, None, False, True, False, UNPAID_INVOICE),
+            ("blocks_an_org_with_unknown_active_state", None, None, False, True, False, UNPAID_INVOICE),
+            ("lifts_its_own_block", False, UNPAID_INVOICE, False, False, True, None),
+            ("leaves_an_open_org_open", True, None, False, False, True, None),
+            ("keeps_its_own_block_while_blocked", False, UNPAID_INVOICE, False, True, False, UNPAID_INVOICE),
+            ("never_lifts_a_finance_unpaid_balance", False, UNPAID_BALANCE, False, False, False, UNPAID_BALANCE),
+            ("never_relabels_a_finance_unpaid_balance", False, UNPAID_BALANCE, False, True, False, UNPAID_BALANCE),
+            ("never_lifts_a_compliance_review", False, COMPLIANCE_REVIEW, False, False, False, COMPLIANCE_REVIEW),
+            ("never_lifts_a_deactivation_without_reason", False, None, False, False, False, None),
+            ("absent_key_keeps_its_own_block", False, UNPAID_INVOICE, False, ABSENT, False, UNPAID_INVOICE),
+            ("absent_key_keeps_an_open_org_open", True, None, False, ABSENT, True, None),
+            ("leaves_an_org_pending_deletion_alone", True, None, True, True, True, None),
+        ]
+    )
+    def test_applies_billing_access_block(
+        self,
+        _feature_enabled: MagicMock,
+        _name: str,
+        is_active: bool | None,
+        reason: str | None,
+        is_pending_deletion: bool,
+        access_blocked: object,
+        expected_is_active: bool,
+        expected_reason: str | None,
+    ):
+        self.organization.is_active = is_active
+        self.organization.is_not_active_reason = reason
+        self.organization.is_pending_deletion = is_pending_deletion
+        self.organization.save()
+
+        BillingManager(license=None).update_org_details(self.organization, self._status(access_blocked))
+
+        self.organization.refresh_from_db()
+        assert self.organization.is_active is expected_is_active
+        assert self.organization.is_not_active_reason == expected_reason
+
+    def test_shadow_mode_writes_nothing_when_the_flag_is_off(self, feature_enabled: MagicMock):
+        feature_enabled.return_value = False
+
+        BillingManager(license=None).update_org_details(self.organization, self._status(True))
+
+        self.organization.refresh_from_db()
+        assert self.organization.is_active is True
+        assert self.organization.is_not_active_reason is None
+        feature_enabled.assert_called_once()
+        assert feature_enabled.call_args.args[0] == "billing-access-block"
+
+    def test_a_stale_copy_does_not_overwrite_a_deactivation_made_since_it_was_loaded(self, _feature_enabled: MagicMock):
+        # Staff deactivated the organization after this copy was loaded, and the status also changes usage.
+        Organization.objects.filter(id=self.organization.id).update(
+            is_active=False, is_not_active_reason=COMPLIANCE_REVIEW
+        )
+
+        BillingManager(license=None).update_org_details(self.organization, self._status(True, events_usage=4242))
+
+        self.organization.refresh_from_db()
+        assert self.organization.is_active is False
+        assert self.organization.is_not_active_reason == COMPLIANCE_REVIEW
+        assert self.organization.usage is not None
+        assert self.organization.usage["events"]["usage"] == 4242
+
+
 class TestBillingSession(SimpleTestCase):
     def test_the_session_keeps_no_cookies(self):
         # Every call to billing is server-to-server and carries a bearer token for one

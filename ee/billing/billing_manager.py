@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -20,6 +21,7 @@ from django.utils.dateparse import parse_datetime
 import jwt
 import requests
 import structlog
+import posthoganalytics
 from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, Throttled
 
@@ -140,6 +142,63 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
 def _is_older_than_applied_billing_status(organization: Organization, computed_at: datetime) -> bool:
     applied_at = parse_datetime((organization.usage or {}).get("billing_status_computed_at") or "")
     return applied_at is not None and computed_at < applied_at
+
+
+BILLING_ACCESS_BLOCK_FLAG = "billing-access-block"
+
+# Every field a billing status can change. Saving only these keeps a stale copy from undoing a change
+# made since it was loaded, such as a deactivation by staff.
+BILLING_STATUS_FIELDS = [
+    "customer_id",
+    "usage",
+    "available_product_features",
+    "never_drop_data",
+    "has_active_subscription",
+    "customer_trust_scores",
+    "updated_at",
+]
+
+
+def _access_block_change(organization: Organization, access_blocked: bool) -> tuple[bool, str | None] | None:
+    """The (is_active, is_not_active_reason) that Billing's block calls for, or None to leave the organization alone.
+
+    Billing lifts only the pause it set, so a deactivation for any other reason, such as an unpaid balance
+    that Finance set by hand, stays in place.
+    """
+    reason = Organization.DeactivationReason.UNPAID_INVOICE.value
+    if organization.is_pending_deletion:
+        return None
+    if access_blocked and organization.is_active is not False:
+        return False, reason
+    if not access_blocked and organization.is_active is False and organization.is_not_active_reason == reason:
+        return True, None
+    return None
+
+
+def _apply_access_block(organization: Organization, access_blocked: bool) -> None:
+    # Checking the loaded copy first keeps the flag check and the row lock off the hot path, where nothing changes.
+    if _access_block_change(organization, access_blocked) is None:
+        return
+    organization_id = str(organization.id)
+    if not posthoganalytics.feature_enabled(
+        BILLING_ACCESS_BLOCK_FLAG,
+        organization_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+    ):
+        logger.info("billing_access_block_skipped_by_flag", organization_id=organization_id, blocked=access_blocked)
+        return
+    with transaction.atomic():
+        # Decide again on the locked row, since staff may have changed it after this copy was loaded.
+        locked = Organization.objects.select_for_update().get(pk=organization.pk)
+        change = _access_block_change(locked, access_blocked)
+        if change is None:
+            return
+        locked.is_active, locked.is_not_active_reason = change
+        # A save rather than an update, so the signals that react to is_active changing still run.
+        locked.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
+    organization.is_active, organization.is_not_active_reason = change
+    logger.info("billing_access_block_applied", organization_id=organization_id, blocked=access_blocked)
 
 
 def _free_trial_active(customer: CustomerInfo) -> bool:
@@ -917,7 +976,11 @@ class BillingManager:
             organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
         if org_modified:
-            organization.save()
+            organization.save(update_fields=BILLING_STATUS_FIELDS)
+
+        access_blocked = data.get("access_blocked")
+        if isinstance(access_blocked, bool):
+            _apply_access_block(organization, access_blocked)
 
         if events_retention_changed:
             apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
