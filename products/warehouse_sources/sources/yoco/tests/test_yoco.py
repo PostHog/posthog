@@ -217,6 +217,43 @@ class TestYocoSource:
 
         assert result.saved_states == [YocoResumeConfig(cursor="cursor-7")]
 
+    @parameterized.expand(
+        [
+            # The Capital endpoints return one unpaginated list: a stray `next_cursor` must not
+            # trigger a second request, and no cursor-only params may be sent.
+            (
+                "advances_single_page",
+                "active_capital_advances",
+                ScriptedResponse(json={"data": [{"id": "adv_1"}, {"id": "adv_2"}], "next_cursor": "ignored"}),
+                ["adv_1", "adv_2"],
+            ),
+            (
+                "offers_single_page",
+                "active_capital_offers",
+                ScriptedResponse(json={"data": [{"id": "off_1"}], "next_cursor": "ignored"}),
+                ["off_1"],
+            ),
+            # A business with no Capital advance gets Yoco's documented 404, which is an empty
+            # table rather than a failed sync.
+            (
+                "advances_404_is_empty",
+                "active_capital_advances",
+                ScriptedResponse(status=404, json={"status": 404, "code": "not_found"}),
+                [],
+            ),
+        ]
+    )
+    def test_capital_endpoints(
+        self, _name: str, endpoint: str, response: ScriptedResponse, expected_ids: list[str]
+    ) -> None:
+        result = _driver().run(endpoint, [response, response])
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert len(result.requests) == 1
+        assert result.requests[0].param("limit") is None
+        assert result.requests[0].param("cursor") is None
+
     def test_payout_entries_fanout_resume_round_trip(self) -> None:
         result = _driver().run(
             "payout_entries",

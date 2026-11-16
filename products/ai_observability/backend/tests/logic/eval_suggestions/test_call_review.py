@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from products.ai_observability.backend.logic.eval_suggestions import call_review
 from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, ReviewCallRow
+from products.ai_observability.backend.logic.eval_suggestions.config import MAX_REVIEW_CALLS, REVIEW_CALLS
 from products.ai_observability.backend.logic.eval_suggestions.prices import MODEL_PRICES
 
 SUPPORT = CallTypeRow(source="prompt_name", name="support-reply", calls=900, model="gpt-5-mini", example_input="[]")
@@ -146,30 +147,32 @@ def test_selection_takes_equal_shares_caps_traces_and_skips_outputs_without_text
     assert [call.event_uuid for call in call_review.select_calls(rows, limit=10, per_trace=2)][8:] == ["s6", "s7"]
 
 
-def test_the_rendering_stays_bounded_and_shows_each_system_prompt_once() -> None:
+@parameterized.expand([("default", REVIEW_CALLS), ("most", MAX_REVIEW_CALLS)])
+def test_the_rendering_fills_its_bound_and_shows_each_system_prompt_once(_name: str, review_calls: int) -> None:
     system = "SYSTEM-MARKER " + "Answer refund questions. " * 400
     long_input = [{"role": "system", "content": system}, {"role": "user", "content": "Where is my refund? " * 500}]
     rows = [
         _row(call_type, f"{call_type.name}-{i}", f"{call_type.name}-trace-{i}", "Sent. " * 2000, long_input)
         for call_type in (SUPPORT, ROUTER)
-        for i in range(60)
+        for i in range(MAX_REVIEW_CALLS)
     ]
-    calls = call_review.select_calls(rows)
+    calls = call_review.select_calls(rows, limit=review_calls)
 
-    rendering = call_review.render([SUPPORT, ROUTER], calls)
+    rendering = call_review.render([SUPPORT, ROUTER], calls, review_calls)
 
-    assert len(rendering.text) <= call_review.MAX_RENDERED_CHARS
+    # More calls get as much text each, rather than sharing the default's.
+    bound = call_review.RENDERED_CHARS_PER_CALL * review_calls
+    assert 0.9 * bound < len(rendering.text) <= bound
     assert rendering.text.count("SYSTEM-MARKER") == 2
     assert rendering.trace_ids == {
         key: {call.trace_id for call in calls if call.call_type == key} for key in (SUPPORT.key, ROUTER.key)
     }
     assert Counter(call.call_type for call in rendering.calls.values()) == {
-        SUPPORT.key: call_review.REVIEW_CALLS // 2,
-        ROUTER.key: call_review.REVIEW_CALLS // 2,
+        SUPPORT.key: review_calls // 2,
+        ROUTER.key: review_calls // 2,
     }
-    # Each call alone carries its call type's system prompt and the same block the review read.
-    system, block = rendering.calls[1].text.split('\n\n<call number="1" ')
-    assert system.startswith("<system_prompt>\nSYSTEM-MARKER") and f'<call number="1" {block}' in rendering.text
+    # Each call keeps its stored row, so a judge drafted from it reads the whole call.
+    assert rendering.calls[1].row == rows[0]
 
 
 @parameterized.expand(

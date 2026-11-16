@@ -27,7 +27,7 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDModel
 from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 
 from products.logs.backend.facade.retention import suggest_retention_rule_name
 from products.logs.backend.models import LogsRetentionRule

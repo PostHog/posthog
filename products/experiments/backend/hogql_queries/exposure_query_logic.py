@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Collection
 from datetime import UTC, datetime
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import posthoganalytics
 
@@ -107,6 +107,24 @@ def exposure_event_names(event: str, *, read_copies: bool = True) -> list[str]:
     if event == DEFAULT_EXPOSURE_EVENT and read_copies:
         return [DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT]
     return [event]
+
+
+def exposure_nodes_without_copies(criteria: Optional[ExperimentExposureCriteria]) -> list[dict[str, Any]]:
+    """The exposure and activation configs that read their events without the $experiment_exposure copy, as
+    EventsNode or ActionsNode dicts. Only the default exposure goes through `exposure_event_names`. An action
+    exposure and an activation read the events they name, as they are."""
+    if criteria is None:
+        return []
+    nodes: list[dict[str, Any]] = []
+    if isinstance(criteria.exposure_config, ActionsNode):
+        nodes.append(criteria.exposure_config.model_dump())
+    if has_activation_config(criteria):
+        activation = criteria.activation_config
+        if isinstance(activation, ActionsNode):
+            nodes.append(activation.model_dump())
+        elif isinstance(activation, ExperimentEventExposureConfig):
+            nodes.append({"kind": "EventsNode", "event": activation.event})
+    return nodes
 
 
 def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
