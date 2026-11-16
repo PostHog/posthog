@@ -21,6 +21,7 @@ import type {
 import { allReports } from '../__mocks__/inboxMocks'
 import { mockScoutConfigs, mockScoutSuggestionSet } from '../__mocks__/scoutConfigs'
 import { signalSourcesLogic } from '../signalSourcesLogic'
+import { inboxAgentActivationLogic } from './inboxAgentActivationLogic'
 import { inboxOnboardingLogic } from './inboxOnboardingLogic'
 import { inboxSetupLogic } from './inboxSetupLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
@@ -49,6 +50,7 @@ describe('Inbox setup', () => {
     let setupDefaultSkills: string[] | undefined
     let hasEvents: boolean
     let completedAt: string | null
+    let exposureOrigins: string[]
     let scanners: { id: string; enabled: boolean; emits_signals: boolean }[]
 
     function generalScoutConfig(): SignalScoutConfigApi {
@@ -95,6 +97,7 @@ describe('Inbox setup', () => {
         hasEvents = false
         failCompletion = true
         completedAt = null
+        exposureOrigins = []
         scanners = []
         useMocks({
             get: {
@@ -156,10 +159,10 @@ describe('Inbox setup', () => {
                 }),
             },
             post: {
-                '/api/projects/:id/signals/onboarding/expose/': () => [
-                    200,
-                    { draft: savedDraft, completed_at: null, github_optional_available: githubOptional },
-                ],
+                '/api/projects/:id/signals/onboarding/expose/': async ({ request }) => {
+                    exposureOrigins.push(((await request.json()) as { onboarding_origin: string }).onboarding_origin)
+                    return [200, { draft: savedDraft, completed_at: null, github_optional_available: githubOptional }]
+                },
                 '/api/projects/:id/signals/scout/configs/sync/': ({ request }) => {
                     inventoryRequests++
                     expect(new URL(request.url).searchParams.get('surface')).toBe('onboarding')
@@ -231,19 +234,216 @@ describe('Inbox setup', () => {
         jest.useRealTimers()
     })
 
+    it('connects GitHub after confirmation and activates on return without collecting setup fields', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        let connected = false
+        useMocks({
+            get: {
+                '/api/projects/:id/integrations/': () => ({
+                    results: connected
+                        ? [{ id: 1, kind: 'github', config: {}, display_name: 'example', created_at: '', icon_url: '' }]
+                        : [],
+                    next: null,
+                    count: connected ? 1 : 0,
+                }),
+            },
+        })
+        savedDraft = null
+        failCompletion = false
+        hasEvents = true
+        canonicalScouts = [generalScoutConfig()]
+        router.actions.replace('/inbox/activate', { onboarding_step: 'github', next: 'https://other.example.com' })
+        const originalLocation = window.location
+        const assign = jest.fn()
+        Object.defineProperty(window, 'location', {
+            value: { ...originalLocation, assign },
+            configurable: true,
+        })
+        const entry = inboxAgentActivationLogic()
+        entry.mount()
+        try {
+            await waitFor(() => expect(entry.values.view).toBe('confirm'))
+            expect(assign).not.toHaveBeenCalled()
+            expect(createdSources).toBe(0)
+            entry.actions.connectGithub()
+            await waitFor(() => expect(assign).toHaveBeenCalledTimes(1))
+            await waitFor(() => expect(exposureOrigins).toEqual(['agent']))
+            const authorization = new URL(assign.mock.calls[0][0], 'https://example.com')
+            expect(authorization.pathname).toBe(`/api/projects/${logic.values.currentTeamId}/integrations/authorize/`)
+            expect(authorization.searchParams.get('kind')).toBe('github')
+            const next = new URL(authorization.searchParams.get('next')!, 'https://example.com')
+            expect(next.pathname).toBe(`/project/${logic.values.currentTeamId}/inbox/activate`)
+            expect(next.searchParams.get('agent_setup')).toBe('return')
+            expect(next.searchParams.get('onboarding_step')).toBe('quick')
+            expect(savedDraft).toBeNull()
+            expect(createdSources).toBe(0)
+            expect(logic.values.completed).toBe(false)
+
+            connected = true
+            router.actions.replace('/inbox/activate', Object.fromEntries(next.searchParams))
+            logic.actions.loadIntegrations()
+            await waitFor(() => expect(entry.values.view).toBe('done'))
+            expect(router.values.location.pathname).toBe(`/project/${logic.values.currentTeamId}/inbox/activate`)
+            expect(enabledScouts).toEqual(['signals-scout-general'])
+            expect(logic.values.savedState?.draft?.onboarding_origin).toBe('agent')
+            expect(activationRequests(capture)).toEqual([
+                [
+                    'self-driving onboarding activation requested',
+                    expect.objectContaining({ onboarding_origin: 'agent', activation_source: 'github_return' }),
+                ],
+            ])
+        } finally {
+            entry.unmount()
+            Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+        }
+    })
+
+    it.each(['guided', 'completed', 'unavailable', 'without GitHub', 'connected', 'integrations unavailable'] as const)(
+        'preserves %s setup when opening the agent route',
+        async (state) => {
+            savedDraft = state === 'guided' ? { ...draft } : null
+            completedAt = state === 'completed' ? '2026-01-01T00:00:00Z' : null
+            githubOptional = state === 'without GitHub'
+            if (state === 'unavailable') {
+                useMocks({ get: { '/api/projects/:id/signals/onboarding/': () => [503, { detail: 'Try again.' }] } })
+            }
+            let resolveIntegrations: (() => void) | undefined
+            if (state === 'connected') {
+                const integrationsLoaded = new Promise<void>((resolve) => {
+                    resolveIntegrations = resolve
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:id/integrations/': async () => {
+                            await integrationsLoaded
+                            return {
+                                results: [
+                                    {
+                                        id: 1,
+                                        kind: 'github',
+                                        config: {},
+                                        display_name: 'example',
+                                        created_at: '',
+                                        icon_url: '',
+                                    },
+                                ],
+                                next: null,
+                                count: 1,
+                            }
+                        },
+                    },
+                })
+            } else if (state === 'integrations unavailable' || state === 'without GitHub') {
+                useMocks({ get: { '/api/projects/:id/integrations/': () => [503, { detail: 'Try again.' }] } })
+            }
+            router.actions.replace(state === 'without GitHub' ? '/inbox/activate/without-github' : '/inbox/activate')
+            const originalLocation = window.location
+            const assign = jest.fn()
+            Object.defineProperty(window, 'location', {
+                value: { ...originalLocation, assign },
+                configurable: true,
+            })
+            const entry = inboxAgentActivationLogic()
+            entry.mount()
+            try {
+                if (state === 'unavailable' || state === 'integrations unavailable') {
+                    await waitFor(() => expect(entry.values.error).toBeTruthy())
+                    if (state === 'integrations unavailable') {
+                        expect(entry.values.error).toBe('Could not check your GitHub connection. Try again.')
+                        useMocks({ get: { '/api/projects/:id/integrations/': { results: [], next: null, count: 0 } } })
+                        entry.actions.retry()
+                        await waitFor(() => expect(entry.values.view).toBe('confirm'))
+                    }
+                } else if (state === 'completed') {
+                    await waitFor(() => expect(entry.values.view).toBe('done'))
+                    expect(router.values.location.pathname).toBe(
+                        `/project/${logic.values.currentTeamId}/inbox/activate`
+                    )
+                } else if (state === 'connected') {
+                    await waitFor(() => expect(exposureOrigins).toEqual(['agent']))
+                    expect(entry.values.view).toBe('connecting')
+                    resolveIntegrations!()
+                    await waitFor(() => expect(entry.values.view).toBe('confirm'))
+                    expect(entry.values.hasGithubIntegration).toBe(true)
+                    router.actions.replace('/inbox/activate', { onboarding_step: 'quick', agent_setup: 'return' })
+                    await expectLogic(entry, () => entry.actions.start()).toFinishAllListeners()
+                    expect(entry.values.view).toBe('confirm')
+                    expect(logic.values.completed).toBe(false)
+                } else {
+                    await waitFor(() =>
+                        expect(router.values.location.pathname).toBe(`/project/${logic.values.currentTeamId}/inbox`)
+                    )
+                    expect(router.values.searchParams).toMatchObject(
+                        state === 'without GitHub'
+                            ? { onboarding_step: 'quick', agent_setup: 'without_github' }
+                            : { onboarding_step: 'github', agent_setup: 'return' }
+                    )
+                    await waitFor(() => expect(exposureOrigins).toEqual(['agent']))
+                }
+                expect(assign).not.toHaveBeenCalled()
+                expect(savedDraft).toEqual(state === 'guided' ? draft : null)
+                expect(createdSources).toBe(0)
+                if (state === 'without GitHub') {
+                    expect(entry.values.error).toBeNull()
+                    await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
+                    await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+                    const capture = jest.spyOn(posthog, 'capture')
+                    logic.actions.reportStepViewed()
+                    expect(capture).toHaveBeenCalledWith(
+                        'self-driving onboarding step viewed',
+                        expect.objectContaining({ onboarding_origin: 'agent', step: 'signals' })
+                    )
+                    await expectLogic(logic, () => logic.actions.goToStep('github')).toFinishAllListeners()
+                    expect(savedDraft).toMatchObject({ onboarding_origin: 'agent' })
+                    router.actions.replace('/inbox')
+                    await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+                    expect(logic.values.draft.onboarding_origin).toBe('agent')
+                }
+            } finally {
+                entry.unmount()
+                Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+            }
+        }
+    )
+
+    it.each(['access_denied', 'github_install_pending'])(
+        'does not auto-activate after GitHub returns %s to the agent flow',
+        async (code) => {
+            savedDraft = null
+            await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+            await connectGithub()
+            router.actions.replace('/inbox', {
+                onboarding_step: 'quick',
+                agent_setup: 'return',
+                ...(code === 'github_install_pending' ? { github_install_pending: '1' } : { github_setup_error: code }),
+            })
+            logic.actions.resumeQuickSetup()
+            expect(logic.values.error).toBeTruthy()
+            expect(logic.values.quickActivationPending).toBe(false)
+            expect(logic.values.completed).toBe(false)
+            expect(createdSources).toBe(0)
+        }
+    )
+
     it.each([
-        ['button', true, null, false],
-        ['github_return', true, null, false],
-        ['button', false, null, false],
-        ['github_return', false, null, false],
-        ['button', true, true, false],
-        ['button', false, false, false],
-        ['button', false, null, true],
-        ['button', true, null, true],
+        ['button', true, null, false, null],
+        ['github_return', true, null, false, null],
+        ['button', false, null, false, null],
+        ['github_return', false, null, false, null],
+        ['button', true, true, false, null],
+        ['button', false, false, false, null],
+        ['button', false, null, true, null],
+        ['button', true, null, true, null],
+        ['github_return', true, null, false, 'return'],
+        ['github_return', true, null, false, 'without_github'],
     ] as const)(
-        'activates through %s with usage-based pricing %s and saved implementation %s and GitHub-optional pilot %s',
-        async (entry, usageBasedPricing, savedImplementation, pilot) => {
+        'activates through %s with usage-based pricing %s, saved implementation %s, GitHub-optional pilot %s, and agent marker %s',
+        async (entry, usageBasedPricing, savedImplementation, pilot, agentSetup) => {
             githubOptional = pilot
+            const expectedOrigin = pilot || agentSetup ? 'agent' : 'app'
+            if (pilot || agentSetup) {
+                router.actions.replace('/inbox', { agent_setup: agentSetup ?? 'without_github' })
+            }
             const capture = jest.spyOn(posthog, 'capture')
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing,
@@ -261,8 +461,14 @@ describe('Inbox setup', () => {
                 expect(logic.values.savedState?.draft?.automatic_implementation).toBe(savedImplementation)
             }
             if (entry === 'github_return') {
+                const callback = new URL(logic.values.quickSetupGithubReturnUrl, window.location.origin)
                 await connectGithub()
-                router.actions.replace(router.values.location.pathname, { onboarding_step: 'quick' })
+                expect(savedDraft).toBeNull()
+                logic.unmount()
+                router.actions.replace(callback.pathname, Object.fromEntries(callback.searchParams))
+                logic = inboxSetupLogic()
+                logic.mount()
+                await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
                 await waitFor(() => expect(logic.values.shouldResumeQuickSetup).toBe(true))
                 logic.actions.resumeQuickSetup()
                 logic.actions.resumeQuickSetup()
@@ -272,10 +478,14 @@ describe('Inbox setup', () => {
             }
             expect(logic.values.quickActivationPending).toBe(true)
             await waitFor(() => expect(logic.values.completed).toBe(true))
+            await waitFor(() =>
+                expect(router.values.searchParams.agent_setup).toBe(expectedOrigin === 'agent' ? 'complete' : undefined)
+            )
             expect(inventoryRequests).toBeGreaterThan(0)
             expect(logic.values.quickActivationPending).toBe(false)
             expect(enabledScouts).toEqual(['signals-scout-general'])
             expect(logic.values.savedState?.draft?.automatic_implementation).toBe(!pilot && !usageBasedPricing)
+            expect(logic.values.savedState?.draft?.onboarding_origin).toBe(expectedOrigin)
             expect(logic.values.savedState?.draft?.suggestions.map((item) => item.skill_name)).toEqual([
                 'signals-scout-general',
             ])
@@ -291,6 +501,7 @@ describe('Inbox setup', () => {
                         setup_mode: 'quick',
                         flow_version: 'ui-first-v1',
                         inbox_client: 'cloud',
+                        onboarding_origin: expectedOrigin,
                         activation_source: entry,
                         self_driving_ubp: usageBasedPricing,
                         automatic_implementation: !pilot && !usageBasedPricing,
@@ -307,47 +518,62 @@ describe('Inbox setup', () => {
     )
 
     it.each([
-        ['a missing general scout', 'scouts'],
-        ['an unavailable source inventory', 'sources'],
-    ] as const)('reports %s after a quick activation click and activates on retry', async (_name, failure) => {
-        const capture = jest.spyOn(posthog, 'capture')
-        savedDraft = null
-        failCompletion = false
-        hasEvents = true
-        const generalScout = generalScoutConfig()
-        canonicalScouts = failure === 'scouts' ? [] : [generalScout]
-        let sourcesUnavailable = failure === 'sources'
-        useMocks({
-            get: {
-                '/api/projects/:id/signals/source_configs/': () =>
-                    sourcesUnavailable
-                        ? [503, { detail: 'Unavailable' }]
-                        : { results: sources, next: null, count: sources.length },
-            },
-        })
-        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
-        expect(inventoryRequests).toBe(0)
-        logic.actions.activateQuickSetup()
-        expect(logic.values.quickActivationPending).toBe(true)
-        await waitFor(() => expect(logic.values.error).toBeTruthy())
-        expect(logic.values.failedOperation).toBe(failure)
-        expect(logic.values.quickActivationPending).toBe(false)
-        expect(logic.values.completed).toBe(false)
-        if (failure === 'scouts') {
-            canonicalScouts.push(generalScout)
-        } else {
-            sourcesUnavailable = false
+        ['a missing general scout', 'scouts', 'app'],
+        ['an unavailable source inventory', 'sources', 'app'],
+        ['a missing general scout', 'scouts', 'agent'],
+        ['an unavailable source inventory', 'sources', 'agent'],
+    ] as const)(
+        'reports %s (%s) after a quick activation click in %s and activates on retry',
+        async (_name, failure, origin) => {
+            const capture = jest.spyOn(posthog, 'capture')
+            savedDraft = null
+            failCompletion = false
+            hasEvents = true
+            const generalScout = generalScoutConfig()
+            canonicalScouts = failure === 'scouts' ? [] : [generalScout]
+            let sourcesUnavailable = failure === 'sources'
+            useMocks({
+                get: {
+                    '/api/projects/:id/signals/source_configs/': () =>
+                        sourcesUnavailable
+                            ? [503, { detail: 'Unavailable' }]
+                            : { results: sources, next: null, count: sources.length },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+            const entry = origin === 'agent' ? inboxAgentActivationLogic() : null
+            if (entry) {
+                router.actions.replace('/inbox/activate')
+                entry.mount()
+                await waitFor(() => expect(entry.values.view).toBe('confirm'))
+            }
+            try {
+                expect(inventoryRequests).toBe(0)
+                logic.actions.activateQuickSetup()
+                expect(logic.values.quickActivationPending).toBe(true)
+                await waitFor(() => expect(logic.values.error).toBeTruthy())
+                expect(logic.values.failedOperation).toBe(failure)
+                expect(logic.values.quickActivationPending).toBe(false)
+                expect(logic.values.completed).toBe(false)
+                if (failure === 'scouts') {
+                    canonicalScouts.push(generalScout)
+                } else {
+                    sourcesUnavailable = false
+                }
+                ;(entry ?? logic).actions.retry()
+                await waitFor(() => expect(logic.values.completed).toBe(true))
+                expect(logic.values.error).toBeNull()
+                expect(activationRequests(capture)).toEqual([
+                    [
+                        'self-driving onboarding activation requested',
+                        expect.objectContaining({ activation_source: 'retry', setup_mode: 'quick' }),
+                    ],
+                ])
+            } finally {
+                entry?.unmount()
+            }
         }
-        logic.actions.retry()
-        await waitFor(() => expect(logic.values.completed).toBe(true))
-        expect(logic.values.error).toBeNull()
-        expect(activationRequests(capture)).toEqual([
-            [
-                'self-driving onboarding activation requested',
-                expect.objectContaining({ activation_source: 'retry', setup_mode: 'quick' }),
-            ],
-        ])
-    })
+    )
 
     it('does not activate from a quick-setup link unless the welcome screen started the GitHub connection', async () => {
         const capture = jest.spyOn(posthog, 'capture')
@@ -625,7 +851,11 @@ describe('Inbox setup', () => {
             await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
             expect(logic.values.completed).toBe(false)
             expect(logic.values.inProgress).toBe(true)
-            expect(logic.values.draft).toEqual({ ...draft, automatic_implementation: !usageBasedPricing })
+            expect(logic.values.draft).toEqual({
+                ...draft,
+                automatic_implementation: !usageBasedPricing,
+                onboarding_origin: 'app',
+            })
             const message = detail?.trim() || 'Could not finish setup. Your choices are saved. Retry activation.'
             expect(logic.values.error).toBe(message)
             expect(logic.values.failedOperation).toBe('activation')
@@ -1008,14 +1238,23 @@ describe('Inbox setup', () => {
     })
 
     it('persists final-step choices so they survive leaving for GitHub', async () => {
+        router.actions.replace('/inbox', { onboarding_step: 'github', agent_setup: 'return' })
         await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
         await expectLogic(logic, () =>
             logic.actions.patchDraft({ automatic_implementation: true })
         ).toFinishAllListeners()
         logic.unmount()
+        router.actions.replace('/inbox')
         logic = inboxSetupLogic()
         logic.mount()
         await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+        expect(logic.values.savedState?.draft?.onboarding_origin).toBe('agent')
+        const capture = jest.spyOn(posthog, 'capture')
+        logic.actions.reportStepViewed()
+        expect(capture).toHaveBeenCalledWith(
+            'self-driving onboarding step viewed',
+            expect.objectContaining({ onboarding_origin: 'agent' })
+        )
         expect(logic.values.isFinalStep).toBe(true)
         expect(logic.values.draft).toMatchObject({
             step: 'github',

@@ -41,7 +41,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -774,7 +773,6 @@ function StepTriggerConfigurationBatch({
                         orFiltering
                         sendAllKeyUpdates
                         allowRelativeDateOptions
-                        {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                         hideBehavioralCohorts={!featureFlags[FEATURE_FLAGS.WORKFLOWS_COHORT_CONDITIONS]}
                         logicalRowDivider
                         onChange={(properties) =>

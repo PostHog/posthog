@@ -18,6 +18,7 @@ from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
 from products.signals.backend.models import SignalTeamConfig
@@ -74,7 +75,7 @@ async def aorganization():
         name=f"SettleAutostartOrg-{random.randint(1, 99999)}",
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -84,7 +85,7 @@ async def ateam(aorganization):
         name=f"SettleAutostartTeam-{random.randint(1, 99999)}",
     )
     yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 # ---------------------------------------------------------------------------

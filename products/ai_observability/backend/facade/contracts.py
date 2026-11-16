@@ -1,11 +1,14 @@
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Final, Literal, get_args
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.alias_generators import to_camel
 
 from posthog.dataclasses import frozen
+
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 
 
 class Contract(BaseModel):
@@ -196,6 +199,42 @@ TraceSideContent = Annotated[TraceMessagesSide | TraceJsonSide, Field(discrimina
 class TraceNodeContent(Contract):
     input: TraceSideContent = Field(description="The node's input, as messages or as JSON.")
     output: TraceSideContent = Field(description="The node's output, as messages or as JSON.")
+
+
+PARSER_RECIPE_MAX_SOURCE_LENGTH: Final = 100_000
+
+
+class TraceParserTestError(Contract):
+    source: Literal["existing_recipes", "candidate"] = Field(
+        description="Whose parsers failed on the side: the project's saved ones, so the side fails with or without the "
+        "parser under test, or the parser under test."
+    )
+    message: str = Field(description="Why the parsers stopped, such as running out of time or work budget.")
+
+
+class TraceParserTestSide(Contract):
+    needed_fixing: bool = Field(
+        description="The side has content that the project's saved parsers leave unparsed, so it renders as raw JSON "
+        "or as one message holding its JSON."
+    )
+    fixed: bool = Field(description="The side needed fixing, and the parser under test makes it recognized.")
+    broken: bool = Field(
+        description="The project's saved parsers parse the side, and with the parser under test added it is no longer "
+        "parsed, for example because the parser uses up the time the side needed."
+    )
+    error: TraceParserTestError | None = Field(description="Set when parsing the side failed instead of finishing.")
+
+
+class TraceNodeParserTest(Contract):
+    content: TraceNodeContent = Field(
+        description="The node's input and output as they would render with the parser under test saved."
+    )
+    input: TraceParserTestSide
+    output: TraceParserTestSide
+    passed: bool = Field(
+        description="At least one side needed fixing, the parser under test fixes every side that did, and it breaks "
+        "no side. Nothing is saved either way."
+    )
 
 
 class TraceNodeDetail(Contract):
@@ -518,6 +557,7 @@ class TraceSummaryContent(Contract):
 class TraceSummaryFailure(Contract):
     reason: TraceSummaryFailureReason
     message: str = Field(description="Why the summary failed, ready to show to the user.")
+    retryable: bool = Field(description="Whether a new request could succeed; false when it would fail the same way.")
 
 
 class TraceSummary(Contract):
@@ -849,3 +889,78 @@ class JudgeModelError(Exception):
 
 class JudgeTestAlreadyRunningError(Exception):
     """This user's previous judge test has not finished."""
+
+
+@frozen
+class EvalSuggestionsPlan:
+    """The teams the weekly eval suggestions run covers, and how many run at once."""
+
+    team_ids: list[int]
+    max_concurrent_teams: int
+
+
+@frozen
+class EvalSuggestionRun:
+    id: UUID
+    trigger: str
+    created_at: datetime
+    completed_at: datetime | None
+
+
+@frozen
+class EvalSuggestion:
+    id: UUID
+    kind: str
+    status: str
+    applies: bool
+    template_key: str
+    headline: str
+    outcome: str
+    reason: str
+    draft: Mapping[str, Any]
+    filters: Sequence[Mapping[str, Any]]
+    rollout_percentage: float
+    measured_failure_rate: float | None
+    sample_size: int | None
+    evidence: Sequence[Mapping[str, Any]]
+    estimated_weekly_runs: int | None
+    estimated_weekly_cost_usd: float | None
+    judge_model: str
+    created_evaluation: UUID | None
+    target_evaluation: UUID | None
+    target_evaluation_name: str | None
+    similar_evaluation: UUID | None
+    similar_evaluation_name: str | None
+    dismiss_reason: str | None
+    created_at: datetime
+
+
+@frozen
+class EvalSuggestionList:
+    run: EvalSuggestionRun | None
+    pending: bool
+    results: list[EvalSuggestion]
+
+
+@frozen
+class EvalSuggestionAcceptEstimate:
+    target: str
+    units: int
+    window_start: datetime | None
+    window_end: datetime | None
+    judge_model: str | None
+    estimated_cost_usd: float | None
+
+
+@frozen
+class EvalSuggestionAccepted:
+    suggestion: EvalSuggestion
+    evaluation_id: UUID
+    backfill_id: UUID | None
+    backfill_units: int | None
+    # A repeat returns the evaluation the first accept created, which can have been restricted since.
+    evaluation_access: ObjectAccessRef
+
+
+class EvalSuggestionNotFoundError(Exception):
+    """No suggestion with this id in the team, or it names an evaluation the user cannot read."""

@@ -1,13 +1,17 @@
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { formatMsAsSeconds } from './dashboard/formatters'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import {
     type ChartViewChange,
     DEFAULT_CHART_VIEWS,
@@ -15,6 +19,7 @@ import {
     buildDailyChartData,
     maskIncompleteLatencyBox,
     mcpAnalyticsToolQualityLogic,
+    mcpToolQualityUrlWithDates,
 } from './mcpAnalyticsToolQualityLogic'
 
 jest.mock('lib/api')
@@ -375,6 +380,49 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(rowsQuery).toMatchObject({ sortColumn: 'error_rate_pct', sortDirection: 'ASC', offset: 0 })
         })
 
+        it.each([
+            [
+                'the dashboard link sorted by p95',
+                () =>
+                    mcpToolQualityUrlWithDates({ dateFrom: '-7d', dateTo: null }, null, {
+                        column: 'p95_duration_ms',
+                        direction: 'DESC',
+                    }),
+                { column: 'p95_duration_ms', direction: 'DESC' },
+            ],
+            [
+                'an ascending sort',
+                () => combineUrl(urls.mcpAnalyticsToolQuality(), { sort: 'users', sort_direction: 'ASC' }).url,
+                { column: 'users', direction: 'ASC' },
+            ],
+            [
+                'an unknown sort column',
+                () => combineUrl(urls.mcpAnalyticsToolQuality(), { sort: 'toString' }).url,
+                { column: 'total_calls', direction: 'DESC' },
+            ],
+        ])('opens the table on the sort from %s', async (_name, url, expected) => {
+            router.actions.push(url())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const rowsQueries = queryCallsSince(0).filter((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
+            expect(rowsQueries.at(-1)).toMatchObject({ sortColumn: expected.column, sortDirection: expected.direction })
+        })
+
+        it('keeps a picked sort in the URL and drops it for the default sort', async () => {
+            router.actions.push(urls.mcpAnalyticsToolQuality())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+
+            logic.actions.setToolQualitySort('p95_duration_ms', 'ASC')
+            expect(router.values.searchParams).toMatchObject({ sort: 'p95_duration_ms', sort_direction: 'ASC' })
+
+            logic.actions.setToolQualitySort('total_calls', 'DESC')
+            expect(router.values.searchParams).not.toHaveProperty('sort')
+            expect(router.values.searchParams).not.toHaveProperty('sort_direction')
+        })
+
         it('refetches the charts at the picked grouping, leaving the table alone', async () => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
@@ -433,7 +481,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             const callsBefore = mockApi.query.mock.calls.length
 
             await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([EVENT_FILTER])
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER])
             }).toFinishAllListeners()
 
             const reloads = queryCallsSince(callsBefore)
@@ -443,19 +491,75 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             )
         })
 
-        it('spreads filterTestAccounts into every query and reloads on change', async () => {
+        it.each([
+            ['the test-account toggle', () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)],
+            [
+                "the team's test-account default",
+                () =>
+                    teamLogic.actions.loadCurrentTeamSuccess({
+                        ...teamLogic.values.currentTeam!,
+                        test_account_filters_default_checked: true,
+                    }),
+            ],
+        ])('spreads filterTestAccounts into every query and reloads on %s', async (_label, change) => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             const callsBefore = mockApi.query.mock.calls.length
 
-            await expectLogic(logic, () => {
-                logic.actions.setFilterTestAccounts(true)
-            }).toFinishAllListeners()
+            await expectLogic(logic, change).toFinishAllListeners()
 
             const reloads = queryCallsSince(callsBefore)
             expect(reloads.length).toBe(4)
             expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
+        })
+
+        it.each([
+            ['no URL params', {}, 4],
+            ['shared filters', { filter_test_accounts: true, properties: [EVENT_FILTER] }, 4],
+            [
+                'shared filters and a date range',
+                { filter_test_accounts: true, properties: [EVENT_FILTER], date_from: '-30d' },
+                5,
+            ],
+        ])(
+            'does not reload for the shared filters when mounting with %s',
+            async (_label, searchParams, expectedRequests) => {
+                router.actions.push(urls.mcpAnalyticsToolQuality(), searchParams)
+
+                const logic = mcpAnalyticsToolQualityLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(mockApi.query).toHaveBeenCalledTimes(expectedRequests)
+            }
+        )
+
+        it.each([
+            [
+                'the test-account toggle',
+                () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true),
+                { filterTestAccounts: true, propertyFilters: [] },
+                { filter_test_accounts: true },
+            ],
+            [
+                'a property filter',
+                () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER]),
+                { filterTestAccounts: false, propertyFilters: [EVENT_FILTER] },
+                { properties: [EVENT_FILTER] },
+            ],
+        ])('keeps %s and clears the selected tool', async (_label, change, expectedFilters, expectedParams) => {
+            router.actions.push(urls.mcpAnalyticsToolQuality())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.setSelectedTool('tool_a')).toFinishAllListeners()
+
+            await expectLogic(logic, change).toFinishAllListeners()
+
+            expect(logic.values.selectedTool).toBeNull()
+            expect(mcpAnalyticsFiltersLogic.values).toMatchObject(expectedFilters)
+            expect(router.values.searchParams).toMatchObject(expectedParams)
+            expect(router.values.searchParams.tool).toBeUndefined()
         })
 
         it('reloads once when both shared filters hydrate from the URL', async () => {
@@ -465,7 +569,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             const callsBefore = mockApi.query.mock.calls.length
 
             await expectLogic(logic, () => {
-                logic.actions.hydrateFilters(true, [EVENT_FILTER])
+                mcpAnalyticsFiltersLogic.actions.hydrateFilters(true, [EVENT_FILTER])
             }).toFinishAllListeners()
 
             const reloads = queryCallsSince(callsBefore)

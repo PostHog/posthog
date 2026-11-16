@@ -58,6 +58,7 @@ from products.dashboards.backend.logic import (
     templates as templates_logic,
     tiles as tiles_logic,
     usage as usage_logic,
+    visibility as visibility_logic,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
@@ -638,7 +639,7 @@ def plan_insight_tile_placement(
         # The dashboard's public link or subscription must not expose a query the editor can't run.
         from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 
-        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
+        check_can_add_insight_to_dashboard(user, _to_summary(dashboard), query, user_access_control)
     return InsightTilePlacement(dashboards)
 
 
@@ -675,7 +676,7 @@ def _place_insight_tile(
     # The dashboard's public link or subscription must not expose a query the editor can't run.
     from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 
-    check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
+    check_can_add_insight_to_dashboard(user, _to_summary(dashboard), query, user_access_control)
 
     insight_lookup: dict[str, Any] = (
         {"insight": loaded_insight} if loaded_insight is not None else {"insight_id": insight_id}
@@ -973,6 +974,39 @@ def widget_type_label(widget_type: str) -> str | None:
     return entry["label"] if entry is not None else None
 
 
+def hidden_dashboard_ids(
+    *, team_id: int, dashboard_ids: Collection[int], user_access_control: UserAccessControl, include_deleted: bool
+) -> set[int]:
+    """Which of these dashboards of this team the user may not view. A soft-deleted one counts only with `include_deleted`.
+
+    Without dashboard resource access, every dashboard is hidden except the ones granted to the user
+    and the ones the user created. Org admins see every dashboard.
+    """
+    return visibility_logic.hidden_dashboard_ids(
+        team_id=team_id,
+        dashboard_ids=dashboard_ids,
+        user_access_control=user_access_control,
+        include_deleted=include_deleted,
+    )
+
+
+def insight_placements(
+    *,
+    team_id: int,
+    dashboard_ids: Collection[int],
+    include_deleted: bool,
+    insight_ids: Collection[int] | None = None,
+) -> list[InsightPlacement]:
+    """The insight tiles on these dashboards of this team, oldest tile first. With `insight_ids`, only those insights.
+
+    Without `include_deleted`, a removed tile and a tile on a soft-deleted dashboard do not count.
+    A tile of a soft-deleted insight counts either way.
+    """
+    return tiles_logic.insight_placements(
+        team_id=team_id, dashboard_ids=dashboard_ids, insight_ids=insight_ids, include_deleted=include_deleted
+    )
+
+
 __all__ = [
     "CannotAddToDashboard",
     "CannotRemoveFromDashboard",
@@ -1039,8 +1073,10 @@ __all__ = [
     "delete_widget_tiles_for_teams",
     "find_dashboard_team_id",
     "has_user_created_dashboard",
+    "hidden_dashboard_ids",
     "home_tab_dashboard_id",
     "insight_ids_on_template_dashboards",
+    "insight_placements",
     "live_tile_placements",
     "placements_on_dashboards_accessed_since",
     "remove_quick_filter_from_dashboards",

@@ -57,7 +57,8 @@ A new test file needs a team owner, because ownership routes its failures and fl
 Put it next to the code it tests, inside `products/<name>/` when one product owns the behavior, so it inherits that owner.
 Check with `hogli owners:who <path>`.
 When no team owns the path, name the team responsible for the behavior it checks in the nearest `owners.yaml`, not the team of a helper it imports.
-CI fails a test file in a new directory that no team owns, and `hogli ci:preflight` runs the same check before you push.
+CI fails a pull request that leaves a test file with no team owner: a new file, a moved file, or a file that an `owners.yaml` edit left without a team.
+The pre-push hook runs the same check and blocks the push.
 
 ### 3. Does it go red?
 

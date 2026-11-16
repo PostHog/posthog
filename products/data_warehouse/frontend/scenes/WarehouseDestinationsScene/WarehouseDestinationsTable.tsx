@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { IconPencil, IconTrash } from '@posthog/icons'
+import { IconNotification, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumn, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -20,6 +20,8 @@ export interface WarehouseDestinationsTableProps {
     loading: boolean
     onEdit: (destination: ExternalDataDestinationApi) => void
     onDelete: (destination: ExternalDataDestinationApi) => void
+    /** Starts a new alert that watches the destination. Unset hides the action. */
+    onCreateAlert?: (destination: ExternalDataDestinationApi) => void
     /** The destination currently being deleted, so its row cannot fire a second request. */
     deletingId?: string | null
     /** Rendered when the list has loaded and holds nothing. */
@@ -31,6 +33,7 @@ export function WarehouseDestinationsTable({
     loading,
     onEdit,
     onDelete,
+    onCreateAlert,
     deletingId,
     emptyState,
 }: WarehouseDestinationsTableProps): JSX.Element {
@@ -118,6 +121,17 @@ export function WarehouseDestinationsTable({
                                 >
                                     Edit
                                 </LemonButton>
+                                {onCreateAlert ? (
+                                    <LemonButton
+                                        fullWidth
+                                        icon={<IconNotification />}
+                                        onClick={() => onCreateAlert(destination)}
+                                        data-attr="warehouse-destination-scene-create-alert"
+                                        disabledReason={managedReason}
+                                    >
+                                        Create alert
+                                    </LemonButton>
+                                ) : null}
                                 <LemonButton
                                     fullWidth
                                     status="danger"

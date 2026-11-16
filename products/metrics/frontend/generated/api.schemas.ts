@@ -222,8 +222,38 @@ export type _MetricSeriesApiLabels = { [key: string]: string }
 export interface _MetricSeriesApi {
     /** Label values identifying this series. Empty for an ungrouped query. */
     labels: _MetricSeriesApiLabels
-    /** Time-bucketed points, ordered by time ascending. */
-    points: _MetricQueryPointApi[]
+    /** Time-bucketed points, ordered by time ascending. Absent for instant queries and the summary output. */
+    points?: _MetricQueryPointApi[]
+    /**
+     * Instant queries only: the series' value at 'time'.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * Instant queries: the time of 'value' (for the builder, the start of the bucket). Summary output: the time of 'last'.
+     * @nullable
+     */
+    time?: string | null
+    /**
+     * Summary output only: the last non-null value.
+     * @nullable
+     */
+    last?: number | null
+    /**
+     * Summary output only: the smallest non-null value.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Summary output only: the largest non-null value.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Summary output only: the mean of the non-null values.
+     * @nullable
+     */
+    avg?: number | null
     /**
      * Metric the series was computed from. Null for formula results.
      * @nullable
@@ -244,6 +274,11 @@ export interface _MetricSeriesApi {
      * @nullable
      */
     histogram_bounds?: number[] | null
+    /**
+     * Most distinct bucket layouts merged into one point of a histogram_quantile series. Above 1, series with different buckets were merged by bucket width. Null for other aggregations.
+     * @nullable
+     */
+    histogram_layout_count?: number | null
 }
 
 export interface _MetricAnomalyReportApi {
@@ -282,6 +317,11 @@ export interface _MetricAnomalyReportApi {
      * @nullable
      */
     onset_time: string | null
+    /**
+     * Start of the last bucket when it ends after anomalyTo or now, so it holds only part of its samples. It stays in series but is left out of every statistic, the onset and the movers. Null when every bucket is complete.
+     * @nullable
+     */
+    partial_bucket_time?: string | null
     /** Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels. */
     top_movers: _MetricAnomalyDimensionApi[]
     /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */
@@ -988,6 +1028,17 @@ export interface _MetricClauseApi {
     groupBy?: _MetricGroupByApi[]
 }
 
+/**
+ * * `points` - points
+ * * `summary` - summary
+ */
+export type MetricQueryOutputEnumApi = (typeof MetricQueryOutputEnumApi)[keyof typeof MetricQueryOutputEnumApi]
+
+export const MetricQueryOutputEnumApi = {
+    Points: 'points',
+    Summary: 'summary',
+} as const
+
 export interface _MetricQueryBodyApi {
     /**
      * Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.
@@ -1058,10 +1109,31 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     promql?: string | null
-    /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+    /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo. */
     dateFrom?: string
     /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
     dateTo?: string
+    /**
+     * Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise.
+     * @nullable
+     */
+    dropEmptySeries?: boolean | null
+    /**
+     * Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries.
+     * @minimum 1
+     * @maximum 100
+     * @nullable
+     */
+    limit?: number | null
+    /** Return one value per series instead of a time series. PromQL runs as an instant query at 'time'. The builder returns the last complete bucket before 'time', 5 minutes wide unless 'interval' says otherwise. Each series then has 'value' and 'time' instead of 'points'. Cannot be combined with 'dateFrom', 'dateTo' or 'output'. */
+    instant?: boolean
+    /** Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant. */
+    time?: string
+    /** 'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.
+     *
+     * * `points` - points
+     * * `summary` - summary */
+    output?: MetricQueryOutputEnumApi
 }
 
 export interface _MetricQueryRequestApi {
@@ -1072,8 +1144,14 @@ export interface _MetricQueryRequestApi {
 export interface _MetricQueryResponseApi {
     /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
     results: _MetricSeriesApi[]
-    /** Set only when the query returned no points: what to check before querying again. */
+    /** Set when the query returned no points, with what to check before querying again, or when a histogram_quantile merged different bucket layouts, with how to read the result. */
     hint?: string
+    /** Number of series left out because every point was zero or null. Set only when dropEmptySeries left some out. */
+    omitted_empty_series?: number
+    /** Number of series left out by 'limit'. Set only when it left some out. */
+    omitted_by_limit?: number
+    /** Search params that open this query in the metrics viewer, e.g. /metrics?<url_params>. For a builder query the viewer cannot show (a 'resource' or 'attribute' scope, an unusual quantile), they open the viewer without it. */
+    url_params?: string
 }
 
 export interface _MetricQueryCountApi {
@@ -1251,6 +1329,17 @@ export interface MetricsSuggestedDashboardApi {
     dashboard_id: number | null
 }
 
+export interface _MetricClassicHistogramApi {
+    /** The histogram's name without a suffix. */
+    base_name: string
+    /** The `_bucket` name, with the `le` label. PromQL reads this one. */
+    bucket: string
+    /** The `_sum` name: the total of the observed values. */
+    sum: string
+    /** The `_count` name: the number of observations. */
+    count: string
+}
+
 export interface _MetricNameApi {
     /** Metric name as it appears in the team's data. */
     name: string
@@ -1265,6 +1354,13 @@ export interface _MetricNameApi {
     last_seen?: string | null
     /** A small downsampled series of the metric's recent shape, for a sparkline. */
     sparkline?: number[]
+    /**
+     * Start of the earliest hour this metric arrived in, within retention, ISO 8601. Only present when `first_seen` was requested.
+     * @nullable
+     */
+    first_seen?: string | null
+    /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
+    classic_histogram?: _MetricClassicHistogramApi
 }
 
 export interface _MetricNamesResponseApi {
@@ -1520,19 +1616,48 @@ export type MetricsQueryCountsRetrieveParams = {
 
 export type MetricsValuesRetrieveParams = {
     /**
+     * Add `first_seen`: the earliest hour each name arrived in, within retention.
+     */
+    first_seen?: boolean
+    /**
+     * Fold a Prometheus classic histogram's `<name>_bucket`, `<name>_sum` and `<name>_count` into one `<name>_bucket` entry with `classic_histogram` set. Only folds when all three are in the page.
+     */
+    fold_histograms?: boolean
+    /**
      * Max number of names to return. Defaults to 100; maximum 1000.
      * @minimum 1
      * @maximum 1000
      */
     limit?: number
     /**
+     * How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. `regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, so use `^` and `$` to anchor and `(?i)` to ignore case.
+     *
+     * * `substring` - substring
+     * * `prefix` - prefix
+     * * `regex` - regex
+     * @minLength 1
+     */
+    match?: MetricsValuesRetrieveMatch
+    /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024
      */
     service?: string
     /**
-     * Substring filter (case-insensitive) applied to metric names.
+     * Attach a 24-point sparkline of the last 6 hours to each name. Turn off for a smaller, faster response.
+     */
+    sparklines?: boolean
+    /**
+     * Filter applied to metric names; `match` decides how. Empty lists every name, ordered by how many services report it.
      * @maxLength 255
      */
     value?: string
 }
+
+export type MetricsValuesRetrieveMatch = (typeof MetricsValuesRetrieveMatch)[keyof typeof MetricsValuesRetrieveMatch]
+
+export const MetricsValuesRetrieveMatch = {
+    Substring: 'substring',
+    Prefix: 'prefix',
+    Regex: 'regex',
+} as const

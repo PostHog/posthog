@@ -13,9 +13,20 @@ export interface APIKeyTableRow {
     created_by?: {
         email: string
         first_name?: string
+        last_name?: string
     } | null
     last_used_at: string | null
     last_rolled_at: string | null
+}
+
+// "Jane D.": the last initial separates people who share a first name.
+export function formatCreatedBy(user: NonNullable<APIKeyTableRow['created_by']>): string {
+    const firstName = user.first_name?.trim()
+    if (!firstName) {
+        return user.email
+    }
+    const lastInitial = user.last_name?.trim().charAt(0)
+    return lastInitial ? `${firstName} ${lastInitial.toUpperCase()}.` : firstName
 }
 
 /** Either confirm a roll with the default dialog and call `onRoll`, or replace that dialog entirely. */
@@ -134,7 +145,13 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
         key: 'created_by',
         dataIndex: 'created_by',
         render: (_: any, key: T) =>
-            key.created_by ? `${key.created_by.first_name || key.created_by.email}` : 'Unknown',
+            key.created_by ? (
+                <Tooltip title={key.created_by.email}>
+                    <span>{formatCreatedBy(key.created_by)}</span>
+                </Tooltip>
+            ) : (
+                'Unknown'
+            ),
     }
 
     const lastUsedColumn: LemonTableColumn<T, any> = {

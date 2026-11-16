@@ -10,6 +10,7 @@ import { setSessionTokens } from '@/auth/tokens'
 import { useHandoffStore } from '@/features/handoff/handoffStore'
 import { useReportWithLiveRun } from '@/features/handoff/useReportWithLiveRun'
 import { useFeatureAccess, useScopeErrorStore } from '@/features/views/useViewsAccess'
+import { RECONNECT_CHECK_TIMEOUT_MS, RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
 import { reportFixture } from '@/model/adapters/testFixtures'
 import type { QueryState, ReportView } from '@/model/types'
 
@@ -326,6 +327,85 @@ describe('useReport', () => {
             }
         }
     )
+
+    test('report reconnecting waits for a sustained failure and clears immediately on recovery', async () => {
+        jest.useFakeTimers()
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+        client.setQueryData(reportDetailQuery(SCOPE, REPORT_ID).queryKey, reportFixture({ id: REPORT_ID }))
+        client.setQueryData(reportArtefactsQuery(SCOPE, REPORT_ID).queryKey, { count: 0, next: null, results: [] })
+        client.setQueryData(reportPageQuery(SCOPE, REPORT_ID).queryKey, {
+            lead: '',
+            evidence: [],
+            impact_sentence: '',
+            impact_numbers: [],
+            last_seen: null,
+        })
+        client.setQueryData(reportSignalsQuery(SCOPE, REPORT_ID).queryKey, { signals: [] })
+        useHandoffStore.getState().setStarted(REPORT_ID, { taskId: 'notice-task', runId: 'notice-run' })
+        useHandoffStore.getState().applySnapshot(REPORT_ID, 'notice-task', {
+            id: 'notice-run',
+            task: 'notice-task',
+            status: 'in_progress',
+            stage: null,
+            branch: null,
+            error_message: null,
+            output: null,
+            completed_at: null,
+        })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        )
+        const { result, unmount } = renderHook(() => useReportWithLiveRun(REPORT_ID), { wrapper })
+        const setConnection = (connection: 'connected' | 'reconnecting'): void => {
+            act(() => useHandoffStore.getState().setConnection(REPORT_ID, 'notice-run', connection))
+        }
+        try {
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(10)
+            })
+            setConnection('reconnecting')
+            expect(result.current.data?.task?.connection).toBeUndefined()
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(RECONNECT_NOTICE_DELAY_MS - 1)
+            })
+            expect(result.current.data?.task?.connection).toBeUndefined()
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(1)
+            })
+            expect(result.current.data?.task?.connection).toBeUndefined()
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(RECONNECT_CHECK_TIMEOUT_MS)
+            })
+            expect(result.current.data?.task?.connection).toBe('reconnecting')
+            setConnection('connected')
+            expect(result.current.data?.task?.connection).toBe('connected')
+
+            setConnection('reconnecting')
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(1000)
+            })
+            setConnection('connected')
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(RECONNECT_NOTICE_DELAY_MS)
+            })
+            expect(result.current.data?.task?.connection).toBe('connected')
+
+            setConnection('reconnecting')
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(RECONNECT_NOTICE_DELAY_MS + 1000)
+            })
+            expect(result.current.data?.task?.connection).toBeUndefined()
+            setConnection('connected')
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(RECONNECT_CHECK_TIMEOUT_MS)
+            })
+            expect(result.current.data?.task?.connection).toBe('connected')
+        } finally {
+            unmount()
+            client.clear()
+            jest.useRealTimers()
+        }
+    })
 
     test('refreshes on PR and turn changes with a throttle, without refetching for message chunks', async () => {
         jest.useFakeTimers()

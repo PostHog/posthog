@@ -32,6 +32,7 @@ from temporalio.workflow import ParentClosePolicy
 
 from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
+    DEVEX_LENS_NAME,
     FAN_OUT_FAILURE_FLOOR,
     FLASH_LENS_SESSION_TIMEOUT,
     FLASH_LENSES,
@@ -722,6 +723,13 @@ class ReviewPRWorkflow:
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
+            # The patch goes before the recorded value, so an older history keeps its sessions on replay.
+            devex_lens = (
+                review_design == REVIEW_DESIGN_SINGLE_AGENT
+                and workflow.patched("flash-devex-lens-2026-11")
+                and meta.devex_lens
+                and delta_since_head_sha is None
+            )
             # After the skill sync and schema generation, so the fingerprint hashes what the stages use.
             if workflow.patched("record-turn-marker-2026-10"):
                 try:
@@ -739,6 +747,7 @@ class ReviewPRWorkflow:
                             coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                             publishes=publishes_to_pr,
                             arm_set=meta.arm_set,
+                            devex_lens=devex_lens,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -760,6 +769,7 @@ class ReviewPRWorkflow:
                 trigger_source=inputs.trigger_source,
                 delta_since_head_sha=delta_since_head_sha,
                 arm_set=meta.arm_set,
+                devex_lens=devex_lens,
             )
 
             # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
@@ -1083,6 +1093,8 @@ class ReviewPRWorkflow:
             return None
 
         lens_units = [(lens, chunk_id) for lens in FLASH_LENSES for chunk_id in range(1, lens_chunk_count + 1)]
+        if stage.devex_lens:
+            lens_units.append((DEVEX_LENS_NAME, 1))
         workflow.logger.info(
             f"STAGE 2-3/7 · Single-agent review: the main session and {len(lens_units)} lens session(s)"
         )

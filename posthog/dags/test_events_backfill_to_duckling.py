@@ -35,8 +35,6 @@ from posthog.dags.events_backfill_to_duckling import (
     PERSONS_TRINO_COLUMN_TYPES,
     PERSONS_TRINO_COLUMNS,
     TARGET_ROWS_PER_FILE,
-    DuckgresConnectionRefused,
-    DuckgresOrganizationUnavailable,
     DucklingBackfillConfig,
     DucklingTarget,
     _compute_fanout,
@@ -81,6 +79,8 @@ from products.data_warehouse.backend.facade.backfill_status import BackfillOutco
 from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE
 from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresConnectionRefused,
+    DuckgresOrganizationUnavailable,
     DuckLakeDayReplacement,
     DuckLakeTableLayoutError,
     DuckLakeTableReplacement,

@@ -20,6 +20,7 @@ from products.signals.backend.scout_harness.views import (
     SignalScoutMembersViewSet,
     SignalScoutMetadataViewSet,
     SignalScoutNoteViewSet,
+    SignalScoutReportDiscussionsViewSet,
     SignalScoutRunViewSet,
     SignalScoutViewSet,
     SignalScratchpadViewSet,
@@ -114,6 +115,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/scout/members",
         SignalScoutMembersViewSet,
         "project_signals_scout_members",
+        ["team_id"],
+    )
+    # Discussions on the calling scout's own reports. Internal scope → sandbox-only, like the roster.
+    routers.projects.register(
+        r"signals/scout/report_discussions",
+        SignalScoutReportDiscussionsViewSet,
+        "project_signals_scout_report_discussions",
         ["team_id"],
     )
     # Scout chat kickoff: server-minted tasks with the reserved SIGNALS_CHAT origin, so the

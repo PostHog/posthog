@@ -372,9 +372,21 @@ html[data-today-transition]::view-transition-new(root) {
 }
 
 .TodayWatchedNote__icons {
-    --icon-stack-size: 16px;
+    --icon-stack-size: 18px;
+    --icon-stack-step: 12px;
+    --icon-stack-spread: 13px;
 
     flex-shrink: 0;
+
+    .quill-icon-stack__item {
+        border-width: 2px;
+        border-radius: 5px;
+    }
+
+    .quill-icon-stack__item svg {
+        width: 10px;
+        height: 10px;
+    }
 }
 
 .TodayStarterSuggestions {
@@ -1087,4 +1099,23 @@ html[data-today-transition]::view-transition-new(root) {
     margin: 28px -8px 0;
     background: color-mix(in oklab, var(--foreground) 4.5%, transparent);
     border-radius: calc(var(--radius-sm) + 8px);
+    transition: background-color 150ms ease-out;
+
+    // The wrapper's padding is the focus ring here, so it fills the whole tray instead of a thinner ring inside it.
+    &:focus-within {
+        background: color-mix(in oklab, var(--ring) 15%, transparent);
+
+        [theme='dark'] & {
+            background: color-mix(in oklab, var(--ring) 30%, transparent);
+        }
+    }
+
+    // QuillComposerLayout's focus-within utilities are !important in the utilities layer. Important declarations
+    // in an earlier layer win, and unlayered ones lose, so this override has to sit in base.
+    @layer base {
+        [data-slot='input-group']:focus-within {
+            border-color: transparent !important;
+            box-shadow: none !important;
+        }
+    }
 }
