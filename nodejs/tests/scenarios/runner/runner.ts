@@ -34,7 +34,7 @@ import {
     secretsOf,
 } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
-import { TOPOLOGY_FILE, Topology, hostsOf, missingTargets, nodesOf } from '../environment/topology'
+import { TOPOLOGY_FILE, Wiring, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { BarResult, CpuPoint, judgeBars } from '../judge/bars'
@@ -62,7 +62,6 @@ import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { openLiveLog } from './live'
 import { Admission, Status, admissionsOf, statusOf } from './status'
 
-// A valve names a host the edge answers for; `ses` stands for every send.
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError'>
@@ -102,6 +101,8 @@ const HEALTH_INTERVAL_MS = 5000
 const DELIVERY_TIMEOUT_MS = 10_000
 const SEED_STATEMENT_TIMEOUT_MS = 5000
 const SEED_WITHIN_MS = 60_000
+const TOPOLOGY_WITHIN_MS = 30_000
+const TOPOLOGY_EVERY_MS = 1000
 const WRITER_PROBE_EVERY_MS = 1000
 const QUEUE_PROBE_EVERY_MS = 5000
 const PROBED_QUEUES: Queue[] = ['hogflow', 'email']
@@ -305,17 +306,39 @@ const firstStepOf = (drive: DriveWindow, [first]: Step[]): DriveWindow => ({
     endedAt: Math.min(drive.endedAt, drive.startedAt + first.toMs),
 })
 
-export type RunnerOptions = { seedWithinMs?: number }
+export type RunnerOptions = { seedWithinMs?: number; topologyWithinMs?: number; topologyEveryMs?: number }
 
 export function createRunner(
     environment: Environment,
     env: NodeJS.ProcessEnv = process.env,
-    { seedWithinMs = SEED_WITHIN_MS }: RunnerOptions = {}
+    {
+        seedWithinMs = SEED_WITHIN_MS,
+        topologyWithinMs = TOPOLOGY_WITHIN_MS,
+        topologyEveryMs = TOPOLOGY_EVERY_MS,
+    }: RunnerOptions = {}
 ): Runner {
     const stateDir = defaultStateDir(env)
     const manifest = runManifestOf(env)
     let restartRequired: Error | undefined
     let ranManifest = false
+
+    const settledWiring = async (
+        targets: string[],
+        signal: AbortSignal
+    ): Promise<{ wiring: Wiring; nodes: string[]; missing: string[] }> => {
+        const deadline = Date.now() + topologyWithinMs
+        let previousHash: string | undefined
+        for (;;) {
+            const wiring = await environment.topology()
+            const nodes = nodesOf(wiring, EDGE_HOSTS)
+            const missing = missingTargets(targets, nodes)
+            if ((missing.length === 0 && wiring.hash === previousHash) || Date.now() >= deadline) {
+                return { wiring, nodes, missing }
+            }
+            previousHash = missing.length === 0 ? wiring.hash : undefined
+            await sleep(topologyEveryMs, undefined, { signal })
+        }
+    }
 
     const writerCpuFor = async (
         bars: Named[],
@@ -385,7 +408,7 @@ export function createRunner(
             })
             const valves = createValves()
             const live = openLiveLog(evidenceDir)
-            live.write({ type: 'start', at: Date.now(), runId, cardId: card.id })
+            live.write({ type: 'start', at: Date.now(), runId, cardId: card.id, cardHash: loaded.cardHash })
             let outcome: Outcome = {
                 status: 'invalid',
                 statusReason: 'not started',
@@ -400,7 +423,7 @@ export function createRunner(
             let probes: Probes | undefined
             let probed: Probed = { writer: [], queue: [] }
             let driven: DriveWindow | undefined
-            let topology: Topology | undefined
+            let topology: Wiring | undefined
             let producer: KafkaProducerWrapper | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
@@ -423,12 +446,11 @@ export function createRunner(
                     }
                 )
                 await judge.open(seeded)
-                topology = await environment.topology()
-                const nodes = nodesOf(topology, EDGE_HOSTS)
-                const missing = missingTargets(
+                const { wiring, nodes, missing } = await settledWiring(
                     card.valves.map(({ target }) => target),
-                    nodes
+                    signal
                 )
+                topology = wiring
                 if (missing.length > 0) {
                     throw new Error(
                         `the card targets ${missing.join(', ')}, which this run's topology does not have; it found ${nodes.join(', ')}`

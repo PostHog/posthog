@@ -4,8 +4,6 @@ const SVG = 'http://www.w3.org/2000/svg'
 
 const SERIES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
 
-// ---------- small helpers ----------
-
 const h = (tag, attrs = {}, ...children) => {
     const el = document.createElement(tag)
     for (const [key, value] of Object.entries(attrs)) {
@@ -53,11 +51,11 @@ const render = (...children) =>
     )
 
 const getJson = async (url) => {
-    // This file runs in the browser, where the Node request util does not exist.
     // oxlint-disable-next-line no-restricted-globals
     const response = await fetch(url)
     if (!response.ok) {
-        throw new Error(`${url} answered ${response.status}`)
+        const body = await response.json().catch(() => null)
+        throw new Error(body?.error ?? `${url} answered ${response.status}`)
     }
     return response.json()
 }
@@ -110,7 +108,7 @@ const ago = (iso) => {
 
 const statusPill = (status) => h('span', { class: `status ${status}` }, status)
 
-const doseText = (valve, dose) => {
+const doseText = (dose) => {
     const parts = Object.entries(dose ?? {}).map(([key, value]) => `${key} ${value}`)
     return parts.length ? parts.join(', ') : ''
 }
@@ -119,33 +117,41 @@ const valveText = (entry) => {
     const when = entry.when
         ? `when ${entry.when.atLeast}+ jobs run on ${entry.when.queue}`
         : `at ${fmtDuration(entry.atMs)}`
-    const dose = doseText(entry.valve, entry.dose)
+    const dose = doseText(entry.dose)
     return `${entry.valve} on ${entry.target}${dose ? ` (${dose})` : ''}, ${when}, for ${fmtDuration(entry.forMs)}`
+}
+
+const barText = ({ name, params, unit }) => {
+    const threshold = Object.values(params).find((value) => typeof value === 'number')
+    return threshold === undefined ? name : `${name} ${threshold}${unit}`
 }
 
 const trafficText = ({ name, ratePerSecond }) =>
     ratePerSecond === null ? name : `${name} ${fmtNumber(ratePerSecond)}/s`
 
+const pointOf = (event) => {
+    if ('clientX' in event) {
+        return { clientX: event.clientX, clientY: event.clientY }
+    }
+    const box = event.currentTarget.getBoundingClientRect()
+    return { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 }
+}
+
 const showTooltip = (event, html) => {
     tooltip.innerHTML = html
     tooltip.hidden = false
-    const { innerWidth } = window
-    const x = event.clientX + 14
-    tooltip.style.left = `${Math.min(x, innerWidth - tooltip.offsetWidth - 8)}px`
-    tooltip.style.top = `${event.clientY + 14}px`
+    const { clientX, clientY } = pointOf(event)
+    tooltip.style.left = `${Math.min(clientX + 14, window.innerWidth - tooltip.offsetWidth - 8)}px`
+    tooltip.style.top = `${clientY + 14}px`
 }
 
 const hideTooltip = () => {
     tooltip.hidden = true
 }
 
-// ---------- the delivery path ----------
-
 const NODE_W = 182
 const NODE_H = 82
 
-// Each system carries what it does as its name, for readers who don't know the stack, and its
-// component name underneath.
 const NODES = [
     { id: 'generator', name: 'Load generator', role: 'scenario runner', x: 10, y: 170 },
     { id: 'kafka', name: 'Event stream', role: 'Kafka, events topic', x: 232, y: 50 },
@@ -310,8 +316,6 @@ function deliveryPath() {
     return { svg, paint }
 }
 
-// ---------- state at a moment of a run ----------
-
 const atOrBefore = (points, t) => {
     let found
     for (const point of points) {
@@ -327,7 +331,8 @@ const KILL_SHOWN_MS = 4000
 
 function valveWindows(detail, cardView) {
     const driveEnd = detail.drive?.endedAt ?? Date.parse(detail.endedAt)
-    const cardValves = cardView?.valves ?? []
+    const sameCard = cardView?.ok && cardView.cardHash === detail.scorecard.cardHash
+    const cardValves = sameCard ? cardView.valves : []
     return (detail.scorecard.timeline ?? []).map((entry, i) => {
         const cardEntry = cardValves[i]?.valve === entry.valve ? cardValves[i] : undefined
         const from = entry.appliedAt ? Date.parse(entry.appliedAt) : null
@@ -455,9 +460,41 @@ function viewAt(detail, windows, t) {
     return { nodes, links }
 }
 
-// ---------- charts ----------
+const TICK_STEPS_MS = [
+    10,
+    30,
+    60,
+    120,
+    300,
+    600,
+    1800,
+    3600,
+    3 * 3600,
+    6 * 3600,
+    12 * 3600,
+    86400,
+    2 * 86400,
+    7 * 86400,
+].map((seconds) => seconds * 1000)
 
-function lineChart({ title, unit, series, from, to, bands = [], height = 220, xLabel = fmtDuration, xTicks = 8 }) {
+const tickStepOf = (span, ticks = 8) => TICK_STEPS_MS.find((step) => span / step <= ticks) ?? span / ticks
+
+const sinceStart = (from) => ({
+    tick: (t) => fmtDuration(t - from),
+    tip: (t) => `t+${fmtDuration(Math.max(t - from, 0))}`,
+})
+
+function lineChart({
+    title,
+    unit,
+    series,
+    from,
+    to,
+    bands = [],
+    height = 220,
+    xLabels = sinceStart(from),
+    xTicks = 8,
+}) {
     const width = 640
     const pad = { l: 48, r: 26, t: 10, b: 26 }
     const all = series.flatMap(({ points }) => points.map(([, v]) => v)).filter((v) => v !== null)
@@ -510,16 +547,13 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220, xL
         )
     }
     const span = to - from
-    const step =
-        [10, 30, 60, 120, 300, 600, 1800, 3600, 10800, 21600, 86400]
-            .map((x) => x * 1000)
-            .find((x) => span / x <= xTicks) ?? 604_800_000
+    const step = tickStepOf(span, xTicks)
     for (let t = 0; t <= span; t += step) {
         svg.append(
             s(
                 'text',
                 { x: x(from + t), y: height - 8, 'text-anchor': 'middle', fill: 'var(--muted)', 'font-size': 11 },
-                xLabel(t)
+                xLabels.tick(from + t)
             )
         )
     }
@@ -542,16 +576,25 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220, xL
         for (const [t, v] of line.marks ?? []) {
             svg.append(s('circle', { cx: x(t), cy: y(v), r: 4, fill: 'var(--critical)' }))
         }
-        // A point that names a run gets a dot that says which run it is and opens it.
         for (const [t, v, run] of pts.filter(([, , run]) => run)) {
             dots.push(
                 s(
                     'g',
                     {
                         class: 'run-dot',
+                        tabindex: 0,
+                        role: 'link',
+                        'aria-label': run.label,
                         onclick: () => (location.hash = run.href),
+                        onkeydown: (event) => {
+                            if (event.key === 'Enter') {
+                                location.hash = run.href
+                            }
+                        },
                         onmousemove: (event) => showTooltip(event, run.html),
+                        onfocus: (event) => showTooltip(event, run.html),
                         onmouseleave: hideTooltip,
+                        onblur: hideTooltip,
                     },
                     s('circle', { cx: x(t), cy: y(v), r: 10, fill: 'transparent' }),
                     s('circle', {
@@ -600,11 +643,7 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220, xL
                     : ''
             })
             .join('')
-        const at = Math.max(t - from, 0)
-        showTooltip(
-            event,
-            `<div class="t">${xLabel === fmtDuration ? `t+${fmtDuration(at)}` : xLabel(at)}</div>${rows}`
-        )
+        showTooltip(event, `<div class="t">${xLabels.tip(t)}</div>${rows}`)
     })
     hit.addEventListener('mouseleave', () => {
         hideTooltip()
@@ -633,8 +672,6 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220, xL
         },
     }
 }
-
-// ---------- pages ----------
 
 let cardsCache
 const cards = async () => (cardsCache ??= await getJson('/api/cards'))
@@ -680,10 +717,6 @@ function findingOf(detail) {
     return lines.slice(0, 3)
 }
 
-// ---------- the map, drawn from the wiring a run recorded ----------
-
-// What each part does, for readers who don't know the stack. The map draws the parts a run
-// recorded; this only names them, and a part it does not know keeps its component name.
 const PARTS = {
     'source:events': { name: 'Captured events', tech: 'load generator', shape: 'pill' },
     'source:api': { name: 'Send API calls', tech: 'load generator', shape: 'pill' },
@@ -700,10 +733,8 @@ const PARTS = {
     'host:hooks.example.com': { name: 'Customer webhooks', tech: 'fake hooks.example.com', shape: 'pill' },
 }
 
-// Roles that take jobs out of the job queue; any other role that talks to a database puts them in.
 const JOB_TAKERS = ['cdp-cyclotron-worker-hogflow', 'cdp-cyclotron-worker-email', 'cdp-cyclotron-v2-janitor']
 
-// Links no recording shows: who produces to a topic, who calls a host, and the feedback SES posts back.
 const DECLARED_LINKS = [
     { from: 'source:events', to: 'topic:clickhouse_events_json' },
     { from: 'source:api', to: 'role:cdp-api' },
@@ -713,7 +744,6 @@ const DECLARED_LINKS = [
     { from: 'role:cdp-api', to: 'topic:cdp_ses_webhooks' },
 ]
 
-// The wiring before the runner recorded it, for runs older than topology.json.
 const DECLARED_TOPOLOGY = {
     hash: null,
     processes: [
@@ -746,7 +776,6 @@ const EVENTS_PATH = [
     'role:cdp-cyclotron-worker-hogflow',
 ]
 
-// The parts each kind of traffic passes through, in order.
 const TRAFFIC_PATH = {
     event_email: [...EVENTS_PATH, 'role:cdp-cyclotron-worker-email', 'host:ses'],
     event_webhook: [...EVENTS_PATH, 'host:hooks.example.com'],
@@ -759,6 +788,15 @@ const TRAFFIC_PATH = {
         'topic:cdp_ses_webhooks',
         'role:cdp-ses-webhooks',
     ],
+}
+
+const WORKER_PREFIX = 'cdp-cyclotron-worker-'
+
+const queuesText = (takers) => {
+    const queues = takers
+        .filter((role) => role.startsWith(WORKER_PREFIX))
+        .map((role) => role.slice(WORKER_PREFIX.length))
+    return queues.length ? `queues: ${queues.join(', ')}` : ''
 }
 
 const dbIdOf = (database) => (database.includes('cyclotron') ? 'db:cyclotron' : `db:${database}`)
@@ -808,6 +846,7 @@ function graphOf(topology) {
             tech: database === 'cyclotron_node' ? 'Cyclotron, cyclotron_node' : database,
         })
         if (JOB_TAKERS.includes(role)) {
+            nodes.get(db).takers = [...(nodes.get(db).takers ?? []), role]
             link(db, add(`role:${role}`))
         } else {
             link(add(`role:${role}`), db)
@@ -828,6 +867,20 @@ const MAP_W = 1400
 const COL_W = 196
 const GAP = 22
 const PIN_BAND = 70
+const PIN_ROWS = 3
+const PIN_LABEL_CHAR_W = 7.4
+const pinRowY = (row) => 20 + 20 * row
+
+const breaksText = (count) => `${count} ${count === 1 ? 'scenario breaks' : 'scenarios break'} this part`
+
+function pinLabelAt(cx, y, text) {
+    const fits = Math.floor((MAP_W - 8) / PIN_LABEL_CHAR_W)
+    const shown = text.length > fits ? `${text.slice(0, fits - 1)}…` : text
+    const width = shown.length * PIN_LABEL_CHAR_W
+    return cx - 6 - width >= 4
+        ? s('text', { x: cx - 6, y, class: 'pin-label' }, shown)
+        : s('text', { x: Math.min(cx + 14, MAP_W - 4 - width), y, class: 'pin-label start' }, shown)
+}
 const podHeightOf = (node) => (node.group ? 78 : 62)
 const heightOf = (node) =>
     node.shape === 'cylinder'
@@ -836,7 +889,6 @@ const heightOf = (node) =>
           ? podHeightOf(node) + 6 * Math.min(2, (node.replicas ?? 1) - 1)
           : 48
 
-// Columns follow the longest path from the load, so a part sits right of everything that feeds it.
 function layoutOf(graph) {
     const forward = graph.links.filter((l) => !l.back)
     const rank = Object.fromEntries(graph.nodes.map((n) => [n.id, n.kind === 'source' ? 0 : 1]))
@@ -875,8 +927,6 @@ function layoutOf(graph) {
     return { placed, height: height + PIN_BAND + 90 }
 }
 
-// Monospace glyphs run about 0.62em wide, so a name longer than its part is squeezed to fit
-// rather than run past the edge.
 const MONO_EM = 0.62
 const fitted = (attrs, text, width, fontSize = 10) =>
     s(
@@ -900,7 +950,7 @@ function shapeOf(node, { x, y, w, h }) {
             s('text', { x: x + 14, y: y + 50, class: 'name' }, node.name),
             s('text', { x: x + 14, y: y + 68, class: 'tech' }, node.tech),
             s('text', { x: x + 14, y: y + 92, class: 'meaning' }, node.meaning ?? ''),
-            s('text', { x: x + 14, y: y + 116, class: 'tech' }, 'queues: hogflow, email')
+            s('text', { x: x + 14, y: y + 116, class: 'tech' }, queuesText(node.takers ?? []))
         )
     } else if (node.shape === 'pod') {
         const extra = Math.min(2, (node.replicas ?? 1) - 1)
@@ -988,7 +1038,6 @@ function mapOf(topology) {
     }
     const pins = s('g', { class: 'pins' })
     svg.append(pins)
-    // Light the parts a card's traffic passes through and pin each fault it injects to its part.
     const focus = (card) => {
         pins.replaceChildren()
         const active = new Set(card ? card.traffic.flatMap(({ name }) => TRAFFIC_PATH[name] ?? []) : [])
@@ -999,8 +1048,6 @@ function mapOf(topology) {
         for (const [id, el] of Object.entries(partEls)) {
             el.classList.toggle('on', active.has(id))
         }
-        // A wire lights when traffic passes from one end to the other, so a send and the feedback
-        // that comes back through the same two parts stay apart.
         const paths = (card?.traffic ?? []).map(({ name }) => TRAFFIC_PATH[name] ?? [])
         for (const l of linkEls) {
             l.el.classList.toggle(
@@ -1008,7 +1055,6 @@ function mapOf(topology) {
                 paths.some((path) => path.includes(l.from) && path.indexOf(l.from) < path.lastIndexOf(l.to))
             )
         }
-        // At rest a pin counts the scenarios that break a part; a focused scenario labels what it does there.
         const perPart = new Map()
         for (const c of card ? [card] : allCards) {
             for (const valve of c.valves ?? []) {
@@ -1019,29 +1065,32 @@ function mapOf(topology) {
                 perPart.set(part, entry)
             }
         }
-        let row = 0
-        for (const [part, { cards: hitBy, valves }] of perPart) {
+        const pinned = [...perPart].filter(([part]) => placed[part])
+        const labelled = card ? (pinned.length > PIN_ROWS ? PIN_ROWS - 1 : PIN_ROWS) : 0
+        pinned.forEach(([part, { cards: hitBy, valves }], row) => {
             const p = placed[part]
-            if (!p) {
-                continue
-            }
             const cx = p.x + p.w - 10
             const cy = p.y + 2
-            const labelY = 20 + 20 * row++
+            const text = [...new Set(valveLines(valves))].join('; ')
+            const labelY = pinRowY(row)
             pins.append(
                 s(
                     'g',
                     { class: card ? 'pin on' : 'pin' },
-                    card ? s('line', { x1: cx, y1: cy, x2: cx, y2: labelY + 4 }) : null,
+                    s('title', {}, card ? text : breaksText(hitBy.size)),
+                    row < labelled ? s('line', { x1: cx, y1: cy, x2: cx, y2: labelY + 4 }) : null,
                     s('circle', { cx, cy, r: 10 }),
                     s('text', { x: cx, y: cy + 4, class: 'pin-mark' }, card ? '!' : String(hitBy.size)),
-                    card
-                        ? s(
-                              'text',
-                              { x: cx - 6, y: labelY, class: 'pin-label' },
-                              [...new Set(valveLines(valves))].join('; ')
-                          )
-                        : null
+                    row < labelled ? pinLabelAt(cx, labelY, text) : null
+                )
+            )
+        })
+        if (card && pinned.length > labelled) {
+            pins.append(
+                s(
+                    'text',
+                    { x: MAP_W - 10, y: pinRowY(PIN_ROWS - 1), class: 'pin-label' },
+                    `+${pinned.length - labelled} more, hover a pin to read it`
                 )
             )
         }
@@ -1058,7 +1107,6 @@ function mapOf(topology) {
     }
 }
 
-// Status codes one destination answers in turn read as one sentence: "answer 503, then 429".
 const valveLines = (valves) => {
     const lines = []
     valves.forEach((valve, i) => {
@@ -1073,7 +1121,7 @@ const valveLines = (valves) => {
 }
 
 const scenarioLine = (card) =>
-    card.problems.length
+    !card.ok
         ? 'Does not load'
         : card.valves.length
           ? valveLines(card.valves)
@@ -1083,19 +1131,35 @@ const scenarioLine = (card) =>
             ? 'Ramps the load until a bar breaks'
             : 'A baseline with no fault'
 
-async function mapPage() {
-    const [all, runs, recorded] = await Promise.all([
-        cards(),
-        getJson('/api/runs'),
-        getJson('/api/topology').catch(() => null),
-    ])
-    const loaded = all.filter((card) => !card.problems.length)
-    const map = mapOf(recorded?.topology ?? DECLARED_TOPOLOGY)
+const readTopology = (cardId) =>
+    getJson(cardId ? `/api/topology?card=${encodeURIComponent(cardId)}` : '/api/topology').then(
+        (recorded) => ({ recorded, problem: null }),
+        (error) => ({ recorded: null, problem: error.message })
+    )
+
+const wiringText = ({ recorded, problem }) =>
+    problem
+        ? `The viewer cannot read the recorded wiring (${problem}), so this is the path as declared.`
+        : recorded
+          ? `Drawn from the wiring run ${recorded.cardId} recorded ${ago(recorded.startedAt)}: ${recorded.topology.processes.length} services, ${recorded.topology.consumers.length} Kafka consumer groups, topology ${recorded.topology.hash}.`
+          : 'No run on this box recorded its wiring yet, so this is the path as declared.'
+
+const foundLines = (found) =>
+    found === undefined
+        ? [h('span', { class: 'muted' }, 'Reading what its last run found…')]
+        : found.problem
+          ? [h('span', { class: 'muted' }, `The viewer cannot read its last run: ${found.problem}`)]
+          : found.lines.map((line) => h('span', {}, line))
+
+async function mapPage(stale) {
+    const [all, runs, wiring] = await Promise.all([cards(), getJson('/api/runs'), readTopology()])
+    if (stale()) {
+        return
+    }
+    const loaded = all.filter((card) => card.ok)
+    const map = mapOf(wiring.recorded?.topology ?? DECLARED_TOPOLOGY)
     map.setCards(loaded)
     const running = h('div', { class: 'panel running-now' }, h('span', { class: 'muted' }, 'Checking for a run…'))
-    const found = recorded
-        ? `Drawn from the wiring run ${recorded.cardId} recorded ${ago(recorded.startedAt)}: ${recorded.topology.processes.length} services, ${recorded.topology.consumers.length} Kafka consumer groups, topology ${recorded.topology.hash}.`
-        : 'No run on this box recorded its wiring yet, so this is the path as declared.'
     const findings = {}
     const resting = h(
         'span',
@@ -1103,27 +1167,28 @@ async function mapPage() {
         'Hover a scenario below to light the parts its traffic passes through and pin what it breaks.'
     )
     const strip = h('div', { class: 'focus' }, resting)
-    // Hovering a scenario lights its path on the map and shows what its last run found.
-    const select = (card, meta) => {
-        map.focus(card && !card.problems.length ? card : null)
+    let selected = null
+    const showSelected = () => {
+        const card = selected?.card
+        map.focus(card?.ok ? card : null)
         strip.replaceChildren(
             ...(card
                 ? [
                       h(
                           'div',
-                          { class: 'focus-head' },
+                          { class: 'focus-head', title: `${card.id}: ${scenarioLine(card)}, ${selected.meta}` },
                           h('b', {}, card.id),
                           h('span', {}, scenarioLine(card)),
-                          h('span', { class: 'muted' }, meta)
+                          h('span', { class: 'muted' }, selected.meta)
                       ),
-                      h(
-                          'div',
-                          { class: 'focus-found' },
-                          ...(findings[card.id] ?? []).map((line) => h('span', {}, line))
-                      ),
+                      h('div', { class: 'focus-found' }, ...foundLines(findings[card.id])),
                   ]
                 : [resting])
         )
+    }
+    const select = (card, meta) => {
+        selected = card ? { card, meta } : null
+        showSelected()
     }
     const list = h(
         'div',
@@ -1167,7 +1232,7 @@ async function mapPage() {
             'p',
             { class: 'sub' },
             'Each scenario breaks one part of this path on purpose while synthetic load runs through it, then checks that every message still arrived. ',
-            h('span', { class: 'muted' }, found)
+            h('span', { class: 'muted' }, wiringText(wiring))
         ),
         running,
         h('div', { class: 'panel map-panel' }, strip, map.svg),
@@ -1185,7 +1250,15 @@ async function mapPage() {
         )
     )
     const showLive = async () => {
-        const live = await getJson('/api/live').catch(() => null)
+        let live
+        try {
+            live = await getJson('/api/live')
+        } catch (error) {
+            running.replaceChildren(
+                h('span', { class: 'muted' }, `The viewer cannot read the live run: ${error.message}`)
+            )
+            return
+        }
         const now = live?.inProgress ? live : null
         document.querySelectorAll('.live-badge').forEach((badge) => (badge.hidden = badge.dataset.card !== now?.cardId))
         running.replaceChildren(
@@ -1213,15 +1286,74 @@ async function mapPage() {
     await Promise.all(
         all.map(async (card) => {
             const last = runs.find((run) => run.cardId === card.id)
-            const detail = last ? await getJson(`/api/runs/${last.runId}`).catch(() => null) : null
-            findings[card.id] = detail ? findingOf(detail) : []
+            findings[card.id] = last
+                ? await getJson(`/api/runs/${last.runId}`).then(
+                      (detail) => ({ lines: findingOf(detail) }),
+                      (error) => ({ problem: error.message })
+                  )
+                : { lines: [] }
+            if (selected?.card.id === card.id) {
+                showSelected()
+            }
         })
     )
 }
 
-// Inside one scenario every row has the same card, so those tables show where and at which commit
-// each run ran instead.
-function runsTable(runs, { ofOneCard = false } = {}) {
+const RUN_COLUMNS = {
+    status: { head: h('th', {}, 'Status'), cell: (run) => h('td', {}, statusPill(run.status)) },
+    card: { head: h('th', {}, 'Card'), cell: (run) => h('td', {}, run.cardId) },
+    commit: {
+        head: h('th', {}, 'Commit'),
+        cell: (run) =>
+            h(
+                'td',
+                { class: 'mono' },
+                run.headSha ? run.headSha.slice(0, 10) : '-',
+                run.headDirty ? h('span', { class: 'muted' }, ' + edits') : null
+            ),
+    },
+    where: { head: h('th', {}, 'Where'), cell: (run) => h('td', {}, run.where) },
+    started: {
+        head: h('th', {}, 'Started'),
+        cell: (run) => h('td', {}, h('a', { href: `#/runs/${run.runId}` }, fmtTime(run.startedAt))),
+    },
+    duration: {
+        head: h('th', { class: 'num' }, 'Duration'),
+        cell: (run) => h('td', { class: 'num' }, fmtDuration(run.durationS * 1000)),
+    },
+    units: {
+        head: h('th', { class: 'num' }, 'Units offered'),
+        cell: (run) =>
+            h('td', { class: 'num' }, run.units ? `${run.units.offeredUnits} / ${run.units.targetUnits}` : '-'),
+    },
+    invariants: {
+        head: h('th', {}, 'Invariants'),
+        cell: (run) =>
+            h(
+                'td',
+                {},
+                h(
+                    'div',
+                    { class: 'dots' },
+                    run.invariants.map((inv) =>
+                        h('span', {
+                            class: `dot ${inv.passed ? 'passed' : 'failed'}`,
+                            title: `${inv.name}: ${inv.passed ? 'held' : 'broke'}`,
+                        })
+                    )
+                )
+            ),
+    },
+    reason: {
+        head: h('th', {}, 'Reason'),
+        cell: (run) => h('td', { class: 'muted', style: 'max-width:420px' }, run.statusReason),
+    },
+}
+
+const EVERY_RUN = ['status', 'card', 'started', 'duration', 'units', 'invariants', 'reason']
+const RUNS_OF_ONE_CARD = ['status', 'commit', 'where', 'started', 'duration', 'units', 'invariants', 'reason']
+
+function runsTable(runs, columns = EVERY_RUN) {
     if (runs.length === 0) {
         return h(
             'div',
@@ -1241,13 +1373,7 @@ function runsTable(runs, { ofOneCard = false } = {}) {
                 h(
                     'tr',
                     {},
-                    h('th', {}, 'Status'),
-                    ofOneCard ? [h('th', {}, 'Commit'), h('th', {}, 'Where')] : h('th', {}, 'Card'),
-                    h('th', {}, 'Started'),
-                    h('th', { class: 'num' }, 'Duration'),
-                    h('th', { class: 'num' }, 'Units offered'),
-                    h('th', {}, 'Invariants'),
-                    h('th', {}, 'Reason')
+                    columns.map((key) => RUN_COLUMNS[key].head.cloneNode(true))
                 )
             ),
             h(
@@ -1257,40 +1383,7 @@ function runsTable(runs, { ofOneCard = false } = {}) {
                     h(
                         'tr',
                         { class: 'link', onclick: () => (location.hash = `#/runs/${run.runId}`) },
-                        h('td', {}, statusPill(run.status)),
-                        ofOneCard
-                            ? [
-                                  h(
-                                      'td',
-                                      { class: 'mono' },
-                                      run.headSha ? run.headSha.slice(0, 10) : '-',
-                                      run.headDirty ? h('span', { class: 'muted' }, ' + edits') : null
-                                  ),
-                                  h('td', {}, run.where),
-                              ]
-                            : h('td', {}, run.cardId),
-                        h('td', {}, fmtTime(run.startedAt)),
-                        h('td', { class: 'num' }, fmtDuration(run.durationS * 1000)),
-                        h(
-                            'td',
-                            { class: 'num' },
-                            run.units ? `${run.units.offeredUnits} / ${run.units.targetUnits}` : '-'
-                        ),
-                        h(
-                            'td',
-                            {},
-                            h(
-                                'div',
-                                { class: 'dots' },
-                                run.invariants.map((inv) =>
-                                    h('span', {
-                                        class: `dot ${inv.passed ? 'passed' : 'failed'}`,
-                                        title: `${inv.name}: ${inv.passed ? 'held' : 'broke'}`,
-                                    })
-                                )
-                            )
-                        ),
-                        h('td', { class: 'muted', style: 'max-width:420px' }, run.statusReason)
+                        columns.map((key) => RUN_COLUMNS[key].cell(run))
                     )
                 )
             )
@@ -1298,8 +1391,11 @@ function runsTable(runs, { ofOneCard = false } = {}) {
     )
 }
 
-async function runsPage() {
+async function runsPage(stale) {
     const runs = await getJson('/api/runs')
+    if (stale()) {
+        return
+    }
     render(h('h1', {}, 'Runs'), h('p', { class: 'sub' }, 'Every run on this box, newest first.'), runsTable(runs))
 }
 
@@ -1308,6 +1404,7 @@ const latencyOf = (run, key) =>
 
 const runMark = (run) => ({
     href: `#/runs/${run.runId}`,
+    label: `Run ${run.runId.slice(0, 8)}, ${run.status}, ${fmtTime(run.startedAt)}`,
     html: [
         `<div class="t">${fmtTime(run.startedAt)}, ${run.where}</div>`,
         `<div class="r"><span>run</span><b>${run.runId.slice(0, 8)}</b></div>`,
@@ -1317,7 +1414,6 @@ const runMark = (run) => ({
     ].join(''),
 })
 
-// The newest runs of a scenario and what each found, newest first.
 const RECENT_FINDINGS = 6
 
 function findingsList(details) {
@@ -1345,23 +1441,37 @@ function findingsList(details) {
     )
 }
 
-async function cardPage(id) {
-    const [all, runs, recorded] = await Promise.all([
-        cards(),
-        getJson('/api/runs'),
-        getJson('/api/topology').catch(() => null),
-    ])
+const fmtWhen = (t) =>
+    new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+async function cardPage(id, stale) {
+    const [all, runs, wiring] = await Promise.all([cards(), getJson('/api/runs'), readTopology(id)])
+    if (stale()) {
+        return
+    }
     const card = all.find((c) => c.id === id)
     if (!card) {
-        render(h('h1', {}, 'No such scenario'))
+        render(h('a', { href: '#/scenarios' }, '← Scenarios'), h('h1', {}, 'No such scenario'))
+        return
+    }
+    if (!card.ok) {
+        render(
+            h('a', { href: '#/scenarios' }, '← Scenarios'),
+            h('h1', {}, card.id),
+            h('p', { class: 'sub mono' }, card.file),
+            h('div', { class: 'reason failed' }, 'This scenario does not load:'),
+            h(
+                'ul',
+                {},
+                card.problems.map((problem) => h('li', {}, problem))
+            )
+        )
         return
     }
     const ofCard = runs.filter((run) => run.cardId === id)
-    const map = mapOf(recorded?.topology ?? DECLARED_TOPOLOGY)
-    if (!card.problems.length) {
-        map.setCards([card])
-        map.focus(card)
-    }
+    const map = mapOf(wiring.recorded?.topology ?? DECLARED_TOPOLOGY)
+    map.setCards([card])
+    map.focus(card)
     const details = (
         await Promise.all(
             ofCard.slice(0, RECENT_FINDINGS).map((run) => getJson(`/api/runs/${run.runId}`).catch(() => null))
@@ -1372,12 +1482,6 @@ async function cardPage(id) {
     const history = lineChart({
         title: 'Delivery latency across runs',
         unit: 'ms',
-        xLabel: (offset) =>
-            new Date(Date.parse(chronological[0].startedAt) + offset).toLocaleString([], {
-                weekday: 'short',
-                hour: '2-digit',
-                minute: '2-digit',
-            }),
         xTicks: 4,
         series: [
             {
@@ -1393,6 +1497,7 @@ async function cardPage(id) {
         ],
         from: chronological.length ? Date.parse(chronological[0].startedAt) : 0,
         to: chronological.length ? Date.parse(chronological.at(-1).startedAt) : 0,
+        xLabels: { tick: fmtWhen, tip: fmtWhen },
     })
     render(
         h('a', { href: '#/scenarios' }, '← Scenarios'),
@@ -1414,15 +1519,9 @@ async function cardPage(id) {
             `Profile ${card.profileName}, seed ${card.seed}, ${card.teams} team${card.teams === 1 ? '' : 's'}. Converges within ${fmtDuration(card.convergeWithinMs)}.`,
             card.runHostOnly ? ' Judges only on a run host: a local run is invalid by design.' : ''
         ),
-        h('div', { class: 'panel' }, map.svg),
+        h('div', { class: 'panel' }, h('p', { class: 'muted' }, wiringText(wiring)), map.svg),
         h('h2', {}, 'What its runs found'),
         findingsList(details),
-        h('h2', {}, 'Fixes and pull requests'),
-        h(
-            'div',
-            { class: 'panel muted' },
-            'No finding has a fix or pull request linked yet. Links will live with the runs in the shared run store, one per scenario and finding, and show up here.'
-        ),
         h(
             'div',
             { class: 'split', style: 'margin-top:16px' },
@@ -1469,7 +1568,7 @@ async function cardPage(id) {
                           h(
                               'ul',
                               {},
-                              card.bars.map(({ name, params }) => h('li', {}, `${name}: ${JSON.stringify(params)}`))
+                              card.bars.map((bar) => h('li', {}, barText(bar)))
                           ),
                       ]
                     : null,
@@ -1483,12 +1582,15 @@ async function cardPage(id) {
         ),
         h('h2', {}, 'Runs over time'),
         ofCard.length > 1 ? h('div', { class: 'history' }, history.el) : null,
-        runsTable(ofCard, { ofOneCard: true })
+        runsTable(ofCard, RUNS_OF_ONE_CARD)
     )
 }
 
-async function scenariosPage() {
+async function scenariosPage(stale) {
     const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
+    if (stale()) {
+        return
+    }
     const open = new Set()
     const body = h('tbody', {})
     const draw = () =>
@@ -1498,18 +1600,36 @@ async function scenariosPage() {
                 const last = ofCard[0]
                 const p95 = last ? latencyOf(last, 'p95') : null
                 const held = ofCard.filter((run) => run.status === 'passed').length
+                const toggle = () => {
+                    if (!open.delete(card.id)) {
+                        open.add(card.id)
+                    }
+                    draw()
+                    body.querySelector(`button[data-card="${card.id}"]`)?.focus()
+                }
                 const row = h(
                     'tr',
-                    {
-                        class: 'link',
-                        onclick: () => {
-                            if (!open.delete(card.id)) {
-                                open.add(card.id)
-                            }
-                            draw()
-                        },
-                    },
-                    h('td', { class: 'toggle' }, ofCard.length ? (open.has(card.id) ? '▾' : '▸') : ''),
+                    { class: 'link', onclick: toggle },
+                    h(
+                        'td',
+                        { class: 'toggle' },
+                        ofCard.length
+                            ? h(
+                                  'button',
+                                  {
+                                      type: 'button',
+                                      'data-card': card.id,
+                                      'aria-expanded': String(open.has(card.id)),
+                                      'aria-label': `Runs of ${card.id}`,
+                                      onclick: (event) => {
+                                          event.stopPropagation()
+                                          toggle()
+                                      },
+                                  },
+                                  open.has(card.id) ? '▾' : '▸'
+                              )
+                            : ''
+                    ),
                     h('td', {}, last ? statusPill(last.status) : h('span', { class: 'muted' }, 'never run')),
                     h(
                         'td',
@@ -1524,11 +1644,7 @@ async function scenariosPage() {
                 return open.has(card.id)
                     ? [
                           row,
-                          h(
-                              'tr',
-                              { class: 'expanded' },
-                              h('td', { colspan: 7 }, runsTable(ofCard, { ofOneCard: true }))
-                          ),
+                          h('tr', { class: 'expanded' }, h('td', { colspan: 7 }, runsTable(ofCard, RUNS_OF_ONE_CARD))),
                       ]
                     : [row]
             })
@@ -1720,9 +1836,7 @@ function timelineTable(windows, from) {
                         'td',
                         {},
                         w.valve,
-                        doseText(w.valve, w.dose)
-                            ? h('span', { class: 'muted' }, ` (${doseText(w.valve, w.dose)})`)
-                            : ''
+                        doseText(w.dose) ? h('span', { class: 'muted' }, ` (${doseText(w.dose)})`) : ''
                     ),
                     h('td', {}, plainOf(w.target), h('div', { class: 'muted mono' }, w.target)),
                     h('td', {}, rel(w.requestedAt)),
@@ -1812,7 +1926,7 @@ function runCharts(detail, windows, from, to) {
             series: detail.series.roles.map((role, i) => ({
                 name: NODE_BY_ID[role.role]?.name ?? role.role,
                 color: SERIES[i % SERIES.length],
-                points: role.points.map((p) => [p.at, p.cpuPercent]),
+                points: role.points.map((p) => [at(p), p.cpuPercent]),
             })),
         }),
         lineChart({
@@ -1834,13 +1948,9 @@ function runCharts(detail, windows, from, to) {
     return charts
 }
 
-// ---------- generator lanes ----------
-
 const INTAKE_PLAIN = { event: 'Events into capture', transactional: 'Sends through the API' }
 const FLOW_KEY = { event: 'offeredEvents', transactional: 'offeredTransactional' }
 
-// What the generator was asked to do and what it did, on the replay's clock: the ramp step, the
-// rate each intake was planned at against the rate it was offered at, and when each valve was on.
 function generatorLanes(detail, cardView, windows, from, to, onSeek) {
     const W = 1100
     const LABEL_W = 210
@@ -1849,7 +1959,8 @@ function generatorLanes(detail, cardView, windows, from, to, onSeek) {
     const VALVE_H = 36
     const RIGHT = 56
     const plotW = W - LABEL_W - RIGHT
-    const x = (t) => LABEL_W + ((Math.min(Math.max(t, from), to) - from) / (to - from)) * plotW
+    const span = Math.max(to - from, 1)
+    const x = (t) => LABEL_W + ((Math.min(Math.max(t, from), to) - from) / span) * plotW
     const steps = cardView?.steps?.length ? cardView.steps : [{ scale: 1, fromMs: 0, toMs: to - from }]
     const intakes = ['event', 'transactional']
         .map((intake) => ({
@@ -1883,8 +1994,6 @@ function generatorLanes(detail, cardView, windows, from, to, onSeek) {
     }
     y += ROW_H
 
-    // The drive starts and ends inside a bucket, so an edge bucket's rate divides by the part of it
-    // the drive covered rather than reading as a ramp up or down.
     const bucketMs = detail.series.bucketMs
     const driveFrom = detail.drive?.startedAt ?? from
     const driveTo = detail.drive?.endedAt ?? to
@@ -1928,7 +2037,6 @@ function generatorLanes(detail, cardView, windows, from, to, onSeek) {
         const x2 = x(window.to)
         const { state } = valveState(window)
         label(y + 15, window.valve, plainOf(window.target))
-        // The state goes inside a wide bar, after a narrow one, or before one near the right edge.
         const text = state.toLowerCase()
         const textW = text.length * 6.6
         const place =
@@ -1961,8 +2069,7 @@ function generatorLanes(detail, cardView, windows, from, to, onSeek) {
             )
         )
     }
-    const span = to - from
-    const step = [10, 30, 60, 120, 300, 600, 1800].map((v) => v * 1000).find((v) => span / v <= 8) ?? 3_600_000
+    const step = tickStepOf(span)
     for (let t = 0; t <= span; t += step) {
         svg.append(s('text', { x: x(from + t), y: y + 28, class: 'lane-tick' }, `t+${fmtDuration(t)}`))
     }
@@ -1973,7 +2080,7 @@ function generatorLanes(detail, cardView, windows, from, to, onSeek) {
         const box = svg.getBoundingClientRect()
         const px = ((event.clientX - box.left) / box.width) * W
         if (px >= LABEL_W) {
-            onSeek(from + ((px - LABEL_W) / plotW) * (to - from))
+            onSeek(from + ((px - LABEL_W) / plotW) * span)
         }
     })
     const changed = cardView?.cardHash && detail.scorecard.cardHash && cardView.cardHash !== detail.scorecard.cardHash
@@ -2005,9 +2112,24 @@ function generatorLanes(detail, cardView, windows, from, to, onSeek) {
     }
 }
 
-async function runPage(runId, startAtSeconds = 0) {
+const happeningsOf = (windows, roles) =>
+    windows
+        .flatMap((w) => [
+            w.from !== null ? { at: w.from, text: `Valve on: ${valvePlain(w).toLowerCase()} (${w.valve})` } : null,
+            w.releasedAt && w.valve !== 'role.kill'
+                ? { at: Date.parse(w.releasedAt), text: `Valve off: the ${plainOf(w.target)} is back to normal` }
+                : null,
+        ])
+        .concat(roles.flatMap((r) => r.restarts.map((at) => ({ at, text: `The ${plainOf(r.role)} restarted` }))))
+        .filter(Boolean)
+        .sort((a, b) => a.at - b.at)
+
+async function runPage(runId, startAtSeconds, stale) {
     stopReplay()
     const [detail, all] = await Promise.all([getJson(`/api/runs/${runId}`), cards()])
+    if (stale()) {
+        return
+    }
     const cardView = all.find((c) => c.id === detail.cardId)
     const windows = valveWindows(detail, cardView)
     const from = detail.drive?.startedAt ?? Date.parse(detail.startedAt)
@@ -2019,7 +2141,14 @@ async function runPage(runId, startAtSeconds = 0) {
     const to = Math.min(Math.max(lastSample, detail.drive?.endedAt ?? 0), Date.parse(detail.endedAt))
     const diagram = deliveryPath()
     const charts = runCharts(detail, windows, from, to)
-    const slider = h('input', { type: 'range', min: from, max: to, step: 250, value: from })
+    const slider = h('input', {
+        type: 'range',
+        min: from,
+        max: to,
+        step: 250,
+        value: from,
+        'aria-label': 'Replay position',
+    })
     const lanes = generatorLanes(detail, cardView, windows, from, to, (t) => {
         slider.value = t
         show(Number(slider.value))
@@ -2029,23 +2158,10 @@ async function runPage(runId, startAtSeconds = 0) {
     const playButton = h('button', {}, 'Play')
     const speedSelect = h(
         'select',
-        {},
+        { 'aria-label': 'Replay speed' },
         [5, 10, 20, 50].map((x) => h('option', { value: x, selected: x === 10 ? 'selected' : null }, `${x}x`))
     )
-    const happenings = windows
-        .flatMap((w) => [
-            w.from !== null ? { at: w.from, text: `Valve on: ${valvePlain(w).toLowerCase()} (${w.valve})` } : null,
-            w.releasedAt && w.valve !== 'role.kill'
-                ? { at: Date.parse(w.releasedAt), text: `Valve off: the ${plainOf(w.target)} is back to normal` }
-                : null,
-        ])
-        .concat(
-            detail.series.roles.flatMap((r) =>
-                r.restarts.map((at) => ({ at, text: `The ${plainOf(r.role)} restarted` }))
-            )
-        )
-        .filter(Boolean)
-        .sort((a, b) => a.at - b.at)
+    const happenings = happeningsOf(windows, detail.series.roles)
     const show = (t) => {
         diagram.paint(viewAt(detail, windows, t))
         const phase = detail.drive && t > detail.drive.endedAt ? 'converging' : 'driving'
@@ -2144,8 +2260,6 @@ async function runPage(runId, startAtSeconds = 0) {
     show(start)
 }
 
-// ---------- live ----------
-
 const LIVE_POLL_MS = 1000
 const PHASES = [
     ['reset', 'Reset'],
@@ -2160,17 +2274,20 @@ const liveDetail = (live) => ({
     ...live,
     endedAt: new Date(live.now).toISOString(),
     drive: live.drive && { startedAt: live.drive.startedAt, endedAt: live.drive.endedAt ?? live.now },
-    scorecard: { timeline: live.timeline },
+    scorecard: { timeline: live.timeline, cardHash: live.cardHash },
 })
 
-async function livePage() {
+async function livePage(stale) {
     stopReplay()
     const all = await cards()
+    if (stale()) {
+        return
+    }
     const diagram = deliveryPath()
     const header = h('div')
     const clock = h('span', { class: 'clock' })
-    const phases = h('div', { class: 'phases' })
-    const events = h('div', { class: 'events' })
+    const phases = h('div', { class: 'phases', 'aria-live': 'polite' })
+    const events = h('div', { class: 'events', 'aria-live': 'polite' })
     const chartsEl = h('div', { class: 'charts' })
     const empty = h('div', { class: 'panel empty' })
     const showIdle = (last) =>
@@ -2224,8 +2341,6 @@ async function livePage() {
             if (live?.inProgress) {
                 watched = live.runId
             }
-            // A run that ended while this page watched it stays on screen with its verdict. Anything
-            // else is not live, so the page says so instead of passing an old run off as live.
             if (!live || (!live.inProgress && watched !== live.runId)) {
                 showIdle(live)
                 empty.hidden = false
@@ -2235,6 +2350,8 @@ async function livePage() {
             }
             empty.hidden = true
             body.hidden = false
+            const lost = !live.inProgress && !live.ended
+            const lastSeen = lost ? live.updatedAt : live.now
             const detail = liveDetail(live)
             const cardView = all.find((c) => c.id === live.cardId)
             const windows = valveWindows(detail, cardView)
@@ -2246,21 +2363,20 @@ async function livePage() {
                 ...live.series.flow.map((p) => p.at + live.series.bucketMs),
                 ...live.series.roles.flatMap((r) => r.points.map((p) => p.at))
             )
-            // A finished run stays on its last sample. A running one trails the clock by one bucket,
-            // because a bucket fills over five seconds.
-            const t = live.ended ? lastData : live.now - live.series.bucketMs
+            const t = live.ended ? lastData : lastSeen - live.series.bucketMs
             const to = live.ended ? Math.max(lastData, from + 1000) : Math.max(planned, t, from + 1000)
-            if (shownRun !== `${live.runId}/${live.phase}/${live.hasScorecard}`) {
-                shownRun = `${live.runId}/${live.phase}/${live.hasScorecard}`
+            const shown = `${live.runId}/${live.phase}/${live.hasScorecard}/${live.inProgress}`
+            if (shownRun !== shown) {
+                shownRun = shown
                 header.replaceChildren(
                     ...[
                         h(
                             'h1',
                             {},
-                            live.ended ? 'Just ended: ' : 'Live: ',
+                            live.ended ? 'Just ended: ' : lost ? 'Stopped: ' : 'Live: ',
                             h('a', { href: `#/cards/${live.cardId}` }, live.cardId),
                             ' ',
-                            statusPill(live.ended ? live.ended.status : 'running')
+                            statusPill(live.ended ? live.ended.status : lost ? 'stopped' : 'running')
                         ),
                         h('p', { class: 'sub mono' }, `run ${live.runId}, started ${fmtTime(live.startedAt)}`),
                         live.ended
@@ -2272,7 +2388,13 @@ async function livePage() {
                                       ? h('a', { href: `#/runs/${live.runId}`, class: 'open' }, ' Open the scorecard →')
                                       : null
                               )
-                            : null,
+                            : lost
+                              ? h(
+                                    'div',
+                                    { class: 'reason invalid' },
+                                    `The runner stopped writing ${ago(new Date(live.updatedAt).toISOString())} without a verdict, so this run has no scorecard. Its process most likely died.`
+                                )
+                              : null,
                     ].filter(Boolean)
                 )
                 const reached = new Set(live.phases.map((p) => p.phase).concat(live.ended ? ['end'] : []))
@@ -2280,7 +2402,10 @@ async function livePage() {
                     ...PHASES.map(([id, label]) =>
                         h(
                             'span',
-                            { class: `phase${reached.has(id) ? ' done' : ''}${live.phase === id ? ' now' : ''}` },
+                            {
+                                class: `phase${reached.has(id) ? ' done' : ''}${live.phase === id ? ' now' : ''}`,
+                                'aria-current': live.phase === id ? 'step' : null,
+                            },
                             label
                         )
                     )
@@ -2288,32 +2413,15 @@ async function livePage() {
             }
             diagram.paint(viewAt(detail, windows, t))
             clock.textContent = live.drive
-                ? `t+${fmtDuration(Math.max(0, (live.ended ? lastData : live.now) - from))}${live.drive.forMs ? ` of ${fmtDuration(live.drive.forMs)} drive` : ''}`
+                ? `t+${fmtDuration(Math.max(0, (live.ended ? lastData : lastSeen) - from))}${live.drive.forMs ? ` of ${fmtDuration(live.drive.forMs)} drive` : ''}`
                 : `started ${ago(live.startedAt)}`
-            const happenings = windows
-                .flatMap((w) => [
-                    w.from !== null
-                        ? { at: w.from, text: `Valve on: ${valvePlain(w).toLowerCase()} (${w.valve})` }
-                        : null,
-                    w.releasedAt && w.valve !== 'role.kill'
-                        ? {
-                              at: Date.parse(w.releasedAt),
-                              text: `Valve off: the ${plainOf(w.target)} is back to normal`,
-                          }
-                        : null,
-                ])
-                .concat(
-                    live.series.roles.flatMap((r) =>
-                        r.restarts.map((at) => ({ at, text: `The ${plainOf(r.role)} restarted` }))
-                    )
-                )
+            const happenings = happeningsOf(windows, live.series.roles)
                 .concat(
                     live.phases.map((p) => ({
                         at: p.at,
                         text: PHASE_PLAIN[p.phase] ? `Started ${PHASE_PLAIN[p.phase]}` : `${p.phase} started`,
                     }))
                 )
-                .filter(Boolean)
                 .sort((a, b) => a.at - b.at)
             events.replaceChildren(
                 ...happenings
@@ -2321,7 +2429,7 @@ async function livePage() {
                     .map((e) =>
                         h(
                             'div',
-                            { class: `e${live.now - e.at < 5000 ? ' now' : ''}` },
+                            { class: `e${lastSeen - e.at < 5000 ? ' now' : ''}` },
                             `${e.at < from ? 'before drive' : `t+${fmtDuration(e.at - from)}`}  ${e.text}`
                         )
                     )
@@ -2330,6 +2438,9 @@ async function livePage() {
             charts.forEach((chart) => chart.cursor(t))
             chartsEl.replaceChildren(...charts.map((chart) => chart.el))
         } catch (error) {
+            body.hidden = true
+            shownRun = undefined
+            header.replaceChildren(h('h1', {}, 'Live'))
             empty.hidden = false
             empty.textContent = `The viewer lost the live run: ${error.message}`
         } finally {
@@ -2341,9 +2452,11 @@ async function livePage() {
     await poll()
 }
 
-// ---------- router ----------
+let navigation = 0
 
 async function route() {
+    const token = ++navigation
+    const stale = () => token !== navigation
     stopReplay()
     hideTooltip()
     const [path, query] = location.hash.split('?')
@@ -2357,22 +2470,27 @@ async function route() {
                 a.dataset.nav === (page || 'map') || (['cards', 'runs'].includes(page) && a.dataset.nav === 'scenarios')
             )
         )
+    const loading = setTimeout(() => stale() || render(h('p', { class: 'muted' }, 'Loading…')), 300)
     try {
         if (page === 'live') {
-            await livePage()
+            await livePage(stale)
         } else if (page === 'runs' && id) {
-            await runPage(id, startAt)
+            await runPage(id, startAt, stale)
         } else if (page === 'runs') {
-            await runsPage()
+            await runsPage(stale)
         } else if (page === 'scenarios') {
-            await scenariosPage()
+            await scenariosPage(stale)
         } else if (page === 'cards' && id) {
-            await cardPage(id)
+            await cardPage(id, stale)
         } else {
-            await mapPage()
+            await mapPage(stale)
         }
     } catch (error) {
-        render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
+        if (!stale()) {
+            render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
+        }
+    } finally {
+        clearTimeout(loading)
     }
 }
 

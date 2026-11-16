@@ -48,13 +48,13 @@ import {
 } from './stack'
 import { RoleExit, createSupervisor } from './supervisor'
 import {
-    Topology,
     WORKFLOWS_ADAPTER,
+    Wiring,
     kafkaGroups,
     postgresClients,
     scenarioGroupsOf,
-    topologyOf,
     unionOf,
+    wiringOf,
 } from './topology'
 import { writerCpuOf } from './writer-cpu'
 
@@ -70,7 +70,7 @@ export interface Environment {
     dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
-    topology(): Promise<Topology>
+    topology(): Promise<Wiring>
     writerCpu(manifest: RunManifest, window: DriveWindow, signal: AbortSignal): Promise<CpuPoint[]>
     down(): Promise<void>
 }
@@ -284,7 +284,7 @@ export function createEnvironment({
 
         async topology() {
             const clients = await Promise.all(postgresServers.map((server) => postgresClients(server)))
-            return topologyOf({
+            return wiringOf({
                 adapter: WORKFLOWS_ADAPTER,
                 specs: running,
                 groups: await kafkaGroups(docker),
@@ -307,7 +307,7 @@ export function createEnvironment({
 
     async function resetRoles(edge: ProviderEdge, settings: Profile['settings'], replicas: Replicas): Promise<void> {
         const exitsBefore = supervisor.exits().length
-        const joined = scenarioGroupsOf(await kafkaGroups(docker))
+        const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
         const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
         running = specs

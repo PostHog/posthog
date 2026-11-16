@@ -74,14 +74,14 @@ function summaryOf(scorecard: Scorecard): RunSummary {
     }
 }
 
-// A run directory holds a scorecard only once its run ended, so a directory without one is a run
-// in progress or a run that crashed, and the list leaves it out.
 export function listRuns(stateDir: string): RunSummary[] {
     if (!existsSync(stateDir)) {
         return []
     }
     return readdirSync(stateDir)
-        .filter((name) => isRunId(name) && statSync(path.join(stateDir, name)).isDirectory())
+        .filter(
+            (name) => isRunId(name) && statSync(path.join(stateDir, name), { throwIfNoEntry: false })?.isDirectory()
+        )
         .flatMap((runId) => {
             const scorecard = readJson<Scorecard>(path.join(stateDir, runId, 'scorecard.json'))
             return scorecard?.runId === runId ? [summaryOf(scorecard)] : []
@@ -118,9 +118,10 @@ export function runDetailOf(stateDir: string, runId: string): RunDetail | undefi
     }
 }
 
-// The wiring the newest run recorded. Runs from before the runner recorded one have none.
-export function latestTopology(stateDir: string): RecordedTopology | undefined {
-    for (const { runId, cardId, startedAt } of listRuns(stateDir)) {
+export function latestTopology(stateDir: string, ofCard?: string): RecordedTopology | undefined {
+    for (const { runId, cardId, startedAt } of listRuns(stateDir).filter(
+        (run) => ofCard === undefined || run.cardId === ofCard
+    )) {
         const topology = readJson<Topology>(path.join(stateDir, runId, TOPOLOGY_FILE))
         if (topology) {
             return { runId, cardId, startedAt, topology }

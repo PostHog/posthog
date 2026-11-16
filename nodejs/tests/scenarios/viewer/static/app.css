@@ -224,6 +224,15 @@ code,
     content: '!';
 }
 
+.status.stopped {
+    color: var(--warning);
+    background: rgb(250 178 25 / 16%);
+}
+
+.status.stopped::before {
+    content: '■';
+}
+
 .status.running {
     color: #8dbbf2;
     background: rgb(57 135 229 / 20%);
@@ -419,7 +428,6 @@ th.num {
     border-radius: 2px;
 }
 
-/* Delivery path diagram */
 .path-wrap {
     position: relative;
 }
@@ -795,6 +803,10 @@ select {
     paint-order: stroke;
 }
 
+.map .pin-label.start {
+    text-anchor: start;
+}
+
 .scenarios {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -821,6 +833,16 @@ select {
     align-items: baseline;
     overflow: hidden;
     white-space: nowrap;
+}
+
+.focus-head > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.focus-head > b {
+    flex-shrink: 0;
 }
 
 .focus-found {
@@ -884,6 +906,13 @@ select {
 .toggle {
     width: 24px;
     color: var(--muted);
+}
+
+.toggle button {
+    padding: 0 4px;
+    color: inherit;
+    background: none;
+    border: 0;
 }
 
 tr.expanded > td {

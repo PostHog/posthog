@@ -8,13 +8,12 @@ import type { ValveTimelineEntry } from '../valves/valves'
 import { isRunId } from './runs'
 import { Evidence, Series, seriesOf } from './series'
 
-// The runner appends to the log every second, so a log quiet for longer belongs to a run that
-// stopped without writing its end, such as one whose process was killed.
 const STALE_AFTER_MS = 15_000
 
 export type LiveView = {
     runId: string
     cardId: string
+    cardHash: string
     startedAt: string
     phase: LivePhase
     phases: { phase: LivePhase; at: number }[]
@@ -38,7 +37,6 @@ function recordsOf(file: string): LiveRecord[] {
             try {
                 return [parseJSON(line) as LiveRecord]
             } catch {
-                // The runner may be halfway through appending the last line.
                 return []
             }
         })
@@ -62,7 +60,6 @@ function newestLiveDir(stateDir: string): { dir: string; mtimeMs: number } | und
     return newest
 }
 
-// The run whose live log changed last. It is in progress only while the runner still writes to it.
 export function liveOf(stateDir: string, now = Date.now()): LiveView | undefined {
     const newest = newestLiveDir(stateDir)
     if (!newest) {
@@ -96,7 +93,7 @@ export function liveOf(stateDir: string, now = Date.now()): LiveView | undefined
                 }
                 break
             case 'tick':
-                timeline = record.timeline
+                timeline = record.timeline ?? timeline
                 evidence.samples.push(...record.samples)
                 evidence.queue.push(...record.queue)
                 evidence.writer.push(...record.writer)
@@ -111,6 +108,7 @@ export function liveOf(stateDir: string, now = Date.now()): LiveView | undefined
     return {
         runId: start.runId,
         cardId: start.cardId,
+        cardHash: start.cardHash,
         startedAt: new Date(start.at).toISOString(),
         phase: ended ? 'end' : (phases.at(-1)?.phase ?? 'reset'),
         phases,

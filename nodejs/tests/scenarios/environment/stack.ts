@@ -158,6 +158,13 @@ export async function rpk(docker: string, args: string[]): Promise<string> {
     }
 }
 
+export async function rpkOrThrow(docker: string, args: string[]): Promise<string> {
+    const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
+        timeout: 10_000,
+    })
+    return stdout
+}
+
 export async function groupMembers(group: string, docker: string): Promise<number> {
     const output = await rpk(docker, ['group', 'describe', group])
     const members = membersOf(output)

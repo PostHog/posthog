@@ -48,6 +48,8 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
 
+Before the drive, the runner reads the topology again until every part a valve targets shows in it and two reads agree, for up to 30 seconds. A target that never shows makes the run invalid.
+
 ### Watch runs in the viewer
 
 The viewer is a local web page over the cards and the runs on the box:
@@ -59,7 +61,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/viewer/main.ts --port 8787
 - It reads the cards from `tests/scenarios/cards`, and the runs from the evidence directory or from `--state-dir <dir>`.
 - Its landing page is a map of the delivery path, drawn from the topology the newest run recorded, with each scenario pinned to the part it breaks.
 - The Scenarios page lists every card with its runs and what each run found. A run page also shows the load the generator planned against the load it offered, and when each valve was on.
-- A card page shows what the card breaks, its load, and the invariants and bars that judge it.
+- A card page shows what the card breaks on the topology its newest run recorded, its load, and the invariants and bars that judge it.
 - A run page replays the run on the delivery path, with its valve timeline, invariants, measurements and charts.
 - It lists a run once the run has written its scorecard.
 - The Live page follows the run in progress. The runner appends its phases, probes and valves to `live.jsonl` in the run's evidence directory every second, and a run counts as live only while that file keeps changing.

@@ -10,9 +10,11 @@ import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
 import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
+import type { TruthRecord } from '../provider-edge'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
+import type { JournalEntry } from './judge'
 
 export type MetricSample = {
     role: string
@@ -121,28 +123,40 @@ export const roleRssMaxBytes: MeasurementDefinition = {
         })),
 }
 
-const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
+export const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
+
+export type DeliveryLatency = { offeredAt: number; latencyMs: number }
+
+export type LatencyEvidence = {
+    journal: readonly Pick<JournalEntry, 'unitId' | 'offeredAt' | 'answer' | 'expect'>[]
+    truth: readonly Pick<TruthRecord, 'seq' | 'at' | 'unitId' | 'actionId' | 'status'>[]
+}
+
+export function deliveryLatenciesOf({ journal, truth }: LatencyEvidence): DeliveryLatency[] {
+    const firstAccepted = new Map<string, number>()
+    for (const { unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
+        const key = unitId !== undefined && actionId !== undefined ? deliveryKey(unitId, actionId) : undefined
+        if (key !== undefined && status >= 200 && status < 300 && !firstAccepted.has(key)) {
+            firstAccepted.set(key, Date.parse(at))
+        }
+    }
+    return journal
+        .filter(({ answer }) => answer.accepted)
+        .flatMap(({ unitId, offeredAt, expect }) =>
+            expect.deliveries.flatMap((actionId) => {
+                const deliveredAt = firstAccepted.get(deliveryKey(unitId, actionId))
+                return deliveredAt === undefined ? [] : [{ offeredAt, latencyMs: deliveredAt - offeredAt }]
+            })
+        )
+}
 
 export const deliveryLatencyMs: MeasurementDefinition = {
     name: 'delivery_latency_ms',
     params: z.object({}).strict(),
     unit: 'ms',
-    measure: ({ journal, truth }) => {
-        const firstAccepted = new Map<string, number>()
-        for (const { unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
-            const key = unitId !== undefined && actionId !== undefined ? deliveryKey(unitId, actionId) : undefined
-            if (key !== undefined && status >= 200 && status < 300 && !firstAccepted.has(key)) {
-                firstAccepted.set(key, Date.parse(at))
-            }
-        }
-        const latencies = journal
-            .filter(({ answer }) => answer.accepted)
-            .flatMap(({ unitId, offeredAt, expect }) =>
-                expect.deliveries.flatMap((actionId) => {
-                    const deliveredAt = firstAccepted.get(deliveryKey(unitId, actionId))
-                    return deliveredAt === undefined ? [] : [deliveredAt - offeredAt]
-                })
-            )
+    measure: (evidence) => {
+        const latencies = deliveryLatenciesOf(evidence)
+            .map(({ latencyMs }) => latencyMs)
             .sort((a, b) => a - b)
         return latencies.length === 0
             ? []

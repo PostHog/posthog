@@ -56,7 +56,7 @@ import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '
 import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
-import { WORKFLOWS_ADAPTER, topologyOf } from '../environment/topology'
+import { WORKFLOWS_ADAPTER, wiringOf } from '../environment/topology'
 import { JournalEntry } from '../judge/judge'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
@@ -135,7 +135,7 @@ describe('runner', () => {
         groupLag: () => Promise.resolve(0),
         topology: () =>
             Promise.resolve(
-                topologyOf({
+                wiringOf({
                     adapter: WORKFLOWS_ADAPTER,
                     specs: roleSpecs(process.env, { url: 'http://edge' }, secretsOf({}), stateDir),
                     groups: [],
@@ -151,12 +151,16 @@ describe('runner', () => {
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         stateDir = path.join(cacheHome, 'posthog-scenarios')
         duringReset = () => undefined
-        runner = createRunner(environment, {
-            ...process.env,
-            XDG_CACHE_HOME: cacheHome,
-            DATABASE_URL: PROCESS_DATABASE_URL,
-            ...api.credentials,
-        })
+        runner = createRunner(
+            environment,
+            {
+                ...process.env,
+                XDG_CACHE_HOME: cacheHome,
+                DATABASE_URL: PROCESS_DATABASE_URL,
+                ...api.credentials,
+            },
+            { topologyEveryMs: 10 }
+        )
     })
 
     afterEach(async () => {
@@ -662,7 +666,8 @@ describe('runner through seed, drive and judge', () => {
     let handles: RoleSpec[] = []
     let exits: RoleExit[]
     let killExits: (role: Role) => RoleExit[]
-    let missingFromTopology: Role | undefined
+    let missingFromTopology: { role: Role; reads: number } | undefined
+    let topologyReads = 0
     const exitOfTheKill = (role: Role): RoleExit[] => [
         { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
@@ -700,18 +705,20 @@ describe('runner through seed, drive and judge', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
-        topology: () =>
-            Promise.resolve(
-                topologyOf({
+        topology: () => {
+            const missing = topologyReads++ < (missingFromTopology?.reads ?? 0) ? missingFromTopology?.role : undefined
+            return Promise.resolve(
+                wiringOf({
                     adapter: WORKFLOWS_ADAPTER,
-                    specs: handles.filter(({ role }) => role !== missingFromTopology),
+                    specs: handles.filter(({ role }) => role !== missing),
                     groups: [],
                     clients: [
                         { application: 'scenario-cdp-cyclotron-worker-hogflow', database: 'cyclotron', connections: 1 },
                     ],
                     recordedAt: new Date(),
                 })
-            ),
+            )
+        },
         writerCpu: () => Promise.reject(new Error('a local run reads no writer CPU')),
         down: async () => {
             await roles?.stop()
@@ -796,6 +803,7 @@ describe('runner through seed, drive and judge', () => {
 
     beforeEach(async () => {
         missingFromTopology = undefined
+        topologyReads = 0
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
@@ -872,10 +880,10 @@ describe('runner through seed, drive and judge', () => {
         traffic?: string,
         options: Parameters<typeof shortSmoke>[2] = {}
     ): Promise<RunResult> => {
-        const result = await createRunner(environmentOf(delivering), env).run(
-            shortSmoke(valves, traffic, options),
-            NEVER_ABORTED
-        )
+        const result = await createRunner(environmentOf(delivering), env, {
+            topologyWithinMs: 1000,
+            topologyEveryMs: 10,
+        }).run(shortSmoke(valves, traffic, options), NEVER_ABORTED)
         results.push(result)
         return result
     }
@@ -1223,7 +1231,7 @@ describe('runner through seed, drive and judge', () => {
     )
 
     it('calls a run invalid before its drive when a valve targets a node its topology lacks, and names the nodes found', async () => {
-        missingFromTopology = 'cdp-cyclotron-worker-email'
+        missingFromTopology = { role: 'cdp-cyclotron-worker-email', reads: Infinity }
 
         const result = await run('all', [{ ...KILL_EMAIL_WORKER, at: '1s', for: '500ms' }])
 
@@ -1234,6 +1242,17 @@ describe('runner through seed, drive and judge', () => {
             timeline: [],
         })
         expect(api.captured[0]?.properties.topology_hash).toEqual(result.topologyHash)
+    }, 30_000)
+
+    it('reads the topology again until a role that joined late shows, and runs the card', async () => {
+        missingFromTopology = { role: 'cdp-cyclotron-worker-email', reads: 1 }
+
+        const result = await run('all', [{ ...KILL_EMAIL_WORKER, at: '1s', for: '500ms' }])
+
+        expect(result.statusReason).not.toContain('topology')
+        expect(result.timeline).toEqual([
+            expect.objectContaining({ valve: 'role.kill', target: 'cdp-cyclotron-worker-email' }),
+        ])
     }, 30_000)
 
     it('calls the failover card invalid at its valve on a host without a run manifest', async () => {

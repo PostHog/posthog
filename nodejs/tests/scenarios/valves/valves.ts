@@ -25,6 +25,7 @@ export type ValveDefinition = Definition & {
     strandsRunningJobs: boolean
     roleExitGraceMs?: number
     journalsIntent?: true
+    needsRunHost?: true
     apply(context: ValveContext, target: string, dose: unknown, holdMs: number, signal: AbortSignal): Promise<Actuation>
 }
 
@@ -129,6 +130,7 @@ export const pgFailover: ValveDefinition = {
     target: z.literal('cyclotron'),
     strandsRunningJobs: false,
     journalsIntent: true,
+    needsRunHost: true,
     apply: ({ environment, commits, manifest }, _target, _dose, holdMs, signal) =>
         manifest === undefined
             ? Promise.reject(new Error('pg.failover runs only on a run host'))

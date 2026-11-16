@@ -7,6 +7,8 @@ import path from 'path'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
+import { waitForExpect } from '../../helpers/expectations'
+import type { MetricSample } from '../judge/measurements'
 import { LIVE_FILE, openLiveLog } from '../runner/live'
 import { createViewerServer } from './server'
 
@@ -17,8 +19,14 @@ const DRIVE_START = Date.parse('2026-01-05T10:00:00.000Z')
 const at = (seconds: number): number => DRIVE_START + seconds * 1000
 const iso = (seconds: number): string => new Date(at(seconds)).toISOString()
 
-const sample = (seconds: number, cpuSeconds: number, processed: number, startedAt = at(-60) / 1000): object => ({
-    role: 'cdp-cyclotron-worker-email',
+const sample = (
+    seconds: number,
+    cpuSeconds: number,
+    processed: number,
+    startedAt = at(-60) / 1000,
+    role = 'cdp-cyclotron-worker-email'
+): MetricSample => ({
+    role,
     replica: 0,
     at: at(seconds),
     startedAt,
@@ -27,6 +35,7 @@ const sample = (seconds: number, cpuSeconds: number, processed: number, startedA
     processed: { email: processed },
     pgClientErrors: 0,
     consumerLoopErrors: 0,
+    janitorStalled: 0,
     lateness: {},
 })
 
@@ -77,6 +86,14 @@ function writeRun(stateDir: string): void {
             sample(10, 13, 200),
             sample(15, 0.5, 5, at(12) / 1000),
             sample(20, 1.5, 30, at(12) / 1000),
+            ...[
+                [0, 0, 0],
+                [1, 0.5, 2],
+                [4, 2, 8],
+                [13, 6.5, 26],
+            ].map(([seconds, cpuSeconds, processed]) =>
+                sample(seconds, cpuSeconds, processed, at(-60) / 1000, 'cdp-cyclotron-worker-hogflow')
+            ),
         ],
         missed: [],
         host: [],
@@ -96,7 +113,7 @@ function writeRun(stateDir: string): void {
             teamId: 1,
             offeredAt: at(1),
             answer: { accepted: true },
-            expect: { deliveries: [] },
+            expect: { deliveries: ['email'] },
         },
         {
             unitId: 'u-2',
@@ -136,8 +153,63 @@ function writeRun(stateDir: string): void {
     mkdirSync(path.join(stateDir, UNFINISHED_RUN_ID))
 }
 
+function writeCards(cardsDir: string): void {
+    const write = (name: string, lines: string[]): void =>
+        writeFileSync(path.join(cardsDir, `${name}.yaml`), `${lines.join('\n')}\n`)
+    const common = (id: string, drive: string[]): string[] => [
+        `id: ${id}`,
+        'version: 3',
+        'clock: real',
+        'profile: synthetic',
+        'seed: 11',
+        'setup:',
+        '    teams: 2',
+        'drive:',
+        ...drive,
+        'convergeWithin: 1m',
+        'invariants:',
+        '    - name: at_least_once',
+        '    - name: duplicate_sends',
+        'gates:',
+        '    duplicate_sends: 0',
+        'measure:',
+        '    - name: delivery_latency_ms',
+    ]
+    write('frozen-worker', [
+        ...common('frozen-worker', ['    for: 40s', '    traffic:', '        - name: event_webhook']),
+        'valves:',
+        '    - valve: role.freeze',
+        '      target: cdp-cyclotron-worker-hogflow',
+        '      dose: {}',
+        '      when:',
+        '          name: running_on_queue',
+        '          params:',
+        '              queue: hogflow',
+        '              atLeast: 2',
+        '      for: 20s',
+    ])
+    write('ramp', [
+        ...common('ramp', [
+            '    for: 3m',
+            '    traffic:',
+            '        - name: event_email',
+            '    ramp:',
+            '        - scale: 1',
+            '          for: 1m',
+            '        - scale: 3',
+            '          for: 2m',
+        ]),
+        'bars:',
+        '    - name: writer_cpu_under',
+        '      params:',
+        '          percent: 60',
+    ])
+    write('broken', ['id: broken', 'version: one'])
+}
+
 describe('scenario viewer', () => {
     let stateDir: string
+    let cardsDir: string
     let server: Server
     let base: string
 
@@ -149,7 +221,9 @@ describe('scenario viewer', () => {
     beforeAll(async () => {
         stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-viewer-'))
         writeRun(stateDir)
-        server = createViewerServer({ stateDir })
+        cardsDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-viewer-cards-'))
+        writeCards(cardsDir)
+        server = createViewerServer({ stateDir, cardsDir })
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     })
@@ -157,6 +231,7 @@ describe('scenario viewer', () => {
     afterAll(async () => {
         await new Promise((resolve) => server.close(resolve))
         rmSync(stateDir, { recursive: true, force: true })
+        rmSync(cardsDir, { recursive: true, force: true })
     })
 
     it('lists only runs that wrote a scorecard, and serves the topology the newest one recorded', async () => {
@@ -180,9 +255,11 @@ describe('scenario viewer', () => {
             startedAt: iso(-30),
             topology: TOPOLOGY,
         })
+        expect((await get('/api/topology?card=email-worker-killed')).body).toMatchObject({ runId: RUN_ID })
+        expect((await get('/api/topology?card=smoke')).body).toBeNull()
     })
 
-    it('turns a run’s evidence into rates that skip a restart and latency to the first clean delivery', async () => {
+    it('turns a run’s evidence into rates that skip a restart, hold through uneven scrapes, and latency to the first clean delivery', async () => {
         const { status, body } = await get(`/api/runs/${RUN_ID}`)
 
         expect(status).toBe(200)
@@ -193,9 +270,19 @@ describe('scenario viewer', () => {
                 replicas: 1,
                 restarts: [at(12)],
                 points: [
-                    { at: at(5), cpuPercent: 40, processedPerSecond: 10, rssMb: 100 },
-                    { at: at(10), cpuPercent: 20, processedPerSecond: 10, rssMb: 100 },
-                    { at: at(20), cpuPercent: 20, processedPerSecond: 5, rssMb: 100 },
+                    { at: at(0), cpuPercent: 40, processedPerSecond: 10, rssMb: 100 },
+                    { at: at(5), cpuPercent: 20, processedPerSecond: 10, rssMb: 100 },
+                    { at: at(15), cpuPercent: 20, processedPerSecond: 5, rssMb: 100 },
+                ],
+            },
+            {
+                role: 'cdp-cyclotron-worker-hogflow',
+                replicas: 1,
+                restarts: [],
+                points: [
+                    { at: at(0), cpuPercent: 50, processedPerSecond: 2, rssMb: 100 },
+                    { at: at(5), cpuPercent: 50, processedPerSecond: 2, rssMb: 100 },
+                    { at: at(10), cpuPercent: 50, processedPerSecond: 2, rssMb: 100 },
                 ],
             },
         ])
@@ -240,48 +327,53 @@ describe('scenario viewer', () => {
         expect(status).toBe(404)
     })
 
-    it('describes each card by what it injects, its load and what judges it', async () => {
+    it('describes each card by what it injects, its load and what judges it, and a card that fails to load by its problems', async () => {
         const { body } = await get('/api/cards')
 
-        expect(body.find(({ id }: { id: string }) => id === 'hogflow-worker-frozen')).toMatchObject({
-            problems: [],
-            profileName: 'synthetic',
-            driveMs: 90_000,
-            traffic: [
-                { name: 'event_email', ratePerSecond: 2 },
-                { name: 'event_webhook', ratePerSecond: 2 },
-            ],
-            valves: [
-                {
-                    valve: 'role.freeze',
-                    target: 'cdp-cyclotron-worker-hogflow',
-                    atMs: null,
-                    when: { queue: 'hogflow', atLeast: 1 },
-                    forMs: 60_000,
-                },
-            ],
-            invariants: [
-                { name: 'at_least_once', gate: null },
-                { name: 'duplicate_sends', gate: 0 },
-                { name: 'refused_at_intake', gate: 0 },
-            ],
-            runHostOnly: false,
-        })
-        expect(body.find(({ id }: { id: string }) => id === 'cyclotron-scale')).toMatchObject({
-            runHostOnly: true,
-            traffic: [
-                { name: 'event_email', intake: 'event' },
-                { name: 'event_webhook', intake: 'event' },
-                { name: 'transactional_email', intake: 'transactional' },
-            ],
-            steps: [
-                { scale: 1, fromMs: 0, toMs: 300_000 },
-                { scale: 2, fromMs: 300_000, toMs: 600_000 },
-                { scale: 5, fromMs: 600_000, toMs: 900_000 },
-                { scale: 10, fromMs: 900_000, toMs: 2_700_000 },
-            ],
-        })
+        expect(body).toEqual([
+            {
+                ok: false,
+                id: 'broken',
+                file: path.join(cardsDir, 'broken.yaml'),
+                problems: expect.arrayContaining([expect.any(String)]),
+            },
+            expect.objectContaining({
+                ok: true,
+                id: 'frozen-worker',
+                profileName: 'synthetic',
+                driveMs: 40_000,
+                traffic: [{ name: 'event_webhook', ratePerSecond: 2, intake: 'event' }],
+                valves: [
+                    {
+                        valve: 'role.freeze',
+                        target: 'cdp-cyclotron-worker-hogflow',
+                        dose: {},
+                        atMs: null,
+                        when: { queue: 'hogflow', atLeast: 2 },
+                        forMs: 20_000,
+                    },
+                ],
+                invariants: [
+                    { name: 'at_least_once', gate: null },
+                    { name: 'duplicate_sends', gate: 0 },
+                ],
+                bars: [],
+                runHostOnly: false,
+            }),
+            expect.objectContaining({
+                ok: true,
+                id: 'ramp',
+                runHostOnly: true,
+                traffic: [{ name: 'event_email', ratePerSecond: 2, intake: 'event' }],
+                steps: [
+                    { scale: 1, fromMs: 0, toMs: 60_000 },
+                    { scale: 3, fromMs: 60_000, toMs: 180_000 },
+                ],
+                bars: [{ name: 'writer_cpu_under', params: { percent: 60 }, unit: '%' }],
+            }),
+        ])
     })
+
     it('follows a run through the live log the runner writes', async () => {
         const truth = [
             { seq: 1, at: iso(-5), kind: 'ses.send', unitId: 'u-0', actionId: 'email', status: 200, detail: {} },
@@ -303,15 +395,28 @@ describe('scenario viewer', () => {
             { valve: 'role.freeze', target: 'cdp-cyclotron-worker-hogflow', requestedAt: iso(9), appliedAt: iso(10) },
         ]
         const live = openLiveLog(path.join(stateDir, LIVE_RUN_ID))
-        live.write({ type: 'start', at: at(-20), runId: LIVE_RUN_ID, cardId: 'hogflow-worker-frozen' })
+        live.write({
+            type: 'start',
+            at: at(-20),
+            runId: LIVE_RUN_ID,
+            cardId: 'hogflow-worker-frozen',
+            cardHash: 'c4rd',
+        })
         live.write({ type: 'phase', at: at(0), phase: 'drive', driveForMs: 30_000 })
         live.follow({
             timeline: () => timeline,
-            samples: () => [sample(0, 10, 100), sample(5, 12, 150)] as any,
+            samples: () => [sample(0, 10, 100), sample(5, 12, 150)],
             queue: () => [{ at: at(5), due: 7, running: 2, oldestDueSeconds: 1.5, inserted: 10 }],
             writer: () => [],
             journal: () => [
-                { unitId: 'u-9', kind: 'event', teamId: 1, offeredAt: at(1), answer: { accepted: true } } as any,
+                {
+                    unitId: 'u-9',
+                    kind: 'event',
+                    teamId: 1,
+                    offeredAt: at(1),
+                    answer: { accepted: true },
+                    expect: { deliveries: ['email'] },
+                },
             ],
             edgeUrl: `http://127.0.0.1:${(edge.address() as AddressInfo).port}`,
         })
@@ -325,6 +430,7 @@ describe('scenario viewer', () => {
         expect(body).toMatchObject({
             runId: LIVE_RUN_ID,
             cardId: 'hogflow-worker-frozen',
+            cardHash: 'c4rd',
             phase: 'end',
             drive: { startedAt: at(0), endedAt: at(30), forMs: 30_000 },
             ended: { status: 'passed', statusReason: 'every invariant held' },
@@ -332,31 +438,52 @@ describe('scenario viewer', () => {
             hasScorecard: false,
             timeline,
         })
-        expect(body.series.roles[0].points).toEqual([expect.objectContaining({ at: at(5), processedPerSecond: 10 })])
+        expect(body.series.roles[0].points).toEqual([expect.objectContaining({ at: at(0), processedPerSecond: 10 })])
         expect(body.series.queue).toEqual([{ at: at(5), due: 7, running: 2, oldestDueSeconds: 1.5 }])
         expect(body.series.flow).toEqual([
             expect.objectContaining({ at: at(0), offeredEvents: 1, emailOk: 1, latencyP50Ms: 3000 }),
         ])
     })
 
-    it('shows a run as in progress only while the runner still writes its live log', async () => {
+    it('keeps a run live while its runner beats, even through a phase that writes nothing, and drops it once the beat stops', async () => {
         const ownStateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-viewer-live-'))
-        const ownServer = createViewerServer({ stateDir: ownStateDir })
+        const ownServer = createViewerServer({ stateDir: ownStateDir, cardsDir })
         await new Promise<void>((resolve) => ownServer.listen(0, '127.0.0.1', resolve))
         const own = `http://127.0.0.1:${(ownServer.address() as AddressInfo).port}`
         const live = async (): Promise<any> => parseJSON(await (await internalFetch(`${own}/api/live`)).text())
-        const log = openLiveLog(path.join(ownStateDir, LIVE_RUN_ID))
-        log.write({ type: 'start', at: Date.now(), runId: LIVE_RUN_ID, cardId: 'smoke' })
-        log.write({ type: 'phase', at: Date.now(), phase: 'drive', driveForMs: 30_000 })
-
-        const writing = await live()
+        const runDir = path.join(ownStateDir, LIVE_RUN_ID)
+        const file = path.join(runDir, LIVE_FILE)
         const minuteAgo = new Date(Date.now() - 60_000)
-        utimesSync(path.join(ownStateDir, LIVE_RUN_ID, LIVE_FILE), minuteAgo, minuteAgo)
-        const quiet = await live()
+        const log = openLiveLog(runDir, 10)
+        log.write({ type: 'start', at: Date.now(), runId: LIVE_RUN_ID, cardId: 'smoke', cardHash: 'c4rd' })
+        log.write({ type: 'phase', at: Date.now(), phase: 'seed' })
+
+        utimesSync(file, minuteAgo, minuteAgo)
+        const seeding = await waitForExpect(
+            async () => {
+                const view = await live()
+                expect(view.inProgress).toBe(true)
+                return view
+            },
+            2000,
+            20
+        )
+        log.write({ type: 'end', at: Date.now(), status: 'passed', statusReason: 'every invariant held' })
+        const killedDir = path.join(ownStateDir, UNFINISHED_RUN_ID)
+        mkdirSync(killedDir)
+        writeFileSync(
+            path.join(killedDir, LIVE_FILE),
+            `${JSON.stringify({ type: 'start', at: Date.now(), runId: UNFINISHED_RUN_ID, cardId: 'smoke', cardHash: 'c4rd' })}\n`
+        )
+        const halfMinuteAgo = new Date(Date.now() - 30_000)
+        utimesSync(path.join(killedDir, LIVE_FILE), halfMinuteAgo, halfMinuteAgo)
+        utimesSync(file, minuteAgo, minuteAgo)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        const killed = await live()
         await new Promise((resolve) => ownServer.close(resolve))
         rmSync(ownStateDir, { recursive: true, force: true })
 
-        expect(writing).toMatchObject({ runId: LIVE_RUN_ID, inProgress: true, ended: null })
-        expect(quiet).toMatchObject({ runId: LIVE_RUN_ID, inProgress: false, ended: null })
+        expect(seeding).toMatchObject({ runId: LIVE_RUN_ID, phase: 'seed', inProgress: true, ended: null })
+        expect(killed).toMatchObject({ runId: UNFINISHED_RUN_ID, inProgress: false, ended: null })
     })
 })

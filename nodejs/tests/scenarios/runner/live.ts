@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from 'fs'
+import { appendFileSync, mkdirSync, utimesSync } from 'fs'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
@@ -15,22 +15,23 @@ export const LIVE_FILE = 'live.jsonl'
 
 const TICK_MS = 1000
 const TRUTH_TIMEOUT_MS = 500
+const TRUTH_PAGE = 1000
 
 export type LivePhase = 'reset' | 'seed' | 'drive' | 'converge' | 'judge' | 'end'
 
 export type LiveTruth = Pick<TruthRecord, 'seq' | 'at' | 'kind' | 'unitId' | 'actionId' | 'status' | 'fault'>
 
 export type LiveRecord =
-    | { type: 'start'; at: number; runId: string; cardId: string }
+    | { type: 'start'; at: number; runId: string; cardId: string; cardHash: string }
     | { type: 'phase'; at: number; phase: LivePhase; driveForMs?: number }
     | {
           type: 'tick'
           at: number
-          timeline: ValveTimelineEntry[]
+          timeline?: ValveTimelineEntry[]
           samples: MetricSample[]
           queue: QueueSample[]
           writer: WriterSample[]
-          journal: Pick<JournalEntry, 'unitId' | 'kind' | 'offeredAt' | 'answer'>[]
+          journal: Pick<JournalEntry, 'unitId' | 'kind' | 'offeredAt' | 'answer' | 'expect'>[]
           truth: LiveTruth[]
       }
     | { type: 'end'; at: number; status: string; statusReason: string }
@@ -50,8 +51,8 @@ export interface LiveLog {
     stop(): Promise<void>
 }
 
-async function truthAfter(edgeUrl: string, after: number): Promise<LiveTruth[]> {
-    const response = await internalFetch(`${edgeUrl}/_truth?after=${after}&limit=1000`, {
+async function truthPage(edgeUrl: string, after: number): Promise<LiveTruth[]> {
+    const response = await internalFetch(`${edgeUrl}/_truth?after=${after}&limit=${TRUTH_PAGE}`, {
         timeoutMs: TRUTH_TIMEOUT_MS,
     })
     const page = parseJSON(await response.text()) as TruthPage
@@ -66,17 +67,39 @@ async function truthAfter(edgeUrl: string, after: number): Promise<LiveTruth[]> 
     }))
 }
 
+async function truthAfter(edgeUrl: string, after: number): Promise<LiveTruth[]> {
+    const all: LiveTruth[] = []
+    for (let cursor = after; ; ) {
+        const page = await truthPage(edgeUrl, cursor)
+        all.push(...page)
+        if (page.length < TRUTH_PAGE) {
+            return all
+        }
+        cursor = page.at(-1)!.seq
+    }
+}
+
 async function truthHead(edgeUrl: string): Promise<number> {
     const response = await internalFetch(`${edgeUrl}/_truth/head`, { timeoutMs: TRUTH_TIMEOUT_MS })
     return (parseJSON(await response.text()) as { head: number }).head
 }
 
-// The live log lets the viewer follow a run while it happens. It only reads what the runner
-// already collects, and a write or read that fails turns the log off rather than touching the run.
-export function openLiveLog(evidenceDir: string): LiveLog {
+export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
     const file = path.join(evidenceDir, LIVE_FILE)
     let broken = false
+    const beat = setInterval(() => {
+        try {
+            const now = new Date()
+            utimesSync(file, now, now)
+        } catch {
+            clearInterval(beat)
+        }
+    }, beatMs)
+    beat.unref()
     const write = (record: LiveRecord): void => {
+        if (record.type === 'end') {
+            clearInterval(beat)
+        }
         if (broken) {
             return
         }
@@ -85,6 +108,7 @@ export function openLiveLog(evidenceDir: string): LiveLog {
             appendFileSync(file, `${JSON.stringify(record)}\n`)
         } catch {
             broken = true
+            clearInterval(beat)
         }
     }
     const stopped = new AbortController()
@@ -94,8 +118,8 @@ export function openLiveLog(evidenceDir: string): LiveLog {
         follow(sources) {
             following = (async () => {
                 const seen = { samples: 0, queue: 0, writer: 0, journal: 0, truth: 0 }
+                let timeline = ''
                 seen.truth = await truthHead(sources.edgeUrl).catch(() => 0)
-                // The tick after a stop still runs, so the log ends with what arrived before the judge.
                 for (let last = false; !last && !broken; ) {
                     await sleep(TICK_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
                     last = stopped.signal.aborted
@@ -106,19 +130,25 @@ export function openLiveLog(evidenceDir: string): LiveLog {
                     }
                     const truth = await truthAfter(sources.edgeUrl, seen.truth).catch(() => [])
                     seen.truth = truth.at(-1)?.seq ?? seen.truth
+                    const valves = sources.timeline()
+                    const changed = JSON.stringify(valves) !== timeline
+                    timeline = JSON.stringify(valves)
                     write({
                         type: 'tick',
                         at: Date.now(),
-                        timeline: sources.timeline(),
+                        ...(changed ? { timeline: valves } : {}),
                         samples: fresh(sources.samples(), 'samples'),
                         queue: fresh(sources.queue(), 'queue'),
                         writer: fresh(sources.writer(), 'writer'),
-                        journal: fresh(sources.journal(), 'journal').map(({ unitId, kind, offeredAt, answer }) => ({
-                            unitId,
-                            kind,
-                            offeredAt,
-                            answer,
-                        })),
+                        journal: fresh(sources.journal(), 'journal').map(
+                            ({ unitId, kind, offeredAt, answer, expect }) => ({
+                                unitId,
+                                kind,
+                                offeredAt,
+                                answer,
+                                expect,
+                            })
+                        ),
                         truth,
                     })
                 }

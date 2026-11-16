@@ -29,8 +29,9 @@ type Window = { from: number; to: number; last: boolean }
 
 type Reading = { key?: string; value: number; passed: boolean } | { unread: string }
 
-type BarDefinition = Definition & {
+export type BarDefinition = Definition & {
     unit: string
+    needsRunHost?: true
     read(evidence: BarEvidence, window: Window, params: unknown): Reading
 }
 
@@ -53,6 +54,7 @@ const writerCpuUnder: BarDefinition = {
     name: 'writer_cpu_under',
     params: WriterCpuParams,
     unit: '%',
+    needsRunHost: true,
     read: ({ writerCpu }, { from, to }, params) => {
         if ('unread' in writerCpu) {
             return writerCpu
