@@ -83,6 +83,52 @@ function formScreen(): React.ReactElement {
 }
 
 describe('classic chat draft recovery', () => {
+    test.each([false, true])(
+        'keeps custom multi-select typing separate from explicit selection %s across recovery',
+        async (explicit) => {
+            jest.mocked(useChatDraft).mockReturnValue({
+                draft: { text: '', reportIds: [] },
+                ready: true,
+            } as unknown as ReturnType<typeof useChatDraft>)
+            const chat = formChat([
+                {
+                    id: 'events',
+                    title: 'Events',
+                    question: 'Which events?',
+                    type: 'multi_select',
+                    options: [{ value: 'Signup' }],
+                },
+            ])
+            chat.submitForm = jest.fn(async () => false)
+            jest.mocked(useClassicChat).mockReturnValue(chat)
+            const view = render(formScreen())
+            if (explicit) fireEvent.press(screen.getByLabelText('Signup'))
+            for (const letter of 'SignupX') {
+                const input = screen.getByLabelText('Other answers')
+                fireEvent.changeText(input, `${input.props.value}${letter}`)
+            }
+            if (explicit) expect(screen.getByLabelText('Signup')).toBeChecked()
+            else expect(screen.getByLabelText('Signup')).not.toBeChecked()
+            await act(async () => fireEvent.press(screen.getByLabelText('Submit answers')))
+            expect(chat.submitForm).toHaveBeenLastCalledWith({ events: explicit ? ['Signup', 'SignupX'] : ['SignupX'] })
+
+            jest.mocked(useClassicChat).mockReturnValue({ ...chat, form: null, working: true })
+            view.rerender(formScreen())
+            jest.mocked(useClassicChat).mockReturnValue(chat)
+            view.rerender(formScreen())
+            expect(screen.getByDisplayValue('SignupX')).toBeTruthy()
+            fireEvent.changeText(screen.getByLabelText('Other answers'), '')
+            if (explicit) {
+                expect(screen.getByLabelText('Signup')).toBeChecked()
+                await act(async () => fireEvent.press(screen.getByLabelText('Submit answers')))
+                expect(chat.submitForm).toHaveBeenLastCalledWith({ events: ['Signup'] })
+            } else {
+                expect(screen.getByLabelText('Signup')).not.toBeChecked()
+                expect(screen.getByLabelText('Submit answers')).toBeDisabled()
+            }
+        }
+    )
+
     test('keeps a custom single-select answer while typing through a predefined option prefix', async () => {
         jest.mocked(useChatDraft).mockReturnValue({
             draft: { text: '', reportIds: [] },

@@ -104,6 +104,28 @@ export function initialClassicFormAnswers(questions: readonly ClassicFormQuestio
     )
 }
 
+export function combinedClassicFormAnswers(
+    questions: readonly ClassicFormQuestion[],
+    answers: ClassicFormAnswers,
+    custom: Readonly<Record<string, string>>
+): ClassicFormAnswers {
+    const combined = { ...answers }
+    for (const question of questions) {
+        for (const field of question.fields) {
+            if (field.type !== 'multi_select') continue
+            const selected = answers[field.id]
+            const additional = field.allowCustom
+                ? (custom[field.id] ?? '')
+                      .split('\n')
+                      .map((item) => item.trim())
+                      .filter(Boolean)
+                : []
+            combined[field.id] = [...(Array.isArray(selected) ? selected : []), ...additional]
+        }
+    }
+    return combined
+}
+
 export function submittedClassicFormAnswers(
     questions: readonly ClassicFormQuestion[],
     answers: ClassicFormAnswers

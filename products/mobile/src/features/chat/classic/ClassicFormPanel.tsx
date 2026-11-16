@@ -13,6 +13,7 @@ import {
     type ClassicFormField,
     classicFormComplete,
     classicFormQuestions,
+    combinedClassicFormAnswers,
     initialClassicFormAnswers,
     submittedClassicFormAnswers,
 } from './classicForm'
@@ -50,7 +51,11 @@ export function ClassicFormPanel({
     const locked = useRef(false)
     const disabled = pending || busy
     const activeQuestions = questions?.filter((question) => !skipped.has(question.id)) ?? []
-    const complete = questions !== null && classicFormComplete(activeQuestions, answers)
+    const combinedAnswers = useMemo(
+        () => combinedClassicFormAnswers(questions ?? [], answers, custom),
+        [questions, answers, custom]
+    )
+    const complete = questions !== null && classicFormComplete(activeQuestions, combinedAnswers)
     useEffect(() => {
         onDraftChange({ answers, custom, skipped: [...skipped] })
     }, [answers, custom, skipped, onDraftChange])
@@ -77,7 +82,7 @@ export function ClassicFormPanel({
         try {
             const accepted = dismiss
                 ? await onDismiss()
-                : await onSubmit(submittedClassicFormAnswers(activeQuestions, answers))
+                : await onSubmit(submittedClassicFormAnswers(activeQuestions, combinedAnswers))
             if (accepted)
                 track('mobile_decision_answered', {
                     kind: 'form',
@@ -96,7 +101,6 @@ export function ClassicFormPanel({
     const renderField = (field: ClassicFormField): ReactElement => {
         const value = answers[field.id]
         const selected = Array.isArray(value) ? value : []
-        const predefined = new Set(field.options.map((option) => option.value))
         const numeric = field.type === 'number'
         return (
             <View key={field.id} style={styles.field}>
@@ -162,13 +166,6 @@ export function ClassicFormPanel({
                             onChangeText={(text) => {
                                 if (field.type === 'multi_select') {
                                     setCustom((current) => ({ ...current, [field.id]: text }))
-                                    change(field.id, [
-                                        ...selected.filter((item) => predefined.has(item)),
-                                        ...text
-                                            .split('\n')
-                                            .map((item) => item.trim())
-                                            .filter(Boolean),
-                                    ])
                                 } else {
                                     if (field.type === 'select')
                                         setCustom((current) => ({ ...current, [field.id]: text }))
