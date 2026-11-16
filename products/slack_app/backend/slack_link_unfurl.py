@@ -1124,6 +1124,7 @@ def _release_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
         organization_id=ctx.team.organization_id,
         distinct_id=str(ctx.user.distinct_id),
         email=None if ctx.user.anonymize_data else ctx.user.email,
+        only_evaluate_locally=True,
     ):
         return "no_access"
     try:

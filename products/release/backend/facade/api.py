@@ -191,6 +191,7 @@ def releases_enabled(
     distinct_id: str,
     email: str | None,
     raise_on_error: bool = False,
+    only_evaluate_locally: bool = False,
 ) -> bool:
     return feature_flags.is_releases_enabled(
         team_id=team_id,
@@ -199,6 +200,7 @@ def releases_enabled(
         distinct_id=distinct_id,
         email=email,
         raise_on_error=raise_on_error,
+        only_evaluate_locally=only_evaluate_locally,
     )
 
 
