@@ -219,21 +219,19 @@ pub async fn remote_config(
     // literal `null`, which every SDK's JSON parser reads as no payload.
     let payload: Option<Value> = if !active {
         Some(Value::Null)
-    } else if has_encrypted_payloads != Some(true) {
-        stored.cloned()
-    } else if should_decrypt {
-        resolve_decrypted_payload(&state, stored, scope_project_id, &resolved_key)?
     } else {
-        stored.map(|_| Value::String(REDACTED_PAYLOAD_VALUE.to_string()))
-    };
+        let resolved = if has_encrypted_payloads != Some(true) {
+            stored.cloned()
+        } else if should_decrypt {
+            resolve_decrypted_payload(&state, stored, scope_project_id, &resolved_key)?
+        } else {
+            stored.map(|_| Value::String(REDACTED_PAYLOAD_VALUE.to_string()))
+        };
 
-    // Django applies `or None` to the final value and renders None as an empty body, not
-    // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
-    // string nulls out too. In practice the payload is always a JSON-encoded string.
-    let payload = if active {
-        payload.filter(|v| !is_falsy(v))
-    } else {
-        payload
+        // Django applies `or None` to the final value and renders None as an empty body, not
+        // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
+        // string nulls out too. In practice the payload is always a JSON-encoded string.
+        resolved.filter(|v| !is_falsy(v))
     };
 
     // `Value::to_string` produces the same compact JSON `Json(v)` would serialize, so the
