@@ -127,7 +127,6 @@ export type FakeCloudOptions = {
     averageStatuses?: string[]
     liveReaderAcu?: { maxima: (number | null)[]; lagMinutes?: number }
     failover?: { takesMs?: number; showsAfterMs?: number }
-    hostLaunchTemplate?: { id: string; version: string }
 }
 
 function actionOf(service: string, operation: string): string {
@@ -346,10 +345,6 @@ export class FakeCloud implements Aws {
     private provision(stack: Stack): void {
         const sub = (value: unknown): string =>
             String(value).replace(/\$\{(\w+)\}/g, (_, name: string) => stack.parameters[name])
-        const resolved = (value: unknown): unknown =>
-            typeof value === 'object' && value !== null && 'Ref' in value
-                ? stack.parameters[(value as { Ref: string }).Ref]
-                : value
         const id = stack.parameters.RunId
         const runTag = stack.runTag
         for (const [logicalId, { Type, Condition, Properties }] of Object.entries(stack.template.Resources)) {
@@ -404,7 +399,7 @@ export class FakeCloud implements Aws {
                     seeded: this.backlogSeeded(),
                 })
             } else if (Type === 'AWS::EC2::Instance') {
-                if (!this.launchesFromHostTemplate(Properties, resolved)) {
+                if (!this.serviceRoleAllowsHost(Properties, stack.parameters)) {
                     stack.deniedHost = true
                     continue
                 }
@@ -773,17 +768,15 @@ export class FakeCloud implements Aws {
         }
     }
 
-    // The baseline's stack service role launches a run host only from its launch template, unchanged, so a host
-    // that adds or overrides a disk is denied and the stack create rolls back.
-    private launchesFromHostTemplate(
-        properties: Record<string, unknown>,
-        resolved: (value: unknown) => unknown
-    ): boolean {
-        const { id, version } = this.options.hostLaunchTemplate ?? HOST_LAUNCH_TEMPLATE
+    private serviceRoleAllowsHost(properties: Record<string, unknown>, parameters: Record<string, string>): boolean {
+        const resolved = (value: unknown): unknown =>
+            typeof value === 'object' && value !== null && 'Ref' in value
+                ? parameters[(value as { Ref: string }).Ref]
+                : value
         const template = (properties.LaunchTemplate ?? {}) as Record<string, unknown>
         return (
-            resolved(template.LaunchTemplateId) === id &&
-            resolved(template.Version) === version &&
+            resolved(template.LaunchTemplateId) === HOST_LAUNCH_TEMPLATE.id &&
+            resolved(template.Version) === HOST_LAUNCH_TEMPLATE.version &&
             properties.BlockDeviceMappings === undefined &&
             properties.Volumes === undefined
         )
