@@ -85,6 +85,7 @@ import type {
 import type { CohortRealtimeSwitchAction } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
 import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
 
+import type { CohortTypeEnumApi } from '../../../../products/cohorts/frontend/generated/api.schemas'
 import type { UserBasicType } from '../../types'
 import type { PreflightStatus } from '../../types'
 
@@ -512,7 +513,7 @@ export interface cohortEditLogicActions {
         cohort: {
             _create_in_folder?: string | null | undefined
             _create_static_person_ids?: string[] | undefined
-            cohort_type?: CohortApi['cohort_type'] | undefined
+            cohort_type?: CohortTypeEnumApi | '' | null | undefined
             count: number | undefined
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
@@ -546,7 +547,7 @@ export interface cohortEditLogicActions {
         cohort: {
             _create_in_folder?: string | null | undefined
             _create_static_person_ids?: string[] | undefined
-            cohort_type?: CohortApi['cohort_type'] | undefined
+            cohort_type?: CohortTypeEnumApi | '' | null | undefined
             count: number | undefined
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
