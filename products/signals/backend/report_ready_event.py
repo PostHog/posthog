@@ -92,8 +92,13 @@ def _source_products(team: Team, report_id: str) -> list[str]:
 
 
 def report_ready_properties(report: SignalReport) -> dict[str, Any]:
-    """Property names follow `SignalReportSerializer` where the API has the field."""
+    """Property names follow `SignalReportSerializer` where the API has the field.
+
+    Destination filters compare a property with one string, so each list also comes as comma-joined text.
+    """
     report_id = str(report.id)
+    source_products = _source_products(report.team, report_id)
+    suggested_reviewers = _suggested_reviewer_logins(report)
     return {
         "report_id": report_id,
         "report_url": build_bare_report_url(report.team_id, report_id),
@@ -102,9 +107,11 @@ def report_ready_properties(report: SignalReport) -> dict[str, Any]:
             _latest_artefact_content(report, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
         ),
         "actionability": report.latest_actionability,
-        "source_products": _source_products(report.team, report_id),
+        "source_products": source_products,
+        "source_products_text": ",".join(source_products),
         "repo_slug": _selected_repository(report),
-        "suggested_reviewers": _suggested_reviewer_logins(report),
+        "suggested_reviewers": suggested_reviewers,
+        "suggested_reviewers_text": ",".join(suggested_reviewers),
         "updated_at": report.updated_at.isoformat() if report.updated_at else None,
     }
 

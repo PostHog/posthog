@@ -9,8 +9,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.compiler.bytecode import create_bytecode
+
 from posthog.dbrouter import ReplicaRouter
 
+from products.cdp.backend.filters import hog_function_filters_to_expr
 from products.cdp.backend.internal_events import internal_event_read_scope
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.receivers import _is_safety_suppressed
@@ -20,6 +23,8 @@ from products.signals.backend.report_ready_event import (
     emit_report_ready_event,
 )
 from products.signals.backend.signal_metadata import ReportSignalMeta, fetch_source_products_for_reports
+
+from common.hogvm.python.execute import execute_bytecode
 
 S = SignalReport.Status
 MODULE = "products.signals.backend.report_ready_event"
@@ -134,6 +139,72 @@ class TestReportReadyEvent(BaseTest):
 
         assert SignalReport.objects.get(id=report.id).status == S.READY
 
+    @parameterized.expand(
+        [
+            (
+                "contains_one_of_several",
+                ["error_tracking", "github"],
+                [],
+                "source_products_text",
+                "icontains",
+                "github",
+                True,
+            ),
+            ("exact_single_value", ["error_tracking"], [], "source_products_text", "exact", "error_tracking", True),
+            ("exact_other_value", ["error_tracking"], [], "source_products_text", "exact", "github", False),
+            (
+                "negative_on_a_match",
+                ["error_tracking", "github"],
+                [],
+                "source_products_text",
+                "not_icontains",
+                "github",
+                False,
+            ),
+            ("negative_on_no_match", ["error_tracking"], [], "source_products_text", "not_icontains", "github", True),
+            ("reviewer_exact", [], ["octocat"], "suggested_reviewers_text", "exact", "octocat", True),
+            ("reviewer_contains", [], ["octocat", "hubber"], "suggested_reviewers_text", "icontains", "octocat", True),
+            (
+                "reviewer_negative",
+                [],
+                ["octocat", "hubber"],
+                "suggested_reviewers_text",
+                "not_icontains",
+                "octocat",
+                False,
+            ),
+        ]
+    )
+    def test_destination_filters_on_list_fields_match_through_their_text_copies(
+        self,
+        _name: str,
+        sources: list[str],
+        reviewers: list[str],
+        key: str,
+        operator: str,
+        value: str,
+        matches: bool,
+    ) -> None:
+        report = self._report(S.IN_PROGRESS)
+        self._artefact(
+            report,
+            SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            [{"github_login": login} for login in reviewers],
+        )
+        self.source_products.return_value = {str(report.id): ReportSignalMeta(source_products=sources, scout_name=None)}
+        with self.captureOnCommitCallbacks(execute=True):
+            _transition(S.READY, title="Checkout fails", summary="S")(report)
+        event = self.produce.call_args.kwargs["event"]
+
+        filters = {
+            "events": [{"id": REPORT_READY_EVENT, "type": "events"}],
+            "properties": [{"key": key, "operator": operator, "value": value, "type": "event"}],
+        }
+        bytecode = create_bytecode(hog_function_filters_to_expr(filters=filters, team=self.team, actions={})).bytecode
+        result = execute_bytecode(bytecode, {"event": event.event, "properties": event.properties}).result
+
+        assert result is matches
+
     def test_event_carries_the_report_reference_and_filter_fields(self) -> None:
         report = self._report(S.IN_PROGRESS)
         self._artefact(report, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, {"priority": "P1"})
@@ -174,8 +245,10 @@ class TestReportReadyEvent(BaseTest):
             "priority": "P1",
             "actionability": "immediately_actionable",
             "source_products": ["error_tracking", "github"],
+            "source_products_text": "error_tracking,github",
             "repo_slug": "posthog/posthog",
             "suggested_reviewers": ["octocat"],
+            "suggested_reviewers_text": "octocat",
             "updated_at": report.updated_at.isoformat(),
         }
 

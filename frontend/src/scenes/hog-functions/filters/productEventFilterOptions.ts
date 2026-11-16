@@ -1,5 +1,7 @@
+import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+
 import { PropValue } from '~/models/propertyDefinitionsModel'
-import { HogFunctionConfigurationContextId } from '~/types'
+import { HogFunctionConfigurationContextId, PropertyFilterType } from '~/types'
 
 import { ActivityLogListScope } from 'products/platform_features/frontend/generated/api.schemas'
 
@@ -157,10 +159,34 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
                 '$exception_handled',
             ]
         case 'signals-reports':
-            return ['priority', 'actionability', 'source_products', 'repo_slug', 'suggested_reviewers', 'title']
+            // The list properties compare as whole arrays, so filters use their comma-joined text copies.
+            return [
+                'priority',
+                'actionability',
+                'source_products_text',
+                'repo_slug',
+                'suggested_reviewers_text',
+                'title',
+            ]
     }
 
     return []
+}
+
+/**
+ * Property keys for the trigger's property filters in contexts whose properties no definition endpoint lists.
+ */
+export const getProductEventPropertyTaxonomicOptions = (
+    contextId: HogFunctionConfigurationContextId
+): TaxonomicFilterProps['optionsFromProp'] => {
+    if (contextId !== 'signals-reports') {
+        return undefined
+    }
+    return {
+        [TaxonomicFilterGroupType.InternalEventProperties]: getProductEventPropertyFilterOptions(contextId).map(
+            (name) => ({ name, propertyFilterType: PropertyFilterType.Event })
+        ),
+    }
 }
 
 // Hoisted so repeated calls return stable references, keeping downstream memos idle.

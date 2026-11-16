@@ -1,6 +1,8 @@
-import { getProductEventPropertyValues } from './productEventFilterOptions'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-describe('getProductEventPropertyValues', () => {
+import { getProductEventPropertyTaxonomicOptions, getProductEventPropertyValues } from './productEventFilterOptions'
+
+describe('productEventFilterOptions', () => {
     it('suggests all activity scopes for the activity-log scope property', () => {
         const values = getProductEventPropertyValues('activity-log', 'scope')
 
@@ -30,5 +32,18 @@ describe('getProductEventPropertyValues', () => {
         { contextId: 'standard' as const, propertyKey: 'scope', expected: null },
     ])('returns $expected for $propertyKey in the $contextId context', ({ contextId, propertyKey, expected }) => {
         expect(getProductEventPropertyValues(contextId, propertyKey)).toEqual(expected)
+    })
+
+    it('offers signals report triggers the text copies of list properties, not the lists', () => {
+        const options =
+            getProductEventPropertyTaxonomicOptions('signals-reports')?.[
+                TaxonomicFilterGroupType.InternalEventProperties
+            ]
+        const names = options?.map((option) => option.name)
+
+        expect(names).toEqual(expect.arrayContaining(['source_products_text', 'suggested_reviewers_text']))
+        expect(names).not.toEqual(expect.arrayContaining(['source_products']))
+        expect(names).not.toEqual(expect.arrayContaining(['suggested_reviewers']))
+        expect(getProductEventPropertyTaxonomicOptions('activity-log')).toBeUndefined()
     })
 })
