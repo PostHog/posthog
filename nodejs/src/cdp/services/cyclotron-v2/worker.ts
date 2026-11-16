@@ -292,7 +292,10 @@ export class CyclotronV2Worker {
         this.nextPollDelayMs = this.pollDelayMs
         this.releaseWriteHeartbeatLimitMs = config.releaseWriteHeartbeatLimitMs ?? 20000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
-        this.boundedPolls = config.boundedPolls ?? false
+        // The hogflow queue can hold broadcast children at priority 2. The legacy query reads the
+        // later-scheduled rows of each higher class before it reaches them, so this queue ignores
+        // `boundedPolls: false`.
+        this.boundedPolls = config.queueName === 'hogflow' || (config.boundedPolls ?? false)
         this.ownershipReadTimeoutMs = config.ownershipReadTimeoutMs ?? 5_000
         this.boundedFairDequeue = config.boundedFairDequeue ?? false
         // Fair (per-team round-robin) dequeue is the email queue's ordering.

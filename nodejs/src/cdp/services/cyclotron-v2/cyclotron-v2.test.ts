@@ -3338,6 +3338,19 @@ describe('Cyclotron V2', () => {
                 },
             ],
             [
+                'the hogflow dequeue with bounded polls switched off',
+                'hogflow',
+                0,
+                BACKLOG_BUFFER_BUDGET,
+                PARAMETERIZED_SQL_PLANS,
+                async (dbUrl) => {
+                    const { polled, markPolled } = pollSignal()
+                    await pollOnce(createWorker('hogflow', { pool: { dbUrl }, boundedPolls: false }), polled, () =>
+                        Promise.resolve(markPolled())
+                    )
+                },
+            ],
+            [
                 'the email fair dequeue',
                 'email',
                 1,
