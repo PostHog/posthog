@@ -79,7 +79,9 @@ Use these instead of writing your own list of scopes.
   - `API_SCOPE_OBJECTS`: every object, internal ones too.
   - `GRANTABLE_API_SCOPE_OBJECTS`: the objects a person can grant.
   - `ALL_SCOPES`: the grantable `object:action` strings.
-  - `get_oauth_scopes_supported()`: what the OAuth server advertises.
+  - `OAUTH_SCOPES_SUPPORTED`: the scopes any OAuth client can request, which every discovery document lists.
+  - `AUTHORIZATION_SERVER_SCOPES_SUPPORTED`: the list in the authorization server metadata, which adds `AUTHORIZATION_SERVER_ONLY_SCOPES`.
+  - The `OAuth scope surfaces` table in `posthog/scopes.py` says which class of scope reaches which surface.
 - **Frontend type:** `APIScopeObject` from `~/types`.
 - **Frontend list at runtime:** `Object.values(ScopeObjectEnumApi)`, from `products/access_control/frontend/generated/api.schemas`.
 - **Python names and descriptions:** `get_scope_docs()` from `posthog.scope_docs`.
