@@ -295,6 +295,7 @@ class TestLoadFlagHistory(BaseTest):
                     call.kwargs["window_start"],
                     call.kwargs["window_end"],
                     call.kwargs["served"],
+                    call.kwargs["by_path"],
                     call.kwargs["split_points"],
                 )
                 for call in self.units_query.call_args_list
@@ -304,9 +305,10 @@ class TestLoadFlagHistory(BaseTest):
                     self.launched_at,
                     changed_at[2],
                     (("first-key", ("control", "test")), (FLAG_KEY, ("control", "test"))),
+                    True,
                     (changed_at[1],),
                 ),
-                (self.launched_at, changed_at[0], (("first-key", ("control", "test")),), ()),
+                (self.launched_at, changed_at[0], (("first-key", ("control", "test")),), False, ()),
             ],
         )
 
@@ -820,6 +822,7 @@ class TestQueryExposedUnits(ClickhouseTestMixin, BaseTest):
                 "capped",
                 None,
                 [(f"person-{index}", FLAG_KEY, "test", None, 3) for index in range(7)],
+                True,
                 (),
                 (5, {((0, "test"),): 5}, False),
             ),
@@ -832,6 +835,7 @@ class TestQueryExposedUnits(ClickhouseTestMixin, BaseTest):
                     ("person-2", FLAG_KEY, "test", None, 3),
                     ("person-3", FLAG_KEY, "blue", None, 3),
                 ],
+                True,
                 (),
                 (2, {((0, "control"),): 1, ((0, "test"),): 1}, True),
             ),
@@ -844,6 +848,7 @@ class TestQueryExposedUnits(ClickhouseTestMixin, BaseTest):
                     ("person-3", FLAG_KEY, "test", "org-2", 3),
                     ("person-4", FLAG_KEY, "test", None, 3),
                 ],
+                True,
                 (),
                 (2, {((0, "control"), (0, "test")): 1, ((0, "test"),): 1}, True),
             ),
@@ -856,8 +861,23 @@ class TestQueryExposedUnits(ClickhouseTestMixin, BaseTest):
                     ("person-2", FLAG_KEY, "control", None, 2),
                     ("person-3", FLAG_KEY, "test", None, 4),
                 ],
+                True,
                 (3,),
                 (3, {((0, "control"), (1, "test")): 1, ((1, "control"),): 1, ((0, "test"),): 1}, True),
+            ),
+            (
+                "without_paths_a_person_in_two_variants_counts_once_towards_the_cap",
+                None,
+                [
+                    ("person-1", FLAG_KEY, "control", None, 3),
+                    ("person-1", FLAG_KEY, "test", None, 3),
+                    ("person-2", FLAG_KEY, "control", None, 3),
+                    ("person-2", FLAG_KEY, "test", None, 3),
+                    *((f"person-{index}", FLAG_KEY, "test", None, 3) for index in range(3, 7)),
+                ],
+                False,
+                (),
+                (5, {}, False),
             ),
         ]
     )
@@ -866,6 +886,7 @@ class TestQueryExposedUnits(ClickhouseTestMixin, BaseTest):
         _name: str,
         group_type_index: int | None,
         exposures: list[Exposure],
+        by_path: bool,
         split_points_days_ago: tuple[float, ...],
         expected: tuple[int, dict[tuple[tuple[int, str], ...], int], bool],
     ) -> None:
@@ -895,6 +916,7 @@ class TestQueryExposedUnits(ClickhouseTestMixin, BaseTest):
                 served=[("old-key", ["control", "test"]), (FLAG_KEY, ["control", "test"])],
                 group_type_index=group_type_index,
                 default_exposure_event=DEFAULT_EXPOSURE_EVENT,
+                by_path=by_path,
                 split_points=[now - timedelta(days=days_ago) for days_ago in split_points_days_ago],
             )
 

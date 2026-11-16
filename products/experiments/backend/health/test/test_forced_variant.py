@@ -222,6 +222,87 @@ class TestForcedVariantReleaseCondition(TestCase):
                 ),
             ),
             (
+                "a_value_that_a_stratum_serves_twice",
+                _context(
+                    [
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "test"},
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "a"), ("slot", "1")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "b"), ("slot", "1")), "variant": "test"},
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4, 5",
+                    "test, control",
+                    None,
+                ),
+            ),
+            (
+                "a_partial_rollout_lets_matched_users_fall_through",
+                _context(
+                    [
+                        {
+                            **_properties_are(("tier", "a"), ("slot", "0")),
+                            "rollout_percentage": 50,
+                            "variant": "control",
+                        },
+                        {**_properties_are(("tier", "a"), ("slot", "1")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "b"), ("slot", "1")), "variant": "test"},
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4",
+                    "control, test",
+                    None,
+                ),
+            ),
+            (
+                "group_filters_are_not_read_as_strata",
+                _context(
+                    [
+                        {
+                            "properties": [
+                                {
+                                    "key": "tier",
+                                    "value": [tier],
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                },
+                                {
+                                    "key": "slot",
+                                    "value": [slot],
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                },
+                            ],
+                            "rollout_percentage": 100,
+                            "variant": variant,
+                        }
+                        for tier, slot, variant in (
+                            ("a", "0", "control"),
+                            ("a", "1", "test"),
+                            ("b", "0", "control"),
+                            ("b", "1", "test"),
+                        )
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4",
+                    "control, test",
+                    None,
+                ),
+            ),
+            (
                 "segments_mapped_onto_variants",
                 _context(
                     [

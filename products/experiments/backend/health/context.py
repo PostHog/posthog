@@ -71,7 +71,12 @@ from products.feature_flags.backend.facade.edits import (
     parse_variants,
 )
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.filters import condition_aggregation, pinned_variant, reachable_conditions
+from products.feature_flags.backend.facade.filters import (
+    condition_aggregation,
+    condition_rollout_percentage,
+    pinned_variant,
+    reachable_conditions,
+)
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode, has_active_flags
 
 # A change of the flag after launch that can move exposed people. A new kind needs its class in the flags facade
@@ -840,29 +845,32 @@ def _stratified_variant_property(
     pinned: Sequence[tuple[Mapping[str, Any], str]], flag_aggregation: int | None
 ) -> VariantProperty | None:
     """
-    The property that assigns the variants when the pinned conditions form strata: the conditions of a stratum share
-    every other filter, differ in one property, and each value of that property serves one variant. Each stratum must
-    serve the same values with the same variants, and there must be two strata or more. One stratum alone can't tell a
-    property that the customer's code sets at random from a trait, such as the operating system or the country, that
-    makes the variants compare different users.
+    The person property that assigns the variants when the pinned conditions form strata: the conditions of a stratum
+    share every other filter, differ in one property, and each value of that property serves one variant to everyone it
+    matches. Each stratum must serve the same values with the same variants, and there must be two strata or more. One
+    stratum alone can't tell a property that the customer's code sets at random from a trait, such as the operating
+    system or the country, that makes the variants compare different users.
     """
-    if len(pinned) < 2:
+    # A rollout under 100% lets matched users fall through to a later condition, so the property alone doesn't decide
+    # their variant. A group filter can read another group type in each condition, so only person filters count.
+    if len(pinned) < 2 or any(
+        condition_rollout_percentage(condition) != 100 or condition_aggregation(condition, flag_aggregation) is not None
+        for condition, _ in pinned
+    ):
         return None
-    candidates: set[_ExactFilter] | None = None
+    candidates: set[str] | None = None
     for condition, _ in pinned:
-        keys = {exact for prop in _properties(condition) if (exact := _exact_filter(prop)) is not None}
+        keys = {key for prop in _properties(condition) if (key := _exact_person_key(prop)) is not None}
         candidates = keys if candidates is None else candidates & keys
-    for candidate in sorted(candidates or (), key=str):
+    for candidate in sorted(candidates or ()):
         strata: dict[tuple[str, ...], dict[frozenset[str], str]] = {}
         for condition, variant in pinned:
-            on_key = [prop for prop in _properties(condition) if _exact_filter(prop) == candidate]
+            on_key = [prop for prop in _properties(condition) if _exact_person_key(prop) == candidate]
             if len(on_key) != 1:
                 break
             value = on_key[0].get("value")
             # The flag service compares `exact` values as lowercase strings.
             values = frozenset(str(item).lower() for item in (value if isinstance(value, list) else [value]))
-            if not values:
-                break
             rest = tuple(
                 sorted(
                     json.dumps(prop, sort_keys=True, default=str)
@@ -870,7 +878,11 @@ def _stratified_variant_property(
                     if prop is not on_key[0]
                 )
             )
-            strata.setdefault(rest, {})[values] = variant
+            stratum = strata.setdefault(rest, {})
+            # A value that a stratum serves twice is decided by the order of its conditions, not by the property.
+            if not values or values in stratum:
+                break
+            stratum[values] = variant
         else:
             mappings = list(strata.values())
             if (
@@ -879,14 +891,7 @@ def _stratified_variant_property(
                 and len(set(mappings[0].values())) == len(mappings[0]) >= 2
                 and _disjoint(mappings[0])
             ):
-                if candidate.filter_type == "person":
-                    return VariantProperty(key=candidate.key, group_type_index=None)
-                return VariantProperty(
-                    key=candidate.key,
-                    group_type_index=candidate.group_type_index
-                    if candidate.group_type_index is not None
-                    else condition_aggregation(pinned[0][0], flag_aggregation),
-                )
+                return VariantProperty(key=candidate, group_type_index=None)
     return None
 
 
@@ -895,29 +900,11 @@ def _properties(condition: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [prop for prop in properties if isinstance(prop, Mapping)] if isinstance(properties, list) else []
 
 
-@frozen
-class _ExactFilter:
-    key: str
-    filter_type: str
-    group_type_index: int | None
-
-
-def _exact_filter(prop: Mapping[str, Any]) -> _ExactFilter | None:
+def _exact_person_key(prop: Mapping[str, Any]) -> str | None:
     key = prop.get("key")
-    filter_type = prop.get("type")
-    if (
-        not isinstance(key, str)
-        or not isinstance(filter_type, str)
-        or filter_type not in ("person", "group")
-        or prop.get("operator") not in ("exact", None)
-    ):
+    if not isinstance(key, str) or prop.get("type") != "person" or prop.get("operator") not in ("exact", None):
         return None
-    group_type_index = prop.get("group_type_index")
-    return _ExactFilter(
-        key=key,
-        filter_type=filter_type,
-        group_type_index=group_type_index if isinstance(group_type_index, int) else None,
-    )
+    return key
 
 
 def _disjoint(mapping: Mapping[frozenset[str], str]) -> bool:

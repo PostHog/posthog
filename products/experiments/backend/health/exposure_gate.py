@@ -70,6 +70,7 @@ from products.experiments.backend.health.condition_changes import (
 from products.experiments.backend.health.context import (
     MAX_FLAG_SAVES,
     MAX_RELEASE_CONDITIONS,
+    MIN_EXPOSED_UNITS_TO_WARN,
     ChangeWindow,
     ExposedUnits,
     ExposurePath,
@@ -124,8 +125,9 @@ UNKNOWN = "unknown"
 # The two questions have their own key prefixes, so a cached bool of "anyone exposed" is never read as a count.
 _EXPOSED_KEY_PREFIX = "experiment_split_exposure"
 _EXPOSED_UNITS_KEY_PREFIX = "experiment_exposed_units_by_variant"
-# The count of pairs of a person or group and a variant stops here, so that the scan of a window with many exposures
-# stops early. Below the cap the split check knows how many people each variant had before a change.
+# The split count of rows of a person or group, a part of the window and a variant stops here, so that the scan of a
+# window with many exposures stops early. Below the cap the split check knows how many people each variant had before a
+# change. The other kinds only ask whether fewer than MIN_EXPOSED_UNITS_TO_WARN were exposed, so they stop there.
 MAX_COUNTED_BEFORE_CHANGE = 1000
 _KINDS: dict[ExperimentHealthFlagChangeKind, type[FlagChange]] = {
     ExperimentHealthFlagChangeKind.SPLIT: SplitChange,
@@ -232,13 +234,15 @@ def query_exposed_units(
     served: Sequence[tuple[str, Sequence[str]]],
     group_type_index: int | None,
     default_exposure_event: str,
+    by_path: bool = False,
     split_points: Sequence[datetime] = (),
 ) -> ExposedUnits:
     """
-    The persons or groups exposed in `[window_start, window_end)`, by the variant they got in each part of the window
-    that `split_points` divide it into. The count stops at MAX_COUNTED_BEFORE_CHANGE rows of a person or group, a part
-    and a variant. `served` pairs each flag key with the variant keys the flag served under it, and an exposure counts
-    when it matches one of the pairs.
+    The persons or groups exposed in `[window_start, window_end)`. With `by_path`, also by the variant they got in each
+    part of the window that `split_points` divide it into, and the count stops at MAX_COUNTED_BEFORE_CHANGE rows of a
+    person or group, a part and a variant. Without it, the count stops at MIN_EXPOSED_UNITS_TO_WARN persons or groups,
+    and the paths are empty. `served` pairs each flag key with the variant keys the flag served under it, and an
+    exposure counts when it matches one of the pairs.
     """
     team = experiment.team
     # `person_id` joins an aggregation of the team's person overrides, which runs in full whatever the LIMIT. The raw
@@ -251,20 +255,20 @@ def query_exposed_units(
         _, variant_property = get_exposure_event_and_property(
             flag_key, criteria, default_exposure_event=default_exposure_event
         )
-        variant = ast.Field(chain=["properties", variant_property])
+        variant_field = ast.Field(chain=["properties", variant_property])
         condition = ast.And(
             exprs=[
                 *build_exposure_event_conditions(
                     criteria, team, flag_key, default_exposure_event=default_exposure_event
                 ),
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.In, left=variant, right=ast.Constant(value=list(variant_keys))
+                    op=ast.CompareOperationOp.In, left=variant_field, right=ast.Constant(value=list(variant_keys))
                 ),
             ]
         )
         conditions.append(condition)
         # Under another flag key the variant can sit in another property, so each key reads its own.
-        variants.extend([condition, variant])
+        variants.extend([condition, variant_field])
     # The exposure query leaves out group exposures without a group key, so they don't count here either.
     has_unit = (
         ast.Call(name="notEmpty", args=[ast.Field(chain=[unit])])
@@ -292,6 +296,14 @@ def query_exposed_units(
                 ast.Constant(value=len(split_points)),
             ],
         )
+    # Without paths each person or group is one row, so a cap of MIN_EXPOSED_UNITS_TO_WARN rows counts people. With
+    # paths a person in two variants takes two rows.
+    cap = MAX_COUNTED_BEFORE_CHANGE if by_path else MIN_EXPOSED_UNITS_TO_WARN
+    variant: ast.Expr = ast.Constant(value="")
+    if by_path:
+        variant = (
+            variants[1] if len(served) == 1 else ast.Call(name="multiIf", args=[*variants, ast.Constant(value=None)])
+        )
     query = parse_select(
         """
         SELECT DISTINCT {unit} AS unit, {part} AS part, toString({variant}) AS variant FROM events
@@ -301,14 +313,12 @@ def query_exposed_units(
         placeholders={
             "unit": ast.Field(chain=[unit]),
             "part": part,
-            "variant": variants[1]
-            if len(served) == 1
-            else ast.Call(name="multiIf", args=[*variants, ast.Constant(value=None)]),
+            "variant": variant,
             "window_start": ast.Constant(value=window_start),
             "window_end": ast.Constant(value=window_end),
             "served": ast.Or(exprs=conditions),
             "has_unit": has_unit,
-            "cap": ast.Constant(value=MAX_COUNTED_BEFORE_CHANGE),
+            "cap": ast.Constant(value=cap),
         },
     )
     rows = _execute(experiment, query)
@@ -316,10 +326,11 @@ def query_exposed_units(
     for unit_id, part_number, variant_key in rows:
         steps_by_unit.setdefault(unit_id, set()).add((int(part_number), variant_key))
     paths: dict[ExposurePath, int] = {}
-    for steps in steps_by_unit.values():
-        path = tuple(sorted(steps))
-        paths[path] = paths.get(path, 0) + 1
-    return ExposedUnits(units=len(steps_by_unit), paths=paths, complete=len(rows) < MAX_COUNTED_BEFORE_CHANGE)
+    if by_path:
+        for steps in steps_by_unit.values():
+            path = tuple(sorted(steps))
+            paths[path] = paths.get(path, 0) + 1
+    return ExposedUnits(units=len(steps_by_unit), paths=paths, complete=len(rows) < cap)
 
 
 def _execute(experiment: Experiment, query: ast.SelectQuery | ast.SelectSetQuery) -> list[Any]:
@@ -354,7 +365,9 @@ class _UnitsWindow:
     end: datetime
     # Each flag key the flag had in the window, with the variant keys it served under that key.
     served: tuple[tuple[str, tuple[str, ...]], ...]
-    # The split changes inside the window, which divide it into the parts that the count tells apart.
+    # Whether the count tells the people apart by the part of the window and the variant. Only the split check reads it.
+    by_path: bool = False
+    # The split changes inside the window, which divide it into those parts.
     split_points: tuple[datetime, ...] = ()
 
 
@@ -430,6 +443,7 @@ class _ExposureGate:
                 served=window.served,
                 group_type_index=self._group_type_index,
                 default_exposure_event=self._default_exposure_event,
+                by_path=window.by_path,
                 split_points=window.split_points,
             ).as_cached(),
             window_end=window.end,
@@ -491,9 +505,10 @@ class _ExposureGate:
             window.start.isoformat(),
             window.end.isoformat(),
             [[flag_key, sorted(variant_keys)] for flag_key, variant_keys in window.served],
+            window.by_path,
             [point.isoformat() for point in window.split_points],
             self._group_type_index,
-            MAX_COUNTED_BEFORE_CHANGE,
+            MAX_COUNTED_BEFORE_CHANGE if window.by_path else MIN_EXPOSED_UNITS_TO_WARN,
         )
 
     def _key(self, prefix: str, *window_inputs: object) -> str:
@@ -658,6 +673,7 @@ def _load_flag_history(
             start=start_date,
             end=of_kind[-1].changed_at,
             # The split check needs the split that each person got their variant under.
+            by_path=kind == ExperimentHealthFlagChangeKind.SPLIT,
             split_points=tuple(change.changed_at for change in of_kind[:-1])
             if kind == ExperimentHealthFlagChangeKind.SPLIT
             else (),
@@ -758,12 +774,16 @@ class _Timeline:
         return self._split_changes[index].before if index < len(self._split_changes) else self._current_split
 
     def units_window(
-        self, *, start: datetime, end: datetime, split_points: tuple[datetime, ...] = ()
+        self, *, start: datetime, end: datetime, by_path: bool = False, split_points: tuple[datetime, ...] = ()
     ) -> _UnitsWindow | None:
         """The window up to a change, with every key and split that the flag served in it. None when the flag served
         no variants for a while."""
         served = self.served_between(start=start, end=end)
-        return None if served is None else _UnitsWindow(start=start, end=end, served=served, split_points=split_points)
+        return (
+            None
+            if served is None
+            else _UnitsWindow(start=start, end=end, served=served, by_path=by_path, split_points=split_points)
+        )
 
     def served_between(self, *, start: datetime, end: datetime) -> tuple[tuple[str, tuple[str, ...]], ...] | None:
         """The variant keys that the flag served in `[start, end)`, by flag key. None when it served a flag without
