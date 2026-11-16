@@ -17,11 +17,12 @@ if command -v go >/dev/null 2>&1; then
     GOPROXY=off make -s -C "$phrocs_dir" build >&2 || echo "phrocs: build failed, using the existing binary" >&2
 fi
 
-if [[ -x "$phrocs_dir/dist/phrocs" ]]; then
-    exec "$phrocs_dir/dist/phrocs" mcp
-fi
-if command -v phrocs >/dev/null 2>&1; then
-    exec phrocs mcp
-fi
-echo "phrocs: no binary found. Build it with: hogli phrocs:build" >&2
+# A dist build from before the mcp subcommand can outlive a failed rebuild, so
+# take the first binary that knows the subcommand.
+for candidate in "$phrocs_dir/dist/phrocs" "$(command -v phrocs || true)"; do
+    if [[ -x "$candidate" ]] && "$candidate" --help 2>/dev/null | grep -q "phrocs mcp"; then
+        exec "$candidate" mcp
+    fi
+done
+echo "phrocs: no phrocs with the mcp subcommand found. Build it with: hogli phrocs:build" >&2
 exit 1
