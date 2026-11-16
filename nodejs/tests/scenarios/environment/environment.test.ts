@@ -1608,7 +1608,7 @@ describe('scenario environment', () => {
             })
         }, 30_000)
 
-        it("drops the roles' Postgres connections in every database on their servers and spares every other one", async () => {
+        it("keeps dropping the roles' Postgres connections in every database on their servers until release, and spares every other one", async () => {
             environment = environmentOf()
             await environment.up()
             const connect = async (
@@ -1645,6 +1645,11 @@ describe('scenario environment', () => {
                     templatesUrl
                 )
                 expect(alive).toEqual(bystanders.map(({ backend }) => backend).sort((x, y) => x - y))
+                const reconnected = await connect(cyclotronUrl, 'cdp-cyclotron-worker-hogflow')
+                sessions.push(reconnected)
+                let reconnectedDropped = false
+                void reconnected.ended.then(() => (reconnectedDropped = true))
+                await waitForExpect(() => expect(reconnectedDropped).toBe(true), 5_000)
                 await actuation.release()
             } finally {
                 await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))

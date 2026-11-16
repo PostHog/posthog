@@ -49,6 +49,16 @@ const failedOver: ValveTimelineEntry = {
     releasedAt: at(32),
 }
 
+const dropped = (from: number, to: number): ValveTimelineEntry => ({
+    valve: 'pg.drop_connections',
+    target: 'postgres',
+    requestedAt: at(0),
+    intentAt: at(from),
+    appliedAt: at(from),
+    observedAt: at(from),
+    releasedAt: at(to),
+})
+
 const probed = (failing: (second: number) => string | false): WriterSample[] =>
     Array.from({ length: 56 }, (_, second) => {
         const failure = failing(second)
@@ -247,6 +257,24 @@ describe('statusOf', () => {
             { timeline: [failedOver], exits: [exited(HOGFLOW_WORKER, 15)] },
             'failed',
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.failover on cyclotron was applied`,
+        ],
+        [
+            "a role crashed while the roles' Postgres connections were dropped",
+            { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 25)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role crashed just after the connection drop released',
+            { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 44)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role crashed well after the connection drop released',
+            { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 46)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it`,
         ],
         [
             'a dependency went away',

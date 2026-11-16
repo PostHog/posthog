@@ -104,10 +104,23 @@ const DATABASE_TARGETS = new Set(['postgres', 'cyclotron'])
 const SUSTAINED_FAILURES = 5
 const CONNECTION_LOST = /^(08...|57P01)$/
 
-const appliedDuring = ({ intentAt, appliedAt, releasedAt }: ValveTimelineEntry, at: string): boolean => {
+const appliedDuring = ({ intentAt, appliedAt, releasedAt }: ValveTimelineEntry, at: string, graceMs = 0): boolean => {
     const from = intentAt ?? appliedAt
-    return from !== undefined && from <= at && (releasedAt === undefined || at <= releasedAt)
+    return (
+        from !== undefined &&
+        from <= at &&
+        (releasedAt === undefined || Date.parse(at) <= Date.parse(releasedAt) + graceMs)
+    )
 }
+
+// A role whose Postgres connection is dropped mid-write exits on purpose and restarts with nothing lost.
+// The grace covers an exit from the last sweep that lands just after the release.
+const CONNECTION_DROP_EXIT_GRACE_MS = 5000
+
+const causedByConnectionDrop = (exit: RoleExit, timeline: ValveTimelineEntry[]): boolean =>
+    timeline.some(
+        (entry) => entry.valve === 'pg.drop_connections' && appliedDuring(entry, exit.at, CONNECTION_DROP_EXIT_GRACE_MS)
+    )
 
 function unexpectedExit(exit: RoleExit, timeline: ValveTimelineEntry[]): string {
     const applied = timeline.filter((entry) => DATABASE_TARGETS.has(entry.target) && appliedDuring(entry, exit.at))
@@ -184,7 +197,9 @@ export function statusOf({
     if (interrupted !== undefined) {
         return { status: 'invalid', statusReason: interrupted }
     }
-    const crashes = exits.filter(({ byValve }) => !byValve).map((exit) => unexpectedExit(exit, timeline))
+    const crashes = exits
+        .filter((exit) => !exit.byValve && !causedByConnectionDrop(exit, timeline))
+        .map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
         ...timeline
             .filter(({ observedAt }) => observedAt === undefined)
