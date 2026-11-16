@@ -56,6 +56,9 @@ jobs:
 
             - name: Check Rust sqlx schema check scripts
               run: |
+                  # An open PR that has not rebased onto this commit does not carry these
+                  # scripts, so the step skips rather than failing before its own tests run.
+                  [ -f rust/bin/sqlx-schema-check.test.sh ] || exit 0
                   shellcheck rust/bin/sqlx-schema-check rust/bin/sqlx-schema-check.test.sh rust/bin/write-sqlx-requirements
                   rust/bin/sqlx-schema-check.test.sh
 

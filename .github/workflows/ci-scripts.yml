@@ -123,13 +123,19 @@ jobs:
             # the script under test, not a test.
             - name: Python script tests
               run: |
+                  # An open PR that has not rebased onto this commit does not carry the
+                  # deploy requirements test, so it joins the run only when it exists.
+                  optional_tests=()
+                  if [ -f tools/deploy-requirements/test_deploy_requirements.py ]; then
+                      optional_tests+=(tools/deploy-requirements/test_deploy_requirements.py)
+                  fi
                   python3 -m pytest -v -c /dev/null -p no:cacheprovider --noconftest \
                       .github/scripts/test_*.py \
                       .github/scripts/dependency_proof/test_*.py \
                       tools/test_snob_backend_test_selection_shadow.py \
                       tools/test_test_selection_verdict.py \
                       tools/test_manage_diagnostics.py \
-                      tools/deploy-requirements/test_deploy_requirements.py
+                      "${optional_tests[@]}"
 
             # schema-impact.test.js shells out to schema_usage_scan.py via the same
             # preinstalled python3.

@@ -5,7 +5,6 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { ManifestError, buildManifest, parseManifest } from './manifest'
 
-// tools/deploy-requirements checks these examples against the JSON Schema that the Rust writer shares.
 const EXAMPLES = path.resolve(__dirname, '..', '..', '..', 'tools', 'deploy-requirements', 'examples')
 
 describe('deploy requirements manifest v1', () => {
