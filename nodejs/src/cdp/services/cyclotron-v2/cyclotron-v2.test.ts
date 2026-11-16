@@ -5088,7 +5088,8 @@ describe('Cyclotron V2', () => {
             async function interruptReleaseWrite(
                 id: string,
                 release: () => Promise<void>,
-                interrupt: 'pg_terminate_backend' | 'pg_cancel_backend'
+                interrupt: 'pg_terminate_backend' | 'pg_cancel_backend',
+                interrupts = 1
             ): Promise<'released' | 'rejected'> {
                 const holder = await assertPool.connect()
                 try {
@@ -5105,14 +5106,16 @@ describe('Cyclotron V2', () => {
                         )
                         return rows[0]?.pid
                     }
-                    let pid: number | undefined
-                    await waitForExpect(async () => expect((pid = await waitingWrite())).toBeDefined(), 2000, 10)
-                    await assertPool.query(`SELECT ${interrupt}($1)`, [pid])
-                    await waitForExpect(async () => expect(await waitingWrite()).not.toBe(pid), 2000, 10)
+                    for (let i = 0; i < interrupts; i++) {
+                        let pid: number | undefined
+                        await waitForExpect(async () => expect((pid = await waitingWrite())).toBeDefined(), 2000, 10)
+                        await assertPool.query(`SELECT ${interrupt}($1)`, [pid])
+                        await waitForExpect(async () => expect(await waitingWrite()).not.toBe(pid), 2000, 10)
+                    }
                     await holder.query('ROLLBACK')
                     return await write
                 } finally {
-                    holder.release()
+                    holder.release(true)
                 }
             }
 
@@ -5151,22 +5154,25 @@ describe('Cyclotron V2', () => {
             )
 
             it.each([
-                ['the retry switch is off', 'pg_terminate_backend' as const, { releaseWriteRetry: false }],
+                ['the retry switch is off', 'pg_terminate_backend' as const, { releaseWriteRetry: false }, 1],
                 [
                     'the statement was canceled on a live connection',
                     'pg_cancel_backend' as const,
                     { releaseWriteRetry: true },
+                    1,
                 ],
                 [
                     'the write outlived the heartbeat limit',
                     'pg_terminate_backend' as const,
                     { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: 0 },
+                    1,
                 ],
-            ])('does not retry when %s, and the janitor resets the job', async (_case, interrupt, overrides) => {
+                ['the retry loses its connection too', 'pg_terminate_backend' as const, { releaseWriteRetry: true }, 2],
+            ])('leaves the job to the janitor when %s', async (_case, interrupt, overrides, interrupts) => {
                 const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
                 const job = await dequeueOnDropTestPool(overrides)
 
-                expect(await interruptReleaseWrite(id, () => job.ack(), interrupt)).toBe('rejected')
+                expect(await interruptReleaseWrite(id, () => job.ack(), interrupt, interrupts)).toBe('rejected')
 
                 expect((await queryJob(id)).status).toBe('running')
                 expect(await janitorResets(id)).toBe(1)
