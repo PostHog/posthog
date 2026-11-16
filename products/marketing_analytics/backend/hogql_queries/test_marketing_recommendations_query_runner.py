@@ -284,15 +284,16 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "ad_group_ad_ad_responsive_search_ad_descriptions": "String",
             "ad_group_ad_ad_final_urls": "String",
             "ad_group_ad_ad_expanded_text_ad_headline_part1": "String",
+            "ad_group_ad_policy_summary_approval_status": "String",
         }
         # The sync stores each text asset as a JSON message inside a JSON list. The paused ad does not show.
         ads = self._table(
             "ad",
             ad_columns,
             ",".join(ad_columns) + "\n"
-            '11,1,ENABLED,"[""{\\""text\\"": \\""Product analytics\\""}""]","[]","[""https://example.com/product""]",\n'
-            '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",\n'
-            "11,1,ENABLED,[],[],[],Patient records made simple\n",
+            '11,1,ENABLED,"[""{\\""text\\"": \\""Product analytics\\""}""]","[]","[""https://example.com/product""]",,DISAPPROVED\n'
+            '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",,APPROVED\n'
+            "11,1,ENABLED,[],[],[],Patient records made simple,APPROVED_LIMITED\n",
         )
         source = MarketingAnalyticsRecommendationsSource(
             sourceType="GoogleAds",
@@ -311,9 +312,9 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         response = runner.calculate()
 
-        assert [(ad.campaign_id, ad.final_urls) for ad in runner._ads(source)] == [
-            ("1", ("https://example.com/product",)),
-            ("1", ()),
+        assert [(ad.campaign_id, ad.final_urls, ad.approval_status) for ad in runner._ads(source)] == [
+            ("1", ("https://example.com/product",), "DISAPPROVED"),
+            ("1", (), "APPROVED_LIMITED"),
         ]
         wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
         assert [rec.subject for rec in wasted] == ["dentist crm", "analytics pricing", "patient records"]

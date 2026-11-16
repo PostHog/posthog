@@ -728,6 +728,45 @@ class TestMarketingRecommendations(SimpleTestCase):
         else:
             assert gaps[query] == (expected_campaign, "", "")
 
+    @parameterized.expand(
+        [
+            (
+                "counts_only_the_campaigns_ads",
+                ("DISAPPROVED", "DISAPPROVED", "APPROVED_LIMITED", "APPROVED"),
+                "2 ads are disapproved and 1 ad is limited by Google policy, which cuts the campaign's reach.",
+            ),
+            (
+                "area_of_interest_only_is_limited",
+                ("AREA_OF_INTEREST_ONLY",),
+                "1 ad is limited by Google policy, which cuts the campaign's reach.",
+            ),
+            (
+                "no_ad_data",
+                (),
+                "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach.",
+            ),
+        ]
+    )
+    def test_policy_limited_counts_affected_ads_and_links_to_the_fix(
+        self, _name: str, statuses: tuple[str, ...], expected_reason: str
+    ) -> None:
+        campaign = _campaign(status_reasons=("HAS_ADS_DISAPPROVED",))
+        ads = (
+            *(
+                Ad(ad_group_id="ag1", campaign_id="c1", texts=COPY, final_urls=(), approval_status=status)
+                for status in statuses
+            ),
+            Ad(ad_group_id="ag9", campaign_id="other", texts=COPY, final_urls=(), approval_status="DISAPPROVED"),
+        )
+
+        rec = next(rec for rec in recommend(replace(_inputs((campaign,)), ads=ads)) if rec.rule == "policy_limited")
+
+        assert rec.reason == expected_reason
+        steps = rec.steps or []
+        assert [step.copyValue for step in steps if step.copyValue] == ["Search"]
+        assert [step.linkText for step in steps if step.url] == ["Campaigns", "Ads", "Policy manager"]
+        assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
+
     def test_performance_max_gets_brand_exclusion_and_rank_advice(self) -> None:
         pmax = _campaign(
             id="pmax",
@@ -746,13 +785,19 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert {(rec.rule.value, rec.action) for rec in recs} == {
             ("brand_leak", 'Add a brand exclusion for "example"'),
             ("scale_campaign", "Raise the target CPA or improve its asset groups"),
-            ("policy_limited", "Check the affected ads in Policy manager"),
+            ("policy_limited", "Fix or appeal the policy issues in this campaign"),
         }
         assert all(rec.cpa is None for rec in recs)
         leak = next(rec for rec in recs if rec.rule == "brand_leak")
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
         scale = next(rec for rec in recs if rec.rule == "scale_campaign")
         assert "target CPA" in (scale.steps or [])[1].text
+        policy = next(rec for rec in recs if rec.rule == "policy_limited")
+        assert [step.linkText for step in policy.steps or [] if step.linkText] == [
+            "Campaigns",
+            "Asset groups",
+            "Policy manager",
+        ]
 
     @parameterized.expand(
         [

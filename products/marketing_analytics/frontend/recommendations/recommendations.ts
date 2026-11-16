@@ -317,8 +317,8 @@ const DATA_GAP_TABLES: Omit<RecommendationDataGap, 'sourceId' | 'sourceName'>[] 
     {
         table: 'ad',
         purpose:
-            'find search terms that waste spend and do not match your ad copy, and organic searches that rank on pages your ads link to.',
-        rules: ['spend_without_conversions', 'keyword_gap'],
+            'find search terms that waste spend and do not match your ad copy, organic searches that rank on pages your ads link to, and count the ads limited by policy.',
+        rules: ['spend_without_conversions', 'keyword_gap', 'policy_limited'],
     },
     {
         table: 'campaign_impression_share_stats',
