@@ -533,7 +533,12 @@ def send_email_ai_subscription_report(
     subscription_url = subscription.url or absolute_uri(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
     )
-    unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
+    unsubscribe_token = get_unsubscribe_token(subscription, email)
+    unsubscribe_url = absolute_uri(f"/unsubscribe?token={unsubscribe_token}&{utm_tags}")
+    one_click_headers = {
+        "List-Unsubscribe": f"<{absolute_uri(f'/api/unsubscribe?token={unsubscribe_token}')}>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    }
 
     campaign_key = f"ai_subscription_report_{subscription.id}_{delivery_run_id}"
 
@@ -541,6 +546,7 @@ def send_email_ai_subscription_report(
         campaign_key=campaign_key,
         subject=f"PostHog AI report - {title}",
         template_name="ai_subscription_report",
+        headers=one_click_headers,
         template_context={
             "title": title,
             "rendered_html": html,

@@ -67,7 +67,12 @@ def send_email_subscription_report(
         delivery_key = str(delivery_id)
     campaign_key = f"{resource_info.kind.lower()}_subscription_report_{subscription.pk}_{delivery_key}"
 
-    unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
+    unsubscribe_token = get_unsubscribe_token(subscription, email)
+    unsubscribe_url = absolute_uri(f"/unsubscribe?token={unsubscribe_token}&{utm_tags}")
+    one_click_headers = {
+        "List-Unsubscribe": f"<{absolute_uri(f'/api/unsubscribe?token={unsubscribe_token}')}>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    }
 
     if is_invite:
         invite_summary = (
@@ -86,6 +91,7 @@ def send_email_subscription_report(
         campaign_key=campaign_key,
         subject=subject,
         template_name="subscription_report",
+        headers=one_click_headers,
         template_context={
             "asset_data": [_get_asset_data_for_email(x) for x in assets],
             "resource_noun": resource_info.kind,

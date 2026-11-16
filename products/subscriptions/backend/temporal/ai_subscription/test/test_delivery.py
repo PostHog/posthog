@@ -1,11 +1,13 @@
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
 from django.template.loader import render_to_string
 
 from markdown_it import MarkdownIt
@@ -922,7 +924,7 @@ class TestFeedbackFooter:
         assert f"<{_feedback_url(feedback, 'slack')}|{label}>" in text
 
     @staticmethod
-    def _send_email_and_get_context() -> dict:
+    def _send_email_and_get_kwargs() -> Mapping[str, Any]:
         with (
             patch("products.subscriptions.backend.temporal.ai_subscription.delivery.EmailMessage") as email_message,
             patch(
@@ -940,18 +942,25 @@ class TestFeedbackFooter:
                 delivery_run_id="run-1",
                 delivery_id=_DELIVERY_ID,
             )
-        return email_message.call_args.kwargs["template_context"]
+        return email_message.call_args.kwargs
 
     @pytest.mark.parametrize("feedback", ["positive", "negative"])
     def test_email_context_carries_feedback_urls(self, feedback: str) -> None:
-        context = self._send_email_and_get_context()
+        context = self._send_email_and_get_kwargs()["template_context"]
         assert context[f"feedback_{feedback}_url"] == _feedback_url(feedback, "email")
 
     def test_email_cta_carries_delivery_id(self) -> None:
         # Dropping this param silently kills click attribution: the frontend captures
         # `ai_report_clicked` from it, the report-engagement signal.
-        context = self._send_email_and_get_context()
+        context = self._send_email_and_get_kwargs()["template_context"]
         assert f"&delivery={_DELIVERY_ID}" in context["subscription_url"]
+
+    def test_email_carries_one_click_unsubscribe_headers(self) -> None:
+        headers = self._send_email_and_get_kwargs()["headers"]
+        assert headers == {
+            "List-Unsubscribe": f"<{settings.SITE_URL}/api/unsubscribe?token=tok>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        }
 
     def test_minimal_email_keeps_unsubscribe_without_images_or_posthog_controls(self) -> None:
         subscription = _mock_subscription()

@@ -1,9 +1,15 @@
 import uuid
 import smtplib
+from urllib.parse import urlsplit
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.core import mail
+from django.test import Client
+
+from parameterized import parameterized
 
 from posthog.email import EmailDeliveryError
 from posthog.models.instance_setting import set_instance_setting
@@ -259,6 +265,23 @@ class TestEmailSubscriptionDeliveryDetection(APIBaseTest):
         assert MessagingRecord.objects.filter(
             email_hash__in=get_email_hashes("ok@posthog.com"), sent_at__isnull=False
         ).exists()
+
+    @parameterized.expand([("report", None), ("invite", "Have a look")])
+    def test_one_click_unsubscribe_header_removes_the_recipient(self, _name: str, invite_message: str | None) -> None:
+        self.subscription.target_value = "keep@posthog.com,leave@posthog.com"
+        self.subscription.save()
+
+        send_email_subscription_report(
+            "leave@posthog.com", self.subscription, [self.asset], invite_message=invite_message, send_async=False
+        )
+
+        headers = mail.outbox[-1].extra_headers
+        assert headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+        url = urlsplit(headers["List-Unsubscribe"].strip("<>"))
+        response = Client(enforce_csrf_checks=True).post(f"{url.path}?{url.query}", {"List-Unsubscribe": "One-Click"})
+        assert response.json() == {"success": True}
+        self.subscription.refresh_from_db()
+        assert self.subscription.target_value == "keep@posthog.com"
 
     def test_raises_when_smtp_backend_accepts_no_messages(self) -> None:
         with patch("django.core.mail.backends.locmem.EmailBackend.send_messages", return_value=0):
