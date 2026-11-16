@@ -12591,6 +12591,15 @@ export namespace Schemas {
       Area: 'area',
     } as const;
 
+    export type LinkTarget = typeof LinkTarget[keyof typeof LinkTarget];
+
+
+    export const LinkTarget = {
+      None: 'none',
+      Person: 'person',
+      Event: 'event',
+    } as const;
+
     export type ValueLabels = typeof ValueLabels[keyof typeof ValueLabels];
 
 
@@ -12612,9 +12621,11 @@ export namespace Schemas {
       color?: string | null;
       description?: string | null;
       displayType?: DisplayType | null;
+      eventTimestampColumn?: string | null;
       /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
       excludeFromTotal?: boolean | null;
       label?: string | null;
+      linkTarget?: LinkTarget | null;
       trendLine?: boolean | null;
       /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
       valueLabels?: ValueLabels | null;

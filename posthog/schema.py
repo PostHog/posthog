@@ -190,6 +190,7 @@ from posthog.schema_enums import (
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
+    LinkTarget as LinkTarget,
     LogPropertyFilterType as LogPropertyFilterType,
     LogSeverityLevel as LogSeverityLevel,
     LogsOrderBy as LogsOrderBy,
@@ -717,6 +718,8 @@ class AssistantDataVisualizationColumnDisplaySettings(BaseModel):
         default=None,
         description="Table column description shown in the header tooltip.",
     )
+    eventTimestampColumn: str | None = None
+    linkTarget: LinkTarget | None = None
 
 
 class AssistantDataVisualizationColumnSettings(BaseModel):
@@ -1360,11 +1363,13 @@ class ChartSettingsDisplay(BaseModel):
     color: str | None = None
     description: str | None = None
     displayType: DisplayType | None = None
+    eventTimestampColumn: str | None = None
     excludeFromTotal: bool | None = Field(
         default=None,
         description=("Keep this series out of the tooltip's total row, e.g. a target line over stacked bars."),
     )
     label: str | None = None
+    linkTarget: LinkTarget | None = None
     trendLine: bool | None = None
     valueLabels: ValueLabels | None = Field(
         default=None,

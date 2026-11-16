@@ -9655,6 +9655,14 @@ export const DisplayTypeApi = {
     Area: 'area',
 } as const
 
+export type LinkTargetApi = (typeof LinkTargetApi)[keyof typeof LinkTargetApi]
+
+export const LinkTargetApi = {
+    None: 'none',
+    Person: 'person',
+    Event: 'event',
+} as const
+
 export type ValueLabelsApi = (typeof ValueLabelsApi)[keyof typeof ValueLabelsApi]
 
 export const ValueLabelsApi = {
@@ -9674,9 +9682,11 @@ export interface ChartSettingsDisplayApi {
     color?: string | null
     description?: string | null
     displayType?: DisplayTypeApi | null
+    eventTimestampColumn?: string | null
     /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
     excludeFromTotal?: boolean | null
     label?: string | null
+    linkTarget?: LinkTargetApi | null
     trendLine?: boolean | null
     /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
     valueLabels?: ValueLabelsApi | null

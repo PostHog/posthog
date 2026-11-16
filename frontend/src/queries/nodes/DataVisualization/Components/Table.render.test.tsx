@@ -8,6 +8,7 @@ import { BindLogic } from 'kea'
 
 import * as hog from 'lib/hog'
 import { themeLogic } from 'lib/logic/themeLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -76,6 +77,59 @@ function mountResult(
 describe('SQL table rendering', () => {
     beforeEach(() => initKeaTests())
     afterEach(cleanup)
+
+    it.each([false, true])('links configured UUIDs using the source row timestamp, transpose=%s', (transpose) => {
+        const person = '11111111-1111-4111-8111-111111111111'
+        const event = '22222222-2222-4222-8222-222222222222'
+        const timestamp = '2026-01-15T14:30:00.123Z'
+        const result: HogQLQueryResponse = {
+            columns: ['occurred_at', 'event_id', 'person_id', 'unconfigured_id'],
+            types: [
+                ['occurred_at', 'DateTime64(3)'],
+                ['event_id', 'UUID'],
+                ['person_id', 'UUID'],
+                ['unconfigured_id', 'UUID'],
+            ],
+            results: [
+                [timestamp, event, person, event],
+                [null, event, 'not-a-uuid', person],
+            ],
+        }
+        const node: VisualizationNode = {
+            ...query,
+            tableSettings: {
+                transpose,
+                columns: [
+                    { column: 'person_id', settings: { display: { linkTarget: 'person' } } },
+                    {
+                        column: 'event_id',
+                        settings: { display: { linkTarget: 'event', eventTimestampColumn: 'occurred_at' } },
+                    },
+                ],
+            },
+        }
+        const { props, sourceProps } = mountResult(node, result)
+        render(
+            <BindLogic logic={dataNodeLogic} props={sourceProps}>
+                <BindLogic logic={dataVisualizationLogic} props={props}>
+                    <Table query={node} uniqueKey={props.key} context={{}} cachedResults={result} />
+                </BindLogic>
+            </BindLogic>
+        )
+        if (!transpose) {
+            fireEvent.click(screen.getByText('occurred_at').closest('.LemonTable__header-content')!)
+        }
+        expect(screen.getAllByRole('link')).toHaveLength(2)
+        expect(screen.getByRole('link', { name: person })).toHaveAttribute(
+            'href',
+            expect.stringContaining(urls.personByUUID(person))
+        )
+        expect(screen.getByRole('link', { name: event })).toHaveAttribute(
+            'href',
+            expect.stringContaining(urls.event(event, timestamp))
+        )
+        expect(screen.getByText('not-a-uuid').closest('a')).toBeNull()
+    })
 
     it.each([
         [false, 'String', 'First line.\n' + 'The path follows the river. '.repeat(20)],

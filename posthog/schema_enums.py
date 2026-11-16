@@ -281,6 +281,12 @@ class LegendPosition(StrEnum):
     RIGHT = "right"
 
 
+class LinkTarget(StrEnum):
+    NONE = "none"
+    PERSON = "person"
+    EVENT = "event"
+
+
 class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     BOLD_NUMBER = "BoldNumber"

@@ -1939,6 +1939,8 @@ export interface AssistantDataVisualizationAxis {
 export interface AssistantDataVisualizationColumnDisplaySettings {
     /** Table column description shown in the header tooltip. */
     description?: string
+    linkTarget?: 'none' | 'person' | 'event'
+    eventTimestampColumn?: string
 }
 
 export interface AssistantDataVisualizationColumnSettings {

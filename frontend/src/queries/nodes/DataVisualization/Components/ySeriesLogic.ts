@@ -32,8 +32,10 @@ export interface ySeriesLogicValues {
         color: string
         description: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        eventTimestampColumn: string
         excludeFromTotal: boolean
         label: string
+        linkTarget: 'event' | 'none' | 'person'
         trendLine: boolean
         valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
@@ -45,8 +47,10 @@ export interface ySeriesLogicValues {
             color: string
             description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            eventTimestampColumn: string
             excludeFromTotal: boolean
             label: string
+            linkTarget: 'event' | 'none' | 'person'
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
@@ -62,8 +66,10 @@ export interface ySeriesLogicValues {
             color: string
             description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            eventTimestampColumn: string
             excludeFromTotal: boolean
             label: string
+            linkTarget: 'event' | 'none' | 'person'
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
@@ -124,8 +130,10 @@ export interface ySeriesLogicActions {
         color: string
         description: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        eventTimestampColumn: string
         excludeFromTotal: boolean
         label: string
+        linkTarget: 'event' | 'none' | 'person'
         trendLine: boolean
         valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
@@ -134,8 +142,10 @@ export interface ySeriesLogicActions {
             color: string
             description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            eventTimestampColumn: string
             excludeFromTotal: boolean
             label: string
+            linkTarget: 'event' | 'none' | 'person'
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
@@ -169,8 +179,10 @@ export interface ySeriesLogicActions {
             color: string
             description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            eventTimestampColumn: string
             excludeFromTotal: boolean
             label: string
+            linkTarget: 'event' | 'none' | 'person'
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
@@ -180,8 +192,10 @@ export interface ySeriesLogicActions {
             color: string
             description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            eventTimestampColumn: string
             excludeFromTotal: boolean
             label: string
+            linkTarget: 'event' | 'none' | 'person'
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
@@ -232,8 +246,10 @@ export interface ySeriesLogicActions {
         color: string
         description: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        eventTimestampColumn: string
         excludeFromTotal: boolean
         label: string
+        linkTarget: 'event' | 'none' | 'person'
         trendLine: boolean
         valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
@@ -242,8 +258,10 @@ export interface ySeriesLogicActions {
             color: string
             description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            eventTimestampColumn: string
             excludeFromTotal: boolean
             label: string
+            linkTarget: 'event' | 'none' | 'person'
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
@@ -253,8 +271,10 @@ export interface ySeriesLogicActions {
         color: string
         description: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        eventTimestampColumn: string
         excludeFromTotal: boolean
         label: string
+        linkTarget: 'event' | 'none' | 'person'
         trendLine: boolean
         valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
@@ -263,8 +283,10 @@ export interface ySeriesLogicActions {
             color: string
             description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            eventTimestampColumn: string
             excludeFromTotal: boolean
             label: string
+            linkTarget: 'event' | 'none' | 'person'
             trendLine: boolean
             valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
@@ -395,6 +417,8 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                 color: props.series?.settings?.display?.color ?? getSeriesColor(props.seriesIndex),
                 label: props.series?.settings?.display?.label ?? '',
                 description: props.series?.settings?.display?.description ?? '',
+                linkTarget: props.series?.settings?.display?.linkTarget ?? 'none',
+                eventTimestampColumn: props.series?.settings?.display?.eventTimestampColumn ?? '',
                 trendLine: props.series?.settings?.display?.trendLine ?? false,
                 excludeFromTotal: props.series?.settings?.display?.excludeFromTotal ?? false,
                 valueLabels: props.series?.settings?.display?.valueLabels ?? 'auto',
@@ -407,6 +431,12 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                     display: {
                         color: display.color,
                         label: display.label,
+                        ...(display.linkTarget !== 'none' || savedDisplay?.linkTarget !== undefined
+                            ? { linkTarget: display.linkTarget }
+                            : {}),
+                        ...(display.eventTimestampColumn || savedDisplay?.eventTimestampColumn !== undefined
+                            ? { eventTimestampColumn: display.eventTimestampColumn }
+                            : {}),
                         trendLine: display.trendLine,
                         ...(display.excludeFromTotal || savedDisplay?.excludeFromTotal !== undefined
                             ? { excludeFromTotal: display.excludeFromTotal }

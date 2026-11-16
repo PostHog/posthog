@@ -367,6 +367,13 @@
                                                         "description": {
                                                             "description": "Table column description shown in the header tooltip.",
                                                             "type": "string"
+                                                        },
+                                                        "eventTimestampColumn": {
+                                                            "type": "string"
+                                                        },
+                                                        "linkTarget": {
+                                                            "enum": ["none", "person", "event"],
+                                                            "type": "string"
                                                         }
                                                     },
                                                     "type": "object"
@@ -540,6 +547,13 @@
                                                         "properties": {
                                                             "description": {
                                                                 "description": "Table column description shown in the header tooltip.",
+                                                                "type": "string"
+                                                            },
+                                                            "eventTimestampColumn": {
+                                                                "type": "string"
+                                                            },
+                                                            "linkTarget": {
+                                                                "enum": ["none", "person", "event"],
                                                                 "type": "string"
                                                             }
                                                         },

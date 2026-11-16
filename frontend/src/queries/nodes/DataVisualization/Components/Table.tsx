@@ -5,15 +5,23 @@ import posthog from 'posthog-js'
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconInfo, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
+import { isUUIDLike } from 'lib/utils/guards'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
+import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { HOGQLX_TAGS_NO_ATTRIBUTES, parseHogQLX } from '~/queries/nodes/HogQLX/render'
-import { AnyResponseType, VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    AnyResponseType,
+    ChartSettingsDisplay,
+    VisualizationNode,
+    HogQLQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
@@ -34,6 +42,23 @@ interface TableProps {
 }
 
 export const DEFAULT_PAGE_SIZE = 500
+
+function getEntityLink(
+    value: unknown,
+    display: ChartSettingsDisplay | undefined,
+    timestamp: unknown
+): string | undefined {
+    if (typeof value !== 'string' || !isUUIDLike(value)) {
+        return undefined
+    }
+    if (display?.linkTarget === 'person') {
+        return urls.personByUUID(value)
+    }
+    if (display?.linkTarget === 'event' && typeof timestamp === 'string' && dayjs(timestamp).isValid()) {
+        return urls.event(value, timestamp)
+    }
+    return undefined
+}
 
 function formatColumnTitle(title: string): React.ReactNode {
     const parts = title.split(/([_-])/)
@@ -486,22 +511,30 @@ export const Table = (props: TableProps): JSX.Element => {
 
                 const sourceColumnName = cell.sourceColumnName ?? column.name
                 const columnFormat = getColumnFormat(response, sourceColumnName)
+                const sourceRow = tableResults[isTransposed ? index - 1 : data.rowIndex]
+                const display = sourceTabularColumnsByName.get(sourceColumnName)?.settings?.display
+                const timestampColumn = sourceTabularColumnsByName.get(display?.eventTimestampColumn ?? '')?.column
+                const link = getEntityLink(cell.value, display, timestampColumn && sourceRow[timestampColumn.dataIndex])
 
                 const content = (
                     <div className="truncate" title={getCellTitle(cell)}>
-                        {renderColumn(
-                            sourceColumnName,
-                            cell.formattedValue,
-                            tableResults[isTransposed ? index - 1 : data.rowIndex],
-                            recordIndex,
-                            rowCount,
-                            {
-                                kind: NodeKind.DataTableNode,
-                                source: props.query.source,
-                            },
-                            undefined,
-                            undefined,
-                            columnFormat
+                        {link ? (
+                            <Link to={link}>{String(cell.formattedValue ?? cell.value)}</Link>
+                        ) : (
+                            renderColumn(
+                                sourceColumnName,
+                                cell.formattedValue,
+                                tableResults[isTransposed ? index - 1 : data.rowIndex],
+                                recordIndex,
+                                rowCount,
+                                {
+                                    kind: NodeKind.DataTableNode,
+                                    source: props.query.source,
+                                },
+                                undefined,
+                                undefined,
+                                columnFormat
+                            )
                         )}
                     </div>
                 )

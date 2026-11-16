@@ -133,6 +133,8 @@ const PieChartSettings = z.object({
 
 const AssistantDataVisualizationColumnDisplaySettings = z.object({
     description: z.string().describe('Table column description shown in the header tooltip.').optional(),
+    eventTimestampColumn: z.string().optional(),
+    linkTarget: z.enum(['none', 'person', 'event']).optional(),
 })
 
 const AssistantDataVisualizationAxisFormatting = z.object({

@@ -522,8 +522,9 @@ export const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps:
 }
 
 export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
-    const { showTableSettings, dataVisualizationProps, effectiveVisualizationType, chartSettings } =
+    const { showTableSettings, dataVisualizationProps, effectiveVisualizationType, chartSettings, columns } =
         useValues(dataVisualizationLogic)
+    const { display } = useValues(ySeriesLogic(ySeriesLogicProps))
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
@@ -627,6 +628,49 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                                 onChange(description)
                                 updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
                                     display: { description },
+                                })
+                            }}
+                        />
+                    )}
+                </LemonField>
+            )}
+            {showTableSettings && (
+                <LemonField name="linkTarget" label="Link values to" info="Values must be person or event UUIDs.">
+                    {({ value, onChange }) => (
+                        <LemonSelect
+                            value={value}
+                            fullWidth
+                            options={[
+                                { value: 'none', label: 'None' },
+                                { value: 'person', label: 'Person profiles' },
+                                { value: 'event', label: 'Events' },
+                            ]}
+                            onChange={(linkTarget) => {
+                                onChange(linkTarget)
+                                updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+                                    display: { linkTarget },
+                                })
+                            }}
+                        />
+                    )}
+                </LemonField>
+            )}
+            {showTableSettings && display.linkTarget === 'event' && (
+                <LemonField
+                    name="eventTimestampColumn"
+                    label="Event timestamp column"
+                    info="Each link uses the event timestamp from the same row."
+                >
+                    {({ value, onChange }) => (
+                        <LemonSelect
+                            value={value || null}
+                            placeholder="Select a timestamp column"
+                            fullWidth
+                            options={columns.map((column) => ({ value: column.name, label: column.name }))}
+                            onChange={(eventTimestampColumn) => {
+                                onChange(eventTimestampColumn)
+                                updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+                                    display: { eventTimestampColumn },
                                 })
                             }}
                         />
