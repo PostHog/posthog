@@ -3,11 +3,10 @@ from datetime import UTC
 from django import forms
 from django.conf import settings
 from django.contrib import admin
-from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html, format_html_join
-from django.utils.safestring import mark_safe
+from django.utils.safestring import SafeString
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.console.moved import MovedToConsole
@@ -23,6 +22,28 @@ from posthog.admin.inlines.proxy_record_inline import ProxyRecordInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
+
+
+class HtmlTable:
+    """A plain table for a read-only display field, so the admin needs no template for it."""
+
+    @staticmethod
+    def render(headers: list[str], rows: list[tuple[object, ...]]) -> SafeString:
+        head = format_html_join("", '<th style="padding: 6px; text-align: left;">{}</th>', ((h,) for h in headers))
+        body = format_html_join(
+            "",
+            '<tr style="border-top: 1px solid #ddd;">{}</tr>',
+            ((format_html_join("", '<td style="padding: 6px;">{}</td>', ((cell,) for cell in row)),) for row in rows),
+        )
+        return format_html(
+            '<table style="border-collapse: collapse; width: 100%;"><thead><tr>{}</tr></thead><tbody>{}</tbody></table>',
+            head,
+            body,
+        )
+
+    @staticmethod
+    def colored(text: str, color: str) -> SafeString:
+        return format_html('<span style="color: {}; font-weight: bold;">{}</span>', color, text)
 
 
 class DatalistTextInput(forms.TextInput):
@@ -177,19 +198,21 @@ class OrganizationAdmin(admin.ModelAdmin):
             else:
                 info["usage_quota_limited_until_formatted"] = "-"
 
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/organization/limited_products.html",
-                {
-                    "limited": limited,
-                    "total_teams": total_teams,
-                    "actions_moved": MovedToConsole.action(
-                        "organization", organization, "billing", "Limit and unlimit"
-                    ),
-                },
+        rows = [
+            (
+                resource,
+                HtmlTable.colored("Limited", "red")
+                if info.get("is_limited_in_redis")
+                else HtmlTable.colored("OK", "green"),
+                f"{len(info.get('limited_teams') or [])}/{total_teams}",
+                info["redis_quota_limited_until_formatted"],
+                info["usage_quota_limited_until_formatted"],
             )
-        )
+            for resource, info in limited.items()
+        ]
+        table = HtmlTable.render(["Resource", "Redis status", "Limited teams", "Redis until", "Usage until"], rows)
+        actions_moved = MovedToConsole.action("organization", organization, "billing", "Limit and unlimit")
+        return format_html("<p>{}</p>{}", actions_moved, table)
 
     @admin.display(description="Usage")
     def usage_display(self, organization: Organization):
@@ -234,13 +257,39 @@ class OrganizationAdmin(admin.ModelAdmin):
                 "limit_raw": data.get("limit"),
             }
 
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/organization/usage_display.html",
-                {"usage_data": formatted_data, "period_info": period_info},
+        rows = [
+            (
+                product,
+                data["usage"],
+                data["limit"] or HtmlTable.colored("Unlimited", "#28a745"),
+                data["todays_usage"],
+                self._percent_used(data["usage_raw"], data["limit_raw"]),
             )
+            for product, data in formatted_data.items()
+        ]
+        table = HtmlTable.render(["Product", "Usage", "Limit", "Today's usage", "% used"], rows)
+        if period_info is None:
+            return table
+        period = format_html(
+            "<p><strong>Billing period:</strong> {} to {} ({} days remaining)</p>",
+            period_info["start"],
+            period_info["end"],
+            period_info["days_remaining"],
         )
+        return format_html("{}{}", period, table)
+
+    @staticmethod
+    def _percent_used(usage: object, limit: object) -> str | SafeString:
+        if not limit or usage is None:
+            return "-"
+        percentage = round(int(usage) / int(limit) * 100)
+        if percentage >= 90:
+            color = "#dc3545"
+        elif percentage >= 75:
+            color = "#fd7e14"
+        else:
+            color = "#28a745"
+        return HtmlTable.colored(f"{percentage}%", color)
 
     @admin.display(description="Child model counts")
     def bulk_delete_data_display(self, organization: Organization):
@@ -255,11 +304,39 @@ class OrganizationAdmin(admin.ModelAdmin):
         # UUIDT sets the id before the save, so the add form's unsaved instance also has a pk.
         if organization._state.adding:
             return "-"
-        # render_to_string returns a SafeString, so this method does not need mark_safe.
-        return render_to_string(
-            "admin/organization/ai_training_opt_in_history.html",
-            {"history": get_ai_training_opt_in_history(organization)},
-        )
+        history = get_ai_training_opt_in_history(organization)
+        if history.error:
+            return format_html(
+                "<p><strong>{}</strong></p><p>Reload the page. If it keeps failing, read the organization's "
+                "activity log directly.</p><p>Error: {}</p>",
+                history.headline,
+                history.error,
+            )
+        parts = []
+        if history.warning:
+            parts.append(format_html('<p style="color: #dc3545;">{}</p>', history.warning))
+        parts.append(format_html("<p><strong>{}</strong></p>", history.headline))
+        if history.changes and history.truncated:
+            parts.append(
+                format_html(
+                    "<p>Showing the most recent {} changes only. There are more in the activity log.</p>",
+                    len(history.changes),
+                )
+            )
+        if history.changes:
+            rows = [
+                (
+                    change.changed_at_display,
+                    change.transition_display,
+                    change.origin,
+                    change.actor,
+                    change.client or "-",
+                    change.ip_address or "-",
+                )
+                for change in history.changes
+            ]
+            parts.append(HtmlTable.render(["When", "Change", "Origin", "Actor", "Client", "IP"], rows))
+        return format_html_join("", "{}", ((part,) for part in parts))
 
     @admin.display(description="Sync to billing")
     def sync_to_billing_display(self, organization: Organization):
