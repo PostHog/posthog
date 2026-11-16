@@ -5,6 +5,8 @@ import hashlib
 import smtplib
 import datetime
 import dataclasses
+import email.policy
+import email.message
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -505,6 +507,14 @@ def _send_via_http_batch(
     return undeliverable
 
 
+class _SmtpEmail(mail.EmailMultiAlternatives):
+    def message(self, *, policy: email.policy.Policy = email.policy.default) -> email.message.EmailMessage:
+        msg = super().message(policy=policy)
+        # Folding at 78 columns RFC 2047-encodes a long List-Unsubscribe URL, which mail clients cannot read.
+        msg.policy = msg.policy.clone(max_line_length=998)
+        return msg
+
+
 def _send_via_smtp(
     to: list[dict[str, str]],
     campaign_key: str,
@@ -545,7 +555,7 @@ def _send_via_smtp(
                     continue
 
                 effective_reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
-                email_message = mail.EmailMultiAlternatives(
+                email_message = _SmtpEmail(
                     subject=subject,
                     body=txt_body,
                     from_email=get_instance_setting("EMAIL_DEFAULT_FROM"),

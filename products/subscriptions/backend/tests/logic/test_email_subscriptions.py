@@ -1,5 +1,7 @@
+import re
 import uuid
 import smtplib
+import email.policy
 from urllib.parse import urlsplit
 
 import time_machine
@@ -275,9 +277,11 @@ class TestEmailSubscriptionDeliveryDetection(APIBaseTest):
             "leave@posthog.com", self.subscription, [self.asset], invite_message=invite_message, send_async=False
         )
 
-        headers = mail.outbox[-1].extra_headers
-        assert headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
-        url = urlsplit(headers["List-Unsubscribe"].strip("<>"))
+        raw = mail.outbox[-1].message(policy=email.policy.SMTP).as_bytes().decode()
+        assert "\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n" in raw
+        header = re.search(r"\r\nList-Unsubscribe: <(\S+)>\r\n", raw)
+        assert header, raw[:600]
+        url = urlsplit(header.group(1))
         response = Client(enforce_csrf_checks=True).post(f"{url.path}?{url.query}", {"List-Unsubscribe": "One-Click"})
         assert response.json() == {"success": True}
         self.subscription.refresh_from_db()
