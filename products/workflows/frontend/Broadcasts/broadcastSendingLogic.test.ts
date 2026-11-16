@@ -39,6 +39,7 @@ describe('broadcastSendingLogic', () => {
         resumes: number
         resumeHeld: Promise<void>
     }
+    const mounted: ReturnType<typeof broadcastSendingLogic.build>[] = []
 
     beforeEach(() => {
         server = { pause: NOT_PAUSED, queued: 3, inFlightReads: [], resumes: 0, resumeHeld: Promise.resolve() }
@@ -71,6 +72,10 @@ describe('broadcastSendingLogic', () => {
     })
 
     afterEach(async () => {
+        mounted
+            .splice(0)
+            .filter((logic) => logic.isMounted())
+            .forEach((logic) => logic.unmount())
         screen.queryAllByText('Cancel').forEach((cancel) => fireEvent.click(cancel))
         await waitFor(() => expect(screen.queryByText('Cancel')).toBeNull())
         resumeKeaLoadersErrors()
@@ -81,6 +86,7 @@ describe('broadcastSendingLogic', () => {
     const mountSending = async (id = 'flow-1'): Promise<ReturnType<typeof broadcastSendingLogic.build>> => {
         const logic = broadcastSendingLogic({ id })
         logic.mount()
+        mounted.push(logic)
         await waitFor(() => expect(logic.values.inFlightLoading).toBe(false))
         return logic
     }
@@ -96,11 +102,8 @@ describe('broadcastSendingLogic', () => {
 
         const logic = await mountSending()
 
-        expect({
-            stillToSend: logic.values.stillToSend,
-            inFlightFailed: logic.values.inFlightFailed,
-            reads: server.inFlightReads,
-        }).toEqual({ ...expected, reads: ['flow-1'] })
+        expect(logic.values).toMatchObject(expected)
+        expect(server.inFlightReads).toEqual(['flow-1'])
     })
 
     it('shows the new count after a retry of a failed read', async () => {
@@ -177,10 +180,8 @@ describe('broadcastSendingLogic', () => {
         await waitFor(() => expect(screen.queryByText('Resume email sending?')).toBeNull())
         await expectLogic(logic).toFinishAllListeners()
 
-        expect({ resumes: server.resumes, paused: logic.values.emailSendingPause.paused }).toEqual({
-            resumes: 0,
-            paused: true,
-        })
+        expect(server.resumes).toBe(0)
+        expect(logic.values.emailSendingPause.paused).toBe(true)
     })
 
     it.each([
@@ -241,6 +242,7 @@ describe('broadcastSendingLogic', () => {
         const mountWithTimers = async (): Promise<ReturnType<typeof broadcastSendingLogic.build>> => {
             const logic = broadcastSendingLogic({ id: 'flow-1' })
             logic.mount()
+            mounted.push(logic)
             await jest.advanceTimersByTimeAsync(0)
             return logic
         }
@@ -261,10 +263,14 @@ describe('broadcastSendingLogic', () => {
             await jest.advanceTimersByTimeAsync(29_999)
             const before = shown(logic)
             await jest.advanceTimersByTimeAsync(1)
+            const after = shown(logic)
+            server.queued = 1
+            await jest.advanceTimersByTimeAsync(30_000)
 
-            expect({ before, after: shown(logic) }).toEqual({
+            expect({ before, after, next: shown(logic) }).toEqual({
                 before: { stillToSend: 5, paused: true },
                 after: { stillToSend: 2, paused: false },
+                next: { stillToSend: 1, paused: false },
             })
         })
 
