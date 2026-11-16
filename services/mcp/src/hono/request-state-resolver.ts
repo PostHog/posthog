@@ -1,3 +1,4 @@
+import { classifyAuthMethod } from '@/lib/auth-method'
 import type { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
@@ -12,6 +13,7 @@ import {
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
+import { PROJECT_SECRET_KEY_FEATURE_FLAG } from '@/lib/project-secret-key'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
@@ -27,7 +29,7 @@ import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool,
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
+import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -113,15 +115,19 @@ export interface ResolvedState {
 
 // ─── Pure helpers ───
 
-export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MCPClientProfile }): {
+export function resolveMode(args: {
+    mode: McpMode | undefined
+    clientProfile: MCPClientProfile
+    cursorExecMode?: boolean | undefined
+}): {
     mode: McpMode
     useSingleExec: boolean
 } {
-    const { mode, clientProfile } = args
+    const { mode, clientProfile, cursorExecMode } = args
     // CLI (single-exec) is the default; only allow-listed clients (Cursor) keep
     // the full per-tool roster, and an explicit ?mode= / x-posthog-mcp-mode
     // header always wins over auto-detection.
-    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
+    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() && !cursorExecMode ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
 
@@ -212,6 +218,7 @@ export class RequestStateResolver {
                 ...getRequiredFeatureFlags(),
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
+                MCP_CURSOR_EXEC_MODE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_INBOX_FIRST_FLAG,
@@ -222,8 +229,11 @@ export class RequestStateResolver {
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
+        const usesProjectSecretKey = classifyAuthMethod(props.apiToken) === 'project_secret_key'
         const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
-            this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
+            usesProjectSecretKey
+                ? Promise.resolve<FlagEvaluation>({ flags: {}, payloads: {} })
+                : this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
@@ -242,7 +252,13 @@ export class RequestStateResolver {
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
-        const mergedFlags = { ...allFlags, ...overrides }
+        const mergedFlags: EvaluatedFlags = {
+            ...allFlags,
+            // The API gates the key's routes on this flag, and `getApiKey` above succeeded only
+            // because the key passed that gate.
+            ...(usesProjectSecretKey ? { [PROJECT_SECRET_KEY_FEATURE_FLAG]: true } : {}),
+            ...overrides,
+        }
         let recruitmentPayload = payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
         if (
             recruitmentPayload === undefined &&
@@ -299,8 +315,9 @@ export class RequestStateResolver {
         const renderUiEnabled = clientProfile.isRenderUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
-            mode: requestContext.mode,
+            mode: requestContext.mode ?? (usesProjectSecretKey ? 'tools' : undefined),
             clientProfile,
+            cursorExecMode: mergedFlags[MCP_CURSOR_EXEC_MODE_FLAG] === true,
         })
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)

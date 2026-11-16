@@ -756,6 +756,7 @@ describe('EmailService', () => {
 
                 expect(result.error).toBeUndefined()
                 expect(result.finished).toBe(false)
+                expect(result.parked).toBe(true)
                 expect(result.invocation.queueScheduledAt).toBeDefined()
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(now + 500)
@@ -851,6 +852,18 @@ describe('EmailService', () => {
                     },
                     30_000,
                     60_000,
+                ],
+                [
+                    'transactional_api',
+                    'fast',
+                    'false',
+                    'its acceptance',
+                    (): void => {
+                        transactionalSend()
+                        invocation.state.acceptedAt = DateTime.utc().minus({ seconds: 120 }).toISO()
+                    },
+                    120_000,
+                    Infinity,
                 ],
                 // Alerts leave out a wait that the team sending cap causes on purpose.
                 [

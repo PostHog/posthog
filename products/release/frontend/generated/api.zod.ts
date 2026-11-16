@@ -100,3 +100,25 @@ export const ReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('IDs of the saved insights that measure the release, at most 100.'),
 })
+
+/**
+ * Merge other releases into this one. This release keeps its name, gains their links, then they are deleted.
+ */
+export const releasesMergeCreateBodyReleaseIdsMax = 100
+
+export const releasesMergeCreateBodyNameMax = 255
+
+export const ReleasesMergeCreateBody = /* @__PURE__ */ zod.object({
+    release_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(releasesMergeCreateBodyReleaseIdsMax)
+        .describe(
+            'IDs of the releases to merge into this one. Their flags, broadcasts, surveys and insights move to this release, then they are deleted.'
+        ),
+    name: zod
+        .string()
+        .max(releasesMergeCreateBodyNameMax)
+        .optional()
+        .describe('New name for the merged release. Keeps the current name when left out.'),
+})

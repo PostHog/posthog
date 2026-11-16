@@ -1793,6 +1793,11 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "active_since_days",
+                    "key": "active_since_days",
+                    "csv": false
+                },
+                {
                     "param": "exclude_user_uuids",
                     "key": "exclude_user_uuids",
                     "csv": false
@@ -1808,6 +1813,31 @@
                     "csv": false
                 },
                 {
+                    "param": "mode",
+                    "key": "mode",
+                    "csv": false
+                },
+                {
+                    "param": "object_id",
+                    "key": "object_id",
+                    "csv": false
+                },
+                {
+                    "param": "object_relation",
+                    "key": "object_relation",
+                    "csv": false
+                },
+                {
+                    "param": "object_type",
+                    "key": "object_type",
+                    "csv": false
+                },
+                {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
                     "param": "product",
                     "key": "product",
                     "csv": false
@@ -1820,6 +1850,11 @@
                 {
                     "param": "search_mode",
                     "key": "search_mode",
+                    "csv": false
+                },
+                {
+                    "param": "user_uuids",
+                    "key": "user_uuids",
                     "csv": false
                 }
             ],
@@ -4535,8 +4570,23 @@
                     "csv": false
                 },
                 {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
                     "param": "only_flagged",
                     "key": "only_flagged",
+                    "csv": false
+                },
+                {
+                    "param": "order",
+                    "key": "order",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
                     "csv": false
                 }
             ],
@@ -7940,7 +7990,9 @@
                     "next_refresh_at",
                     "created_at",
                     "updated_at",
-                    "library_ids"
+                    "library_ids",
+                    "cited_run_count",
+                    "last_cited_at"
                 ],
                 "selectable": false
             },
@@ -15299,6 +15351,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
                     "csv": false
                 }
             ],
@@ -56839,6 +56896,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "reason",
+                    "key": "reason",
                     "csv": false
                 },
                 {
