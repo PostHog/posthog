@@ -100,6 +100,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 from posthog.permissions import get_authenticator_scoped_team_ids, scopes_caller_lacks
+from posthog.scopes import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -175,7 +176,7 @@ def parse_tags_param(raw: str | None) -> builtins.list[str]:
         return []
     try:
         tags = json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):
         raise serializers.ValidationError({"tags": "Must be a JSON array of tag names."})
     if not isinstance(tags, builtins.list) or not all(isinstance(tag, str) for tag in tags):
         raise serializers.ValidationError({"tags": "Must be a JSON array of tag names."})
@@ -1057,20 +1058,27 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset
 
     def _tagged_with_any_q(self, tags: builtins.list[str]) -> Q:
-        """Rows whose dashboard or insight carries at least one of these tags."""
+        """Rows whose dashboard or insight carries at least one of these tags and is visible to the caller.
+
+        The object's own access level decides the match, not the row's. A row the caller filed against
+        an object they cannot see survives `_filter_by_access_control`, and `_add_object_types` then
+        withholds that object's tags from the response. Matching here on the row alone would hand back
+        the same association through which tag names return the row.
+        """
         condition = Q(pk__in=[])
         for entry_type, app_label, model_name, ref_field in TAGGED_FILE_SYSTEM_TYPES:
             model = apps.get_model(app_label, model_name)
-            tagged_objects = (
-                model.objects.filter(
-                    team_id=OuterRef("team_id"),
-                    deleted=False,
-                    pk__in=TaggedItem.objects.for_model(model)
-                    .filter(tag__name__in=tags)
-                    .values(object_column_for(model)),
+            objects = model.objects.filter(
+                team_id=OuterRef("team_id"),
+                deleted=False,
+                pk__in=TaggedItem.objects.for_model(model).filter(tag__name__in=tags).values(object_column_for(model)),
+            )
+            if self.user_access_control:
+                objects = self.user_access_control.filter_queryset_by_access_level(
+                    objects, resource=cast(APIScopeObject, entry_type)
                 )
-                .annotate(file_system_ref=Cast(ref_field, output_field=CharField()))
-                .filter(file_system_ref=OuterRef("ref"))
+            tagged_objects = objects.annotate(file_system_ref=Cast(ref_field, output_field=CharField())).filter(
+                file_system_ref=OuterRef("ref")
             )
             condition |= (Q(type=entry_type) | Q(type__startswith=f"{entry_type}/")) & Q(Exists(tagged_objects))
         return condition
@@ -1330,8 +1338,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         it, so search-within-Recents shares the exact same query path.
 
         Only the params the Recents callers actually send are honoured here: `limit`, `not_type`,
-        `search` (+ `search_name_only`). The other list filters (`parent`, `type`, `depth`, `ref`,
-        `type__startswith`, `created_at__*`) are intentionally not applied on this path — nothing
+        `search` (+ `search_name_only`) and `tags`. The other list filters (`parent`, `type`, `depth`,
+        `ref`, `type__startswith`, `created_at__*`) are intentionally not applied on this path — nothing
         pairs them with `last_viewed_at` ordering. Add handling here if a caller ever needs to.
         """
         try:
@@ -1355,6 +1363,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             base_queryset = self._apply_search_to_queryset(
                 base_queryset, search_param, basename_only=str_to_bool(request.query_params.get("search_name_only"))
             )
+
+        tags = parse_tags_param(request.query_params.get("tags"))
+        if tags:
+            base_queryset = base_queryset.filter(self._tagged_with_any_q(tags))
 
         items = get_recent_file_system_items(
             team_id=self.team.id,

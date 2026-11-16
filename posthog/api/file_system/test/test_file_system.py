@@ -168,6 +168,40 @@ class TestFileSystemAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"tags": "finance"})
         self.assertEqual(response.status_code, 400, response.content)
 
+    def test_list_rejects_deeply_nested_tags(self) -> None:
+        """Past a few tens of thousands of levels CPython's JSON decoder raises RecursionError, which is
+        not a ValueError, so an unguarded parse would answer a 500 instead of a 400."""
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"tags": "[" * 60000})
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_recents_without_a_type_filters_by_tag(self) -> None:
+        """`order_by=-last_viewed_at` with no type is served by `_list_recents`, which never reaches
+        `safely_get_queryset`, so the tag filter has to be applied there too."""
+        revenue = Dashboard.objects.create(team=self.team, name="Revenue")
+        churn = Dashboard.objects.create(team=self.team, name="Churn")
+        tag, _ = Tag.objects.get_or_create(name="finance", team=self.team)
+        TaggedItem.objects.create(
+            tag=tag, team=self.team, content_type=ContentType.objects.get_for_model(Dashboard), object_id=revenue.id
+        )
+        now = timezone.now()
+        for dashboard in (revenue, churn):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="dashboard",
+                ref=str(dashboard.id),
+                viewed_at=now,
+                view_days=[now.date()],
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"order_by": "-last_viewed_at", "tags": json.dumps(["finance"])},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        refs = {item["ref"] for item in response.json()["results"] if item["type"] == "dashboard"}
+        self.assertEqual(refs, {str(revenue.id)}, "recents with no type must drop the untagged dashboard")
+
     @parameterized.expand([(False,), (True,)])
     def test_list_content_types_without_object_contents(self, include_content_type: bool) -> None:
         markdown = Notebook.objects.create(
@@ -1745,6 +1779,38 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/frequent/", {"limit": 1})
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual([item["ref"] for item in response.json()], [self.file_a.ref])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_tag_filter_skips_objects_the_user_cannot_see(self, mock_flag: MagicMock) -> None:
+        """A row the user filed against an object they are denied survives access filtering, and
+        `_add_object_types` withholds that object's tags. The tag filter has to withhold it too, or the
+        tag can be read back from which filter values return the row."""
+        hidden = Dashboard.objects.create(team=self.team, name="Hidden", created_by=self.other_user)
+        tag = Tag.objects.create(name="secret", team=self.team)
+        TaggedItem.objects.create(
+            tag=tag, team=self.team, content_type=ContentType.objects.get_for_model(Dashboard), object_id=hidden.id
+        )
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Hidden",
+            depth=2,
+            type="dashboard",
+            ref=str(hidden.id),
+            created_by=self.user,
+        )
+        self._create_access_control(resource="dashboard", resource_id=str(hidden.id), access_level="none")
+        base = f"/api/projects/{self.team.id}/file_system/"
+
+        unfiltered = self.client.get(base, {"type": "dashboard", "include_tags": "true"})
+        self.assertEqual(unfiltered.status_code, status.HTTP_200_OK, unfiltered.content)
+        rows = {item["ref"]: item for item in unfiltered.json()["results"]}
+        self.assertIn(str(hidden.id), rows, "the row itself stays listed, because this user filed it")
+        self.assertEqual(rows[str(hidden.id)]["meta"].get("tags", []), [], "its tags are withheld already")
+
+        filtered = self.client.get(base, {"type": "dashboard", "tags": json.dumps(["secret"])})
+        self.assertEqual(filtered.status_code, status.HTTP_200_OK, filtered.content)
+        refs = {item["ref"] for item in filtered.json()["results"]}
+        self.assertNotIn(str(hidden.id), refs, "a withheld tag must not be inferable from the filter")
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_excludes_items_with_none_access(self, mock_flag):
