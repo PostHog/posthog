@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.presentation.destination_connect_tokens 
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     CONFIG_FAILURES,
     DestinationConnectionCheckError,
+    check_motherduck_destination,
     check_postgres_destination,
 )
 from products.warehouse_sources.backend.presentation.destination_connection_testing import (
@@ -61,10 +62,12 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
     DestinationConnectionTestStepStatus,
     has_connection_test,
     run_connection_test,
+    run_motherduck_connection_test,
     run_postgres_connection_test,
 )
 from products.warehouse_sources.backend.presentation.views.destination_links import MAX_DESTINATIONS_PER_LINK
 from products.warehouse_sources.backend.presentation.views.external_data_schema import resync_schema
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import is_destination_type_enabled
 
 # Which Integration kind holds the credentials for each destination type. A type absent from
 # this map needs no integration; the PostHog warehouse is the only such type today.
@@ -83,6 +86,7 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     ),
     str(ExternalDataDestination.Type.BIGQUERY): (str(IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT),),
     str(ExternalDataDestination.Type.AZURE_BLOB): (str(IntegrationKind.AZURE_BLOB),),
+    str(ExternalDataDestination.Type.MOTHERDUCK): (str(IntegrationKind.MOTHERDUCK),),
 }
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
@@ -497,6 +501,8 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             raise ValidationError(
                 {"type": "PostHog warehouse destinations are managed for you. Pick a different type."}
             )
+        if self.instance is None and not is_destination_type_enabled(self.context["get_team"](), destination_type):
+            raise ValidationError({"type": f"{destination_type} destinations are not available yet."})
 
         integration = attrs.get("integration", getattr(self.instance, "integration", None))
         if integration is None:
@@ -530,6 +536,8 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             self._reject_changed_prefill(migration_item_id, str(destination_type), integration)
         if destination_type == ExternalDataDestination.Type.POSTGRES:
             self._check_postgres_connection(integration, attrs.get("config"))
+        elif destination_type == ExternalDataDestination.Type.MOTHERDUCK:
+            self._check_motherduck_connection(integration, attrs.get("config"))
         elif destination_type == ExternalDataDestination.Type.REDSHIFT:
             self._check_redshift_target(integration, attrs.get("config"))
         else:
@@ -562,6 +570,13 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     def _check_postgres_connection(self, integration: IntegrationRecord, config: dict[str, Any] | None) -> None:
         try:
             check_postgres_destination(integration, config)
+        except DestinationConnectionCheckError as error:
+            field = "config" if error.failure in CONFIG_FAILURES else "integration"
+            raise ValidationError({field: str(error)})
+
+    def _check_motherduck_connection(self, integration: IntegrationRecord, config: dict[str, Any] | None) -> None:
+        try:
+            check_motherduck_destination(integration, config)
         except DestinationConnectionCheckError as error:
             field = "config" if error.failure in CONFIG_FAILURES else "integration"
             raise ValidationError({field: str(error)})
@@ -646,6 +661,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         str(ExternalDataDestination.Type.BIGQUERY): ("dataset", "dataset_id", "project", "project_id"),
         str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "prefix"),
         str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container", "prefix"),
+        str(ExternalDataDestination.Type.MOTHERDUCK): ("database", "schema"),
     }
 
     # Config fields whose names cannot hold a space, per type. A pasted bucket or container name
@@ -655,6 +671,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         str(ExternalDataDestination.Type.REDSHIFT): ("host",),
         str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "region"),
         str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container"),
+        str(ExternalDataDestination.Type.MOTHERDUCK): ("database", "schema"),
     }
 
     def _trim_names(self, destination_type: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -1036,6 +1053,8 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         if destination.type == ExternalDataDestination.Type.POSTGRES:
             run: ConnectionTestRun | None = run_postgres_connection_test(integration, destination.config)
+        elif destination.type == ExternalDataDestination.Type.MOTHERDUCK:
+            run = run_motherduck_connection_test(integration, destination.config)
         else:
             run = run_connection_test(destination.type, integration, destination.config)
         if run is None:

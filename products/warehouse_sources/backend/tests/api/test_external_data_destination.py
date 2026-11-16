@@ -100,6 +100,17 @@ class DestinationAPITestBase(APIBaseTest):
         )
         self.check_connection = check_patcher.start()
         self.addCleanup(check_patcher.stop)
+        motherduck_check_patcher = patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.check_motherduck_destination"
+        )
+        self.check_motherduck = motherduck_check_patcher.start()
+        self.addCleanup(motherduck_check_patcher.stop)
+        flag_patcher = patch(
+            "products.warehouse_sources.backend.temporal.data_imports.destinations.enablement.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self.type_flag = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
         facade = "products.warehouse_sources.backend.presentation.destination_connection_testing.batch_exports_api"
         describe_patcher = patch(f"{facade}.describe_destination_test", return_value=_destination_test(1))
         self.describe_test = describe_patcher.start()
@@ -651,6 +662,78 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
             (expected_status, expected_message)
         ]
 
+    @parameterized.expand(
+        [
+            (CheckFailure.AUTHENTICATION, "integration"),
+            (CheckFailure.UNREACHABLE, "integration"),
+            (CheckFailure.UNKNOWN_DATABASE, "config"),
+            (CheckFailure.MISSING_PRIVILEGE, "config"),
+        ]
+    )
+    def test_a_motherduck_destination_that_fails_the_connection_check_is_not_created(
+        self, failure: CheckFailure, expected_field: str
+    ) -> None:
+        self.check_motherduck.side_effect = DestinationConnectionCheckError(failure, "MotherDuck said no")
+        integration = self._integration(Integration.IntegrationKind.MOTHERDUCK)
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.MOTHERDUCK,
+                "name": "unusable",
+                "integration": integration.pk,
+                "config": {"database": "analytics"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == expected_field
+        assert response.json()["detail"] == "MotherDuck said no"
+        self.check_motherduck.assert_called_once_with(integration, {"database": "analytics"})
+        assert not ExternalDataDestination.objects.for_team(self.team.pk).filter(name="unusable").exists()
+
+    def test_a_motherduck_destination_cannot_be_created_while_its_flag_is_off(self) -> None:
+        existing = self._create_destination(
+            type=ExternalDataDestination.Type.MOTHERDUCK,
+            integration=self._integration(Integration.IntegrationKind.MOTHERDUCK).pk,
+            config={"database": "analytics"},
+        )
+        self.type_flag.return_value = False
+
+        created = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.MOTHERDUCK,
+                "name": "too early",
+                "integration": self._integration(Integration.IntegrationKind.MOTHERDUCK).pk,
+            },
+        )
+        renamed = self.client.patch(f"{self.base}/{existing.id}", {"name": "renamed"})
+
+        assert created.status_code == status.HTTP_400_BAD_REQUEST
+        assert created.json()["attr"] == "type"
+        assert renamed.status_code == status.HTTP_200_OK, renamed.json()
+
+    def test_test_connection_runs_the_motherduck_check_as_one_step(self) -> None:
+        destination = self._create_destination(
+            type=ExternalDataDestination.Type.MOTHERDUCK,
+            integration=self._integration(Integration.IntegrationKind.MOTHERDUCK).pk,
+            config={"database": "analytics"},
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.presentation.destination_connection_testing.check_motherduck_destination",
+            side_effect=DestinationConnectionCheckError(CheckFailure.AUTHENTICATION, "MotherDuck said no"),
+        ) as check:
+            response = self.client.post(f"{self.base}/{destination.id}/test_connection")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        check.assert_called_once_with(destination.integration, {"database": "analytics"})
+        assert [(step["name"], step["status"], step["message"]) for step in response.json()["steps"]] == [
+            ("Connect to MotherDuck", "Failed", "MotherDuck said no")
+        ]
+
     def test_test_connection_rejects_destinations_without_a_test(self) -> None:
         redshift = self._create_destination(
             type=ExternalDataDestination.Type.REDSHIFT,
@@ -697,6 +780,7 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
                 Integration.IntegrationKind.AZURE_BLOB,
                 ("container_name", "prefix"),
             ),
+            (ExternalDataDestination.Type.MOTHERDUCK, Integration.IntegrationKind.MOTHERDUCK, ("database", "schema")),
         ]
     )
     def test_the_target_cannot_be_changed(self, destination_type: str, kind: str, fields: tuple[str, ...]) -> None:
@@ -792,6 +876,13 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
                 Integration.IntegrationKind.POSTGRESQL,
                 "schema",
                 False,
+            ),
+            (
+                "motherduck_database",
+                ExternalDataDestination.Type.MOTHERDUCK,
+                Integration.IntegrationKind.MOTHERDUCK,
+                "database",
+                True,
             ),
         ]
     )

@@ -1,5 +1,7 @@
 import socket
+import threading
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,9 +15,11 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     FAILURE_MESSAGES,
+    MOTHERDUCK_FAILURE_MESSAGES,
     CheckFailure,
     DestinationConnectionCheckError,
     _query_deadline,
+    check_motherduck_destination,
     check_postgres_destination,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
@@ -197,3 +201,87 @@ class TestCheckPostgresDestination:
             assert seen["contents"] == "CERT-DATA"
         else:
             assert seen["path"] == expected_path
+
+
+MOTHERDUCK_CONNECT = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck.connect"
+
+
+def _motherduck_integration(token: str | None = "md-token") -> Integration:
+    return Integration(
+        kind=Integration.IntegrationKind.MOTHERDUCK,
+        config={"name": "warehouse"},
+        sensitive_config={} if token is None else {"access_token": token},
+    )
+
+
+class TestCheckMotherDuckDestination:
+    def test_a_writable_database_passes_and_keeps_no_scratch_table(self, tmp_path: Path) -> None:
+        import duckdb
+
+        path = str(tmp_path / "analytics.duckdb")
+
+        with patch(MOTHERDUCK_CONNECT, side_effect=lambda *_args, **_kwargs: duckdb.connect(path)) as connect:
+            check_motherduck_destination(_motherduck_integration(), {"database": "analytics", "schema": "synced"})
+
+        connect.assert_called_once_with("md-token", "analytics", read_only=False)
+        with duckdb.connect(path) as local:
+            tables = local.execute("SELECT table_name FROM duckdb_tables()").fetchall()
+            schemas = {row[0] for row in local.execute("SELECT schema_name FROM duckdb_schemas()").fetchall()}
+        assert tables == []
+        assert "synced" in schemas
+
+    @parameterized.expand(
+        [
+            ("no_token", None, {"database": "analytics"}, CheckFailure.AUTHENTICATION),
+            ("no_database", "md-token", {}, CheckFailure.UNKNOWN_DATABASE),
+            ("unsafe_database", "md-token", {"database": "x?motherduck_token=y"}, CheckFailure.UNKNOWN_DATABASE),
+        ]
+    )
+    def test_settings_that_cannot_work_fail_before_connecting(
+        self, _name: str, token: str | None, config: dict[str, str], failure: CheckFailure
+    ) -> None:
+        with patch(MOTHERDUCK_CONNECT) as connect:
+            with pytest.raises(DestinationConnectionCheckError) as raised:
+                check_motherduck_destination(_motherduck_integration(token), config)
+
+        connect.assert_not_called()
+        assert raised.value.failure == failure
+        assert str(raised.value) == MOTHERDUCK_FAILURE_MESSAGES[failure]
+
+    @parameterized.expand(
+        [
+            ("token", "Invalid Input Error: Unauthenticated: invalid token", CheckFailure.AUTHENTICATION),
+            ("database", 'Catalog Error: database "nope" does not exist', CheckFailure.UNKNOWN_DATABASE),
+            ("share", "Invalid Input Error: cannot write to read-only database", CheckFailure.MISSING_PRIVILEGE),
+            ("outage", "Could not connect to MotherDuck. Please try again later.", CheckFailure.UNREACHABLE),
+        ]
+    )
+    def test_driver_errors_map_to_one_message_without_driver_text(
+        self, _name: str, message: str, failure: CheckFailure
+    ) -> None:
+        import duckdb
+
+        with patch(MOTHERDUCK_CONNECT, side_effect=duckdb.Error(f"{message} secret-detail")):
+            with pytest.raises(DestinationConnectionCheckError) as raised:
+                check_motherduck_destination(_motherduck_integration(), {"database": "analytics"})
+
+        assert raised.value.failure == failure
+        assert "secret-detail" not in str(raised.value)
+
+    def test_a_connection_that_hangs_is_unreachable(self) -> None:
+        release = threading.Event()
+
+        def hang(*_args: Any, **_kwargs: Any) -> None:
+            release.wait()
+
+        try:
+            with (
+                patch(MOTHERDUCK_CONNECT, side_effect=hang),
+                patch(f"{MODULE}.MOTHERDUCK_CONNECT_TIMEOUT_SECONDS", 0.05),
+            ):
+                with pytest.raises(DestinationConnectionCheckError) as raised:
+                    check_motherduck_destination(_motherduck_integration(), {"database": "analytics"})
+        finally:
+            release.set()
+
+        assert raised.value.failure == CheckFailure.UNREACHABLE
