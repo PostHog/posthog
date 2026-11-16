@@ -296,6 +296,12 @@ describe('load', () => {
         expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
     })
 
+    it('reports a profile path it cannot read as a problem of the card', () => {
+        expect(() => load(write('card.yaml', card), { profilePath: dir })).toThrow(
+            expect.objectContaining({ problems: [expect.stringMatching(/^profile: .*EISDIR/)] })
+        )
+    })
+
     it('lists every problem in one error', () => {
         const problems = problemsOf({
             ...card,

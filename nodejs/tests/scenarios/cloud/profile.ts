@@ -5,6 +5,7 @@ import { parse } from 'yaml'
 import { z } from 'zod'
 
 import { Duration } from '../duration'
+import { RunCard } from './card'
 
 export const CAP_USD = 200
 export const TTL_HOURS = 6
@@ -120,7 +121,9 @@ export type CloudProfile = z.infer<typeof CloudProfile>
 
 export type InputFile = { file: string; bytes: Buffer; sha256: string }
 
-export type RunInputs = { profile: CloudProfile; inputs: InputFile[] }
+export type ProfileInputs = { profile: CloudProfile; runner: InputFile; inputs: InputFile[] }
+
+export type RunInputs = ProfileInputs & { card: RunCard }
 
 export class CloudProfileError extends Error {
     constructor(file: string, problems: string[]) {
@@ -160,9 +163,9 @@ export function loadCloudProfile(filePath: string): CloudProfile {
     return parseCloudProfile(filePath, readInput('cloud-profile.yaml', filePath))
 }
 
-export function loadRunInputs(filePath: string): RunInputs {
+export function loadRunInputs(filePath: string): ProfileInputs {
     const cloud = readInput('cloud-profile.yaml', filePath)
     const profile = parseCloudProfile(filePath, cloud)
     const runner = readInput('runner-profile.yaml', path.resolve(path.dirname(filePath), profile.runnerProfile))
-    return { profile, inputs: [cloud, runner] }
+    return { profile, runner, inputs: [cloud, runner] }
 }

@@ -35,15 +35,21 @@ function problemsOf(error: z.ZodError, prefix: string): string[] {
     )
 }
 
-function readYaml(file: string, label: string): { value: unknown } | { problem: string } {
-    if (!existsSync(file)) {
-        return { problem: `${label}: no file at ${file}` }
-    }
+type Read = { value: unknown } | { problem: string }
+
+function parseYaml(text: () => string, label: string): Read {
     try {
-        return { value: parse(readFileSync(file, 'utf8'), { maxAliasCount: 0 }) }
+        return { value: parse(text(), { maxAliasCount: 0 }) }
     } catch (error) {
         return { problem: `${label}: ${(error as Error).message}` }
     }
+}
+
+function readYaml(file: string, label: string): Read {
+    if (!existsSync(file)) {
+        return { problem: `${label}: no file at ${file}` }
+    }
+    return parseYaml(() => readFileSync(file, 'utf8'), label)
 }
 
 function sha256(value: unknown): string {
@@ -135,7 +141,9 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
     ]
 }
 
-function loadProfile(card: Card, profilePath: string | undefined): { profile: Profile } | { problems: string[] } {
+type ProfileRead = { profile: Profile } | { problems: string[] }
+
+function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
     const file = profilePath ?? path.join(PROFILES_DIR, `${card.profile}.yaml`)
     if (profilePath === undefined && !existsSync(file)) {
         return { problems: [`profile: no shipped profile ${card.profile}; pass its file with --profile`] }
@@ -143,8 +151,7 @@ function loadProfile(card: Card, profilePath: string | undefined): { profile: Pr
     return readProfile(file)
 }
 
-export function readProfile(file: string): { profile: Profile } | { problems: string[] } {
-    const read = readYaml(file, 'profile')
+function profileOf(read: Read): ProfileRead {
     if ('problem' in read) {
         return { problems: [read.problem] }
     }
@@ -152,8 +159,23 @@ export function readProfile(file: string): { profile: Profile } | { problems: st
     return profile.success ? { profile: profile.data } : { problems: problemsOf(profile.error, 'profile') }
 }
 
+export function readProfile(file: string): ProfileRead {
+    return profileOf(readYaml(file, 'profile'))
+}
+
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
-    const read = readYaml(cardPath, 'card')
+    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath))
+}
+
+export function loadText(label: string, { card, profile }: { card: string; profile: string }): LoadedCard {
+    return check(
+        label,
+        parseYaml(() => card, 'card'),
+        () => profileOf(parseYaml(() => profile, 'profile'))
+    )
+}
+
+function check(cardPath: string, read: Read, profileFor: (card: Card) => ProfileRead): LoadedCard {
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
     }
@@ -162,7 +184,7 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
         throw new CardError(cardPath, problemsOf(parsed.error, ''))
     }
     const card = parsed.data
-    const loaded = loadProfile(card, options.profilePath)
+    const loaded = profileFor(card)
     const defaults = getDefaultConfig() as unknown as Settings
 
     const problems = [
