@@ -12,6 +12,7 @@ type SentEvent = { event: string; properties: Record<string, any> }
 describe('send from code guide link', () => {
     const sentEvents: SentEvent[] = []
     let app: {
+        posthog: typeof import('posthog-js').default
         rtl: typeof import('@testing-library/react/pure')
         Provider: typeof import('kea').Provider
         router: typeof import('kea-router').router
@@ -35,6 +36,7 @@ describe('send from code guide link', () => {
             capture_pageview: false,
         })
         app = {
+            posthog,
             rtl: await import('@testing-library/react/pure'),
             Provider: (await import('kea')).Provider,
             router: (await import('kea-router')).router,
@@ -102,15 +104,14 @@ describe('send from code guide link', () => {
         app.rtl.act(() => app.router.actions.push(app.sendFromCodeGuideUrl()))
 
         await app.rtl.waitFor(() => expect(app.router.values.searchParams).toEqual({}))
-        await app.rtl.waitFor(() =>
-            expect(
-                sentEvents
-                    .filter(
-                        (sent) =>
-                            sent.event === 'send from code guide opened' && sent.properties.entry === 'domain_ready'
-                    )
-                    .map((sent) => sent.properties.surface)
-            ).toEqual(surfaces)
-        )
+        app.posthog.capture('guide link test done')
+        await app.rtl.waitFor(() => expect(sentEvents.map((sent) => sent.event)).toContain('guide link test done'))
+        expect(
+            sentEvents
+                .filter(
+                    (sent) => sent.event === 'send from code guide opened' && sent.properties.entry === 'domain_ready'
+                )
+                .map((sent) => sent.properties.surface)
+        ).toEqual(surfaces)
     })
 })
