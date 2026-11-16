@@ -433,13 +433,14 @@ def emit_report_ready_internal_event(
     ):
         return
     team_id, report_id = instance.team_id, str(instance.id)
+    known_source_products = getattr(instance, "_known_source_products", None)
 
     def _emit() -> None:
-        from products.signals.backend.report_ready_event import emit_report_ready_event  # noqa: PLC0415
+        from products.signals.backend.tasks import emit_report_ready_event_task  # noqa: PLC0415
 
         # A hook outside an atomic block runs inside save(), so an error here must not reach the caller.
         try:
-            emit_report_ready_event(team_id=team_id, report_id=report_id, is_safety_suppressed=_is_safety_suppressed)
+            emit_report_ready_event_task.delay(team_id, report_id, known_source_products)
         except Exception:
             logger.exception("signals.report_ready_event_failed", team_id=team_id, report_id=report_id)
 

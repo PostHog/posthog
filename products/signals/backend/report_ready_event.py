@@ -5,6 +5,7 @@ report text, so a consumer re-fetches the report through the API, under its own 
 and errors can echo the payload into stores with weaker read checks than the Inbox, so the payload stays small.
 """
 
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -65,13 +66,14 @@ def _source_products(team: Team, report_id: str) -> list[str]:
     return meta.source_products if meta else []
 
 
-def report_ready_properties(report: SignalReport) -> dict[str, Any]:
+def report_ready_properties(report: SignalReport, known_source_products: list[str] | None = None) -> dict[str, Any]:
     """Property names follow `SignalReportSerializer` where the API has the field.
 
     Destination filters compare a property with one string, so the list also comes as comma-joined text.
+    `known_source_products` covers a report born ready, whose signals are not in ClickHouse yet.
     """
     report_id = str(report.id)
-    source_products = _source_products(report.team, report_id)
+    source_products = _source_products(report.team, report_id) or sorted(set(known_source_products or []))
     return {
         "report_id": report_id,
         "report_url": build_bare_report_url(report.team_id, report_id),
@@ -85,7 +87,13 @@ def report_ready_properties(report: SignalReport) -> dict[str, Any]:
     }
 
 
-def emit_report_ready_event(*, team_id: int, report_id: str, is_safety_suppressed: Callable[[str, int], bool]) -> None:
+def emit_report_ready_event(
+    *,
+    team_id: int,
+    report_id: str,
+    is_safety_suppressed: Callable[[str, int], bool],
+    known_source_products: list[str] | None = None,
+) -> None:
     """Produce the event for a report that just became READY, when the organization has the flag.
 
     `is_safety_suppressed` comes from the receivers module, which imports this one.
@@ -99,10 +107,10 @@ def emit_report_ready_event(*, team_id: int, report_id: str, is_safety_suppresse
         return
     produce_internal_event(
         team_id=team_id,
+        # The invocation results table exposes distinct_id to plain query access, so it carries no report id.
         event=InternalEventEvent(
             event=REPORT_READY_EVENT,
-            distinct_id=report_id,
-            properties=report_ready_properties(report),
-            url=build_bare_report_url(team_id, report_id),
+            distinct_id=str(uuid.uuid4()),
+            properties=report_ready_properties(report, known_source_products),
         ),
     )

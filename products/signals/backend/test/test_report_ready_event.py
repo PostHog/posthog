@@ -101,6 +101,16 @@ class TestReportReadyEvent(BaseTest):
 
         assert self._produced_events() == [REPORT_READY_EVENT] * expected
 
+    def test_the_request_that_moves_a_report_only_enqueues_the_event(self) -> None:
+        # A bulk state change commits its reports one at a time, so a lookup here would hold the request.
+        with patch("products.signals.backend.tasks.emit_report_ready_event_task.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                report = self._report(S.READY)
+
+        delay.assert_called_once_with(self.team.id, str(report.id), None)
+        self.source_products.assert_not_called()
+        self.produce.assert_not_called()
+
     @parameterized.expand([(S.READY, 1), (S.IN_PROGRESS, 0), (S.POTENTIAL, 0)])
     def test_event_fires_for_a_report_created_as_ready(self, status: SignalReport.Status, expected: int) -> None:
         with self.captureOnCommitCallbacks(execute=True):
@@ -190,12 +200,9 @@ class TestReportReadyEvent(BaseTest):
         kwargs = self.produce.call_args.kwargs
         event = kwargs["event"]
         report_url = f"http://localhost:8010/project/{self.team.id}/inbox/reports/{report_id}"
-        assert (kwargs["team_id"], event.event, event.distinct_id, event.url) == (
-            self.team.id,
-            REPORT_READY_EVENT,
-            report_id,
-            report_url,
-        )
+        assert (kwargs["team_id"], event.event, event.url) == (self.team.id, REPORT_READY_EVENT, None)
+        # The invocation results table exposes distinct_id to plain project query access.
+        assert report_id not in event.distinct_id
         assert event.properties == {
             "report_id": report_id,
             "report_url": report_url,
