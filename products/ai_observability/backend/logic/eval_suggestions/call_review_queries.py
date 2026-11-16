@@ -49,9 +49,9 @@ _GENERATIONS = """
       AND cityHash64(trace_id) % 1000 < {per_mille}"""
 
 _CALL_TYPES_SQL = f"""
-SELECT source, call_type, count() AS calls, any(model) AS model, any(example_input) AS example_input
+SELECT source, call_type, count(DISTINCT uuid) AS calls, any(model) AS model, any(example_input) AS example_input
 FROM (
-    SELECT {_CALL_TYPE_COLUMNS}, model, left(input, {{example_chars}}) AS example_input
+    SELECT uuid, {_CALL_TYPE_COLUMNS}, model, left(input, {{example_chars}}) AS example_input
     {_GENERATIONS}
 )
 GROUP BY source, call_type
@@ -61,7 +61,7 @@ LIMIT {{limit}}
 
 # Candidates are chosen by a hash of their uuid, which spreads each call type's candidates over the day. The
 # subquery chooses them from ids and call types alone, so the sort never holds message bodies, and only the chosen
-# rows read their input and output.
+# rows read their input and output. ai_events can store an event more than once, so both caps count each uuid once.
 _CALLS_SQL = f"""
 SELECT
     toString(uuid) AS event_uuid,
@@ -102,12 +102,14 @@ SELECT
     FROM (
         SELECT uuid, {_CALL_TYPE_COLUMNS}
         {_GENERATIONS}
+        LIMIT 1 BY uuid
     )
     WHERE concat(source, ':', call_type) IN {{keys}}
     ORDER BY cityHash64(toString(uuid))
     LIMIT {{per_type}} BY source, call_type
   )
 ORDER BY cityHash64(event_uuid)
+LIMIT 1 BY event_uuid
 LIMIT {{max_rows}}
 """
 

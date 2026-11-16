@@ -89,6 +89,27 @@ SYSTEM = {"role": "system", "content": "Answer refund questions. Never promise a
             '{"status": "sent", "eta_days": 5}',
         ),
         (
+            "structured_output_with_a_content_field",
+            [SYSTEM, {"role": "user", "content": "Where is my refund?"}],
+            {"status": "failed", "content": "Refund sent."},
+            ["user: Where is my refund?"],
+            '{"status": "failed", "content": "Refund sent."}',
+        ),
+        (
+            "openai_refusal_without_content",
+            [SYSTEM, {"role": "user", "content": "Where is my refund?"}],
+            [{"message": {"role": "assistant", "content": None, "refusal": "I can't help with refunds."}}],
+            ["user: Where is my refund?"],
+            "assistant: I can't help with refunds.",
+        ),
+        (
+            "openai_audio_reply",
+            [SYSTEM, {"role": "user", "content": "Where is my refund?"}],
+            [{"message": {"role": "assistant", "content": None, "audio": {"id": "a1", "transcript": "Sent today."}}}],
+            ["user: Where is my refund?"],
+            "assistant: Sent today.",
+        ),
+        (
             "structured_output_with_a_list_type_field",
             [SYSTEM, {"role": "user", "content": "Where is my refund?"}],
             {"type": ["string", "null"]},
@@ -284,8 +305,13 @@ REQUEST = httpx.Request("POST", "https://gateway.example.com")
             0,
         ),
         (
+            "server_error_may_have_billed",
+            InternalServerError("broken", response=httpx.Response(500, request=REQUEST), body=None),
+            1,
+        ),
+        (
             "overloaded_may_have_billed",
-            InternalServerError("busy", response=httpx.Response(529, request=REQUEST), body=None),
+            APIStatusError("busy", response=httpx.Response(529, request=REQUEST), body=None),
             1,
         ),
         (
