@@ -75,7 +75,7 @@ const getFirstProductFromProductsParam = (productsParam: unknown): ProductKey | 
 }
 
 export interface BillingAlertConfig {
-    kind?: 'trial' | 'usage_limit'
+    kind?: 'trial' | 'usage_limit' | 'unpaid_invoice'
     status: 'info' | 'warning' | 'error'
     title: string
     message?: string
@@ -110,6 +110,19 @@ export interface BillingError {
 export interface OpenInvoices {
     count: number
     link: string | null
+}
+
+// Returns null on any failure, so a user who cannot read invoices just sees no invoice banner.
+const loadInvoiceSummary = async (status: 'open' | 'uncollectible'): Promise<OpenInvoices | null> => {
+    try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingGetInvoicesRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+        const res = await api.getResponse(`api/billing/get_invoices?status=${status}`)
+        const jsonRes = await getJSONOrNull(res)
+        return { count: jsonRes['count'], link: jsonRes['link'] }
+    } catch (error: any) {
+        console.error(error)
+    }
+    return null
 }
 
 export type SwitchPlanPayload = {
@@ -341,6 +354,8 @@ export interface billingLogicValues {
     switchPlanLoading: string | null
     timeRemainingInSeconds: number
     timeTotalInSeconds: number
+    uncollectibleInvoices: OpenInvoices | null
+    uncollectibleInvoicesLoading: boolean
     unsubscribeError: UnsubscribeError | null
     unusedPlatformAddonAmount: number
     upgradeLink: string
@@ -459,6 +474,21 @@ export interface billingLogicActions {
         payload?: any
     ) => {
         products: BillingProductV2Type[]
+        payload?: any
+    }
+    loadUncollectibleInvoices: () => any
+    loadUncollectibleInvoicesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadUncollectibleInvoicesSuccess: (
+        uncollectibleInvoices: OpenInvoices | null,
+        payload?: any
+    ) => {
+        uncollectibleInvoices: OpenInvoices | null
         payload?: any
     }
     registerInstrumentationProps: () => {
@@ -1091,17 +1121,15 @@ export const billingLogic = kea<billingLogicType>([
         openInvoices: [
             null as OpenInvoices | null,
             {
-                loadInvoices: async (): Promise<OpenInvoices | null> => {
-                    try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingGetInvoicesRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                        const res = await api.getResponse('api/billing/get_invoices?status=open')
-                        const jsonRes = await getJSONOrNull(res)
-                        return { count: jsonRes['count'], link: jsonRes['link'] }
-                    } catch (error: any) {
-                        console.error(error)
-                    }
-                    return null
-                },
+                loadInvoices: async (): Promise<OpenInvoices | null> => await loadInvoiceSummary('open'),
+            },
+        ],
+        // Invoices Billing wrote off when the last card payment failed and it cancelled the subscription.
+        uncollectibleInvoices: [
+            null as OpenInvoices | null,
+            {
+                loadUncollectibleInvoices: async (): Promise<OpenInvoices | null> =>
+                    await loadInvoiceSummary('uncollectible'),
             },
         ],
         creditOverview: [
@@ -1735,6 +1763,9 @@ export const billingLogic = kea<billingLogicType>([
                 actions.loadCreditOverview()
             }
         },
+        loadUncollectibleInvoicesSuccess: () => {
+            actions.determineBillingAlert()
+        },
         loadBillingSuccess: async ({ payload }, breakpoint) => {
             actions.registerInstrumentationProps()
             actions.determineBillingAlert()
@@ -1922,6 +1953,36 @@ export const billingLogic = kea<billingLogicType>([
             }
 
             actions.resetUsageLimitApproachingKey()
+
+            // Reading the lazy value starts a single load, and its success runs this listener again.
+            // The gate keeps the Stripe-backed request to orgs that lost their subscription.
+            const unpaidInvoices =
+                values.canAccessBilling && !values.billing.has_active_subscription && !values.isExternallyBilled
+                    ? values.uncollectibleInvoices
+                    : null
+            if (unpaidInvoices?.count) {
+                const several = unpaidInvoices.count > 1
+                const link = !several && unpaidInvoices.link ? unpaidInvoices.link : values.billing.stripe_portal_url
+                const alert: BillingAlertConfig = {
+                    kind: 'unpaid_invoice',
+                    status: 'warning',
+                    title: several ? `You have ${unpaidInvoices.count} unpaid invoices` : 'You have an unpaid invoice',
+                    message: 'Your payment failed and your subscription was cancelled.',
+                    // Closing hides it for this session only (no dismissKey), so it returns on the next visit.
+                    onClose: () => actions.setBillingAlert(null),
+                }
+                if (link) {
+                    alert.action = {
+                        to: link,
+                        children: several ? 'Pay invoices' : 'Pay invoice',
+                        targetBlank: true,
+                        onClick: () => actions.reportBillingAlertActionClicked(alert),
+                    }
+                }
+                actions.setBillingAlert(alert)
+                return
+            }
+
             clearBillingAlert()
         },
         setCreditFormValue: ({ name, value }) => {
