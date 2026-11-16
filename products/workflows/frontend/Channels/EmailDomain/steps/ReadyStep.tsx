@@ -8,12 +8,20 @@ import { NextWorkflowCard } from '../components/NextWorkflowCard'
 import { SenderCard } from '../components/SenderCard'
 import { StepHeading } from '../components/StepHeading'
 import { emailDomainAutoConfigureLogic } from '../emailDomainAutoConfigureLogic'
+import { emailDomainLogic } from '../emailDomainLogic'
 import { emailDomainSenderLogic } from '../emailDomainSenderLogic'
+import { EmailDomainSetupOrigin } from '../emailDomainSetupOrigin'
 import { emailDomainStatusLogic } from '../emailDomainStatusLogic'
 import { HedgehogRocket } from '../hoggies'
 
+const NEXT_STEP: Record<EmailDomainSetupOrigin, () => JSX.Element> = {
+    workflows: NextWorkflowCard,
+}
+
 export function ReadyStep(): JSX.Element {
     const { domain } = useValues(emailDomainSenderLogic)
+    const { origin } = useValues(emailDomainLogic)
+    const NextStep = NEXT_STEP[origin]
     const { records, foundCount, allRecordsFound } = useValues(emailDomainStatusLogic)
     const { hostName } = useValues(emailDomainAutoConfigureLogic)
     const host = hostName ?? 'your DNS host'
@@ -64,7 +72,7 @@ export function ReadyStep(): JSX.Element {
                     },
                 ]}
             />
-            <NextWorkflowCard />
+            <NextStep />
         </div>
     )
 }

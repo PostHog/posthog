@@ -380,6 +380,13 @@ describe('EmailDomainScene', () => {
         expectBackToChannels()
     })
 
+    it('returns to workflows when the link names an origin the setup does not know', async () => {
+        seedSender()
+        await open(`${urls.workflowsEmailDomain(SENDER_ID)}?from=nowhere`)
+        expect(screen.getByText('Add 8 settings at Cloudflare')).toBeInTheDocument()
+        expectBackToChannels()
+    })
+
     it('keeps the progress on screen when a status check fails after the records were found', async () => {
         seedSender()
         backend.publishRecords(DOMAIN)

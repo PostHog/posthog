@@ -9,6 +9,7 @@ import { DomainCard } from '../components/DomainCard'
 import { LocalProviderPicker } from '../components/LocalProviderPicker'
 import { SendingAddressCard } from '../components/SendingAddressCard'
 import { StepHeading } from '../components/StepHeading'
+import { emailDomainLogic } from '../emailDomainLogic'
 import { emailDomainSetupPath } from '../emailDomainSetupLinks'
 import { EmailDomainWizardLogicProps, emailDomainWizardLogic } from '../emailDomainWizardLogic'
 import { HedgehogMailbox } from '../hoggies'
@@ -45,6 +46,7 @@ function CreateSender(props: EmailDomainWizardLogicProps): JSX.Element {
     const logic = emailDomainWizardLogic(props)
     const { existingSender, submitError, createdSenderLoading, bouncePrefix, domainSender } = useValues(logic)
     const { clearDomain, createSender } = useActions(logic)
+    const { origin } = useValues(emailDomainLogic)
     const disabledReason = createdSenderLoading
         ? 'Creating the sender'
         : existingSender
@@ -57,7 +59,7 @@ function CreateSender(props: EmailDomainWizardLogicProps): JSX.Element {
             {existingSender && (
                 <p className="m-0 text-sm text-center text-secondary">
                     A sender with this address already exists in this project.{' '}
-                    <Link to={emailDomainSetupPath(existingSender.id)}>Open it</Link> to check its status.
+                    <Link to={emailDomainSetupPath(existingSender.id, origin)}>Open it</Link> to check its status.
                 </p>
             )}
             {submitError && <p className="m-0 text-sm text-center text-danger">{submitError}</p>}
