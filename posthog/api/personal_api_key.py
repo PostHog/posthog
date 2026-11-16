@@ -18,7 +18,6 @@ from posthog.ip_restrictions import enforce_credential_ip_restrictions
 from posthog.models import PersonalAPIKey, User
 from posthog.models.oauth import has_live_third_party_oauth_access
 from posthog.models.personal_api_key import LEGACY_HASH_PREFIX, max_personal_api_keys_for_user
-from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
@@ -137,6 +136,15 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
     scoped_teams = serializers.ListField(child=serializers.IntegerField(required=False))
     scoped_organizations = serializers.ListField(child=serializers.CharField(required=False))
+    user_distinct_id = serializers.SerializerMethodField(
+        help_text="Distinct ID of the user who owns the key, for attributing analytics to that user."
+    )
+    current_organization_id = serializers.SerializerMethodField(
+        help_text="ID of the organization the key's owner last had open in the app. Null if they have none."
+    )
+    current_team_id = serializers.SerializerMethodField(
+        help_text="ID of the project the key's owner last had open in the app. Null if they have none."
+    )
 
     class Meta:
         model = PersonalAPIKey
@@ -156,6 +164,9 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "scoped_organizations",
             "last_rolled_at",
             "expires_at",
+            "user_distinct_id",
+            "current_organization_id",
+            "current_team_id",
         ]
         read_only_fields = [
             "id",
@@ -167,7 +178,30 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "last_used_at",
             "user_id",
             "last_rolled_at",
+            "user_distinct_id",
+            "current_organization_id",
+            "current_team_id",
         ]
+
+    def _owner(self, obj: PersonalAPIKey) -> User:
+        request = self.context.get("request")
+        if request is not None and request.user.id == obj.user_id:
+            return request.user
+        return obj.user
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_user_distinct_id(self, obj: PersonalAPIKey) -> str | None:
+        return self._owner(obj).distinct_id
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_current_organization_id(self, obj: PersonalAPIKey) -> str | None:
+        organization = self._owner(obj).organization
+        return str(organization.id) if organization else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_current_team_id(self, obj: PersonalAPIKey) -> int | None:
+        team = self._owner(obj).team
+        return team.id if team else None
 
     def get_key_value(self, obj: PersonalAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore
@@ -303,25 +337,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         personal_api_key = super().update(personal_api_key, updates)
         personal_api_key._value = value  # type: ignore
         return personal_api_key
-
-    def get_scoped_organization_ids(self, personal_api_key: PersonalAPIKey) -> list[str]:
-        """Get organization IDs that should receive activity logs for this API key."""
-        org_ids = []
-
-        if personal_api_key.scoped_organizations:
-            org_ids = personal_api_key.scoped_organizations
-        elif personal_api_key.scoped_teams:
-            # `organization_id` is a column on the team row, so no organization join is needed.
-            org_ids = list(
-                Team.objects.filter(pk__in=personal_api_key.scoped_teams)
-                .values_list("organization_id", flat=True)
-                .distinct()
-            )
-        else:
-            user_permissions = UserPermissions(personal_api_key.user)
-            org_ids = list(user_permissions.organization_memberships.keys())
-
-        return [str(org_id) for org_id in org_ids]
 
 
 class PersonalApiKeySelfAccessPermission(BasePermission):

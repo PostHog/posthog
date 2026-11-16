@@ -4,7 +4,7 @@ import time
 import pickle
 import threading
 import dataclasses
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from contextlib import suppress
 from types import SimpleNamespace
 from typing import Any, cast
@@ -85,7 +85,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
-from posthog.models.group_type_mapping import invalidate_group_types_cache
+from posthog.models.group_type_mapping import get_group_types_for_project, invalidate_group_types_cache
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
@@ -306,6 +306,54 @@ class TestTableNodeCaseInsensitiveLookup(TestCase):
 
 
 class TestUnknownTableSuggestions(TestCase):
+    @parameterized.expand(
+        [
+            ("ai_events", False),
+            ("trace_spans", False),
+            ("trace_attributes", False),
+            ("metrics", False),
+            ("metric_samples", False),
+            ("trace_spans", True),
+            ("trace_attributes", True),
+        ]
+    )
+    def test_missing_posthog_namespace(self, table_name: str, direct_query: bool) -> None:
+        database = Database()
+        if direct_query:
+            database._connection_id = "test-connection"
+            database.apply_schema_scope()
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        if direct_query:
+            assert str(error.exception) == f"Unknown table `{table_name}`."
+        else:
+            assert str(error.exception) == f"Unknown table `{table_name}`. Did you mean: posthog.{table_name}?"
+            assert database.get_table(f"posthog.{table_name}") is not None
+
+    @parameterized.expand([("metrics", True), ("error_tracking_recent_issue_state", False)])
+    def test_does_not_suggest_denied_or_hidden_namespaced_tables(self, table_name: str, denied: bool) -> None:
+        database = Database()
+        if denied:
+            del database.tables.children["posthog"].children[table_name]
+            assert database._is_warehouse_table_denied(DataWarehouseTable(name=f"posthog.{table_name}"))
+            with self.assertRaises(TableAccessDeniedError):
+                database.get_table(f"posthog.{table_name}")
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        assert f"posthog.{table_name}" not in str(error.exception)
+
+    @parameterized.expand([("events", "evnts"), ("posthog.metrics", "metrics")])
+    def test_denied_warehouse_name_does_not_hide_a_resolvable_suggestion(
+        self, table_name: str, unknown_name: str
+    ) -> None:
+        database = Database()
+        table = database.get_table(table_name)
+        assert database._is_warehouse_table_denied(DataWarehouseTable(name=table_name))
+        assert database.get_table(table_name) is table
+        with self.assertRaises(QueryError) as error:
+            database.get_table(unknown_name)
+        assert str(error.exception) == f"Unknown table `{unknown_name}`. Did you mean: {table_name}?"
+
     @parameterized.expand(
         [
             (
@@ -607,15 +655,34 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             url_pattern="https://bucket.s3/data/*",
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="acme",
+            connection_id="acme",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.HUBSPOT,
+            prefix="acme",
+        )
+        sourced_table = DataWarehouseTable.objects.create(
+            name="acme_contacts",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            url_pattern="https://bucket.s3/contacts/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        sourced_key = get_data_warehouse_table_name(source, sourced_table.name)
 
         database = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(team_id=self.team.pk, database=database)
         full = database.serialize(context, include_hidden_posthog_tables=True)
         subset = database.serialize(
-            context, include_only={"events", "warehouse_table"}, include_hidden_posthog_tables=True
+            context, include_only={"events", "warehouse_table", sourced_key}, include_hidden_posthog_tables=True
         )
 
-        assert set(subset.keys()) == {"events", "warehouse_table"}
+        assert sourced_key != sourced_table.name
+        assert set(subset.keys()) == {"events", "warehouse_table", sourced_key}
         for table_name, subset_table in subset.items():
             assert subset_table == full[table_name], table_name
 
@@ -1072,8 +1139,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         DataWarehouseTable.objects.filter(pk=newer.pk).update(created_at="2024-06-01T00:00:00+00:00")
 
         database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         assert cast(HogQLDataWarehouseTable, database.get_table("pull_requests")).url == "s3://newer/*"
+        assert serialized["pull_requests"].id == str(newer.id)
 
     def test_serialize_database_warehouse_table_source_query_count(self):
         source = ExternalDataSource.objects.create(
@@ -1104,7 +1173,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(2):
             database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         for i in range(5):
@@ -1138,7 +1207,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = Database.create_for(team=self.team)
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(2):
             database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
@@ -1244,12 +1313,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
             Database.create_for(team=self.team, modifiers=modifiers)
 
-    def test_database_group_type_mappings(self):
+    @parameterized.expand(
+        [
+            ("full", lambda team: Database.create_for(team=team)),
+            (
+                "posthog_tables",
+                lambda team: Database.create_for_posthog_tables(
+                    team, group_types=get_group_types_for_project(team.project_id)
+                ),
+            ),
+        ]
+    )
+    def test_database_group_type_mappings(self, _name: str, build: Callable[[Team], Database]):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="test", group_type_index=0
         )
         invalidate_group_types_cache(self.team.project_id)
-        db = Database.create_for(team=self.team)
+        db = build(self.team)
 
         assert db.get_table("events").fields["test"] == FieldTraverser(chain=["group_0"])
 

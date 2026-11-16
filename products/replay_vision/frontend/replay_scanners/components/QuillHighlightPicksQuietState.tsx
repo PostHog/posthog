@@ -16,7 +16,6 @@ import { highlightPicksStaleLogic } from '../highlightPicksStaleLogic'
 import { weeklyVolume } from '../highlightPicksStarter'
 import { highlightPicksStarterLogic } from '../highlightPicksStarterLogic'
 import { highlightPicksVolumeLogic } from '../highlightPicksVolumeLogic'
-import { SWEEP_INTERVAL_MINUTES } from '../scannerStatus'
 import { QuillHighlightPicksStateFrame } from './QuillHighlightPicksStateFrame'
 import { QuillHighlightPicksVolumeTiles } from './QuillHighlightPicksVolumeTiles'
 
@@ -66,7 +65,7 @@ export function QuillHighlightPicksQuietState({ size }: { size: 'small' | 'large
                                 , last sweep <TZLabel time={lastSweptAt} showPopover={false} noStyles />
                             </>
                         )}
-                        . New recordings are checked every {SWEEP_INTERVAL_MINUTES} minutes and picks appear here.
+                        . New recordings are checked regularly and picks appear here.
                     </>
                 )
             }

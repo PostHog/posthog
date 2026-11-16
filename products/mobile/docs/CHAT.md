@@ -39,6 +39,10 @@ Unsaved new chats hide both right-side controls until the first message creates 
 Model, Mode, and attachment options still open as overlays.
 The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteractionLogic.ts` and `runStreamLogic.ts` in `products/posthog_ai/frontend`.
 
+Messages show their recorded time beside the copy and feedback actions, in the device’s local time and 12-hour or 24-hour clock format.
+A date label appears above the first dated message and whenever the local calendar day changes.
+Messages without a valid recorded timestamp leave these labels hidden.
+
 ## Files
 
 | File                                                 | Role                                                                                                                                                                                                                                    |
@@ -83,6 +87,13 @@ Classic chat refreshes history whenever it opens, even while the cached response
 An accepted message leaves draft recovery as soon as the server accepts it, while the reply continues streaming.
 If its stream disconnects or times out, classic chat checks the saved conversation automatically without sending the message again.
 Completed replies and pending decisions load from that saved state. If recovery still needs a connection, received messages stay visible with Reconnect.
+Backgrounding classic chat detaches its stream without canceling the server's reply or clearing received messages.
+Returning to the app reloads saved messages and reattaches to a reply still in progress, without resending the prompt.
+Connection recovery makes two silent attempts, one second apart, before showing a reconnect error.
+Uncheckpointed reply text stays visible while recovery retries. A first message interrupted before acceptance remains sendable if the server has no conversation to recover.
+Disconnected readers preserve the shared server stream for reattachment; its existing expiry bounds retention.
+Backgrounding or leaving the chat cancels a pending retry. Authorization and missing-conversation errors appear immediately.
+Pending approvals and forms remain available for an answer instead of restarting the stream.
 Linked conversations stay visible when their task is absent from the list.
 Opening a linked chat checks its conversation runtime before continuing.
 If one chat history source fails, Chats keeps the loaded rows and offers a retry for the remaining history.

@@ -1,21 +1,17 @@
-import re
 import json
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from functools import partial
+from collections.abc import Callable
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, _Call, call, patch
 
 from django.conf import settings
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test.utils import CaptureQueriesContext
 
 import requests
-import responses
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -25,10 +21,10 @@ from structlog.testing import capture_logs
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, User
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
-from posthog.security.outbound_proxy import internal_requests
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.transactional_email import report_first_code_send
@@ -42,15 +38,20 @@ from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
 from products.messaging.backend.services import transactional_email
+from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
+from products.messaging.backend.tasks.tasks import detect_code_email_source_task
+from products.messaging.backend.tests.fake_cdp_api import FakeAnalytics, FakeCdpApi
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
+from products.workflows.backend.facade.testing import block_sandbox_sender_for_test
 
 CSV, NOTES = "c" * 64, "d" * 64
 TWO_FILES = [{"sha256": CSV, "filename": "a.csv"}, {"sha256": NOTES, "filename": "notes.txt"}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
 CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
+SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
 
 
 @frozen
@@ -61,6 +62,10 @@ class CapturedFirstCodeSend:
     project: str
 
 
+def _sandbox_fallbacks(outcome: str) -> float:
+    return REGISTRY.get_sample_value("messaging_transactional_email_sandbox_fallback_total", {"outcome": outcome}) or 0
+
+
 def _stage_counts() -> dict[str, float]:
     return {
         stage: REGISTRY.get_sample_value("messaging_transactional_email_stage_duration_seconds_count", {"stage": stage})
@@ -69,16 +74,6 @@ def _stage_counts() -> dict[str, float]:
     }
 
 
-ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
-    "content": {"subject", "html", "text"},
-    "from": {"integrationId", "email", "name"},
-    "replyTo": None,
-    "cc": None,
-    "bcc": None,
-    "tracking": {"captureEngagement"},
-    "attachments": None,
-}
-ACCEPTED_ATTACHMENT_KEYS = {"sha256", "filename", "content_type", "content_id"}
 WELCOME_DELIVERED = {
     "subject": "Welcome, Jane",
     "html": "<p>Hi Jane</p>",
@@ -98,73 +93,6 @@ class CapturedEvents:
 
     def properties(self, event: str) -> list[dict[str, Any]]:
         return [captured["properties"] for captured in self._events if captured.get("event") == event]
-
-
-class FakeCdpApi:
-    def __init__(self, *, takes_attachments: bool = True) -> None:
-        self.received: list[dict[str, Any]] = []
-        self._queued: list[dict[str, Any]] = []
-        self._accepted = {
-            field: keys for field, keys in ACCEPTED_SEND_KEYS.items() if takes_attachments or field != "attachments"
-        }
-
-    @contextmanager
-    def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
-        client_post.side_effect = partial(requests.Session.post, internal_requests)
-        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
-            http.add_callback(responses.POST, re.compile(r".*/hog_flows/[^/]+/transactional_email/send$"), self._send)
-            yield self
-
-    def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
-        payload = json.loads(request.body or "{}")
-        self.received.append(payload)
-        send = payload["send"]
-        issues = self._unrecognized_keys(send)
-        if not isinstance(send.get("tracking", {}).get("captureEngagement"), bool):
-            issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
-        if issues:
-            return 400, {}, json.dumps({"error": json.dumps(issues)})
-        self._queued.append(payload)
-        return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self._queued)}"})
-
-    def emails(self) -> list[dict[str, Any]]:
-        return [self._email(payload["send"]) for payload in self._queued]
-
-    @staticmethod
-    def _email(send: dict[str, Any]) -> dict[str, Any]:
-        email = {**send["content"], "captureEngagement": send["tracking"]["captureEngagement"]}
-        email.update({field: send[field] for field in ("from", "replyTo", "cc", "bcc", "attachments") if field in send})
-        return email
-
-    def deliver(self) -> list[tuple[str, str]]:
-        delivered, self._queued = self._queued, []
-        return [
-            ("$workflows_email_sent", payload["distinct_id"])
-            for payload in delivered
-            if payload["send"]["tracking"]["captureEngagement"] is not False
-        ]
-
-    def _unrecognized_keys(self, send: dict[str, Any]) -> list[dict[str, Any]]:
-        issues: list[dict[str, Any]] = [
-            {"code": "unrecognized_keys", "keys": [key], "path": ["send"]}
-            for key in send.keys() - self._accepted.keys()
-        ]
-        for field, allowed in self._accepted.items():
-            if allowed is not None and isinstance(send.get(field), dict) and send[field].keys() - allowed:
-                issues.append(
-                    {"code": "unrecognized_keys", "keys": sorted(send[field].keys() - allowed), "path": ["send", field]}
-                )
-        if "attachments" in self._accepted:
-            for index, file in enumerate(send.get("attachments") or []):
-                if file.keys() - ACCEPTED_ATTACHMENT_KEYS:
-                    issues.append(
-                        {
-                            "code": "unrecognized_keys",
-                            "keys": sorted(file.keys() - ACCEPTED_ATTACHMENT_KEYS),
-                            "path": ["send", "attachments", index],
-                        }
-                    )
-        return issues
 
 
 @patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
@@ -266,10 +194,12 @@ class TestTransactionalEmail(APIBaseTest):
         body = {**{k: v for k, v in self.body.items() if k != "identifiers"}, **recipient}
         client = self._psak_client(["hog_flow:write"])
         stages_before = _stage_counts()
+        fallbacks_before = _sandbox_fallbacks("sandbox")
 
         response = self._send(client, route, body)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert _sandbox_fallbacks("sandbox") == fallbacks_before
         stages_after = _stage_counts()
         assert {stage: stages_after[stage] - stages_before[stage] for stage in stages_after} == dict.fromkeys(
             stages_after, 1
@@ -423,6 +353,67 @@ class TestTransactionalEmail(APIBaseTest):
             body = response.json()
             assert body["transactional_hog_flow_id"] == str(template.transactional_hog_flow_id)
             assert ("content" in body, "draft_content" in body) == (returns_content, returns_content)
+
+    @parameterized.expand(
+        [
+            (
+                "integration_header",
+                "send_email",
+                {},
+                {"X-PostHog-Integration": "django-anymail/13.1"},
+                202,
+                "django-anymail",
+            ),
+            ("user_agent", "send_email", {}, {"User-Agent": "PostHog-Node/5.9.1 (node v22)"}, 202, "posthog-node"),
+            (
+                "header_over_user_agent",
+                "send_email",
+                {},
+                {"X-PostHog-Integration": "nodemailer/5.9.1", "User-Agent": "posthog-node/5.9.1"},
+                202,
+                "nodemailer",
+            ),
+            ("neither", "send_email", {}, {}, 202, "unknown"),
+            (
+                "malformed_header",
+                "send_email",
+                {},
+                {"X-PostHog-Integration": "Laravel 1.4", "User-Agent": "posthog-laravel/1.4.0"},
+                202,
+                "posthog-laravel",
+            ),
+            (
+                "template_route",
+                "template",
+                {},
+                {"X-PostHog-Integration": "symfony-mailer/7.3.0"},
+                202,
+                "symfony-mailer",
+            ),
+            (
+                "refused_send",
+                "send_email",
+                {"to": "not-an-address"},
+                {"X-PostHog-Integration": "django-anymail/13.1"},
+                400,
+                "django-anymail",
+            ),
+        ]
+    )
+    def test_records_the_client_that_made_the_send(
+        self, mock_post, _flag, capture, _name, route, extra_body, headers, expected_status, expected_client
+    ):
+        pipeline, analytics = FakeCdpApi(), FakeAnalytics()
+        mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+
+        response = self._send(
+            self._psak_client(["transactional_email:write"]), route, {**self.body, **extra_body}, headers=headers
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert [event["client"] for event in analytics.properties_of("transactional email api send")] == [
+            expected_client
+        ]
 
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
@@ -581,6 +572,9 @@ class TestTransactionalEmail(APIBaseTest):
             ("invalid_request", 400, 400, "invalid_request"),
             ("a 400 without a known code", 400, 400, "invalid_request"),
             ("Request entity too large", 413, 400, "content_too_large"),
+            ("sandbox_recipient_not_member", 422, 422, "sandbox_recipient_not_member"),
+            ("sandbox_fields_unsupported", 400, 400, "sandbox_fields_unsupported"),
+            ("sandbox_sender_unavailable", 403, 403, "sandbox_sender_unavailable"),
             ("message_too_large", 413, 400, "content_too_large"),
         ]
     )
@@ -588,11 +582,15 @@ class TestTransactionalEmail(APIBaseTest):
         self, mock_post, _flag, _capture, pipeline_code, pipeline_status, expected_status, expected_code
     ):
         mock_post.return_value = MagicMock(status_code=pipeline_status, json=lambda: {"error": pipeline_code})
+        refusals_before = _sandbox_fallbacks("recipient_not_member")
 
         response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "key-1"})
 
         assert response.status_code == expected_status
+        assert _sandbox_fallbacks("recipient_not_member") == refusals_before
         assert response.json()["code"] == expected_code
+        setup_url = f"{settings.SITE_URL}/project/{self.team.id}/workflows/channels/email/new"
+        assert (setup_url in response.json()["detail"]) == pipeline_code.startswith("sandbox_")
 
     @parameterized.expand(
         [
@@ -686,12 +684,43 @@ class TestTransactionalEmail(APIBaseTest):
             },
         }
         assert MessageTemplate.objects.filter(team=self.team).count() == templates_before
+        assert self._sandbox_senders() == []
         reported = capture.call_args.kwargs["properties"]
         assert (reported["route"], reported["addressed_by"], reported["outcome"]) == (
             "send_email",
             "template_key",
             "queued",
         )
+
+    @parameterized.expand(
+        [
+            ("queued", None, True),
+            ("queue_unavailable", ConnectionError("broker unreachable"), True),
+            ("detection_off", None, False),
+        ]
+    )
+    def test_a_new_keys_first_send_queues_source_detection_after_commit(
+        self, mock_post, flag, _capture, _name, queue_error, detection_on
+    ):
+        flag.side_effect = lambda key, *_, **__: detection_on or key != SOURCE_DETECTION_FLAG
+        self._cdp_accepts(mock_post)
+        psak = self._psak_client(["hog_flow:write"])
+
+        def detection_checks() -> list[_Call]:
+            return [check for check in flag.call_args_list if check.args[0] == SOURCE_DETECTION_FLAG]
+
+        with patch.object(detect_code_email_source_task, "apply_async", side_effect=queue_error) as queue:
+            with self.captureOnCommitCallbacks(execute=True):
+                first = psak.post(self.send_email_url, self._code_send(), format="json")
+                assert queue.call_count == 0
+                assert detection_checks() == []
+            with self.captureOnCommitCallbacks(execute=True):
+                second = psak.post(self.send_email_url, self._code_send(), format="json")
+
+        assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, first.json()
+        assert [check.kwargs["only_evaluate_locally"] for check in detection_checks()] == [True]
+        key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
+        assert queue.call_args_list == ([call(args=(self.team.id, str(key.id)), retry=False)] if detection_on else [])
 
     def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
@@ -765,6 +794,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {"subject": "Welcome, Jane", "text": "Hi", "captureEngagement": True},
             ),
             ("null_copies_and_attachments", {"cc": None, "bcc": None, "attachments": None}, WELCOME_DELIVERED),
+            ("key_of_256_characters", {"template_key": "k" * 256}, WELCOME_DELIVERED),
             (
                 "cc_and_bcc",
                 {"cc": "copy@example.com", "bcc": ["audit@example.com", "archive@example.com"]},
@@ -783,6 +813,28 @@ class TestTransactionalEmail(APIBaseTest):
                     "attachments": [
                         {"sha256": CSV, "filename": "a.csv", "content_type": "text/csv", "content_id": "a"},
                         {"sha256": NOTES, "filename": "notes.txt"},
+                    ],
+                },
+            ),
+            (
+                "calendar_invite_with_mime_parameters",
+                {
+                    "attachments": [
+                        {
+                            "sha256": NOTES,
+                            "filename": "invite.ics",
+                            "content_type": "text/calendar; charset=utf-8; method=REQUEST",
+                        }
+                    ]
+                },
+                {
+                    **WELCOME_DELIVERED,
+                    "attachments": [
+                        {
+                            "sha256": NOTES,
+                            "filename": "invite.ics",
+                            "content_type": "text/calendar; charset=utf-8; method=REQUEST",
+                        }
                     ],
                 },
             ),
@@ -814,6 +866,116 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("omitted", "json", {}, {}, (True, None, True)),
+            ("true", "json", {"tracking": True}, {"clicks": True}, (True, True, True)),
+            (
+                "false",
+                "json",
+                {"tracking": False},
+                {"captureEngagement": False, "opens": False, "clicks": False},
+                (False, False, False),
+            ),
+            ("empty", "json", {"tracking": {}}, {}, (True, None, True)),
+            ("clicks_on", "json", {"tracking": {"clicks": True}}, {"clicks": True}, (True, True, True)),
+            ("clicks_off", "json", {"tracking": {"clicks": False}}, {"clicks": False}, (True, False, True)),
+            ("opens_off", "json", {"tracking": {"opens": False}}, {"opens": False}, (False, None, True)),
+            (
+                "engagement_off",
+                "json",
+                {"tracking": {"engagement": False}},
+                {"captureEngagement": False},
+                (True, None, False),
+            ),
+            (
+                "all_named",
+                "json",
+                {"tracking": {"opens": True, "clicks": False, "engagement": True}},
+                {"clicks": False},
+                (True, False, True),
+            ),
+            (
+                "deprecated_capture_engagement",
+                "json",
+                {"capture_engagement": False},
+                {"captureEngagement": False},
+                (True, None, False),
+            ),
+            ("form_tracking_omitted", "multipart", {"capture_engagement": "true"}, {}, (True, None, True)),
+            (
+                "form_false",
+                "multipart",
+                {"tracking": "false"},
+                {"captureEngagement": False, "opens": False, "clicks": False},
+                (False, False, False),
+            ),
+            ("form_true", "multipart", {"tracking": "true"}, {"clicks": True}, (True, True, True)),
+        ]
+    )
+    def test_a_code_send_queues_the_tracking_the_caller_set(
+        self, mock_post, _flag, capture, _name, body_format, fields, queued_tracking, reported
+    ):
+        pipeline, analytics = FakeCdpApi(), FakeAnalytics()
+        mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format=body_format
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [send["tracking"] for send in pipeline.queued_sends] == [{"captureEngagement": True, **queued_tracking}]
+        assert [
+            (event["tracking_opens"], event["tracking_clicks"], event["tracking_engagement"])
+            for event in analytics.properties_of("transactional email api send")
+        ] == [reported]
+
+    @parameterized.expand(
+        [
+            ("omitted", "json", {}, "unset"),
+            ("true", "json", {"sensitive": True}, True),
+            ("false", "json", {"sensitive": False}, False),
+            ("form_omitted", "multipart", {}, "unset"),
+            ("form_true", "multipart", {"sensitive": "true"}, True),
+            ("form_false", "multipart", {"sensitive": "false"}, False),
+        ]
+    )
+    def test_a_code_send_queues_the_sensitivity_the_caller_set(
+        self, mock_post, _flag, _capture, _name, body_format, fields, queued
+    ):
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(**fields), format=body_format
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [send.get("sensitive", "unset") for send in cdp.queued_sends] == [queued]
+
+    @parameterized.expand(
+        [
+            ("unmarked_on_a_sensitive_template", "password-reset", True, False, status.HTTP_400_BAD_REQUEST),
+            ("marked_on_a_sensitive_template", "password-reset", True, True, status.HTTP_202_ACCEPTED),
+            ("unmarked_on_a_template_that_is_not_sensitive", "password-reset", False, False, status.HTTP_202_ACCEPTED),
+            ("unmarked_under_a_key_without_a_template", "welcome", True, False, status.HTTP_202_ACCEPTED),
+        ]
+    )
+    def test_a_code_send_can_unmark_sensitivity_unless_its_template_is_sensitive(
+        self, mock_post, _flag, _capture, _name, key, template_sensitive, sensitive, expected_status
+    ):
+        MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset", sensitive=template_sensitive)
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(template_key=key, sensitive=sensitive), format="json"
+            )
+
+        refused = expected_status == status.HTTP_400_BAD_REQUEST
+        assert (response.status_code, response.json().get("attr")) == (
+            expected_status,
+            "sensitive" if refused else None,
+        ), response.json()
+        assert [send["sensitive"] for send in cdp.queued_sends] == ([] if refused else [sensitive])
+
+    @parameterized.expand(
+        [
             ("no_subject", {"subject": ""}, "subject"),
             ("no_body", {"html": None}, "html"),
             ("data_for_rendered_content", {"message_data": {"name": "Jane"}}, "message_data"),
@@ -822,6 +984,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("neither_a_template_nor_a_key", {"template_key": None}, "template_id"),
             ("nested_identifiers", {"identifiers": {"distinct_id": "user-1"}}, "identifiers"),
             ("invalid_key", {"template_key": "welcome email"}, "template_key"),
+            ("key_over_256_characters", {"template_key": "k" * 257}, "template_key"),
             ("sender_that_is_not_an_address", {"from": "Example"}, "from"),
             ("sender_with_a_quoted_local_part", {"from": '"security"@example.com'}, "from"),
             ("sender_nested_too_deep_to_parse", {"from": "(" * 1000 + "security@example.com" + ")" * 1000}, "from"),
@@ -832,6 +995,12 @@ class TestTransactionalEmail(APIBaseTest):
                 {"bcc": ["audit@example.com", "{{person.properties.email}}@example.com"]},
                 None,
             ),
+            ("clicks_without_opens", {"tracking": {"opens": False, "clicks": True}}, "tracking"),
+            ("tracking_kind_this_server_lacks", {"tracking": {"pixel": False}}, "tracking"),
+            ("tracking_that_is_not_a_boolean", {"tracking": "sometimes"}, "tracking"),
+            ("tracking_kind_that_is_not_a_boolean", {"tracking": {"clicks": "sometimes"}}, "tracking"),
+            ("tracking_beside_capture_engagement", {"tracking": True, "capture_engagement": True}, "tracking"),
+            ("sensitive_that_is_not_a_boolean", {"sensitive": "sometimes"}, "sensitive"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
             ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
@@ -841,11 +1010,12 @@ class TestTransactionalEmail(APIBaseTest):
     def test_refuses_a_code_send_with_an_invalid_field(self, mock_post, _flag, _capture, _name, fields, attr):
         body = {key: value for key, value in self._code_send(**fields).items() if value is not None}
 
-        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, format="json")
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == attr
-        mock_post.assert_not_called()
+        assert cdp.received == []
 
     @parameterized.expand(
         [
@@ -877,17 +1047,22 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             ("subject", "Hi", "validation_error"),
+            ("tracking", False, "validation_error"),
+            ("sensitive", True, "validation_error"),
             ("cc", "copy@example.com", "invalid_request"),
             ("bcc", ["audit@example.com"], "invalid_request"),
             ("attachments", TWO_FILES[:1], "invalid_request"),
         ]
     )
     def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value, error_type):
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
         response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, field: value})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert (response.json()["attr"], response.json()["type"]) == (field, error_type)
-        mock_post.assert_not_called()
+        assert pipeline.queued == []
 
     @parameterized.expand(
         [
@@ -928,26 +1103,49 @@ class TestTransactionalEmail(APIBaseTest):
             (
                 "a_header_too_long",
                 {"attachments": [{"sha256": CSV, "filename": "logo.png", "content_id": "x" * 79}]},
+                "invalid_request",
                 "attachments__0__content_id",
                 "Shorten `content_id` to 78 characters",
             ),
-            ("too_many_copies", {"bcc": [f"user{i}@example.com" for i in range(11)]}, "bcc", "at most 10 addresses"),
+            (
+                "too_many_copies",
+                {"bcc": [f"user{i}@example.com" for i in range(11)]},
+                "invalid_request",
+                "bcc",
+                "at most 10 addresses",
+            ),
             (
                 "an_attachment_that_is_not_an_object",
                 {"attachments": ["logo.png"]},
+                "invalid_request",
                 "attachments__0",
                 "`{sha256, filename}`",
             ),
+            (
+                "a_content_type_with_a_line_break",
+                {
+                    "attachments": [
+                        {
+                            "sha256": CSV,
+                            "filename": "invite.ics",
+                            "content_type": "text/calendar; method=REQUEST\r\nBcc: jane@example.com",
+                        }
+                    ]
+                },
+                "not_mime_type",
+                "attachments__0__content_type",
+                "leave `content_type` out",
+            ),
         ]
     )
-    def test_a_refused_extra_field_names_its_remedy(self, mock_post, _flag, _capture, _name, fields, attr, fix):
+    def test_a_refused_extra_field_names_its_remedy(self, mock_post, _flag, _capture, _name, fields, code, attr, fix):
         with FakeCdpApi().serving(mock_post) as cdp:
             response = self._psak_client(["hog_flow:write"]).post(
                 self.send_email_url, self._code_send(**fields), format="json"
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert (response.json()["code"], response.json()["attr"]) == ("invalid_request", attr)
+        assert (response.json()["code"], response.json()["attr"]) == (code, attr)
         assert fix in response.json()["fix"]
         assert cdp.emails() == []
 
@@ -960,7 +1158,6 @@ class TestTransactionalEmail(APIBaseTest):
                 status.HTTP_400_BAD_REQUEST,
                 "sender_required",
             ),
-            ("no_verified_sender", ["unverified"], status.HTTP_400_BAD_REQUEST, "sender_not_verified"),
         ]
     )
     def test_a_code_send_without_from_and_without_a_default_sends_from(
@@ -991,6 +1188,241 @@ class TestTransactionalEmail(APIBaseTest):
                 None,
             )
             mock_post.assert_not_called()
+
+    def _without_a_verified_sender(self, *, unverified_sender: bool) -> Integration | None:
+        Integration.objects.filter(id=self.sender.id).delete()
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=None)
+        if not unverified_sender:
+            return None
+        return Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.org", config={"verified": False}
+        )
+
+    def _sandbox_senders(self) -> list[Integration]:
+        return list(Integration.objects.filter(team=self.team, kind="email_sandbox"))
+
+    def _setup_url(self, unverified: Integration | None) -> str:
+        page = unverified.id if unverified is not None else "new"
+        return f"{settings.SITE_URL}/project/{self.team.id}/workflows/channels/email/{page}"
+
+    @parameterized.expand(
+        [
+            ("sandbox_send", False, {"invocation_id": "invocation-1", "sender_kind": "email_sandbox"}, True),
+            (
+                "sandbox_send_with_an_unverified_sender",
+                True,
+                {"invocation_id": "invocation-1", "sender_kind": "email_sandbox"},
+                True,
+            ),
+            ("pipeline_reports_no_sandbox_sender_kind", False, {"invocation_id": "invocation-1"}, False),
+        ]
+    )
+    def test_a_code_send_without_a_verified_sender_goes_out_from_the_sandbox_sender(
+        self, mock_post, _flag, capture, _name, unverified_sender, pipeline_body, warned
+    ):
+        unverified = self._without_a_verified_sender(unverified_sender=unverified_sender)
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: pipeline_body)
+        fallbacks_before = _sandbox_fallbacks("sandbox")
+
+        with capture_logs() as logs:
+            response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert _sandbox_fallbacks("sandbox") == fallbacks_before + 1
+        fallback_logs = [log for log in logs if log["event"] == "transactional_email_sandbox_sender_fallback"]
+        assert [(log["team_id"], log["key"]) for log in fallback_logs] == [(self.team.id, "welcome")]
+        (sandbox,) = self._sandbox_senders()
+        assert (sandbox.integration_id, sandbox.created_by_id) == ("posthog-managed-sandbox", None)
+        assert json.loads(mock_post.call_args.kwargs["data"])["send"]["from"] == {"integrationId": sandbox.id}
+        queued = {"message_id": pipeline_body["invocation_id"], "replayed": pipeline_body.get("replayed", False)}
+        reported = capture.call_args.kwargs["properties"]
+        if not warned:
+            assert response.json() == queued
+            assert "warning_codes" not in reported
+            return
+        assert reported["warning_codes"] == ["sandbox_sender"]
+        setup_url = self._setup_url(unverified)
+        assert response.json() == {
+            **queued,
+            "warnings": [{"code": "sandbox_sender", "message": ANY, "setup_url": setup_url, "agent_action": ANY}],
+        }
+        (warning,) = response.json()["warnings"]
+        assert "members of your organization" in warning["message"]
+        assert setup_url in warning["agent_action"]
+
+    @parameterized.expand(
+        [
+            ("queued", {"return_value": (202, {"invocation_id": "i-1", "sender_kind": "email_sandbox"})}, "sandbox"),
+            ("replayed", {"return_value": (202, {"invocation_id": "i-1", "replayed": True})}, None),
+            (
+                "outsider_refused",
+                {"return_value": (422, {"error": "sandbox_recipient_not_member"})},
+                "recipient_not_member",
+            ),
+            ("pipeline_unavailable", {"return_value": (503, {"error": "unavailable"})}, None),
+            ("timeout", {"side_effect": requests.ReadTimeout()}, None),
+        ]
+    )
+    def test_counts_a_sandbox_code_send_by_the_pipelines_answer(
+        self, mock_post, _flag, _capture, _name, answer, counted
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        if "return_value" in answer:
+            status_code, body = answer["return_value"]
+            mock_post.return_value = MagicMock(status_code=status_code, json=lambda: body)
+        else:
+            mock_post.side_effect = answer["side_effect"]
+        outcomes = ("sandbox", "recipient_not_member")
+        before = {outcome: _sandbox_fallbacks(outcome) for outcome in outcomes}
+
+        self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(), format="json", headers={"Idempotency-Key": "welcome:user-1"}
+        )
+
+        assert {outcome: _sandbox_fallbacks(outcome) - before[outcome] for outcome in outcomes} == {
+            outcome: 1 if outcome == counted else 0 for outcome in outcomes
+        }
+
+    @parameterized.expand([("the_default_sender", True, 1), ("the_oldest_without_a_default", False, 0)])
+    def test_the_sandbox_warning_links_the_unverified_sender_to_verify(
+        self, mock_post, _flag, _capture, _name, newer_is_default, linked
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        senders = [
+            Integration.objects.create(team=self.team, kind="email", integration_id=address, config={"verified": False})
+            for address in ("hello@example.org", "news@example.org")
+        ]
+        if newer_is_default:
+            TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=senders[1].id)
+        mock_post.return_value = MagicMock(
+            status_code=202, json=lambda: {"invocation_id": "invocation-1", "sender_kind": "email_sandbox"}
+        )
+
+        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [warning["setup_url"] for warning in response.json()["warnings"]] == [self._setup_url(senders[linked])]
+
+    def test_a_sandbox_send_the_pipeline_accepted_keeps_its_message_id_when_the_database_fails_after(
+        self, mock_post, _flag, _capture
+    ):
+        unverified = self._without_a_verified_sender(unverified_sender=True)
+        accepted = False
+
+        def pipeline_accepts(*args: Any, **kwargs: Any) -> MagicMock:
+            nonlocal accepted
+            accepted = True
+            return MagicMock(
+                status_code=202, json=lambda: {"invocation_id": "invocation-1", "sender_kind": "email_sandbox"}
+            )
+
+        def database_down_once_accepted(execute, sql, params, many, context):
+            if accepted:
+                raise OperationalError("the database went away")
+            return execute(sql, params, many, context)
+
+        mock_post.side_effect = pipeline_accepts
+        client = self._psak_client(["hog_flow:write"])
+        with connection.execute_wrapper(database_down_once_accepted):
+            response = client.post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json()["message_id"] == "invocation-1"
+        assert [warning["setup_url"] for warning in response.json()["warnings"]] == [self._setup_url(unverified)]
+
+    @parameterized.expand(
+        [
+            ("before_the_team_verifies_a_sender", True, None, True),
+            ("after_the_team_verifies_a_sender", True, "verify", False),
+            ("after_the_team_removes_its_verified_sender", False, "remove", False),
+        ]
+    )
+    def test_a_send_retried_with_the_same_key_replays_the_first_send(
+        self, mock_post, _flag, _capture, _name, starts_on_the_sandbox, change, retry_warned
+    ):
+        own_sender_id = self.sender.id
+        if starts_on_the_sandbox:
+            self._without_a_verified_sender(unverified_sender=False)
+        psak = self._psak_client(["hog_flow:write"])
+        headers = {"Idempotency-Key": "welcome:user-1"}
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            first = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
+            if change == "verify":
+                Integration.objects.create(
+                    team=self.team, kind="email", integration_id="hello@example.org", config={"verified": True}
+                )
+            elif change == "remove":
+                self._without_a_verified_sender(unverified_sender=False)
+            retry = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
+
+        assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
+        first_warnings = first.json().get("warnings", [])
+        assert [warning["code"] for warning in first_warnings] == (["sandbox_sender"] if starts_on_the_sandbox else [])
+        assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
+        assert retry.json() == {
+            "message_id": first.json()["message_id"],
+            "replayed": True,
+            **({"warnings": first_warnings} if retry_warned else {}),
+        }
+        first_sender = self._sandbox_senders()[0].id if starts_on_the_sandbox else own_sender_id
+        assert [email["from"] for email in cdp.emails()] == [{"integrationId": first_sender}]
+
+    @parameterized.expand(
+        [
+            ("sandbox_flag_off", "flag_off", {}, None),
+            ("organization_blocked", "blocked", {}, None),
+            ("sandbox_flag_off_with_from", "flag_off", {"from": "hello@example.org"}, "from"),
+        ]
+    )
+    def test_a_code_send_without_a_verified_sender_keeps_the_sender_error_when_the_sandbox_sender_is_off_limits(
+        self, mock_post, flag, _capture, _name, reason, fields, attr
+    ):
+        self._without_a_verified_sender(unverified_sender=True)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+        if reason == "flag_off":
+            flag.side_effect = lambda key, *args, **kwargs: key != SANDBOX_SENDER_FLAG
+        else:
+            block_sandbox_sender_for_test(organization_id=self.organization.id)
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["code"], response.json()["attr"]) == ("sender_not_verified", attr)
+        assert self._sandbox_senders() == []
+        assert pipeline.queued == []
+
+    @parameterized.expand(
+        [
+            ("cc", {"cc": ["copy@example.com"]}),
+            ("bcc", {"bcc": "hidden@example.com"}),
+            ("reply_to", {"reply_to": ["help@example.com"]}),
+            ("attachments", {"attachments": TWO_FILES}),
+            ("from", {"from": "Example <hello@example.org>"}),
+        ]
+    )
+    def test_refuses_what_the_sandbox_sender_cannot_send_before_setting_it_up(
+        self, mock_post, _flag, _capture, field, fields
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+        refusals_before = _sandbox_fallbacks("fields_unsupported")
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert _sandbox_fallbacks("fields_unsupported") == refusals_before + 1
+        body = response.json()
+        assert (body["type"], body["code"], body["attr"]) == ("invalid_request", "sandbox_fields_unsupported", field)
+        assert self._setup_url(None) in body["detail"]
+        assert self._sandbox_senders() == []
+        assert pipeline.queued == []
 
     def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):
         response = self._psak_client(["hog_flow:write"]).post(
@@ -1052,6 +1484,34 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == 202, response.json()
         assert json.loads(mock_post.call_args.kwargs["data"])["idempotency_key"] == "welcome:user-1"
         assert response.json() == {"message_id": "first-send", "replayed": True}
+
+    @parameterized.expand(
+        [
+            ("untracked", {"tracking": False}, "tracking"),
+            ("click_tracking", {"tracking": {"clicks": True}}, "tracking"),
+            ("clicks_off", {"tracking": {"clicks": False}}, "tracking"),
+            ("sensitive", {"sensitive": False}, "sensitive"),
+        ]
+    )
+    def test_a_code_send_with_a_contract_field_an_older_pipeline_does_not_take_is_refused_on_that_field(
+        self, mock_post, _flag, capture, _name, fields, field
+    ):
+        pipeline, analytics = FakeCdpApi(before_the_contract=True), FakeAnalytics()
+        mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        body = response.json()
+        assert (body["code"], body["attr"]) == ("field_not_accepted", field)
+        assert body["why"] and body["fix"]
+        assert pipeline.queued == []
+        assert [
+            (event["error_code"], event["attachment_count"], event["attachment_bytes"])
+            for event in analytics.properties_of("transactional email api send")
+        ] == [("field_not_accepted", 0, 0)]
 
     def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
         events = CapturedEvents(capture)
@@ -1879,6 +2339,7 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
             name="Password reset",
             content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
             type="email",
+            created_by=self.user,
         )
         self.hog_flow_id = make_transactional(
             self.team.id, self.template.id, user_id=self.user.id, from_integration_id=None
@@ -1939,6 +2400,188 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert HogFlow.objects.filter(team=self.team).count() == workflows_before
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("linked_workflows_present", False, False),
+            ("linked_workflows_deleted", True, False),
+            ("beside_a_malformed_template_ref", False, True),
+        ]
+    )
+    def test_a_folder_delete_reads_only_its_linked_workflows_once_before_locking_templates(
+        self, mock_post, _flag, _name, linked_workflows_deleted, malformed_sibling
+    ):
+        self._login_member("editor@example.com", {None: "editor"})
+
+        def reads_deleting_a_folder_of(count: int, folder: str) -> tuple[int, list[str], list[int], int]:
+            for index in range(count):
+                template = MessageTemplate.objects.create(
+                    team=self.team,
+                    name=f"{folder} email {index}",
+                    content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}},
+                    type="email",
+                    created_by=self.user,
+                )
+                make_transactional(self.team.id, template.id, user_id=self.user.id, from_integration_id=None)
+                template.refresh_from_db()
+                template.save()
+                FileSystem.objects.filter(team=self.team, type="message_template", ref=str(template.id)).update(
+                    path=f"{folder}/{template.name}", depth=2
+                )
+            entry = FileSystem.objects.create(team=self.team, path=folder, depth=1, type="folder")
+            if malformed_sibling:
+                FileSystem.objects.create(
+                    team=self.team, path=f"{folder}/Broken", depth=2, type="message_template", ref="not-a-template-id"
+                )
+            if linked_workflows_deleted:
+                HogFlow.objects.filter(
+                    pk__in=MessageTemplate.objects.filter(team=self.team, name__startswith=folder).values(
+                        "transactional_hog_flow_id"
+                    )
+                ).delete()
+
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
+            assert not MessageTemplate.objects.filter(team=self.team, name__startswith=folder, deleted=False).exists()
+            sqls = [query["sql"] for query in queries.captured_queries]
+            access_rule_reads = sum("accesscontrol" in sql for sql in sqls)
+            workflow_reads = [
+                (position, sql)
+                for position, sql in enumerate(sqls)
+                if sql.startswith("SELECT") and 'FROM "posthog_hogflow"' in sql
+            ]
+            template_locks = [
+                position
+                for position, sql in enumerate(sqls)
+                if 'FROM "posthog_messagetemplate"' in sql and "FOR UPDATE NOWAIT" in sql
+            ]
+            workflow_content_reads = sum('"posthog_hogflow"."encrypted_inputs"' in sql for sql in sqls)
+            return (
+                access_rule_reads,
+                [sql for _position, sql in workflow_reads],
+                [position for position, _sql in workflow_reads] + template_locks[:1],
+                workflow_content_reads,
+            )
+
+        one = reads_deleting_a_folder_of(1, "One")
+        three = reads_deleting_a_folder_of(3, "Three")
+        if not linked_workflows_deleted:
+            assert HogFlow.objects.filter(team=self.team).count() > 3
+        assert (one[0], len(one[1])) == (three[0], len(three[1])) == (one[0], 1)
+        assert all('"posthog_hogflow"."id" IN' in sql for sql in one[1] + three[1])
+        assert one[2] == sorted(one[2]) and three[2] == sorted(three[2])
+        assert (one[3], three[3]) == (0, 0)
+
+    def test_a_member_denied_the_workflow_cannot_delete_or_restore_it_through_the_project_tree(self, mock_post, _flag):
+        self.template.refresh_from_db()
+        self.template.save()
+        entry = FileSystem.objects.get(team=self.team, type="message_template", ref=str(self.template.id))
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        self.template.refresh_from_db()
+        assert not self.template.deleted
+
+        MessageTemplate.objects.filter(pk=self.template.pk).update(deleted=True)
+
+        def restore(ref: str) -> tuple[int, Any]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                {"items": [{"type": "message_template", "ref": ref}]},
+                format="json",
+            )
+            return response.status_code, response.json()
+
+        restored = restore(str(self.template.id))
+
+        assert restored == restore("abcdef12-3456-4890-abcd-ef1234567890"), restored
+        assert restored[0] == status.HTTP_400_BAD_REQUEST, restored
+        self.template.refresh_from_db()
+        assert self.template.deleted
+
+    @parameterized.expand([("denied", "none"), ("viewer", "viewer")])
+    def test_a_member_without_workflow_edit_access_cannot_place_or_unlink_a_template_file_beside_another(
+        self, mock_post, _flag, _name, workflow_level
+    ):
+        if workflow_level != "none":
+            self._login_member(f"{workflow_level}@example.com", {str(self.hog_flow_id): workflow_level})
+        self.template.refresh_from_db()
+        self.template.save()
+        entry = FileSystem.objects.get(team=self.team, type="message_template", ref=str(self.template.id))
+        FileSystem.objects.create(
+            team=self.team,
+            path="Copies/Password reset",
+            depth=2,
+            type="message_template",
+            ref=str(self.template.id),
+            shortcut=False,
+        )
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+
+        placed = self.client.post(
+            files_url,
+            {"path": "More copies/Password reset", "type": "message_template", "ref": str(self.template.id)},
+            format="json",
+        )
+        unlinked = self.client.delete(f"{files_url}{entry.id}/")
+
+        assert (placed.status_code, unlinked.status_code) == (
+            status.HTTP_403_FORBIDDEN,
+            status.HTTP_403_FORBIDDEN,
+        ), (placed.content, unlinked.content)
+        assert FileSystem.objects.filter(pk=entry.pk).exists()
+
+    def test_restoring_transactional_templates_reads_their_workflows_once_per_batch(self, mock_post, _flag):
+        self.client.force_login(self.user)
+
+        def workflow_reads_restoring(count: int) -> int:
+            templates = [
+                MessageTemplate.objects.create(
+                    team=self.team,
+                    name=f"Synthetic reset {count}-{index}",
+                    content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
+                    type="email",
+                    created_by=self.user,
+                )
+                for index in range(count)
+            ]
+            for template in templates:
+                make_transactional(self.team.id, template.id, user_id=self.user.id, from_integration_id=None)
+            MessageTemplate.objects.filter(pk__in=[template.pk for template in templates]).update(deleted=True)
+            with CaptureQueriesContext(connection) as queries:
+                restored = self.client.post(
+                    f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                    {"items": [{"type": "message_template", "ref": str(template.id)} for template in templates]},
+                    format="json",
+                )
+            assert restored.status_code == status.HTTP_200_OK, restored.content
+            return sum('FROM "posthog_hogflow"' in query["sql"] for query in queries.captured_queries)
+
+        assert workflow_reads_restoring(3) == workflow_reads_restoring(1)
+
+    def test_restoring_a_template_whose_key_another_template_took_answers_409(self, mock_post, _flag):
+        self.client.force_login(self.user)
+        MessageTemplate.objects.filter(pk=self.template.pk).update(key="synthetic-reset", deleted=True)
+        MessageTemplate.objects.create(
+            team=self.team,
+            name="Password reset v2",
+            content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
+            type="email",
+            key="synthetic-reset",
+        )
+
+        restored = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "message_template", "ref": str(self.template.id)}]},
+            format="json",
+        )
+
+        assert restored.status_code == status.HTTP_409_CONFLICT, restored.content
+        self.template.refresh_from_db()
+        assert self.template.deleted
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):

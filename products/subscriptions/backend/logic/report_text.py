@@ -1,4 +1,5 @@
 import re
+from itertools import islice
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -28,20 +29,45 @@ class ReportChangeItem(BaseModel):
     direction: Literal["increase", "decrease"]
 
 
+_TABLE_SEPARATOR_ROW = re.compile(r"^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$")
+
+
+def _is_table_row(line: str) -> bool:
+    return line.strip().startswith("|")
+
+
+def _next_lines(lines: list[str], count: int) -> list[str]:
+    return list(islice((line for line in lines if line.strip()), count))
+
+
+def _join_table_rows(markdown: str) -> str:
+    """Remove the blank lines between rows of one Markdown table.
+
+    The model often returns a table as one visual per row. A blank line between rows ends the
+    table, so Slack and email would show every row, separator included, as its own paragraph.
+    A blank line stays before a header row whose next line is a separator row, which keeps two
+    tables in a row apart.
+    """
+    lines = markdown.split("\n")
+    kept: list[str] = []
+    for index, line in enumerate(lines):
+        if line.strip() or not kept or not _is_table_row(kept[-1]):
+            kept.append(line)
+            continue
+        following = _next_lines(lines[index + 1 :], 2)
+        next_row = following[0] if following else ""
+        starts_new_table = len(following) > 1 and bool(_TABLE_SEPARATOR_ROW.match(following[1].strip()))
+        if not _is_table_row(next_row) or starts_new_table:
+            kept.append(line)
+    return "\n".join(kept)
+
+
 class ReportText(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[ReportTextItem | ReportLinkItem | ReportChangeItem]
 
-    def render(self, bold_marker: str = "**") -> str:
-        markers = {
-            "text": ("", ""),
-            "name": (bold_marker, bold_marker),
-            "value": (bold_marker, bold_marker),
-            "change": (bold_marker, bold_marker),
-            "time": ("_", "_"),
-            "link": ("", ""),
-        }
+    def render(self) -> str:
         parts: list[str] = []
         previous_text = ""
         for item in self.items:
@@ -54,7 +80,6 @@ class ReportText(BaseModel):
                 and previous_text[-1] not in "([{"
             ):
                 parts.append(" ")
-            opening, closing = markers[item.kind]
             if item.kind == "link" and item.url:
                 label = item.text.replace("`", "")
                 if label.startswith(("http://", "https://")):
@@ -66,17 +91,35 @@ class ReportText(BaseModel):
                 parts.append(f"[{label}]({item.url})")
             elif item.kind == "change":
                 triangle = "▲" if item.direction == "increase" else "▼"
-                parts.append(f"{opening}{triangle} {item.text}{closing}")
+                parts.append(_inline_code(item.text, prefix=f"{triangle} "))
+            elif item.kind in ("name", "value"):
+                parts.append(_inline_code(item.text))
+            elif item.kind == "time":
+                parts.append(_wrap(item.text, "_"))
             else:
-                parts.append(f"{opening}{item.text}{closing}")
+                parts.append(item.text)
             previous_text = item.text
         return "".join(parts)
 
-    def render_bullet(self, marker: str = "-", bold_marker: str = "**") -> str:
-        content = re.sub(r"^(?:[ \t]*(?:[-+*•]|\d+[.)])[ \t]+)+", "", self.render(bold_marker).strip())
+    def render_bullet(self) -> str:
+        content = re.sub(r"^(?:[ \t]*(?:[-+*•]|\d+[.)])[ \t]+)+", "", self.render().strip())
         if not content:
             return ""
-        return f"{marker} {content}"
+        return f"- {content}"
+
+
+def _wrap(text: str, marker: str, prefix: str = "") -> str:
+    # Markers go inside the item's surrounding spaces, because "` 18s`" or "_ Nov 4_" do not render as code or italic.
+    core = text.strip()
+    if not core:
+        return text
+    start = text.index(core)
+    return f"{text[:start]}{marker}{prefix}{core}{marker}{text[start + len(core) :]}"
+
+
+def _inline_code(text: str, prefix: str = "") -> str:
+    # A backtick inside the item would end the code span early.
+    return _wrap(text.replace("`", ""), "`", prefix)
 
 
 class ReportSummary(BaseModel):
@@ -84,9 +127,7 @@ class ReportSummary(BaseModel):
 
     findings: list[ReportText]
 
-    def render(self, *, slack_formatting: bool = False) -> str:
-        if slack_formatting:
-            return "\n\n".join(finding.render_bullet("•", "*") for finding in self.findings)
+    def render(self) -> str:
         return "\n\n".join(finding.render_bullet() for finding in self.findings)
 
 
@@ -139,10 +180,10 @@ class ReportDocument(BaseModel):
 
     def render(self) -> str:
         if self.custom_layout:
-            return "".join(part.render() for part in self.custom_layout)
+            return _join_table_rows("".join(part.render() for part in self.custom_layout))
         parts = [f"# {self.topic}"] if self.topic else []
         parts.extend(section.render() for section in self.sections)
-        return "\n\n".join(parts)
+        return _join_table_rows("\n\n".join(parts))
 
 
 REPORT_TEXT_INSTRUCTIONS = """Return structured text items. The renderer applies inline styles from their kinds.

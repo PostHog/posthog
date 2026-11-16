@@ -18,6 +18,7 @@ common-metrics = { path = "../../common/metrics" }
 common-redis = { path = "../../common/redis" }
 lifecycle = { path = "../../common/lifecycle" }
 replay-core-v4 = { path = "../replay-core-v4" }
+replay-parquet-sink-v4 = { path = "../replay-parquet-sink-v4" }
 
 arc-swap = { workspace = true }
 async-trait = { workspace = true }

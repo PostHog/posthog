@@ -33,6 +33,8 @@ import type {
     ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
+    CompositeValidationApi,
+    CompositeValidationResponseApi,
     DatasetCreateApi,
     DatasetExportCreateApi,
     DatasetExportReadApi,
@@ -51,6 +53,11 @@ import type {
     DatasetsListParams,
     DatasetsRetentionRetrieveParams,
     DatasetsRevisionsListParams,
+    EvalSuggestionAcceptApi,
+    EvalSuggestionApi,
+    EvalSuggestionDismissApi,
+    EvalSuggestionEstimateApi,
+    EvalSuggestionListApi,
     EvaluationApi,
     EvaluationBackfillApi,
     EvaluationBackfillEstimateApi,
@@ -59,6 +66,7 @@ import type {
     EvaluationConfigSetActiveKeyRequestApi,
     EvaluationDirectoryApi,
     EvaluationReportApi,
+    EvaluationReportGenerateResponseApi,
     EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
     EvaluationRunResponseApi,
@@ -1760,6 +1768,116 @@ export const evaluationRunsCreate = async (
     })
 }
 
+export const getEvaluationSuggestionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/`
+}
+
+/**
+ * The latest suggestions. Loading them records the visit, and the first visit starts a run.
+ */
+export const evaluationSuggestionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EvalSuggestionListApi> => {
+    return apiMutator<EvalSuggestionListApi>(getEvaluationSuggestionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationSuggestionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/${id}/`
+}
+
+/**
+ * One suggestion, whatever its status. The evaluation page reads it to show a proposed fix.
+ */
+export const evaluationSuggestionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvalSuggestionApi> => {
+    return apiMutator<EvalSuggestionApi>(getEvaluationSuggestionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationSuggestionsAcceptCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/${id}/accept/`
+}
+
+/**
+ * Create the evaluation from the suggestion, enabled, and run it on recent data. Safe to repeat.
+ */
+export const evaluationSuggestionsAcceptCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvalSuggestionAcceptApi> => {
+    return apiMutator<EvalSuggestionAcceptApi>(getEvaluationSuggestionsAcceptCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getEvaluationSuggestionsAcceptEstimateRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/${id}/accept_estimate/`
+}
+
+/**
+ * What accepting would run on recent data, and what a judge would cost, for the confirm step.
+ */
+export const evaluationSuggestionsAcceptEstimateRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvalSuggestionEstimateApi> => {
+    return apiMutator<EvalSuggestionEstimateApi>(getEvaluationSuggestionsAcceptEstimateRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationSuggestionsApplyFixCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/${id}/apply_fix/`
+}
+
+/**
+ * Apply a fix_eval suggestion's change to the evaluation it repairs.
+ */
+export const evaluationSuggestionsApplyFixCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvalSuggestionApi> => {
+    return apiMutator<EvalSuggestionApi>(getEvaluationSuggestionsApplyFixCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getEvaluationSuggestionsDismissCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/${id}/dismiss/`
+}
+
+/**
+ * Hide the suggestion. The same suggestion stays hidden for 90 days.
+ */
+export const evaluationSuggestionsDismissCreate = async (
+    projectId: string,
+    id: string,
+    evalSuggestionDismissApi?: EvalSuggestionDismissApi,
+    options?: RequestInit
+): Promise<EvalSuggestionApi> => {
+    return apiMutator<EvalSuggestionApi>(getEvaluationSuggestionsDismissCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evalSuggestionDismissApi),
+    })
+}
+
 export const getEvaluationsListUrl = (projectId: string, params?: EvaluationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -2520,11 +2638,14 @@ export const llmAnalyticsEvaluationReportsGenerateCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsEvaluationReportsGenerateCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
+): Promise<EvaluationReportGenerateResponseApi> => {
+    return apiMutator<EvaluationReportGenerateResponseApi>(
+        getLlmAnalyticsEvaluationReportsGenerateCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getLlmAnalyticsEvaluationReportsRunsListUrl = (
@@ -3217,6 +3338,26 @@ export const llmAnalyticsScoreDefinitionsVersionsRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getLlmAnalyticsScoreDefinitionsValidateCompositionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_analytics/score_definitions/validate_composition/`
+}
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreate = async (
+    projectId: string,
+    compositeValidationApi: CompositeValidationApi,
+    options?: RequestInit
+): Promise<CompositeValidationResponseApi> => {
+    return apiMutator<CompositeValidationResponseApi>(
+        getLlmAnalyticsScoreDefinitionsValidateCompositionCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(compositeValidationApi),
         }
     )
 }

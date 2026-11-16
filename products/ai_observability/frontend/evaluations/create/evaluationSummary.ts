@@ -35,12 +35,13 @@ export function triggerText(evaluation: EvaluationConfig): string {
     }${filterCount ? ` (${pluralize(filterCount, 'filter')})` : ''}`
 }
 
-/** How often a report arrives, such as "weekly" or "every 100 results", or "never" when reports are off. */
+/** How often a report arrives, such as "weekly" or "every 100 results, at most once a day", or "never" when reports are off. */
 export function reportText(report: {
     enabled: boolean
     frequency: string
     scheduleCadence: string
     triggerThreshold: number
+    cooldownMinutes: number
 }): string {
     if (!report.enabled) {
         return 'never'
@@ -48,7 +49,17 @@ export function reportText(report: {
     if (report.frequency === 'scheduled') {
         return report.scheduleCadence
     }
-    return `every ${report.triggerThreshold} results`
+    return `every ${report.triggerThreshold} results, at most ${cooldownText(report.cooldownMinutes)}`
+}
+
+function cooldownText(minutes: number): string {
+    if (minutes === 24 * 60) {
+        return 'once a day'
+    }
+    if (minutes === 60) {
+        return 'once an hour'
+    }
+    return minutes % 60 === 0 ? `once every ${minutes / 60} hours` : `once every ${minutes} minutes`
 }
 
 /** Who does the checking, such as "an LLM judge (gpt-4o-mini)". */

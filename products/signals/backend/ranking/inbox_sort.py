@@ -17,14 +17,15 @@ A second flag tests the person's stored personal list as the recommended order:
 | `control`  | priority                                | no   |
 | `personal` | the stored personal list, then priority | yes  |
 
-Only a person whose stored list has at least `PERSONAL_ARM_MIN_ENTRIES` entries is evaluated on it, so only they
-record an exposure. For every other person, and when the second flag gives no known variant, the first flag picks
-the arm.
+Only a person whose stored list has at least `PERSONAL_ARM_MIN_ENTRIES` entries records an exposure. A rebuild can
+make the list of an exposed person shorter, so a person with a shorter list that is not empty also gets the arm of
+their variant, with no exposure. For a person with no stored list, and when the second flag gives no known variant,
+the first flag picks the arm.
 
-A head ranker sorts by the served score of its outcome, highest first, then in priority order. Unscored and stale
-reports come after every scored report, in priority order. The merge key follows the same order, so a client can merge
-rows from different state requests: `1 - score` for a scored report, `2 + priority rank` for an unscored report, and
-the priority rank alone for the priority ranker.
+A head ranker sorts by the served score of its outcome, highest first, then in priority order. A report edited after
+its last score still sorts by that score. Unscored reports come after every scored report, in priority order. The merge
+key follows the same order, so a client can merge rows from different state requests: `1 - score` for a scored report,
+`2 + priority rank` for an unscored report, and the priority rank alone for the priority ranker.
 """
 
 from typing import Literal, get_args
@@ -41,7 +42,6 @@ from posthog.models.user import User
 
 from products.signals.backend.models import AutonomyPriority, SignalReportArtefact
 from products.signals.backend.ranking.public_outcomes import PublicOutcomeName
-from products.signals.backend.ranking.staleness import annotate_stale_score
 
 logger = structlog.get_logger(__name__)
 
@@ -97,9 +97,13 @@ def resolve_recommended_arm(
     distinct_id = user.distinct_id
     if not distinct_id:
         return CONTROL_ARM
-    if personal_list_size >= PERSONAL_ARM_MIN_ENTRIES:
+    if personal_list_size > 0:
         arm = _flag_arm(
-            PERSONAL_RECOMMENDED_FLAG, PERSONAL_RECOMMENDED_ARMS, team, distinct_id, send_feature_flag_events
+            PERSONAL_RECOMMENDED_FLAG,
+            PERSONAL_RECOMMENDED_ARMS,
+            team,
+            distinct_id,
+            send_feature_flag_events and personal_list_size >= PERSONAL_ARM_MIN_ENTRIES,
         )
         if arm is not None:
             return arm
@@ -134,17 +138,15 @@ def latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery
     # `results -> <served_key> -> <key> -> <head>`. A value that is not a JSON number reads as NULL,
     # so one bad row cannot fail the list. The guard is in the CASE, not the filter: the latest
     # artefact decides, as it does for the `ranking` field, so a bad latest row makes the report
-    # unscored rather than older-scored. A stale score (the report was edited after the text it
-    # scored) also reads as NULL.
+    # unscored rather than older-scored.
     content = Cast(F("content"), output_field=JSONField())
     served_key = Func(content, Value("served_key"), function="jsonb_extract_path_text", output_field=CharField())
     return Subquery(
-        annotate_stale_score(
-            SignalReportArtefact.objects.filter(
-                report_id=OuterRef("id"),
-                type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
-            ).order_by("-created_at")
+        SignalReportArtefact.objects.filter(
+            report_id=OuterRef("id"),
+            type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
         )
+        .order_by("-created_at")
         .annotate(
             _score=Case(
                 When(
@@ -166,11 +168,7 @@ def latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery
         .annotate(_score_type=Func(F("_score"), function="jsonb_typeof", output_field=CharField()))
         .annotate(
             _score_value=Case(
-                When(
-                    _score_type="number",
-                    _score_is_stale=False,
-                    then=Cast(F("_score"), output_field=FloatField()),
-                ),
+                When(_score_type="number", then=Cast(F("_score"), output_field=FloatField())),
                 default=Value(None),
                 output_field=FloatField(),
             )
