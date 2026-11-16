@@ -24,7 +24,15 @@ const RECENT_DESCRIPTIONS: Record<TodayPeopleRecentType, string> = {
     ticket: 'A support ticket. Open it to read the conversation and reply.',
 }
 
-export function TodayPeopleRecentRow({ recent, active }: { recent: TodayPeopleRecent; active: boolean }): JSX.Element {
+export function TodayPeopleRecentRow({
+    recent,
+    active,
+    dataAttr = 'people-sidebar-recent',
+}: {
+    recent: TodayPeopleRecent
+    active: boolean
+    dataAttr?: string
+}): JSX.Element {
     // The shared card stores the payload, so it must keep its identity between renders.
     const preview = useMemo<TodayExplainerPreview>(
         () => ({
@@ -43,7 +51,7 @@ export function TodayPeopleRecentRow({ recent, active }: { recent: TodayPeopleRe
                 icon={RECENT_ICONS[recent.type]}
                 to={recent.href}
                 active={active}
-                dataAttr="people-sidebar-recent"
+                dataAttr={dataAttr}
             />
         </TodayPreviewTrigger>
     )

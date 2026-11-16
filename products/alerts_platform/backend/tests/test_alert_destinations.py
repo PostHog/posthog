@@ -207,7 +207,7 @@ class TestAlertDestinations(BaseTest):
             team_id=self.team.id, configuration_id=self.configuration.id, destination_ids=[mine.id, theirs.id]
         )
 
-        assert deleted == 1
+        assert deleted == {mine.id: WEBHOOK["type"]}
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
         assert list_alert_destinations(team_id=self.team.id, configuration_id=other.id) == (theirs,)
 
@@ -293,18 +293,26 @@ class TestSourceDestinations(BaseTest):
             SourceDestination(destination_id=orphan.id, hog_function_ids=(), data=SLACK, enabled=True),
         )
 
-    def test_a_delete_by_hog_function_or_row_id_returns_the_hog_functions_the_rows_copied(self) -> None:
+    def test_a_delete_returns_only_the_hog_functions_of_rows_named_by_id(self) -> None:
         slack = self._hog_functions(SLACK)
         self._record(SLACK, slack)
         webhook = self._hog_functions(WEBHOOK)
         by_id = self._record(WEBHOOK, webhook)
 
-        copied = delete_source_destination_rows(
+        deleted = delete_source_destination_rows(
             team_id=self.team.id, public_id=self.legacy_id, destination_ids=[by_id.id], hog_function_ids=slack[:1]
         )
 
-        assert copied == frozenset({*slack, *webhook})
+        assert deleted.copied_hog_function_ids == frozenset(webhook)
+        assert set(deleted.row_types.values()) == {DestinationType.SLACK, DestinationType.WEBHOOK}
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
+
+    def test_a_row_keeps_only_the_fields_of_its_type(self) -> None:
+        defaults = {"pagerduty_severity": "critical", "pagerduty_region": "us", "webhook_url": "https://x.example.com"}
+
+        created = self._record(cast(AlertDestinationData, {**SLACK, **defaults}), self._hog_functions(SLACK))
+
+        assert created.data == SLACK
 
     @parameterized.expand(
         [

@@ -379,6 +379,7 @@ export function InsightsTable({
             useURLForSorting={!editMode}
             rowRibbonColor={isLegend ? (item) => seriesRowColor(item, getTrendsColor(item)) : undefined}
             firstColumnSticky
+            stickyHeader
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
             // Allow vertical scrolling so long tables inside constrained

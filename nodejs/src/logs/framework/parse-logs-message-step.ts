@@ -58,6 +58,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
             if (!team) {
                 // capture-logs has no Postgres access, so an unknown token is a client-input drop found only here.
                 logger.warn('team_not_found', { token_with_no_team: token })
+                context.unknownTokens?.record(token)
                 countDropped('team_not_found')
                 return drop('team_not_found')
             }

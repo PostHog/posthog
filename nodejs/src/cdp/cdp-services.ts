@@ -4,6 +4,7 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { limitNewConnectionsWith } from '~/common/utils/connection-rate-limiter'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -14,7 +15,13 @@ import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/interna
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { CdpEventsDlqOutput, SesWebhooksOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import {
+    CdpEventsDlqOutput,
+    CdpIntakeDlqOutput,
+    CdpIntakeRunOutput,
+    SesWebhooksOutput,
+    WarehouseSourceWebhooksOutput,
+} from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -75,6 +82,8 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
+    | CdpIntakeDlqOutput
+    | CdpIntakeRunOutput
     | SesWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
@@ -231,6 +240,10 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
+        | 'CDP_INTAKE_DLQ_TOPIC'
+        | 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC'
+        | 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC'
+        | 'CDP_INTAKE_PRODUCER'
         | 'CDP_SES_WEBHOOKS_TOPIC'
         | 'CDP_SES_WEBHOOKS_PRODUCER'
     > &
@@ -434,6 +447,7 @@ export function createCdpCoreServices(
 
     const redisReader = createCdpReaderRedisPool(config, redis, redisName)
     const valkeyShadow = createCdpValkeyShadowPools(config, redisName)
+    limitNewConnectionsWith(redis)
 
     // Every CDP process funnels through here, so this is the one place the per-feature read
     // source has to be applied for `dualRead` / `dualWrite` to see it.
@@ -627,6 +641,7 @@ export function createCdpCoreServices(
                           deliveredAddress: sandboxDeliveredAddress,
                           siteUrl: config.SITE_URL,
                           recipientPreferences: recipientPreferencesService,
+                          teamWorkflowsConfig: teamWorkflowsConfigService,
                           sesBucket: deps.sandboxEmail.sesBucket,
                       })
                     : null,

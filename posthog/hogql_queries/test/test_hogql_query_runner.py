@@ -146,6 +146,14 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.hasMore, False)
         self.assertIsNotNone(response.limit)
 
+    @parameterized.expand([(100, False), (168, True)])
+    def test_default_row_limit_flags_truncated_results(self, row_count, has_more):
+        response = self._create_runner(HogQLQuery(query=f"SELECT number FROM numbers({row_count})")).calculate()
+        assert response.results is not None
+        assert len(response.results) == 100
+        assert response.hasMore is has_more
+        assert response.limit == 100
+
     def test_default_hogql_query_with_limit(self):
         runner = self._create_runner(HogQLQuery(query="select event from events limit 5"))
         response = runner.calculate()

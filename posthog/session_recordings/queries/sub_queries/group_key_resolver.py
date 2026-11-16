@@ -74,8 +74,8 @@ _FALLBACK = "fallback"
 class GroupKeyLookupBudget:
     """The time and lookup count one listing may spend resolving keys, so many group filters cannot multiply it."""
 
-    def __init__(self) -> None:
-        self._deadline = time.monotonic() + GROUP_KEY_RESOLUTION_MAX_SECONDS
+    def __init__(self, max_seconds: int = GROUP_KEY_RESOLUTION_MAX_SECONDS) -> None:
+        self._deadline = time.monotonic() + max_seconds
         self._lookups_left = MAX_GROUP_KEY_LOOKUPS
 
     def take(self) -> int | None:

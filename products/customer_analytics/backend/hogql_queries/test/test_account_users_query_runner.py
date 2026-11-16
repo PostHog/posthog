@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, flush_persons_and_events
@@ -36,6 +37,7 @@ from products.customer_analytics.backend.hogql_queries.account_persons_catalog i
     ACCOUNT_PERSONS_CATALOG_FLAG,
     AccountPersonsCatalog,
 )
+from products.customer_analytics.backend.logic import account_person_memberships as memberships_logic
 from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.presentation.views.account_persons import AccountPersonsQuerySerializer
@@ -46,6 +48,40 @@ FLAG_CHECK = "products.customer_analytics.backend.logic.account_persons.posthog_
 CATALOG_FLAG_CHECK = (
     "products.customer_analytics.backend.hogql_queries.account_persons_catalog.get_feature_flag_or_none"
 )
+
+
+class TestAccountPersonMembershipLimits(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ([3, 1, 1], 2, 6, [2]),
+            ([2, 2, 2], 2, 6, [1, 2]),
+            ([2], 2, 3, [1]),
+            ([2], 2, 2, []),
+        ]
+    )
+    def test_alias_budget_omits_incomplete_people(
+        self, alias_counts: list[int], person_limit: int, request_limit: int, expected_ids: list[int]
+    ) -> None:
+        aliases = {
+            person_id: [f"person-{person_id}-alias-{index}" for index in range(count)]
+            for person_id, count in enumerate(alias_counts, start=1)
+        }
+        fetched: list[str] = []
+
+        def get_aliases(team_id: int, person_ids: list[int], *, limit_per_person: int) -> dict[int, list[str]]:
+            rows = {person_id: aliases[person_id][:limit_per_person] for person_id in person_ids}
+            fetched.extend(alias for values in rows.values() for alias in values)
+            return rows
+
+        with (
+            patch.object(memberships_logic, "MAX_ALIASES_PER_PERSON", person_limit),
+            patch.object(memberships_logic, "MAX_ALIASES_PER_REQUEST", request_limit),
+            patch.object(memberships_logic, "get_distinct_ids_for_persons", side_effect=get_aliases),
+        ):
+            resolved = memberships_logic.get_person_distinct_ids(1, list(aliases))
+
+        assert resolved == {person_id: aliases[person_id] for person_id in expected_ids}
+        assert len(fetched) <= request_limit
 
 
 class TestAccountPersonsQueryValidation(SimpleTestCase):
@@ -467,6 +503,71 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             ],
         )
 
+    @parameterized.expand(
+        [
+            (100, 500, 5_000, True, True),
+            (100, 1, 5_000, True, True),
+            (1, 500, 5_000, False, True),
+            (2, 1, 3, True, False),
+            (2, 500, 2, False, False),
+        ]
+    )
+    def test_membership_enrichment_resolves_aliases_and_excludes_inaccessible_accounts(
+        self,
+        alias_limit: int,
+        query_batch_size: int,
+        request_limit: int,
+        include_first: bool,
+        include_second: bool,
+    ) -> None:
+        other_key = "second-workspace"
+        hidden_key = "hidden-workspace"
+        other = create_account(team_id=self.team.pk, external_id=other_key, name="Second workspace")
+        hidden = create_account(team_id=self.team.pk, external_id=hidden_key)
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(hidden.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
+        )
+        self._insert_membership("member-one-alias", "2024-01-01", "2024-01-05", group_key=other_key)
+        self._insert_membership("member-one", "2024-01-01", "2024-01-05", group_key=hidden_key)
+        self._insert_membership("member-one", "2024-01-01", "2024-01-05", group_key="untracked-workspace")
+        outside = create_person(team=self.team, distinct_ids=["outside-person"], is_identified=True)
+        self._insert_membership("outside-person", "2024-01-01", "2024-01-05", group_key=other_key)
+        flush_persons_and_events()
+        with (
+            patch.object(memberships_logic, "MAX_ALIASES_PER_PERSON", alias_limit),
+            patch.object(memberships_logic, "MAX_ALIASES_PER_REQUEST", request_limit),
+            patch.object(memberships_logic, "MEMBERSHIP_QUERY_BATCH_SIZE", query_batch_size),
+            patch.object(
+                memberships_logic, "list_membership_keys", wraps=memberships_logic.list_membership_keys
+            ) as queries,
+        ):
+            response = self.client.post(
+                self.endpoint + "memberships/",
+                {"person_ids": [str(self.first.uuid), str(self.second.uuid), str(outside.uuid)]},
+                format="json",
+            )
+        assert all(len(call.args[2]) <= query_batch_size for call in queries.call_args_list)
+        assert response.status_code == 200, response.content
+        accounts = {item["person_id"]: {account["id"] for account in item["accounts"]} for item in response.json()}
+        expected = {}
+        if include_first:
+            expected[str(self.first.uuid)] = {str(self.account.id), str(other.id)}
+        if include_second:
+            expected[str(self.second.uuid)] = {str(self.account.id)}
+        assert accounts == expected
+        assert sum(len(call.args[2]) for call in queries.call_args_list) <= request_limit
+
+    @parameterized.expand([([],), (["invalid"],), (["00000000-0000-0000-0000-000000000001"] * 501,)])
+    def test_membership_enrichment_rejects_invalid_or_oversized_requests(self, person_ids: list[str]) -> None:
+        response = self.client.post(self.endpoint + "memberships/", {"person_ids": person_ids}, format="json")
+        assert response.status_code == 400
+
     def test_persons_are_narrowed_aggregated_and_paginated(self) -> None:
         self.first.properties["email"] = "updated@example.com"
         del self.first.properties["private_note"]
@@ -699,6 +800,11 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
             response = self.client.get(self.endpoint)
         assert response.status_code == 404, response.content
+        with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
+            memberships = self.client.post(
+                self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+        assert memberships.status_code == 404, memberships.content
 
     def test_bad_parameter_returns_400(self) -> None:
         assert self.client.get(self.endpoint, {"limit": -1}).status_code == 400
@@ -710,15 +816,22 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         )
         assert response.status_code == 400, response.content
 
-    @parameterized.expand([(False,), (True,)])
-    def test_get_requests_obey_concurrency_limits(self, api_key: bool) -> None:
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_reads_obey_concurrency_limits(self, api_key: bool, memberships: bool) -> None:
+        read = (
+            partial(
+                self.client.post, self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+            if memberships
+            else partial(self.client.get, self.endpoint)
+        )
         if api_key:
             token = generate_random_token_personal()
             PersonalAPIKey.objects.create(
                 label="account persons",
                 user=self.user,
                 secure_value=hash_key_value(token),
-                scopes=["account:read", "person:read"],
+                scopes=["query:read", "account:read", "person:read"],
             )
             self.client.logout()
             self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -733,13 +846,20 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             with limiter.run(
                 team_id=self.team.pk, org_id=self.organization.pk, is_api=api_key, task_id="occupied", limit=1
             ):
-                response = self.client.get(self.endpoint)
+                response = read()
             assert response.status_code == 429, response.content
             assert "Retry-After" in response
-            assert self.client.get(self.endpoint).status_code == 200
+            assert read().status_code == 200
 
-    @parameterized.expand([(False,), (True,)])
-    def test_api_get_reads_obey_the_read_budget(self, enforced: bool) -> None:
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_api_reads_obey_the_read_budget(self, enforced: bool, memberships: bool) -> None:
+        read = (
+            partial(
+                self.client.post, self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+            if memberships
+            else partial(self.client.get, self.endpoint)
+        )
         spec = budget_spec_for(self.organization)
         refill_and_read(str(self.team.pk), spec)
         debit(str(self.team.pk), int(spec.capacity_bytes + spec.bytes_per_hour))
@@ -748,14 +868,14 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             label="account persons",
             user=self.user,
             secure_value=hash_key_value(token),
-            scopes=["account:read", "person:read"],
+            scopes=["query:read", "account:read", "person:read"],
         )
         with patch(
             "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
             side_effect=lambda flag, *args, **kwargs: flag == API_QUERIES_BUDGET_ENFORCEMENT_FLAG and enforced,
         ):
-            assert self.client.get(self.endpoint).status_code == 200
-            response = self.client.get(self.endpoint, headers={"Authorization": f"Bearer {token}"})
+            assert read().status_code == 200
+            response = read(headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == (429 if enforced else 200), response.content
         if enforced:
             assert "Retry-After" in response

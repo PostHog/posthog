@@ -24,7 +24,7 @@ import {
 } from '../types'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
-import { createCdpCoreServices } from './cdp-services'
+import { CdpOutputs, createCdpCoreServices } from './cdp-services'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import {
     CdpSourceWebhooksConsumer,
@@ -32,6 +32,8 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
+import { IntakeProducer, intakeModeOf } from './intake/intake-producer'
+import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
@@ -73,9 +75,13 @@ import {
     isRecipientFormatIssue,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
-import { ScheduledTransactionalSends, TransactionalSends } from './services/hogflows/transactional-sends'
+import {
+    ScheduledTransactionalSends,
+    TransactionalSendResult,
+    TransactionalSends,
+} from './services/hogflows/transactional-sends'
 import { InvocationResultsService } from './services/invocation-results.service'
-import { JobQueue } from './services/job-queue/job-queue.interface'
+import { IdempotentJobQueue, JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService, GroupsMap } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { PersonsManagerService } from './services/managers/persons-manager.service'
@@ -97,6 +103,11 @@ import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import {
+    SANDBOX_CODE_SEND_REFUSAL_STATUS,
+    refuseSandboxCodeSend,
+    senderOfCodeSend,
+} from './services/messaging/sandbox/sandbox-code-send'
 import { SandboxFeedbackService } from './services/messaging/sandbox/sandbox-feedback.service'
 import {
     HogWatcherService,
@@ -275,6 +286,8 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     idempotency_key_in_flight: 409,
     idempotency_key_reused: 422,
     idempotency_unavailable: 503,
+    intake_unavailable: 503,
+    invalid_request: 400,
     not_sendable: 400,
     sending_suspended: 422,
     sending_paused: 422,
@@ -282,6 +295,7 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     quota_limited: 429,
     recipient_unreachable: 422,
     invalid_scheduled_at: 400,
+    ...SANDBOX_CODE_SEND_REFUSAL_STATUS,
 }
 
 const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies => {
@@ -293,6 +307,7 @@ const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies =>
 }
 
 export class CdpApi {
+    private outputs: CdpOutputs
     private hogExecutorAsync: HogExecutorAsyncService
     private hogInputsService: HogInputsService
     private nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -311,7 +326,7 @@ export class CdpApi {
     private rerunJobManager: RerunJobManager | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private hogQueue: JobQueue
-    private hogflowQueue: JobQueue
+    private hogflowQueue: IdempotentJobQueue
     private emailTrackingService: EmailTrackingService
     private sandboxFeedbackService: SandboxFeedbackService
     private emailTrackingCodeSigner: EmailTrackingCodeSigner
@@ -341,7 +356,7 @@ export class CdpApi {
     constructor(
         private config: PluginsServerConfig,
         private deps: CdpApiDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: IdempotentJobQueue },
         batchResolverProducer: CyclotronV2JobProducer | null = null
     ) {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
@@ -363,6 +378,7 @@ export class CdpApi {
         this.invocationResultsService = services.invocationResultsService
         this.workflowsActivationReporter = services.workflowsActivationReporter
         this.emailStatusService = services.emailStatusService
+        this.outputs = services.outputs
         this.personsManager = services.personsManager
 
         // API-only services. The hog-transformer's monitoring service reuses the same
@@ -377,7 +393,11 @@ export class CdpApi {
             config,
             deps,
             jobQueues,
-            new IdempotencyKeys(deps.idempotencyValkey ?? null, 'workflow-webhook')
+            new IdempotencyKeys(
+                deps.idempotencyValkey ?? null,
+                'workflow-webhook',
+                config.CDP_IDEMPOTENCY_VALKEY_ENABLED
+            )
         )
         this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
             config.ENCRYPTION_SALT_KEYS,
@@ -433,7 +453,8 @@ export class CdpApi {
         )
         this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
             deps.idempotencyValkey ?? null,
-            'transactional-email'
+            'transactional-email',
+            config.CDP_IDEMPOTENCY_VALKEY_ENABLED
         )
         this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
@@ -469,6 +490,7 @@ export class CdpApi {
                 dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
                 maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
                 runStartPagingTeams: this.config.CDP_RERUN_RUN_START_PAGING_TEAMS,
+                backgroundDepthCheck: this.config.CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK,
             })
             await this.rerunJobManager.connect()
         }
@@ -1461,7 +1483,43 @@ export class CdpApi {
                     })
                     return reply('invalid_request', 400, { error: parsed.error.message })
                 }
-                const references = parsed.data.send?.attachments ?? []
+                const { send } = parsed.data
+                const senderLookup = send?.from
+                    ? this.deps.integrationManager.getCheckingPrimaryOnMiss(send.from.integrationId)
+                    : Promise.resolve(null)
+                // Several answers return before the sender lookup is awaited, so its failure must not go unhandled.
+                senderLookup.catch(() => undefined)
+                const answer = (result: TransactionalSendResult) => {
+                    if ('invocationId' in result) {
+                        return reply(result.outcome, 202, {
+                            status: result.scheduledAt ? 'scheduled' : 'queued',
+                            invocation_id: result.invocationId,
+                            scheduled_at: result.scheduledAt,
+                            replayed: result.outcome === 'replayed',
+                            ...result.replyFields,
+                            ...(result.senderKind ? { sender_kind: result.senderKind } : {}),
+                        })
+                    }
+                    if ('refused' in result) {
+                        return reply(result.refused.body.error, result.refused.status, result.refused.body)
+                    }
+                    return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
+                        error: result.outcome,
+                        ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
+                    })
+                }
+                const sends = this.transactionalSendsForRequest()
+                const recalled = await sends.recall(
+                    parseInt(req.params.team_id),
+                    req.params.id,
+                    parsed.data,
+                    stages,
+                    senderLookup
+                )
+                if (recalled) {
+                    return answer(recalled)
+                }
+                const references = send?.attachments ?? []
                 if (references.length > 0 && !this.attachmentUploads.isAllowed(parseInt(req.params.team_id))) {
                     return reply('field_not_accepted', 400, { error: 'field_not_accepted' })
                 }
@@ -1482,30 +1540,24 @@ export class CdpApi {
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
+                const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
                 const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
 
-                const result = await this.transactionalSendsForRequest().accept(team, hogFlow, parsed.data, stages, {
-                    shape: filesShape,
-                    sizeMessageBodies: (invocation, emailStep, deadline) =>
-                        this.messageBodyBytes(hogFlow, invocation, emailStep, deadline),
-                    deadline: verificationDeadline,
-                })
-                if ('invocationId' in result) {
-                    return reply(result.outcome, 202, {
-                        status: result.scheduledAt ? 'scheduled' : 'queued',
-                        invocation_id: result.invocationId,
-                        scheduled_at: result.scheduledAt,
-                        replayed: result.outcome === 'replayed',
-                        ...result.replyFields,
-                    })
-                }
-                if ('refused' in result) {
-                    return reply(result.refused.body.error, result.refused.status, result.refused.body)
-                }
-                return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
-                    error: result.outcome,
-                    ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
-                })
+                return answer(
+                    await sends.accept(
+                        team,
+                        hogFlow,
+                        parsed.data,
+                        stages,
+                        {
+                            shape: filesShape,
+                            sizeMessageBodies: (invocation, emailStep, deadline) =>
+                                this.messageBodyBytes(hogFlow, invocation, emailStep, deadline),
+                            deadline: verificationDeadline,
+                        },
+                        sender
+                    )
+                )
             } catch (e) {
                 logger.error('Error queueing transactional email', {
                     error: e instanceof Error ? e.message : String(e),
@@ -1649,7 +1701,11 @@ export class CdpApi {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
             idempotencyKeys: this.transactionalEmailIdempotencyKeys,
-            queue: this.hogflowQueue,
+            runIntake: new RunIntake({
+                hogflowQueue: this.hogflowQueue,
+                invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+                intake: { modeOf: intakeModeOf(this.config), producer: new IntakeProducer(this.outputs) },
+            }),
             invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
             emailStatus: this.emailStatusService,
             teamWorkflowsConfig: this.teamWorkflowsConfigService,
@@ -1657,6 +1713,13 @@ export class CdpApi {
             emailValidation: this.emailValidationService,
             quotaLimiting: this.deps.quotaLimiting,
             attachmentUploads: this.attachmentUploads,
+            refuseSandboxSend: (teamId, recipient) =>
+                refuseSandboxCodeSend(this.deps.postgres, {
+                    enabled: this.config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
+                    teamId,
+                    recipient,
+                    tenantName: this.config.SES_SANDBOX_TENANT_NAME,
+                }),
         })
     }
 
