@@ -9,12 +9,10 @@ costs the chart and nothing else, because the card is complete without it.
 """
 
 import math
+import threading
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any, Final
-from uuid import uuid4
-
-from django.conf import settings
 
 import structlog
 
@@ -47,13 +45,10 @@ HISTORY_STEP_SECONDS: Final = 240
 HISTORY_QUERY_SECONDS: Final = 1
 MAX_QUERY_CHARS: Final = 500
 CHART_TITLE: Final = "Last 60 min"
-# Chart reads get their own pool, so they never take a slot an evaluation needs. A full pool costs
-# the chart, not the message.
-CHART_INFLIGHT_KEY: Final = "alerts:platform:metrics:charts:inflight"
-CHART_SLOT_LEASE_SECONDS: Final = 5
-# Delivery's attempt is 15s, so a Redis that accepts and never answers must not hold it for the
-# default socket timeout.
-CHART_REDIS_SECONDS: Final = 0.5
+# Chart reads per worker process. They never take a slot an evaluation needs, and a full pool costs
+# the chart, not the message. Process-local, so no shared store can stall a delivery.
+CHART_READS_PER_PROCESS: Final = 2
+_chart_reads: Final = threading.BoundedSemaphore(CHART_READS_PER_PROCESS)
 # Every group and destination of one evaluation renders from the same range query, so it runs once.
 _RESULT_CACHE_SIZE: Final = 8
 # Twice the most groups a configuration can hold. A range can match far more series than the instant
@@ -113,23 +108,13 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
     # Imported here because registration runs from ready(), before models and the query layer load.
     from posthog.clickhouse.client.connection import ClickHouseUser  # noqa: PLC0415
     from posthog.models import Team  # noqa: PLC0415
-    from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slots  # noqa: PLC0415
 
     from products.metrics.backend.promql import snuffle_payload  # noqa: PLC0415
 
-    member = f"{team_id}:{uuid4().hex}"
-    held_until = None
+    if not _chart_reads.acquire(blocking=False):
+        logger.info("metrics_alert_history_skipped_pool_full", team_id=team_id)
+        return None
     try:
-        held_until = hold_evaluation_slot(
-            member,
-            limit=settings.ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES,
-            lease_seconds=CHART_SLOT_LEASE_SECONDS,
-            key=CHART_INFLIGHT_KEY,
-            socket_timeout=CHART_REDIS_SECONDS,
-        )
-        if held_until is None:
-            logger.info("metrics_alert_history_skipped_pool_full", team_id=team_id)
-            return None
         team = Team.objects.get(id=team_id)
         payload = snuffle_payload(
             team,
@@ -158,14 +143,7 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
         logger.warning("metrics_alert_history_failed", team_id=team_id, exc_info=True)
         return None
     finally:
-        if held_until is not None:
-            # One bounded try. A slot the release misses frees itself when its short lease runs out.
-            try:
-                release_evaluation_slots(
-                    [member], held_until=held_until, key=CHART_INFLIGHT_KEY, socket_timeout=CHART_REDIS_SECONDS
-                )
-            except Exception:
-                logger.warning("metrics_alert_history_release_failed", team_id=team_id, exc_info=True)
+        _chart_reads.release()
 
 
 def fetch_history(team_id: int, transition: AnnouncedTransition) -> list[tuple[int, float]]:
@@ -175,7 +153,13 @@ def fetch_history(team_id: int, transition: AnnouncedTransition) -> list[tuple[i
         return []
     result = _query_range(team_id, query, transition.occurred_at)
     raw = _matching_series(result, transition) if result else None
-    return _points(raw or [])[-20:]
+    points = _points(raw or [])[-20:]
+    fired = _number(transition.value)
+    if points and fired is not None:
+        # Evaluation reads at the ingestion reach, which can trail the cutoff the range ends at, so
+        # the point labelled "Alert" is the value that fired rather than whatever the range read last.
+        points[-1] = (points[-1][0], fired)
+    return points
 
 
 def _condition_text(transition: AnnouncedTransition) -> str | None:

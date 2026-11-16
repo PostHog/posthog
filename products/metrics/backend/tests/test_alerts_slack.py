@@ -110,7 +110,9 @@ def _series(metric: dict[str, str], values: list[Any]) -> dict[str, Any]:
         # Evaluation records an absent grouping label as "", so a series without it still matches.
         ({"job": ""}, 1.0, [_series({"instance": "1"}, [0, 1])], [0.0, 1.0]),
         # NaN and infinity have no JSON form, so they never reach Slack.
-        ({}, 1.0, [_series({}, ["NaN", 1, "+Inf", 2])], [1.0, 2.0]),
+        ({}, 2.0, [_series({}, ["NaN", 1, "+Inf", 2])], [1.0, 2.0]),
+        # The last point is the value that fired, even when the range read on past the evaluation.
+        ({}, 3.0, [_series({}, [1, 2])], [1.0, 3.0]),
     ],
 )
 def test_history_charts_the_series_that_fired(
