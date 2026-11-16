@@ -42,6 +42,10 @@ jobs:
                   go-version-file: products/tasks/services/egress-proxy/go.mod
                   cache: false
 
+            - name: Get Go cache date
+              id: go-cache-date
+              run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
             - name: Restore Go cache
               id: go-cache
               uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
@@ -49,7 +53,9 @@ jobs:
                   path: |
                       ~/go/pkg/mod
                       ~/.cache/go-build
-                  key: agent-egress-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('products/tasks/services/egress-proxy/go.sum') }}
+                  key: agent-egress-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('products/tasks/services/egress-proxy/go.sum') }}-${{ steps.go-cache-date.outputs.date }}
+                  restore-keys: |
+                      agent-egress-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('products/tasks/services/egress-proxy/go.sum') }}-
 
             - name: Check formatting
               run: |
