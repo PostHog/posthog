@@ -1,3 +1,4 @@
+import json
 import hashlib
 import smtplib
 import datetime
@@ -37,6 +38,7 @@ from posthog.email import (
     get_email_team_and_org_context,
     is_email_available,
     sanitize_email_properties,
+    was_email_delivered,
 )
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
@@ -45,6 +47,13 @@ from posthog.test.persons import (
     add_distinct_id as add_test_distinct_id,
     create_person as create_test_person,
 )
+
+
+def _workflows_response(status_code: int, body: dict[str, Any]) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = json.dumps(body).encode()
+    return response
 
 
 class TestEmailTeamAndOrgContext(BaseTest):
@@ -684,6 +693,178 @@ class TestEmail(BaseTest):
         self.assertEqual(failed_after - failed_before, expected_failed)
         dropped_after = REGISTRY.get_sample_value("posthog_email_send_dropped_total", dropped_labels) or 0.0
         self.assertEqual(dropped_after - dropped_before, expected_dropped)
+
+    @override_settings(
+        POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com", CLOUD_DEPLOYMENT="US"
+    )
+    @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
+    @patch("requests.adapters.HTTPAdapter.send", autospec=True)
+    def test_smtp_email_via_workflows_sends_the_rendered_email_under_the_template_name(
+        self, mock_send: MagicMock, mock_flag: MagicMock
+    ) -> None:
+        mock_send.return_value = _workflows_response(202, {"message_id": "m1"})
+        sent_labels = {"outcome": "sent", "transport": "http"}
+        sent_before = REGISTRY.get_sample_value("posthog_email_send_total", sent_labels) or 0.0
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            override_instance_config("EMAIL_DEFAULT_FROM", "PostHog <hey@posthog.com>"),
+        ):
+            message = EmailMessage(
+                campaign_key="code_send_campaign",
+                subject="Subject",
+                template_name="async_migration_error",
+                reply_to="support@posthog.com",
+            )
+            message.add_recipient("test@posthog.com", "Test", distinct_id="user-1")
+            message.send(send_async=False, retry=False)
+
+        request = mock_send.call_args.args[1]
+        self.assertEqual(request.url, "https://us.posthog.com/api/projects/@current/messaging/send/email/")
+        self.assertEqual(request.headers["Authorization"], "Bearer phs_test")
+        self.assertEqual(
+            request.headers["Idempotency-Key"], hashlib.sha256(b"code_send_campaign\ntest@posthog.com").hexdigest()
+        )
+        self.assertEqual(
+            json.loads(request.body),
+            {
+                "to": "test@posthog.com",
+                "template_key": "async_migration_error",
+                "subject": "Subject",
+                "html": message.html_body,
+                "distinct_id": "user-1",
+                "from": "PostHog <hey@posthog.com>",
+                "reply_to": ["support@posthog.com"],
+                "sensitive": False,
+            },
+        )
+        self.assertEqual(
+            mock_flag.call_args.kwargs["person_properties"],
+            {"email": "test@posthog.com", "transactional_email_template": "async_migration_error", "region": "US"},
+        )
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertTrue(was_email_delivered("code_send_campaign", "test@posthog.com"))
+        sent_after = REGISTRY.get_sample_value("posthog_email_send_total", sent_labels) or 0.0
+        self.assertEqual(sent_after - sent_before, 1.0)
+
+    @parameterized.expand(
+        [
+            ("flag_off", "async_migration_error", False, {}),
+            ("smtp_only_template", "customer_email_forwarding_verification", True, {}),
+            ("custom_headers", "async_migration_error", True, {"List-Unsubscribe": "<https://example.com/u>"}),
+        ]
+    )
+    @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
+    @patch("posthog.email.posthoganalytics.feature_enabled")
+    @patch("requests.adapters.HTTPAdapter.send", autospec=True)
+    def test_smtp_email_stays_on_smtp(
+        self,
+        _name: str,
+        template_name: str,
+        flag_matches: bool,
+        headers: dict[str, str],
+        mock_send: MagicMock,
+        mock_flag: MagicMock,
+    ) -> None:
+        mock_flag.return_value = flag_matches
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="smtp_campaign", subject="Subject", template_name=template_name, headers=headers
+            )
+            message.add_recipient("test@posthog.com")
+            message.send(send_async=False, retry=False)
+
+        mock_send.assert_not_called()
+        self.assertEqual(len(mail.outbox), 1)
+
+    @parameterized.expand(
+        [
+            (
+                "never_connected",
+                requests.ConnectionError(
+                    urllib3.exceptions.MaxRetryError(
+                        urllib3.HTTPConnectionPool("us.posthog.com"),
+                        "/",
+                        urllib3.exceptions.NewConnectionError(None, "refused"),
+                    )
+                ),
+                "smtp",
+            ),
+            ("sending_suspended", (422, {"code": "sending_suspended"}), "smtp"),
+            ("throttled", (429, {"code": "throttled"}), "smtp"),
+            ("email_from_code_off", (404, {"code": "not_found"}), "smtp"),
+            ("recipient_suppressed", (422, {"code": "recipient_suppressed"}), "drop"),
+            ("invalid_recipient", (400, {"code": "invalid_input", "attr": "to"}), "drop"),
+            ("key_queued_another_email", (422, {"code": "idempotency_key_reused"}), "retry"),
+            ("delivery_unavailable", (503, {"code": "delivery_unavailable"}), "retry"),
+            ("in_flight", (409, {"code": "idempotency_key_in_flight"}), "retry"),
+            (
+                "reset_after_connect",
+                requests.ConnectionError(urllib3.exceptions.ProtocolError("Connection aborted.")),
+                "retry",
+            ),
+            ("timeout_after_connect", requests.ReadTimeout("no response"), "retry"),
+            ("accepted_without_message_id", (202, {}), "retry"),
+        ]
+    )
+    @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
+    @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
+    @patch("requests.adapters.HTTPAdapter.send", autospec=True)
+    def test_smtp_email_via_workflows_falls_back_to_smtp_only_when_workflows_queued_nothing(
+        self,
+        _name: str,
+        workflows_answer: tuple[int, dict[str, Any]] | Exception,
+        expected: str,
+        mock_send: MagicMock,
+        _mock_flag: MagicMock,
+    ) -> None:
+        mock_send.side_effect = (
+            workflows_answer if isinstance(workflows_answer, Exception) else [_workflows_response(*workflows_answer)]
+        )
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="fallback_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("test@posthog.com")
+            if expected == "retry":
+                with self.assertRaises(WorkflowsEmailError):
+                    message.send(send_async=False, retry=False)
+            else:
+                undeliverable = message.send(send_async=False, retry=False)
+                self.assertEqual(undeliverable, ["test@posthog.com"] if expected == "drop" else [])
+
+        self.assertEqual(mock_send.call_count, 1)
+        self.assertEqual(len(mail.outbox), 1 if expected == "smtp" else 0)
+        self.assertEqual(was_email_delivered("fallback_campaign", "test@posthog.com"), expected == "smtp")
+
+    @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
+    @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
+    @patch("requests.adapters.HTTPAdapter.send", autospec=True)
+    def test_retry_of_a_send_workflows_may_have_queued_stays_on_workflows_after_the_flag_turns_off(
+        self, mock_send: MagicMock, mock_flag: MagicMock
+    ) -> None:
+        mock_send.side_effect = [
+            _workflows_response(503, {"code": "delivery_unavailable"}),
+            _workflows_response(202, {"message_id": "m1"}),
+        ]
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="pinned_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("test@posthog.com")
+            with self.assertRaises(WorkflowsEmailError):
+                message.send(send_async=False, retry=False)
+            mock_flag.return_value = False
+            message.send(send_async=False, retry=False)
+
+        keys = [call.args[1].headers["Idempotency-Key"] for call in mock_send.call_args_list]
+        self.assertEqual(len(keys), 2)
+        self.assertEqual(keys[0], keys[1])
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertTrue(was_email_delivered("pinned_campaign", "test@posthog.com"))
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection
