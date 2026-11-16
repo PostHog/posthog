@@ -45,6 +45,7 @@ import {
     Fingerprint,
     FingerprintWithPreviousShape,
     IdempotencyKeys,
+    QueuedReply,
     SenderKind,
     storedFingerprint,
 } from './idempotency-keys'
@@ -229,15 +230,16 @@ export class TransactionalSends {
         if (recalled.status === 'absent') {
             return null
         }
-        const stored = await this.deps.idempotencyKeys.queuedReplay(teamId, idempotencyKey)
+        const kept = await this.deps.idempotencyKeys.queuedReplay(teamId, idempotencyKey)
+        const stored = kept ?? (recalled.reply as QueuedReply | null) ?? undefined
         const replayed = recalled.status === 'replayed'
-        // The claim keeps none of these, so a record Valkey lost falls back to what the matching request asked for.
+        // A claim made before it kept its reply falls back to what the matching request asked for.
         const scheduledAt =
             stored?.scheduledAt ??
             (replayed && requestedAt && requestedAt.getTime() > Date.now() ? requestedAt.toISOString() : null)
         const sender = replayed && !stored && send ? senderOfCodeSend(teamId, send, await senderLookup) : undefined
         const senderKind = stored ? stored.senderKind : sender?.kind === 'email_sandbox' ? sender.kind : undefined
-        if (!stored) {
+        if (!kept) {
             // Restores a record Valkey lost, because an older pod reads only Valkey and would queue a second run.
             await this.deps.idempotencyKeys.markQueued(
                 teamId,
@@ -245,7 +247,7 @@ export class TransactionalSends {
                 claimedShape(recalled.claimedFingerprint),
                 recalled.runId,
                 randomUUID(),
-                undefined,
+                stored?.replayFields,
                 scheduledAt ?? undefined,
                 !replayed || scheduledAt
                     ? new Date(Date.now() + MAX_SCHEDULE_AHEAD_MS + CLOCK_SKEW_MARGIN_MS)
@@ -387,6 +389,13 @@ export class TransactionalSends {
                     ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),
                 }
             }
+            if (run.claim) {
+                run.claim.reply = {
+                    replayFields: attachmentTotals,
+                    scheduledAt: scheduledAt?.toISOString(),
+                    senderKind,
+                } satisfies QueuedReply
+            }
             committed = (await this.deps.runIntake.launch([run], { wait: 'committed' }))[0]
         } catch (error) {
             await releaseKey()
@@ -517,6 +526,8 @@ export class TransactionalSends {
         // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
         // worker counts it instead.
         invocation.state.triggerMetricPending = true
+        // The send's wait counts from here, so it includes any time the run spends on the intake topic.
+        invocation.state.acceptedAt = new Date().toISOString()
         // Straight to the email queue: the flow's only step is the email, so a hop through the
         // workflow queue would only add latency to a password reset or a verification code.
         invocation.queue = 'email'

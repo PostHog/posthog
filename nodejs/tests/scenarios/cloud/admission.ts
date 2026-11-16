@@ -29,7 +29,7 @@ const BYTES_PER_GB = 1e9
 const MONITORED_INSTANCES = 2
 const CONTROLLER_ROLE = 'scenario-run-controller'
 
-export function estimateOf({ writerClass, readerAcu, host, admission }: CloudProfile): EstimateLine[] {
+export function estimateOf({ writerClass, readerAcu, host, baseline, admission }: CloudProfile): EstimateLine[] {
     const { rates, allowances } = admission
     const months = TTL_HOURS / HOURS_PER_MONTH
     const logGbPerHour = (MONITORED_INSTANCES * HOUR_S * allowances.enhancedMonitoringEventBytes) / BYTES_PER_GB
@@ -38,7 +38,8 @@ export function estimateOf({ writerClass, readerAcu, host, admission }: CloudPro
         rates.writerPerHour +
         readerAcu.max * rates.acuPerHour +
         rates.hostPerHour +
-        (allowances.storageGb * rates.storagePerGbMonth + host.ebsGb * rates.ebsPerGbMonth) / HOURS_PER_MONTH +
+        (allowances.storageGb * rates.storagePerGbMonth + baseline.hostRootVolumeGb * rates.ebsPerGbMonth) /
+            HOURS_PER_MONTH +
         logGbPerHour * rates.logsIngestPerGb
     return [
         { item: `writer ${writerClass}, ${TTL_HOURS} h`, usd: TTL_HOURS * rates.writerPerHour },
@@ -48,7 +49,10 @@ export function estimateOf({ writerClass, readerAcu, host, admission }: CloudPro
             item: `Aurora storage, ${allowances.storageGb} GB bound`,
             usd: allowances.storageGb * rates.storagePerGbMonth * months,
         },
-        { item: `host EBS, ${host.ebsGb} GB`, usd: host.ebsGb * rates.ebsPerGbMonth * months },
+        {
+            item: `host EBS, ${baseline.hostRootVolumeGb} GB`,
+            usd: baseline.hostRootVolumeGb * rates.ebsPerGbMonth * months,
+        },
         { item: `Enhanced Monitoring logs, ${logGb.toFixed(2)} GB`, usd: logGb * rates.logsIngestPerGb },
         { item: `transfer, ${allowances.transferGb} GB`, usd: allowances.transferGb * rates.transferPerGb },
         {
