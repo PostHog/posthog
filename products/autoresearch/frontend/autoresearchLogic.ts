@@ -90,7 +90,7 @@ export interface autoresearchLogicActions {
         pipelines: AutoresearchPipelineApi[]
         payload?: void
     }
-    loadProjectLimits: (_: void) => void
+    loadProjectLimits: () => any
     loadProjectLimitsFailure: (
         error: string,
         errorObject?: any
@@ -100,10 +100,10 @@ export interface autoresearchLogicActions {
     }
     loadProjectLimitsSuccess: (
         projectLimits: ProjectLimitsApi | null,
-        payload?: void
+        payload?: any
     ) => {
         projectLimits: ProjectLimitsApi | null
-        payload?: void
+        payload?: any
     }
     modelCardOpened: (id: string) => {
         id: string
