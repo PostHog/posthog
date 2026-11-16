@@ -160,6 +160,7 @@ from posthog.hogql.database.schema.web_stats_frustration_preaggregated import We
 from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
+from posthog.hogql.database.scoped_lazy_table import ScopedLazyTable
 from posthog.hogql.database.sources_cache import (
     SOURCES_CACHE_EVENTS,
     SourcesCacheKey,
@@ -262,9 +263,9 @@ class HogQLDatabaseSources:
     read_flag_calls_from_flag_evaluations: bool
     # The organization reads flag calls only from posthog.flag_evaluations, and ingestion no longer writes them to events.
     flag_calls_only_in_flag_evaluations: bool
-    # The organization's hogql-flag-calls-union flag. It is read whatever the mode, because a project that reads the
-    # native JSON events table reads flag calls as mode 2 does. HogQLContext.reads_flag_calls_with_union decides.
+    # The catalog has the union table. HogQLContext.reads_flag_calls_with_union decides whether a query reads it.
     flag_calls_union_enabled: bool
+    flag_calls_union_opted_in: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -713,8 +714,8 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 @cache
-def _scoped_system_tables() -> Mapping[str, PostgresTable]:
-    """Table name -> the access-controlled Postgres system table itself.
+def _scoped_system_tables() -> Mapping[str, PostgresTable | ScopedLazyTable]:
+    """Table name -> the access-controlled system table itself, Postgres-backed or a scoped select over them.
 
     Cached for the process lifetime — this result directly gates table visibility in access-control
     decisions, so every entry here MUST remain process-static. Do NOT make a system table's
@@ -727,7 +728,8 @@ def _scoped_system_tables() -> Mapping[str, PostgresTable]:
         {
             name: table_node.table
             for name, table_node in SystemTables().children.items()
-            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+            if isinstance(table_node.table, PostgresTable | ScopedLazyTable)
+            and table_node.table.access_scope is not None
         }
     )
 
@@ -885,6 +887,7 @@ class Database(BaseModel):
     _read_flag_calls_from_flag_evaluations: bool = False
     _flag_calls_only_in_flag_evaluations: bool = False
     _flag_calls_union_enabled: bool = False
+    _flag_calls_union_opted_in: bool = False
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
@@ -955,6 +958,7 @@ class Database(BaseModel):
         self._read_flag_calls_from_flag_evaluations = False
         self._flag_calls_only_in_flag_evaluations = False
         self._flag_calls_union_enabled = False
+        self._flag_calls_union_opted_in = False
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
@@ -1214,7 +1218,16 @@ class Database(BaseModel):
         # is noise, and on a direct connection the same name can exist in the broader
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
-        candidates = {c for c in candidates if c.casefold() != lowered}
+        candidates = {c for c in candidates if c.casefold() != lowered and self.has_table(c)}
+        if "." not in name:
+            qualified_name = f"posthog.{name}"
+            try:
+                qualified_node = self.get_table_node(qualified_name)
+            except ResolutionError:
+                pass
+            else:
+                if qualified_node.table is not None and not qualified_node.hidden:
+                    return [qualified_name]
         prefix, dot, _ = name.rpartition(".")
         if dot:
             schema = prefix.casefold()
@@ -1362,6 +1375,10 @@ class Database(BaseModel):
     @property
     def flag_calls_union_enabled(self) -> bool:
         return self._flag_calls_union_enabled and self.has_table(["posthog", "flag_evaluations"])
+
+    @property
+    def flag_calls_union_opted_in(self) -> bool:
+        return self._flag_calls_union_opted_in and self.flag_calls_union_enabled
 
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
@@ -2109,6 +2126,7 @@ class Database(BaseModel):
             read_flag_calls_from_flag_evaluations=False,
             flag_calls_only_in_flag_evaluations=False,
             flag_calls_union_enabled=False,
+            flag_calls_union_opted_in=False,
             group_types=list(group_types),
             mcp_custom_harness_rules=tuple(mcp_custom_harness_rules),
             saved_queries=[],
@@ -2209,6 +2227,7 @@ class Database(BaseModel):
             from products.feature_flags.backend.facade.enums import FlagEvaluationsMode  # noqa: PLC0415
             from products.feature_flags.backend.facade.flags import (  # noqa: PLC0415
                 get_flag_evaluations_read_mode,
+                is_flag_calls_union_disabled,
                 is_flag_evaluations_table_enabled,
             )
 
@@ -2221,8 +2240,13 @@ class Database(BaseModel):
                 read_mode = get_flag_evaluations_read_mode(team.organization_id)
             read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
             flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-            flag_calls_union_enabled = include_flag_evaluations_table and _cached_organization_flag(
-                "hogql-flag-calls-union", team
+            flag_calls_union_enabled = include_flag_evaluations_table and not is_flag_calls_union_disabled()
+            # On READ_FLAG_EVALUATIONS, events still holds every flag call. The union only adds cost there. The flag
+            # lets an organization on that mode read the union, to compare it with events before it moves to mode 2.
+            flag_calls_union_opted_in = (
+                flag_calls_union_enabled
+                and read_mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+                and _cached_organization_flag("hogql-flag-calls-union", team)
             )
 
         with timings.measure("database", emit_span=True):
@@ -2496,6 +2520,7 @@ class Database(BaseModel):
             read_flag_calls_from_flag_evaluations=read_flag_calls_from_flag_evaluations,
             flag_calls_only_in_flag_evaluations=flag_calls_only_in_flag_evaluations,
             flag_calls_union_enabled=flag_calls_union_enabled,
+            flag_calls_union_opted_in=flag_calls_union_opted_in,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -2553,6 +2578,7 @@ class Database(BaseModel):
             database._read_flag_calls_from_flag_evaluations = sources.read_flag_calls_from_flag_evaluations
             database._flag_calls_only_in_flag_evaluations = sources.flag_calls_only_in_flag_evaluations
             database._flag_calls_union_enabled = sources.flag_calls_union_enabled
+            database._flag_calls_union_opted_in = sources.flag_calls_union_opted_in
             if sources.connection_id is not None:
                 database._connection_id = sources.connection_id
                 if sources.direct_connection_metadata is not None:

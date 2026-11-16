@@ -623,6 +623,17 @@ export const AnomalyGroupByEnumApi = {
     Insight: 'insight',
 } as const
 
+/**
+ * * `unusual` - Unusual
+ * * `recent` - Recent
+ */
+export type AnomalyOrderEnumApi = (typeof AnomalyOrderEnumApi)[keyof typeof AnomalyOrderEnumApi]
+
+export const AnomalyOrderEnumApi = {
+    Unusual: 'unusual',
+    Recent: 'recent',
+} as const
+
 export interface AnomalyFlaggedPointApi {
     /** The start of the flagged bucket, in the project timezone. */
     bucket_start: string
@@ -764,7 +775,7 @@ export interface AnomalyInsightRowApi {
      * @nullable
      */
     last_flagged_bucket: string | null
-    /** Up to 3 flagged series, most anomalous first. */
+    /** Up to 3 flagged series, in the requested `order`. */
     top_series: AnomalyTopSeriesApi[]
 }
 
@@ -788,10 +799,17 @@ export interface AnomalySearchResponseApi {
      * * `series` - Series
      * * `insight` - Insight */
     group_by: AnomalyGroupByEnumApi
-    /** One row per series, most anomalous first. Empty unless `group_by` is `series`. */
+    /** The applied order.
+     *
+     * * `unusual` - Unusual
+     * * `recent` - Recent */
+    order: AnomalyOrderEnumApi
+    /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
     series: AnomalySeriesApi[]
-    /** One row per insight, most anomalous first. Empty unless `group_by` is `insight`. */
+    /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
     insights: AnomalyInsightRowApi[]
+    /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
+    has_more: boolean
     /** True when `limit` or a read cap left rows out. */
     truncated: boolean
     /**
@@ -2539,7 +2557,7 @@ export interface ReportRankingPredictionApi {
 }
 
 export interface ReportRankingApi {
-    /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
+    /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text. The model sorts and filters still use them. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
      *
      * * `scored` - scored
      * * `stale` - stale
@@ -3634,6 +3652,7 @@ export interface SignalReportDeletionStatusApi {
 /**
  * * `get_it_merged` - Get it merged
  * * `make_it_green` - Make it green
+ * * `resolve_conflicts` - Resolve conflicts
  * * `suggested_prompt` - Suggested prompt
  * * `ask` - Ask
  */
@@ -3642,6 +3661,7 @@ export type ReportTaskActionKindEnumApi = (typeof ReportTaskActionKindEnumApi)[k
 export const ReportTaskActionKindEnumApi = {
     GetItMerged: 'get_it_merged',
     MakeItGreen: 'make_it_green',
+    ResolveConflicts: 'resolve_conflicts',
     SuggestedPrompt: 'suggested_prompt',
     Ask: 'ask',
 } as const
@@ -3650,10 +3670,11 @@ export const ReportTaskActionKindEnumApi = {
  * One report action that starts an agent run, with whether the report offers it now.
  */
 export interface SignalReportTaskActionApi {
-    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI on the report's open pull request and stops without merging it. `suggested_prompt` sends one of the prompts the report suggests.
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3683,6 +3704,7 @@ export interface SignalReportTaskActionRunRequestApi {
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3692,7 +3714,7 @@ export interface SignalReportTaskActionRunRequestApi {
      */
     suggested_prompt_index?: number
     /**
-     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
      * @maxLength 2000
      */
     message?: string
@@ -3846,6 +3868,8 @@ export interface PullRequestCheckApi {
  */
 export interface PullRequestChecksResponseApi {
     readonly checks: readonly PullRequestCheckApi[]
+    /** True when GitHub reports that the pull request conflicts with its base branch. False while GitHub is still computing it. */
+    readonly has_conflict: boolean
 }
 
 /**
@@ -12605,9 +12629,28 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     limit?: number
     /**
+     * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
+     * @minimum 0
+     * @maximum 10000
+     */
+    offset?: number
+    /**
      * Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.
      */
     only_flagged?: boolean
+    /**
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     *
+     * * `unusual` - Unusual
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: SignalsAnomaliesSearchRetrieveOrder
+    /**
+     * Only insights whose name contains this text, ignoring case.
+     * @maxLength 200
+     */
+    search?: string
 }
 
 export type SignalsAnomaliesSearchRetrieveGroupBy =
@@ -12626,6 +12669,14 @@ export const SignalsAnomaliesSearchRetrieveInterval = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
+} as const
+
+export type SignalsAnomaliesSearchRetrieveOrder =
+    (typeof SignalsAnomaliesSearchRetrieveOrder)[keyof typeof SignalsAnomaliesSearchRetrieveOrder]
+
+export const SignalsAnomaliesSearchRetrieveOrder = {
+    Unusual: 'unusual',
+    Recent: 'recent',
 } as const
 
 export type SignalsProcessingListParams = {
@@ -12711,11 +12762,11 @@ export type SignalsReportsListParams = {
      */
     ranking_id?: string
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string
     /**
@@ -12735,7 +12786,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string
     /**
@@ -12996,11 +13047,11 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      */
     priority?: string
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string
     /**
