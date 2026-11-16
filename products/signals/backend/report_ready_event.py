@@ -1,21 +1,20 @@
 """The `$signals_report_ready` CDP internal event, which lets a destination act on a report as soon as it is ready.
 
-The event only nudges. It carries the report id and the fields a destination filters on, not the report body,
-so a consumer re-fetches the report through the API, under its own credentials.
+The event only nudges. It carries the report id and a few fixed-value fields a destination filters on, and no
+report text, so a consumer re-fetches the report through the API, under its own credentials. Destination logs
+and errors can echo the payload into stores with weaker read checks than the Inbox, so the payload stays small.
 """
 
-import json
 from collections.abc import Callable
 from typing import Any
 
 import structlog
-from pydantic import ValidationError
 
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 
 from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
-from products.signals.backend.artefact_schemas import SuggestedReviewers, priority_from_judgment
+from products.signals.backend.artefact_schemas import priority_from_judgment
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_urls import build_bare_report_url
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
@@ -55,31 +54,6 @@ def _latest_artefact_content(report: SignalReport, artefact_type: str) -> str | 
     )
 
 
-def _suggested_reviewer_logins(report: SignalReport) -> list[str]:
-    content = _latest_artefact_content(report, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
-    if not content:
-        return []
-    try:
-        entries = SuggestedReviewers.model_validate_json(content).root
-    except ValidationError:
-        return []
-    logins: list[str] = []
-    for entry in entries:
-        login = entry.github_login.lower() if entry.github_login else None
-        if login and login not in logins:
-            logins.append(login)
-    return logins
-
-
-def _selected_repository(report: SignalReport) -> str | None:
-    try:
-        data = json.loads(_latest_artefact_content(report, SignalReportArtefact.ArtefactType.REPO_SELECTION) or "")
-    except (TypeError, ValueError):
-        return None
-    repository = data.get("repository") if isinstance(data, dict) else None
-    return repository.strip() if isinstance(repository, str) and repository.strip() else None
-
-
 def _source_products(team: Team, report_id: str) -> list[str]:
     try:
         meta = fetch_source_products_for_reports(
@@ -94,24 +68,19 @@ def _source_products(team: Team, report_id: str) -> list[str]:
 def report_ready_properties(report: SignalReport) -> dict[str, Any]:
     """Property names follow `SignalReportSerializer` where the API has the field.
 
-    Destination filters compare a property with one string, so each list also comes as comma-joined text.
+    Destination filters compare a property with one string, so the list also comes as comma-joined text.
     """
     report_id = str(report.id)
     source_products = _source_products(report.team, report_id)
-    suggested_reviewers = _suggested_reviewer_logins(report)
     return {
         "report_id": report_id,
         "report_url": build_bare_report_url(report.team_id, report_id),
-        "title": report.title,
         "priority": priority_from_judgment(
             _latest_artefact_content(report, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
         ),
         "actionability": report.latest_actionability,
         "source_products": source_products,
         "source_products_text": ",".join(source_products),
-        "repo_slug": _selected_repository(report),
-        "suggested_reviewers": suggested_reviewers,
-        "suggested_reviewers_text": ",".join(suggested_reviewers),
         "updated_at": report.updated_at.isoformat() if report.updated_at else None,
     }
 

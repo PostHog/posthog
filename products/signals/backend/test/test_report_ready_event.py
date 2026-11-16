@@ -141,56 +141,17 @@ class TestReportReadyEvent(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "contains_one_of_several",
-                ["error_tracking", "github"],
-                [],
-                "source_products_text",
-                "icontains",
-                "github",
-                True,
-            ),
-            ("exact_single_value", ["error_tracking"], [], "source_products_text", "exact", "error_tracking", True),
-            ("exact_other_value", ["error_tracking"], [], "source_products_text", "exact", "github", False),
-            (
-                "negative_on_a_match",
-                ["error_tracking", "github"],
-                [],
-                "source_products_text",
-                "not_icontains",
-                "github",
-                False,
-            ),
-            ("negative_on_no_match", ["error_tracking"], [], "source_products_text", "not_icontains", "github", True),
-            ("reviewer_exact", [], ["octocat"], "suggested_reviewers_text", "exact", "octocat", True),
-            ("reviewer_contains", [], ["octocat", "hubber"], "suggested_reviewers_text", "icontains", "octocat", True),
-            (
-                "reviewer_negative",
-                [],
-                ["octocat", "hubber"],
-                "suggested_reviewers_text",
-                "not_icontains",
-                "octocat",
-                False,
-            ),
+            ("contains_one_of_several", ["error_tracking", "github"], "icontains", "github", True),
+            ("exact_single_value", ["error_tracking"], "exact", "error_tracking", True),
+            ("exact_other_value", ["error_tracking"], "exact", "github", False),
+            ("negative_on_a_match", ["error_tracking", "github"], "not_icontains", "github", False),
+            ("negative_on_no_match", ["error_tracking"], "not_icontains", "github", True),
         ]
     )
-    def test_destination_filters_on_list_fields_match_through_their_text_copies(
-        self,
-        _name: str,
-        sources: list[str],
-        reviewers: list[str],
-        key: str,
-        operator: str,
-        value: str,
-        matches: bool,
+    def test_destination_filters_on_source_products_match_through_the_text_copy(
+        self, _name: str, sources: list[str], operator: str, value: str, matches: bool
     ) -> None:
         report = self._report(S.IN_PROGRESS)
-        self._artefact(
-            report,
-            SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            [{"github_login": login} for login in reviewers],
-        )
         self.source_products.return_value = {str(report.id): ReportSignalMeta(source_products=sources, scout_name=None)}
         with self.captureOnCommitCallbacks(execute=True):
             _transition(S.READY, title="Checkout fails", summary="S")(report)
@@ -198,14 +159,14 @@ class TestReportReadyEvent(BaseTest):
 
         filters = {
             "events": [{"id": REPORT_READY_EVENT, "type": "events"}],
-            "properties": [{"key": key, "operator": operator, "value": value, "type": "event"}],
+            "properties": [{"key": "source_products_text", "operator": operator, "value": value, "type": "event"}],
         }
         bytecode = create_bytecode(hog_function_filters_to_expr(filters=filters, team=self.team, actions={})).bytecode
         result = execute_bytecode(bytecode, {"event": event.event, "properties": event.properties}).result
 
         assert result is matches
 
-    def test_event_carries_the_report_reference_and_filter_fields(self) -> None:
+    def test_event_carries_the_report_reference_and_fixed_value_fields_only(self) -> None:
         report = self._report(S.IN_PROGRESS)
         self._artefact(report, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, {"priority": "P1"})
         self._artefact(
@@ -213,12 +174,9 @@ class TestReportReadyEvent(BaseTest):
             SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
             {"actionability": "immediately_actionable"},
         )
+        # Report text stays out of the event, because destination logs can echo it to weaker read paths.
         self._artefact(report, SignalReportArtefact.ArtefactType.REPO_SELECTION, {"repository": "posthog/posthog"})
-        self._artefact(
-            report,
-            SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            [{"github_login": "octocat"}, {"user_uuid": str(self.user.uuid)}, {"github_login": "OctoCat"}],
-        )
+        self._artefact(report, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS, [{"github_login": "octocat"}])
         report_id = str(report.id)
         self.source_products.return_value = {
             report_id: ReportSignalMeta(source_products=["error_tracking", "github"], scout_name=None)
@@ -241,14 +199,10 @@ class TestReportReadyEvent(BaseTest):
         assert event.properties == {
             "report_id": report_id,
             "report_url": report_url,
-            "title": "Checkout fails",
             "priority": "P1",
             "actionability": "immediately_actionable",
             "source_products": ["error_tracking", "github"],
             "source_products_text": "error_tracking,github",
-            "repo_slug": "posthog/posthog",
-            "suggested_reviewers": ["octocat"],
-            "suggested_reviewers_text": "octocat",
             "updated_at": report.updated_at.isoformat(),
         }
 
@@ -265,13 +219,13 @@ class TestReportReadyEvent(BaseTest):
             "actionability": None,
             "source_products": [],
         }
-        assert (properties["repo_slug"], properties["suggested_reviewers"]) == (None, [])
 
     def test_a_commit_hook_reads_the_report_from_the_writer(self) -> None:
         report = self._report(S.READY)
         self._artefact(report, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, {"priority": "P1"})
-        self._artefact(report, SignalReportArtefact.ArtefactType.REPO_SELECTION, {"repository": "posthog/posthog"})
-        self._artefact(report, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS, [{"github_login": "octocat"}])
+        self._artefact(
+            report, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, {"actionability": "not_actionable"}
+        )
 
         # Tests have no replica database, so any read the router sends there fails.
         with self.settings(DATABASE_ROUTERS=[ReplicaRouter(["SignalReport", "SignalReportArtefact"])]):
@@ -280,11 +234,7 @@ class TestReportReadyEvent(BaseTest):
             )
 
         properties = self.produce.call_args.kwargs["event"].properties
-        assert (properties["priority"], properties["repo_slug"], properties["suggested_reviewers"]) == (
-            "P1",
-            "posthog/posthog",
-            ["octocat"],
-        )
+        assert (properties["priority"], properties["actionability"]) == ("P1", "not_actionable")
 
     def test_the_source_products_query_has_a_short_time_limit(self) -> None:
         self.source_products.side_effect = fetch_source_products_for_reports
