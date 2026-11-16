@@ -6,15 +6,16 @@ from zoneinfo import ZoneInfo
 
 from django.db import models
 
+from annotated_types import Interval
 from rest_framework import serializers
 
-from posthog.schema import ErrorTrackingOrderBy
+from posthog.schema import ErrorTrackingOrderBy, ErrorTrackingQuery
 
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
 from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.facade import contracts
-from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION, VOLUME_RESOLUTION_MAX
+from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION
 from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
@@ -103,6 +104,11 @@ def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, obje
     return value
 
 
+VOLUME_RESOLUTION_MAX = next(
+    bound.le
+    for bound in ErrorTrackingQuery.model_fields["volumeResolution"].metadata
+    if isinstance(bound, Interval) and isinstance(bound.le, int)
+)
 VOLUME_RESOLUTION_HELP = (
     f"Integer count of equal-width time buckets across dateRange, from 0 to {VOLUME_RESOLUTION_MAX}. "
     "Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets."
