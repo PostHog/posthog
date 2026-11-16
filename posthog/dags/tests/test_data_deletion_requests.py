@@ -3839,10 +3839,15 @@ def test_pickup_sensor_skips_a_property_removal_that_waits_for_another_on_its_te
     DataDeletionRequest.objects.create(
         **removal, properties=["secret"], status=RequestStatus.FAILED, property_removal_marker=now
     )
-    DataDeletionRequest.objects.create(
-        **removal, properties=["other"], status=RequestStatus.APPROVED, approved_at=now - timedelta(hours=1)
+    # Staff-created and approved first, so the sensor would pick it ahead of every other approved request.
+    waiting = DataDeletionRequest.objects.create(
+        **removal,
+        properties=["other"],
+        status=RequestStatus.APPROVED,
+        approved_at=now - timedelta(days=365),
+        created_by_staff=True,
     )
-    other_team = DataDeletionRequest.objects.create(
+    DataDeletionRequest.objects.create(
         team_id=TEAM_ID + 1,
         request_type=RequestType.PERSON_REMOVAL,
         person_uuids=[str(uuid4())],
@@ -3856,7 +3861,7 @@ def test_pickup_sensor_skips_a_property_removal_that_waits_for_another_on_its_te
     )
 
     assert isinstance(result, dagster.RunRequest)
-    assert result.run_key == f"{other_team.pk}:{other_team.attempt_count}"
+    assert result.tags["deletion_request_id"] != str(waiting.pk)
 
 
 @pytest.mark.django_db

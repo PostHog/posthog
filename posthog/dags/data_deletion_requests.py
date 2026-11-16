@@ -980,12 +980,13 @@ def load_property_removal_request(
         # Every load locks all of a team's property removals in the same order, so two loads for one team
         # run one after the other and see each other's marker.
         team_id = DataDeletionRequest.objects.filter(pk=config.request_id).values_list("team_id", flat=True).first()
-        list(
-            DataDeletionRequest.objects.select_for_update()
-            .filter(team_id=team_id, request_type=RequestType.PROPERTY_REMOVAL)
-            .order_by("pk")
-            .values_list("pk", flat=True)
-        )
+        if team_id is not None:
+            list(
+                DataDeletionRequest.objects.select_for_update()
+                .filter(team_id=team_id, request_type=RequestType.PROPERTY_REMOVAL)
+                .order_by("pk")
+                .values_list("pk", flat=True)
+            )
         request = (
             DataDeletionRequest.objects.select_for_update()
             .filter(
