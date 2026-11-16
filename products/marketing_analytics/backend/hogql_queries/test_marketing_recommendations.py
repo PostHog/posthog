@@ -12,6 +12,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     SEARCH_CONSOLE_URL,
     Ad,
     CampaignStats,
+    Keyword,
     KeywordTracking,
     OrganicQueryStats,
     RankingPage,
@@ -67,8 +68,10 @@ def _inputs(
     organic: tuple[OrganicQueryStats, ...] = (),
     term_keywords: tuple[TermKeywordStats, ...] = (),
     ranking_pages: tuple[RankingPage, ...] = (),
+    keywords: tuple[Keyword, ...] = (),
 ) -> RecommendationInputs:
     return RecommendationInputs(
+        keywords=keywords,
         term_keywords=term_keywords,
         ranking_pages=ranking_pages,
         campaigns=campaigns,
@@ -505,6 +508,37 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert (shared.identity.campaign_id, shared.identity.subject) == ("", "example")
         validate_identity(shared.identity)
 
+    @parameterized.expand(
+        [
+            ("negated_in_both", ("EXCLUDED", "EXCLUDED"), "NONE", ["brand_negative"]),
+            ("one_campaign_still_serves_it", ("EXCLUDED", "NONE"), "NONE", [None]),
+            ("added_then_excluded_counts", ("EXCLUDED", "ADDED_EXCLUDED"), "NONE", ["brand_negative"]),
+            ("misspelling_negated_too", ("EXCLUDED", "EXCLUDED"), "EXCLUDED", ["brand_negative"]),
+            ("single_campaign_negated", ("EXCLUDED", None), "NONE", ["brand_negative"]),
+        ]
+    )
+    def test_brand_leak_is_applied_once_the_brand_is_negated_in_every_leaking_campaign(
+        self, _name: str, statuses: tuple[str, str | None], misspelling_status: str, expected: list[str | None]
+    ) -> None:
+        campaigns = (
+            _campaign(id="a", name="Alpha", cost=2000, conversions=20),
+            _campaign(id="b", name="Beta", cost=2000, conversions=20),
+        )
+        terms: tuple[SearchTermStats, ...] = (
+            replace(_term("example pricing", "a", cost=300, conversions=1), status=statuses[0]),
+            replace(_term("exampel", "a", cost=20, conversions=0), status=misspelling_status),
+            _term("product analytics", "a", cost=1700, conversions=19),
+            _term("session replay", "b", cost=1500, conversions=19),
+        )
+        if statuses[1] is not None:
+            terms += (replace(_term("example login", "b", cost=500, conversions=1), status=statuses[1]),)
+
+        recs = recommend(_inputs(campaigns, terms))
+
+        leaks = [rec for rec in recs if rec.rule == "brand_leak"]
+        assert [rec.detectedChange for rec in leaks] == expected
+        assert len(apply_resolutions(recs, {}, include_resolved=False)) == len(recs) - (expected != [None])
+
     def test_review_campaign_steps_start_with_the_searches_that_waste_spend(self) -> None:
         good = _campaign(id="c1", name="Good", cost=1000, conversions=10)
         costly = _campaign(id="c2", name="Costly", cost=2000, conversions=2)
@@ -684,6 +718,32 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert (query in gaps) == expected
         if expected:
             assert gaps[query] == ("Search", "", "")
+
+    @parameterized.expand(
+        [
+            ("keyword_in_active_search_campaign", "c1", "keyword_added"),
+            ("keyword_in_paused_campaign", "paused", None),
+            ("keyword_in_unknown_campaign", "gone", None),
+        ]
+    )
+    def test_keyword_gap_is_applied_once_the_search_is_a_keyword(
+        self, _name: str, keyword_campaign: str, expected: str | None
+    ) -> None:
+        campaigns = (_campaign(), _campaign(id="paused", name="Paused", primary_status="PAUSED"))
+        terms = (_term("funnel tracking", "c1", cost=100, conversions=10),)
+        organic = (OrganicQueryStats(query="funnel tracking tool", clicks=1, impressions=5000, position=25),)
+
+        recs = recommend(
+            _inputs(
+                campaigns,
+                terms,
+                organic,
+                keywords=(Keyword(text="funnel tracking tool", campaign_id=keyword_campaign),),
+            )
+        )
+
+        gap = next(rec for rec in recs if rec.rule == "keyword_gap")
+        assert gap.detectedChange == expected
 
     def test_performance_max_gets_brand_exclusion_and_rank_advice(self) -> None:
         pmax = _campaign(

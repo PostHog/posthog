@@ -32,6 +32,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     RECOMMENDATION_SOURCE_TYPES,
     Ad,
     CampaignStats,
+    Keyword,
     KeywordTracking,
     OrganicQueryStats,
     RankingPage,
@@ -189,6 +190,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         ranking_pages=ranking_pages,
                         keyword_tracking=self._keyword_tracking(source),
                         ads=tuple(self._ads(source)),
+                        keywords=tuple(self._keywords(source, organic_queries)),
                         customer_id=self._customer_id(source),
                     )
                 )
@@ -592,6 +594,23 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             if row[1]
         ]
 
+    def _keywords(
+        self, source: MarketingAnalyticsRecommendationsSource, organic_queries: tuple[OrganicQueryStats, ...]
+    ) -> list[Keyword]:
+        # Only organic queries can become a keyword gap, so the account's other keywords are not read.
+        if not organic_queries or not source.keywordTable or not self._readable(source.keywordTable):
+            return []
+        rows = self._select(
+            """
+            SELECT DISTINCT lower(trim(ad_group_criterion_keyword_text)) AS text, toString(campaign_id)
+            FROM {table}
+            WHERE toString(ad_group_criterion_status) = 'ENABLED' AND has({queries}, text)
+            """,
+            source.keywordTable,
+            queries=ast.Constant(value=sorted({query.query for query in organic_queries})),
+        )
+        return [Keyword(text=row[0], campaign_id=row[1]) for row in rows]
+
     def _ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[Ad]:
         if not source.adTable or not self._readable(source.adTable):
             return []
@@ -706,6 +725,7 @@ def _recommendation_source(source_type: str, tables: dict[str, str]) -> Marketin
             searchTermTable=tables.get("search_term_stats"),
             searchTermKeywordTable=tables.get("search_term_keyword_stats"),
             adTable=tables.get("ad"),
+            keywordTable=tables.get("keyword"),
             performanceMaxSearchTermTable=tables.get("performance_max_search_term_stats"),
             campaignConversionActionTable=tables.get("campaign_conversion_action_stats"),
             searchTermConversionActionTable=tables.get("search_term_conversion_action_stats"),
