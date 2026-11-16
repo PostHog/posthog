@@ -847,8 +847,9 @@ class _JSONNullResponse(Response):
     def __init__(self) -> None:
         super().__init__(None, headers={"Content-Type": "application/json"})
 
+    # django-stubs types rendered_content as str, but DRF's Response returns bytes from it.
     @property
-    def rendered_content(self) -> bytes:
+    def rendered_content(self) -> bytes:  # type: ignore[override]
         return b"null"
 
 
