@@ -157,15 +157,39 @@ def push_report_to_reviewers_when_first_visible(
     A pipeline report gets the stamp from `transition_to`, which always names it in `update_fields`.
     A report born visible (scout, custom agent, plan layer) carries it from creation.
     """
-    if instance.first_visible_at is None:
-        return
-    if not created and (update_fields is None or "first_visible_at" not in update_fields):
+    if not _stamps_first_visible(instance, created=created, update_fields=update_fields):
         return
     # Function-local to keep the push module's imports (Slack notifications, the Celery sender) off
     # the django.setup() path.
     from products.signals.backend.inbox_push_notifications import schedule_report_visible_push  # noqa: PLC0415
 
     schedule_report_visible_push(team_id=instance.team_id, report_id=str(instance.id))
+
+
+@receiver(post_save, sender=SignalReport)
+def mirror_report_to_linear_when_first_visible(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Queue the Linear mirror once, on the save that stamps `first_visible_at`. The task checks the setting."""
+    if not _stamps_first_visible(instance, created=created, update_fields=update_fields):
+        return
+    from products.signals.backend.tasks import mirror_report_to_linear_issue  # noqa: PLC0415
+
+    team_id, report_id = instance.team_id, str(instance.id)
+    transaction.on_commit(
+        lambda: mirror_report_to_linear_issue.delay(team_id=team_id, report_id=report_id),
+        robust=True,
+    )
+
+
+def _stamps_first_visible(instance: SignalReport, *, created: bool, update_fields: set[str] | None) -> bool:
+    if instance.first_visible_at is None:
+        return False
+    return created or (update_fields is not None and "first_visible_at" in update_fields)
 
 
 def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:

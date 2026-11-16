@@ -35,6 +35,7 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalReportMonitoringAttempt,
     SignalReportTrackerIssue,
+    SignalSourceConfig,
     SignalTeamConfig,
 )
 from products.signals.backend.serializers import SignalTeamConfigSerializer
@@ -47,6 +48,7 @@ from products.signals.backend.tracker_issues import (
     create_tracker_issue_for_report,
     issue_reference,
     link_pull_request_to_tracker_issue,
+    mirror_report_to_linear,
 )
 
 INTEGRATION_CONFIGS = {
@@ -242,6 +244,88 @@ def test_create_tracker_issue_records_the_failure_instead_of_raising(team, error
     assert tracker is not None
     assert tracker.status == SignalReportTrackerIssue.Status.FAILED
     assert tracker.failure_reason is not None and expected_reason in tracker.failure_reason
+
+
+def _mirror_to_linear(team, *, source_enabled: bool = True) -> None:
+    integration = Integration.objects.create(
+        team=team,
+        kind="linear",
+        integration_id="linear-1",
+        config=INTEGRATION_CONFIGS["linear"],
+        sensitive_config={"access_token": "token"},
+    )
+    SignalSourceConfig.objects.create(
+        team=team,
+        source_product="linear",
+        source_type="issue",
+        enabled=source_enabled,
+        config={"mirror_reports": {"integration_id": integration.id, "team_id": "team-uuid"}},
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "already_addressed", "source_enabled", "mirrored"),
+    [
+        (SignalReport.Status.READY, None, True, True),
+        (SignalReport.Status.PENDING_INPUT, False, True, True),
+        (SignalReport.Status.FAILED, None, True, False),
+        (SignalReport.Status.READY, True, True, False),
+        (SignalReport.Status.READY, None, False, False),
+    ],
+)
+def test_mirror_report_to_linear_files_researched_reports_while_the_source_is_on(
+    team, status, already_addressed, source_enabled, mirrored
+):
+    _mirror_to_linear(team, source_enabled=source_enabled)
+    report = SignalReport.objects.create(
+        team=team,
+        status=status,
+        title="Checkout fails",
+        summary="Card payments time out.",
+        signal_count=0,
+        total_weight=0.0,
+        latest_already_addressed=already_addressed,
+    )
+
+    with patch.object(LinearIntegration, "create_issue", return_value=CREATED_CONTEXTS["linear"]) as create_issue:
+        tracker = mirror_report_to_linear(team_id=team.id, report_id=str(report.id))
+
+    if not mirrored:
+        create_issue.assert_not_called()
+        assert tracker is None
+        return
+    assert tracker is not None
+    assert tracker.status == SignalReportTrackerIssue.Status.CREATED
+    assert tracker.issue_url == EXPECTED_URLS["linear"]
+    report_url, issue = create_issue.call_args.args
+    assert issue["team_id"] == "team-uuid"
+    assert issue["title"] == "Checkout fails"
+    assert "Card payments time out." in issue["description"]
+    assert report_url in issue["description"]
+
+
+@pytest.mark.django_db
+def test_report_reaching_the_inbox_is_mirrored_to_linear(team, django_capture_on_commit_callbacks):
+    _mirror_to_linear(team)
+
+    with (
+        patch.object(LinearIntegration, "create_issue", return_value=CREATED_CONTEXTS["linear"]),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        report = SignalReport.objects.create(
+            team=team,
+            status=SignalReport.Status.READY,
+            title="Checkout fails",
+            summary="Card payments time out.",
+            signal_count=0,
+            total_weight=0.0,
+            first_visible_at=timezone.now(),
+        )
+
+    tracker = SignalReportTrackerIssue.objects.for_team(team.id).get(report_id=report.id)
+    assert tracker.status == SignalReportTrackerIssue.Status.CREATED
+    assert tracker.issue_url == EXPECTED_URLS["linear"]
 
 
 def test_jira_reference_prefers_the_readable_key():

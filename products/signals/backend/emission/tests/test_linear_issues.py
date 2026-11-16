@@ -15,8 +15,16 @@ class TestLinearIssueEmitter:
         assert "Dashboard widgets fail to load" in result.description
         assert "parsing error" in result.description
 
-    @pytest.mark.parametrize("description", [None, ""])
-    def test_skips_issue_with_no_description(self, linear_issue_record, description):
+    @pytest.mark.parametrize(
+        "description",
+        [
+            None,
+            "",
+            # A tracker issue PostHog opened, such as a mirrored report, must not become a signal for its own report.
+            "Checkout fails\n\nReport: [link](https://us.posthog.com/project/1/inbox/reports/abc?link_source=tracker)",
+        ],
+    )
+    def test_skips_issue_without_a_usable_description(self, linear_issue_record, description):
         linear_issue_record["description"] = description
 
         assert linear_issue_emitter(team_id=1, record=linear_issue_record) is None

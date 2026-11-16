@@ -263,6 +263,21 @@ export function linearTeamIdsFromConfig(config: Record<string, any> | null | und
     return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
 }
 
+/** Linear source only: the Linear team that gets an issue for each report reaching the inbox. Absent or null means off. */
+export const SOURCE_LINEAR_MIRROR_REPORTS_KEY = 'mirror_reports'
+
+export interface LinearMirrorTarget {
+    integration_id: number
+    team_id: string
+}
+
+export function linearMirrorFromConfig(config: Record<string, any> | null | undefined): LinearMirrorTarget | null {
+    const raw = config?.[SOURCE_LINEAR_MIRROR_REPORTS_KEY]
+    return raw && typeof raw.integration_id === 'number' && typeof raw.team_id === 'string' && raw.team_id
+        ? { integration_id: raw.integration_id, team_id: raw.team_id }
+        : null
+}
+
 /** Product analytics source only: which firing insight alerts become signals. */
 export const SOURCE_ALERT_SCOPE_KEY = 'alert_scope'
 

@@ -14,7 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, User
+from posthog.models import Integration, Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -300,6 +300,49 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["config"] == config
         assert SignalSourceConfig.objects.get(id=response.json()["id"]).config == config
+
+    @parameterized.expand(
+        [
+            ("own_linear", "linear", True, 200),
+            ("own_github", "github", True, 400),
+            ("other_project", "linear", False, 400),
+        ]
+    )
+    def test_mirror_reports_needs_a_linear_integration_of_this_project(
+        self, _name: str, kind: str, own_project: bool, expected_status: int
+    ) -> None:
+        team = self.team if own_project else Team.objects.create(organization=self.organization, name="Other")
+        integration = Integration.objects.create(team=team, kind=kind, integration_id=f"{kind}-1", config={})
+        config = SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue")
+
+        response = self.client.patch(
+            self._url(str(config.id)),
+            {"config_set": {"mirror_reports": {"integration_id": integration.id, "team_id": " team-1 "}}},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        config.refresh_from_db()
+        expected = (
+            {"mirror_reports": {"integration_id": integration.id, "team_id": "team-1"}}
+            if expected_status == 200
+            else {}
+        )
+        assert config.config == expected
+
+    def test_stored_mirror_target_does_not_block_other_writes_after_its_integration_is_gone(self) -> None:
+        mirror = {"integration_id": 999999, "team_id": "team-1"}
+        config = SignalSourceConfig.objects.create(
+            team=self.team, source_product="linear", source_type="issue", config={"mirror_reports": mirror}
+        )
+
+        response = self.client.patch(
+            self._url(str(config.id)), {"config_set": {"steering": "Skip chores"}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.config == {"mirror_reports": mirror, "steering": "Skip chores"}
 
     # --- List ---
 
@@ -795,6 +838,25 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
         assert serializer.is_valid() is expected_valid, serializer.errors
         if not expected_valid:
             assert "linear_team_ids" in str(serializer.errors["config"])
+
+    @parameterized.expand(
+        [
+            ("null_turns_it_off", "linear", None, True),
+            ("other_source", "github", None, False),
+            ("not_an_object", "linear", "team-1", False),
+            ("bool_integration_id", "linear", {"integration_id": True, "team_id": "team-1"}, False),
+            ("string_integration_id", "linear", {"integration_id": "1", "team_id": "team-1"}, False),
+            ("blank_team_id", "linear", {"integration_id": 1, "team_id": " "}, False),
+            ("over_team_id_length_cap", "linear", {"integration_id": 1, "team_id": "t" * 256}, False),
+        ]
+    )
+    def test_mirror_reports_shape(self, _name, source_product, value, expected_valid):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": source_product, "source_type": "issue", "config": {"mirror_reports": value}}
+        )
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if not expected_valid:
+            assert "mirror_reports" in str(serializer.errors["config"])
 
     def test_linear_team_ids_are_stored_stripped(self):
         serializer = SignalSourceConfigSerializer(

@@ -111,6 +111,7 @@ from products.signals.backend.tracker_issues import (
     close_tracker_issue_for_report,
     complete_monitoring_tracker_issues,
     link_pull_request_to_tracker_issue,
+    mirror_report_to_linear,
 )
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
@@ -954,6 +955,39 @@ def send_report_visible_push(team_id: int, report_id: str) -> None:
     already reached. The same holds for the pull request push below.
     """
     notify_report_visible(team_id=team_id, report_id=report_id)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.mirror_report_to_linear_issue",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def mirror_report_to_linear_issue(team_id: int, report_id: str) -> None:
+    """Open a Linear issue for a report that reached the inbox, when the team's Linear source mirrors reports.
+
+    Not retried: a failed create is stored on the report's tracker issue, where the inbox shows it.
+    """
+    tracker = mirror_report_to_linear(team_id=team_id, report_id=report_id)
+    if tracker is None:
+        return
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if team is None:
+        return
+    # The row can predate this call, for example a self-driving issue in another tracker, so the
+    # provider and status say what the report holds rather than what this call opened.
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(team.uuid),
+            event="signal_report_linear_mirror_settled",
+            properties={
+                "team_id": team.id,
+                "report_id": report_id,
+                "provider": tracker.provider,
+                "status": tracker.status,
+            },
+            groups=groups(team.organization, team),
+        )
 
 
 @shared_task(

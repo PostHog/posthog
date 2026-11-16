@@ -1432,6 +1432,12 @@ Once the pull request exists, `link_report_tracker_issues` (scheduled from the t
 
 An irreversible end closes the tracker issue: a resolve asked for through the state API, a merged pull request (closed as done), or a deleted report. A suppressed or snoozed report keeps its issue open, because both come back, and so does a failed run, because its report stays in the inbox and the work item is still real.
 
+**Mirroring reports into Linear** (`mirror_report_to_linear` in `backend/tracker_issues.py`, off by default).
+The Linear issue source can also write: its `mirror_reports` config key names a Linear integration and team.
+The save that stamps `first_visible_at` queues `mirror_report_to_linear_issue`, which opens the report's tracker issue in that team for a ready or needs-input report that is not already addressed.
+The mirror goes through the same `SignalReportTrackerIssue` claim, so a report holds one tracker issue whichever path opens it first. A later pull request links to the mirrored issue, and the close rules above apply to it.
+The Linear emitter skips any issue whose description carries a `link_source=tracker` report link, so an issue PostHog opened never comes back as a signal for its own report.
+
 **One DRI per pull request** (`backend/reviewer_pr_assignment.py`).
 
 Every self-driving pull request opens with no assignee, so it never reaches a GitHub "Assigned to me" view. `schedule_reviewer_pr_assignment` runs when a pull request first reaches a report, and assigns on a worker.

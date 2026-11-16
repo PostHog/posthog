@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
@@ -37,12 +37,14 @@ from posthog.models.integration import (
 )
 from posthog.redis import get_client
 
+from products.signals.backend.contracts import LINEAR_ISSUE_SOURCE, LINEAR_MIRROR_REPORTS_KEY
 from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.implementation_pr import close_implementation_pr_for_report
 from products.signals.backend.models import (
     SignalReport,
     SignalReportMonitoringAttempt,
     SignalReportTrackerIssue,
+    SignalSourceConfig,
     SignalTeamConfig,
 )
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
@@ -73,6 +75,9 @@ PR_BODY_MARKER = f"<!-- {PR_BODY_MARKER_PREFIX}"
 MAX_FAILURE_REASON_LENGTH = 300
 PENDING_CLAIM_TIMEOUT = timedelta(minutes=15)
 ABANDONED_CLAIM_REASON = "Tracker issue creation stopped before it returned a result. Check the tracker manually."
+# The statuses a report reaches the inbox in with research behind it. A failed research run has
+# nothing worth filing yet.
+MIRRORED_REPORT_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
 
 
 @frozen
@@ -228,22 +233,19 @@ def _claim_tracker_issue(
     return None
 
 
-def create_tracker_issue_for_report(
-    *, team_id: int, report_id: str, repository: str
+def _open_tracker_issue(
+    *,
+    team_id: int,
+    report_id: str,
+    target: TrackerIssueTarget,
+    fallback_title: str,
+    describe: Callable[[str, str], str],
 ) -> SignalReportTrackerIssue | None:
-    """Open the tracker issue for a report's upcoming pull request.
+    """Open the report's one tracker issue in ``target``, or return the row that already holds it.
 
-    The issue reads from the report itself, not from the task description the agent gets: an
-    auditor opening the issue wants the finding, not the run's instructions.
-
-    Returns the row, or ``None`` when the team wants no tracker issue. Never raises: a provider
-    failure is stored on the row so the report can show it, and the run continues either way.
+    ``describe`` builds the issue body from the report summary and the report link. Never raises.
     """
     try:
-        target = tracker_issue_target_for_team(team_id)
-        if target is None:
-            return None
-
         report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("title", "summary").first()
         if report is None:
             return None
@@ -257,8 +259,8 @@ def create_tracker_issue_for_report(
             external_context = _create_provider_issue(
                 target,
                 # A report can reach dispatch before its research run writes a title.
-                title=report.title or "PostHog self-driving change",
-                body=_issue_body(summary=report.summary or "", report_url=report_url, repository=repository),
+                title=report.title or fallback_title,
+                body=describe(report.summary or "", report_url),
                 report_url=report_url,
             )
         except Exception as error:
@@ -281,6 +283,93 @@ def create_tracker_issue_for_report(
     except Exception:
         logger.exception("signals.tracker_issue_create_unexpected_error", report_id=report_id, team_id=team_id)
         return None
+
+
+def create_tracker_issue_for_report(
+    *, team_id: int, report_id: str, repository: str
+) -> SignalReportTrackerIssue | None:
+    """Open the tracker issue for a report's upcoming pull request.
+
+    The issue reads from the report itself, not from the task description the agent gets: an
+    auditor opening the issue wants the finding, not the run's instructions.
+
+    Returns the row, or ``None`` when the team wants no tracker issue. Never raises: a provider
+    failure is stored on the row so the report can show it, and the run continues either way.
+    """
+    try:
+        target = tracker_issue_target_for_team(team_id)
+    except Exception:
+        logger.exception("signals.tracker_issue_create_unexpected_error", report_id=report_id, team_id=team_id)
+        return None
+    if target is None:
+        return None
+    return _open_tracker_issue(
+        team_id=team_id,
+        report_id=report_id,
+        target=target,
+        fallback_title="PostHog self-driving change",
+        describe=lambda summary, report_url: _issue_body(summary=summary, report_url=report_url, repository=repository),
+    )
+
+
+def linear_mirror_target_for_team(team_id: int) -> TrackerIssueTarget | None:
+    """The Linear team that mirrors this project's reports, or ``None`` when mirroring is off.
+
+    Mirroring is a setting on the Linear source, so it stops when the source is turned off.
+    """
+    source = SignalSourceConfig.objects.filter(
+        team_id=team_id,
+        source_product=LINEAR_ISSUE_SOURCE[0],
+        source_type=LINEAR_ISSUE_SOURCE[1],
+        enabled=True,
+    ).first()
+    mirror = source.config.get(LINEAR_MIRROR_REPORTS_KEY) if source and isinstance(source.config, dict) else None
+    if not isinstance(mirror, dict):
+        return None
+    integration_id, linear_team_id = mirror.get("integration_id"), mirror.get("team_id")
+    if not isinstance(integration_id, int) or not isinstance(linear_team_id, str) or not linear_team_id:
+        return None
+    integration = IntegrationManager.any.get_many(team_id, [integration_id]).get(integration_id)
+    if integration is None or integration.kind != IntegrationKind.LINEAR:
+        return None
+    return TrackerIssueTarget(integration=integration, config={"team_id": linear_team_id})
+
+
+def _mirror_issue_body(summary: str, report_url: str) -> str:
+    return (
+        f"{summary}\n\n"
+        "Mirrored from the PostHog inbox. This issue closes when the report is resolved or deleted there.\n\n"
+        f"Report: {report_url}"
+    )
+
+
+def mirror_report_to_linear(*, team_id: int, report_id: str) -> SignalReportTrackerIssue | None:
+    """Open a Linear issue for a report that just reached the inbox, when the Linear source asks for it.
+
+    The issue is the report's tracker issue, so a later self-driving pull request links to it, and
+    resolving or deleting the report closes it. A report that already has a
+    tracker issue keeps it. Never raises.
+    """
+    try:
+        target = linear_mirror_target_for_team(team_id)
+        if target is None:
+            return None
+        if (
+            not SignalReport.objects.filter(id=report_id, team_id=team_id, status__in=MIRRORED_REPORT_STATUSES)
+            .exclude(latest_already_addressed=True)
+            .exists()
+        ):
+            return None
+    except Exception:
+        logger.exception("signals.linear_mirror_unexpected_error", report_id=report_id, team_id=team_id)
+        return None
+    return _open_tracker_issue(
+        team_id=team_id,
+        report_id=report_id,
+        target=target,
+        fallback_title="PostHog inbox report",
+        describe=_mirror_issue_body,
+    )
 
 
 def issue_reference(tracker: SignalReportTrackerIssue) -> str | None:

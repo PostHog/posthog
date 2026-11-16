@@ -19,7 +19,7 @@ from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationKind, IntegrationRecord
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationRecord
 from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team, User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
@@ -41,7 +41,10 @@ from products.signals.backend.contracts import (
     HOGQL_FILTER_KEY,
     ISSUE_FILTER_SOURCES,
     ISSUE_FILTERS_KEY,
+    LINEAR_ISSUE_SOURCE,
+    LINEAR_MIRROR_REPORTS_KEY,
     SCOPE_CONFIG_KEYS,
+    SCOPE_ID_MAX_LENGTH,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
     AlertScope,
@@ -244,6 +247,13 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
     "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
     "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
+    'It also reads `mirror_reports`: an object `{"integration_id": <Linear integration id>, '
+    '"team_id": <Linear team id>}` that opens a Linear issue in that team for each report that '
+    "reaches the inbox with research done (ready or needs input), with the report's title, summary, "
+    "and a link back. That issue becomes the report's tracker issue: a self-driving pull request links "
+    "to it, and resolving or deleting the report closes it. Set it to null or remove it to stop mirroring. It "
+    "applies only while the Linear source is on, to reports that become visible after it is set. "
+    "Linear issues that PostHog opened are never read back as signals. "
     "The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object "
     "with a `properties` list of event property filters, the same shape error tracking alert "
     "filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, "
@@ -431,6 +441,10 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 # Stored stripped: emission matches these ids exactly, so a pasted id with a
                 # stray space would select a scope and then read nothing.
                 config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
+        if config is not None and LINEAR_MIRROR_REPORTS_KEY in config:
+            config[LINEAR_MIRROR_REPORTS_KEY] = self._linear_mirror_target(
+                source_product, source_type, config[LINEAR_MIRROR_REPORTS_KEY]
+            )
         if config is not None and ISSUE_FILTERS_KEY in config:
             config[ISSUE_FILTERS_KEY] = self._compiled_issue_filters(
                 source_product, source_type, config[ISSUE_FILTERS_KEY]
@@ -481,6 +495,49 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         except FilterValidationError as error:
             raise serializers.ValidationError({"config": f"{HOGQL_FILTER_KEY}: {error}"})
         return saved.to_config()
+
+    def _linear_mirror_target(self, source_product: str | None, source_type: str | None, raw: object) -> dict | None:
+        if (source_product, source_type) != LINEAR_ISSUE_SOURCE:
+            raise serializers.ValidationError(
+                {"config": f"{LINEAR_MIRROR_REPORTS_KEY} is only supported on the linear issue source"}
+            )
+        if raw is None:
+            return None
+        current_config = self.instance.config if self.instance is not None else None
+        # A write of other keys merges the stored target back in. Keep it as it is, so a disconnected
+        # integration does not block saving the rest of the source.
+        if (
+            isinstance(raw, dict)
+            and isinstance(current_config, dict)
+            and raw == current_config.get(LINEAR_MIRROR_REPORTS_KEY)
+        ):
+            return raw
+        integration_id = raw.get("integration_id") if isinstance(raw, dict) else None
+        linear_team_id = raw.get("team_id") if isinstance(raw, dict) else None
+        if (
+            isinstance(integration_id, bool)
+            or not isinstance(integration_id, int)
+            or not isinstance(linear_team_id, str)
+            or not linear_team_id.strip()
+            or len(linear_team_id.strip()) > SCOPE_ID_MAX_LENGTH
+        ):
+            raise serializers.ValidationError(
+                {
+                    "config": f"{LINEAR_MIRROR_REPORTS_KEY} must be null or an object with an integer integration_id "
+                    f"and a team_id of at most {SCOPE_ID_MAX_LENGTH} characters"
+                }
+            )
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else None
+        if team is None:
+            raise serializers.ValidationError({"config": f"{LINEAR_MIRROR_REPORTS_KEY} needs a project"})
+        if integration_id not in IntegrationManager.kinds(IntegrationKind.LINEAR.value).get_many(
+            team.id, [integration_id]
+        ):
+            raise serializers.ValidationError(
+                {"config": f"{LINEAR_MIRROR_REPORTS_KEY} integration_id is not a Linear integration of this project"}
+            )
+        return {"integration_id": integration_id, "team_id": linear_team_id.strip()}
 
     def _compiled_issue_filters(self, source_product: str | None, source_type: str | None, filters: object) -> dict:
         if (source_product, source_type) not in ISSUE_FILTER_SOURCES:

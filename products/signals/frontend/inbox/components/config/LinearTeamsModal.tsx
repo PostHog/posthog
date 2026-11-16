@@ -2,7 +2,15 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useId } from 'react'
 
-import { LemonBanner, LemonButton, LemonInputSelect, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonInputSelect,
+    LemonModal,
+    LemonSkeleton,
+} from '@posthog/lemon-ui'
 
 import { useLinearTeams } from 'lib/integrations/LinearIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -49,6 +57,32 @@ function LinearTeamsSelect({
     )
 }
 
+function LinearMirrorTeamSelect({
+    integrationId,
+    disabled,
+    value,
+    onChange,
+}: {
+    integrationId: number
+    disabled?: boolean
+    value?: string | null
+    onChange?: (value: string | null) => void
+}): JSX.Element {
+    const { options, loading } = useLinearTeams(integrationId)
+    return (
+        <LemonInputSelect
+            mode="single"
+            value={value ? [value] : []}
+            onChange={(next) => onChange?.(next[0] ?? null)}
+            options={options}
+            loading={loading}
+            disabled={disabled}
+            placeholder="Select a team"
+            data-attr="select-linear-mirror-team"
+        />
+    )
+}
+
 export function LinearTeamsModal({
     config,
     enableOnSave,
@@ -70,6 +104,10 @@ export function LinearTeamsModal({
 
     const scopeError =
         typeof linearTeamsValidationErrors.scope === 'string' ? linearTeamsValidationErrors.scope : undefined
+    const mirrorError =
+        typeof linearTeamsValidationErrors.mirrorTeamId === 'string'
+            ? linearTeamsValidationErrors.mirrorTeamId
+            : undefined
 
     // A radio group disables per option, so the saving reason goes on each one.
     const scopeOptions = isLinearIssuesToggling
@@ -80,8 +118,8 @@ export function LinearTeamsModal({
         <LemonModal
             isOpen
             onClose={handleClose}
-            title="Linear teams"
-            description="Choose which Linear teams self-driving reads. It reads open issues only from those teams."
+            title="Linear"
+            description="Choose which Linear teams self-driving reads, and whether new reports open Linear issues."
             width={480}
             footer={
                 <>
@@ -97,7 +135,7 @@ export function LinearTeamsModal({
                         form={formId}
                         htmlType="submit"
                         loading={isLinearIssuesToggling}
-                        disabledReason={scopeError}
+                        disabledReason={scopeError ?? mirrorError}
                         data-attr="signal-source-linear-teams-save"
                     >
                         {enableOnSave && !config?.enabled ? 'Turn on Linear' : 'Save'}
@@ -131,6 +169,37 @@ export function LinearTeamsModal({
                                 />
                             </LemonField>
                         ) : (
+                            <LemonBanner type="warning">
+                                Couldn't find your Linear connection, so the team list isn't available. Reconnect Linear
+                                in integration settings, then try again.
+                            </LemonBanner>
+                        ))}
+                    <LemonDivider className="my-1" />
+                    <LemonField
+                        name="mirrorReports"
+                        help="Applies to reports that reach your inbox from now on. Each issue gets the report's title, summary, and a link back, and resolving or deleting the report closes it."
+                    >
+                        {({ value, onChange }) => (
+                            <LemonCheckbox
+                                checked={value}
+                                onChange={onChange}
+                                disabledReason={isLinearIssuesToggling ? 'Saving' : undefined}
+                                label="Open a Linear issue for each new report"
+                                data-attr="signal-source-linear-mirror-reports"
+                            />
+                        )}
+                    </LemonField>
+                    {linearTeams.mirrorReports &&
+                        (integrationsUnknown ? (
+                            <LemonSkeleton className="h-10" />
+                        ) : linearIntegration ? (
+                            <LemonField name="mirrorTeamId" label="Team for new issues">
+                                <LinearMirrorTeamSelect
+                                    integrationId={linearIntegration.id}
+                                    disabled={isLinearIssuesToggling}
+                                />
+                            </LemonField>
+                        ) : linearTeams.scope === 'selected' ? null : (
                             <LemonBanner type="warning">
                                 Couldn't find your Linear connection, so the team list isn't available. Reconnect Linear
                                 in integration settings, then try again.

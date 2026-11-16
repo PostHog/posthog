@@ -35,6 +35,13 @@ SCOPE_IDS_MAX_COUNT = 100
 SCOPE_ID_MAX_LENGTH = 255
 
 
+# ── Linear report mirroring ─────────────────────────────────────────────────────
+# Linear source key that opens a Linear issue for each report that reaches the inbox. Holds
+# {"integration_id": <Linear integration id>, "team_id": <Linear team id>}. Absent or null means off.
+LINEAR_MIRROR_REPORTS_KEY = "mirror_reports"
+LINEAR_ISSUE_SOURCE: tuple[str, str] = (SignalSourceProduct.LINEAR, SignalSourceType.ISSUE)
+
+
 def scope_ids_problem(value: object) -> str | None:
     """Why `value` is not a valid scope allowlist, or None when it is. The API rejects the value
     with this message; the fetcher falls back to reading everything, so a malformed row never

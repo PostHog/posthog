@@ -69,3 +69,10 @@ export const EnableFlow: Story = {
 export const TeamsPicked: Story = {
     args: { config: sourceConfig({ linear_team_ids: ['team-eng', 'team-support'] }), enableOnSave: false },
 }
+
+export const MirroringReports: Story = {
+    args: {
+        config: sourceConfig({ linear_team_ids: [], mirror_reports: { integration_id: 7, team_id: 'team-eng' } }),
+        enableOnSave: false,
+    },
+}
