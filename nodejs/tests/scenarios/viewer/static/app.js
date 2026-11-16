@@ -1830,6 +1830,177 @@ function runCharts(detail, windows, from, to) {
     return charts
 }
 
+// ---------- generator lanes ----------
+
+const INTAKE_PLAIN = { event: 'Events into capture', transactional: 'Sends through the API' }
+const FLOW_KEY = { event: 'offeredEvents', transactional: 'offeredTransactional' }
+
+// What the generator was asked to do and what it did, on the replay's clock: the ramp step, the
+// rate each intake was planned at against the rate it was offered at, and when each valve was on.
+function generatorLanes(detail, cardView, windows, from, to, onSeek) {
+    const W = 1100
+    const LABEL_W = 210
+    const LANE_H = 64
+    const ROW_H = 26
+    const VALVE_H = 36
+    const RIGHT = 56
+    const plotW = W - LABEL_W - RIGHT
+    const x = (t) => LABEL_W + ((Math.min(Math.max(t, from), to) - from) / (to - from)) * plotW
+    const steps = cardView?.steps?.length ? cardView.steps : [{ scale: 1, fromMs: 0, toMs: to - from }]
+    const intakes = ['event', 'transactional']
+        .map((intake) => ({
+            intake,
+            traffic: (cardView?.traffic ?? []).filter((t) => t.intake === intake),
+        }))
+        .filter(({ traffic }) => traffic.length > 0)
+    const applied = windows.filter((w) => w.from !== null)
+    const height = ROW_H + intakes.length * LANE_H + Math.max(applied.length, 1) * VALVE_H + 30
+    const svg = s('svg', {
+        viewBox: `0 0 ${W} ${height}`,
+        class: 'lanes',
+        role: 'img',
+        'aria-label': 'Generator lanes',
+    })
+    const label = (y, text, sub) =>
+        svg.append(
+            s('text', { x: 0, y, class: 'lane-label' }, text),
+            sub ? s('text', { x: 0, y: y + 14, class: 'lane-sub' }, sub) : null
+        )
+    let y = 0
+
+    label(y + 17, 'Ramp step')
+    for (const step of steps) {
+        const x1 = x(from + step.fromMs)
+        const x2 = x(from + step.toMs)
+        svg.append(
+            s('rect', { x: x1, y: y + 3, width: Math.max(x2 - x1 - 2, 1), height: ROW_H - 6, rx: 4, class: 'step' }),
+            x2 - x1 > 28 ? s('text', { x: x1 + 6, y: y + 17, class: 'step-label' }, `${step.scale}x`) : null
+        )
+    }
+    y += ROW_H
+
+    // The drive starts and ends inside a bucket, so an edge bucket's rate divides by the part of it
+    // the drive covered rather than reading as a ramp up or down.
+    const bucketMs = detail.series.bucketMs
+    const driveFrom = detail.drive?.startedAt ?? from
+    const driveTo = detail.drive?.endedAt ?? to
+    const covered = (at) => Math.min(at + bucketMs, driveTo) - Math.max(at, driveFrom)
+    for (const { intake, traffic } of intakes) {
+        const base = traffic.reduce((sum, t) => sum + (t.ratePerSecond ?? 0), 0)
+        const planned = steps.flatMap((step) => [
+            [from + step.fromMs, base * step.scale],
+            [from + step.toMs, base * step.scale],
+        ])
+        const actual = detail.series.flow
+            .filter((p) => covered(p.at) >= 1000)
+            .map((p) => [
+                Math.min(Math.max(p.at + bucketMs / 2, driveFrom), driveTo),
+                (p[FLOW_KEY[intake]] * 1000) / covered(p.at),
+            ])
+        const max = Math.max(...planned.map(([, v]) => v), ...actual.map(([, v]) => v), 0.1) * 1.15
+        const top = y + 6
+        const bottom = y + LANE_H - 8
+        const yOf = (v) => bottom - (v / max) * (bottom - top)
+        const pathOf = (points) =>
+            points.map(([t, v], i) => `${i ? 'L' : 'M'}${x(t).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ')
+        label(y + 22, INTAKE_PLAIN[intake], traffic.map((t) => `${t.name} ${t.ratePerSecond ?? '?'}/s`).join(', '))
+        svg.append(
+            s('line', { x1: LABEL_W, x2: LABEL_W + plotW, y1: bottom, y2: bottom, class: 'lane-base' }),
+            s('path', { d: pathOf(planned), class: 'planned' }),
+            actual.length ? s('path', { d: pathOf(actual), class: 'offered' }) : null,
+            s('text', { x: LABEL_W + plotW + 6, y: bottom, class: 'lane-max' }, `0`),
+            s('text', { x: LABEL_W + plotW + 6, y: top + 4, class: 'lane-max' }, `${fmtNumber(max / 1.15)}/s`)
+        )
+        y += LANE_H
+    }
+
+    if (applied.length === 0) {
+        label(y + 17, 'Valves')
+        svg.append(s('text', { x: LABEL_W, y: y + 17, class: 'lane-sub' }, 'No valve applied.'))
+        y += VALVE_H
+    }
+    for (const window of applied) {
+        const x1 = x(window.from)
+        const x2 = x(window.to)
+        const { state } = valveState(window)
+        label(y + 15, window.valve, plainOf(window.target))
+        // The state goes inside a wide bar, after a narrow one, or before one near the right edge.
+        const text = state.toLowerCase()
+        const textW = text.length * 6.6
+        const place =
+            x2 - x1 > textW + 12
+                ? { x: x1 + 6, 'text-anchor': 'start' }
+                : x2 + textW + 6 < W
+                  ? { x: x2 + 6, 'text-anchor': 'start' }
+                  : { x: x1 - 6, 'text-anchor': 'end' }
+        svg.append(
+            s('rect', { x: x1, y: y + 4, width: Math.max(x2 - x1, 3), height: ROW_H - 6, rx: 4, class: 'valve-bar' }),
+            s('text', { ...place, y: y + 21, class: 'valve-label' }, text)
+        )
+        y += VALVE_H
+    }
+
+    const driveEnd = detail.drive?.endedAt
+    if (driveEnd && driveEnd < to) {
+        svg.append(
+            s('rect', { x: x(driveEnd), y: 0, width: x(to) - x(driveEnd), height: y, class: 'converging' }),
+            s('line', { x1: x(driveEnd), x2: x(driveEnd), y1: 0, y2: y, class: 'drive-end' }),
+            s(
+                'text',
+                {
+                    x: x(driveEnd) + (x(to) - x(driveEnd) > 140 ? 4 : -4),
+                    y: y + 12,
+                    'text-anchor': x(to) - x(driveEnd) > 140 ? 'start' : 'end',
+                    class: 'lane-sub',
+                },
+                'drive ends'
+            )
+        )
+    }
+    const span = to - from
+    const step = [10, 30, 60, 120, 300, 600, 1800].map((v) => v * 1000).find((v) => span / v <= 8) ?? 3_600_000
+    for (let t = 0; t <= span; t += step) {
+        svg.append(s('text', { x: x(from + t), y: y + 28, class: 'lane-tick' }, `t+${fmtDuration(t)}`))
+    }
+
+    const cursorLine = s('line', { y1: 0, y2: y, class: 'lane-cursor' })
+    svg.append(cursorLine)
+    svg.addEventListener('click', (event) => {
+        const box = svg.getBoundingClientRect()
+        const px = ((event.clientX - box.left) / box.width) * W
+        if (px >= LABEL_W) {
+            onSeek(from + ((px - LABEL_W) / plotW) * (to - from))
+        }
+    })
+    const changed = cardView?.cardHash && detail.scorecard.cardHash && cardView.cardHash !== detail.scorecard.cardHash
+    return {
+        el: h(
+            'div',
+            { class: 'panel' },
+            h('h3', {}, 'What the generator applied, and when'),
+            h(
+                'div',
+                { class: 'lanes-legend' },
+                h('span', { class: 'planned-key' }, 'planned rate'),
+                h('span', { class: 'offered-key' }, 'offered rate'),
+                h('span', { class: 'muted' }, 'Click a lane to move the replay there.')
+            ),
+            changed
+                ? h(
+                      'p',
+                      { class: 'note' },
+                      'The card changed since this run, so the planned rates are the card as it is now.'
+                  )
+                : null,
+            svg
+        ),
+        cursor: (t) => {
+            cursorLine.setAttribute('x1', x(t))
+            cursorLine.setAttribute('x2', x(t))
+        },
+    }
+}
+
 async function runPage(runId, startAtSeconds = 0) {
     stopReplay()
     const [detail, all] = await Promise.all([getJson(`/api/runs/${runId}`), cards()])
@@ -1845,6 +2016,10 @@ async function runPage(runId, startAtSeconds = 0) {
     const diagram = deliveryPath()
     const charts = runCharts(detail, windows, from, to)
     const slider = h('input', { type: 'range', min: from, max: to, step: 250, value: from })
+    const lanes = generatorLanes(detail, cardView, windows, from, to, (t) => {
+        slider.value = t
+        show(Number(slider.value))
+    })
     const clock = h('span', { class: 'clock' })
     const events = h('div', { class: 'events' })
     const playButton = h('button', {}, 'Play')
@@ -1872,6 +2047,7 @@ async function runPage(runId, startAtSeconds = 0) {
         const phase = detail.drive && t > detail.drive.endedAt ? 'converging' : 'driving'
         clock.textContent = `t+${fmtDuration(t - from)} of ${fmtDuration(to - from)}, ${phase}`
         charts.forEach((chart) => chart.cursor(t))
+        lanes.cursor(t)
         events.replaceChildren(
             ...happenings
                 .filter((e) => e.at <= t)
@@ -1944,6 +2120,7 @@ async function runPage(runId, startAtSeconds = 0) {
             h('div', { class: 'replay' }, playButton, speedSelect, slider, clock),
             events
         ),
+        lanes.el,
         h('h2', {}, 'Over the run'),
         h(
             'div',

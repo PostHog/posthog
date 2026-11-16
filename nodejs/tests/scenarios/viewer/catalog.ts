@@ -3,6 +3,8 @@ import path from 'path'
 
 import { CardError, load, stepsOf } from '../cards'
 import { durationMs } from '../duration'
+import { TRAFFIC } from '../generator/traffic'
+import type { JournalEntry } from '../judge/judge'
 
 export const CARDS_DIR = path.join(__dirname, '..', 'cards')
 
@@ -32,7 +34,7 @@ export type CardView = {
     driveMs?: number
     convergeWithinMs?: number
     minOffered?: number
-    traffic?: { name: string; ratePerSecond: number | null }[]
+    traffic?: { name: string; ratePerSecond: number | null; intake: JournalEntry['kind'] | null }[]
     steps?: { scale: number; fromMs: number; toMs: number }[]
     valves?: CardValve[]
     invariants?: { name: string; gate: number | null }[]
@@ -67,7 +69,11 @@ export function cardViewOf(file: string): CardView {
         driveMs: durationMs(card.drive.for),
         convergeWithinMs: durationMs(card.convergeWithin),
         minOffered: card.drive.minOffered,
-        traffic: card.drive.traffic.map(({ name }) => ({ name, ratePerSecond: rateOf(profile.traffic, name) })),
+        traffic: card.drive.traffic.map(({ name }) => ({
+            name,
+            ratePerSecond: rateOf(profile.traffic, name),
+            intake: TRAFFIC.find((kind) => kind.name === name)?.intake ?? null,
+        })),
         steps: stepsOf(card.drive),
         valves: card.valves.map((entry) => ({
             valve: entry.valve,

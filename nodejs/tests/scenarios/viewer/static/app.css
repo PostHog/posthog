@@ -937,3 +937,104 @@ td.when {
 .run-dot:hover circle:last-child {
     r: 6;
 }
+
+.lanes {
+    display: block;
+    width: 100%;
+    cursor: crosshair;
+}
+
+.lane-label {
+    font-size: 12px;
+    font-weight: 600;
+    fill: var(--ink);
+}
+
+.lane-sub,
+.lane-tick,
+.lane-max {
+    font-size: 11px;
+    fill: var(--muted);
+}
+
+.lane-tick {
+    text-anchor: middle;
+}
+
+.lane-max {
+    text-anchor: start;
+}
+
+.lane-base {
+    stroke: var(--axis);
+}
+
+.lanes .step {
+    fill: var(--grid);
+}
+
+.step-label,
+.valve-label {
+    font-size: 11px;
+    fill: var(--ink);
+}
+
+.lanes .planned {
+    fill: none;
+    stroke: var(--muted);
+    stroke-dasharray: 4 3;
+    stroke-width: 1.5;
+}
+
+.lanes .offered {
+    fill: none;
+    stroke: var(--series-1);
+    stroke-linejoin: round;
+    stroke-width: 2;
+}
+
+.lanes .valve-bar {
+    opacity: 0.55;
+    fill: var(--series-2);
+}
+
+.lanes .converging {
+    opacity: 0.35;
+    fill: var(--grid);
+}
+
+.lanes .drive-end {
+    stroke: var(--muted);
+    stroke-dasharray: 2 3;
+}
+
+.lane-cursor {
+    stroke: var(--ink);
+    stroke-width: 1.5;
+}
+
+.planned-key::before,
+.offered-key::before {
+    display: inline-block;
+    width: 18px;
+    margin-right: 6px;
+    vertical-align: middle;
+    content: '';
+}
+
+.planned-key::before {
+    border-top: 2px dashed var(--muted);
+}
+
+.offered-key::before {
+    border-top: 2px solid var(--series-1);
+}
+
+.lanes-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--ink-2);
+}

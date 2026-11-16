@@ -269,6 +269,11 @@ describe('scenario viewer', () => {
         })
         expect(body.find(({ id }: { id: string }) => id === 'cyclotron-scale')).toMatchObject({
             runHostOnly: true,
+            traffic: [
+                { name: 'event_email', intake: 'event' },
+                { name: 'event_webhook', intake: 'event' },
+                { name: 'transactional_email', intake: 'transactional' },
+            ],
             steps: [
                 { scale: 1, fromMs: 0, toMs: 300_000 },
                 { scale: 2, fromMs: 300_000, toMs: 600_000 },

@@ -44,6 +44,7 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 | `logs/<role>.log` | Each role's log lines from this run                                               |
 | `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it |
 | `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second         |
+| `topology.json`   | The processes, consumer groups, databases and hosts the run's roles used          |
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
 
@@ -56,6 +57,8 @@ pnpm --dir nodejs exec tsx tests/scenarios/viewer/main.ts --port 8787
 ```
 
 - It reads the cards from `tests/scenarios/cards`, and the runs from the evidence directory or from `--state-dir <dir>`.
+- Its landing page is a map of the delivery path, drawn from the topology the newest run recorded, with each scenario pinned to the part it breaks.
+- The Scenarios page lists every card with its runs and what each run found. A run page also shows the load the generator planned against the load it offered, and when each valve was on.
 - A card page shows what the card breaks, its load, and the invariants and bars that judge it.
 - A run page replays the run on the delivery path, with its valve timeline, invariants, measurements and charts.
 - It lists a run once the run has written its scorecard.
