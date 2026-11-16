@@ -15,6 +15,7 @@ from posthog.scopes import (
     MIN_SCOPES_BEFORE_TRUNCATION,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
     OAUTH_SCOPES_HIDDEN,
+    OAUTH_SCOPES_SUPPORTED,
     PRIVILEGED_SCOPES,
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
     RISKY_SCOPE_WARNINGS,
@@ -24,7 +25,6 @@ from posthog.scopes import (
     effective_ceiling,
     filter_self_registered_ceiling,
     filter_to_unprivileged_scopes,
-    get_oauth_scopes_supported,
     get_scope_descriptions,
     grantable_ceiling,
     is_truncated_scope_request,
@@ -136,14 +136,14 @@ class TestScopeSets(SimpleTestCase):
         # Discovery metadata (/.well-known/oauth-authorization-server) must not
         # advertise privileged scopes (llm_gateway:*, admin-granted only) or
         # OAUTH_HIDDEN scopes — an OAuth client can't obtain them self-serve.
-        supported = set(get_oauth_scopes_supported())
+        supported = set(OAUTH_SCOPES_SUPPORTED)
         self.assertTrue(supported.isdisjoint(PRIVILEGED_SCOPES))
         self.assertTrue(supported.isdisjoint(OAUTH_SCOPES_HIDDEN))
         self.assertNotIn("llm_gateway:read", supported)
         self.assertNotIn("llm_gateway:write", supported)
 
     def test_oauth_scopes_supported_includes_always_allowed_and_unprivileged(self) -> None:
-        supported = set(get_oauth_scopes_supported())
+        supported = set(OAUTH_SCOPES_SUPPORTED)
         self.assertEqual(supported - ALWAYS_ALLOWED_SCOPES, UNPRIVILEGED_SCOPES)
 
     def test_project_secret_api_keys_exclude_user_bound_customer_task_scopes(self) -> None:
@@ -159,18 +159,18 @@ class TestScopeSets(SimpleTestCase):
             self.assertLessEqual(len(scope), 100, f"{scope} exceeds OAuthApplication.scopes CharField max_length=100")
 
 
-class TestGetOAuthScopesSupported(SimpleTestCase):
+class TestOAuthScopesSupported(SimpleTestCase):
     def test_signal_scout_internal_write_is_not_advertised(self) -> None:
         # Security invariant — the scout sandbox token carries `signal_scout_internal:write`
         # but is minted by direct DB insert (posthog/temporal/oauth.py), never via /authorize.
         # Advertising it in OAuth metadata would let any OAuth client request it via user
         # consent, a durable prompt-injection vector (scratchpad rows are read verbatim into
         # every subsequent run's prompt). It must NOT appear in the advertised scope set.
-        assert "signal_scout_internal:write" not in get_oauth_scopes_supported()
-        assert "signal_scout_internal:read" not in get_oauth_scopes_supported()
+        assert "signal_scout_internal:write" not in OAUTH_SCOPES_SUPPORTED
+        assert "signal_scout_internal:read" not in OAUTH_SCOPES_SUPPORTED
 
     def test_internal_scopes_are_not_advertised(self) -> None:
-        advertised = set(get_oauth_scopes_supported())
+        advertised = set(OAUTH_SCOPES_SUPPORTED)
         for obj in INTERNAL_API_SCOPE_OBJECTS:
             for action in ("read", "write"):
                 assert f"{obj}:{action}" not in advertised, (
@@ -183,7 +183,7 @@ class TestGetOAuthScopesSupported(SimpleTestCase):
         # metadata that omits one under-reports what the token carries. Clients such as
         # ChatGPT compare the scopes they asked for against `scopes_supported` and warn
         # the user that consent was only partly granted.
-        advertised = set(get_oauth_scopes_supported())
+        advertised = set(OAUTH_SCOPES_SUPPORTED)
         for scope in ALWAYS_ALLOWED_SCOPES:
             assert scope in advertised, (
                 f"{scope} is granted on every token via ALWAYS_ALLOWED_SCOPES but is missing from "
