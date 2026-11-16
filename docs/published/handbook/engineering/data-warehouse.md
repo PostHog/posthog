@@ -26,6 +26,10 @@ The activity has a five-minute heartbeat timeout and permits up to ten attempts.
 
 **Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.
 
+## Built-in SQL tables
+
+SQL autocomplete includes qualified table names from the visible schema alongside the existing unqualified shortcuts. Typing a namespace such as `posthog.` completes its tables, including when part of the table name is already entered. Unknown unqualified table names suggest the matching visible `posthog.*` table when one exists.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
