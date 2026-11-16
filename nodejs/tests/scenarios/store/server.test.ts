@@ -274,10 +274,13 @@ describe('run store', () => {
 
     it('treats an empty card_id as no filter', async () => {
         const [first, second] = [randomUUID(), randomUUID()]
-        await ingest({ scorecard: scorecardFixture(first, { card_id: 'first-card' }) })
-        await ingest({ scorecard: scorecardFixture(second, { card_id: 'second-card' }) })
+        const adapters = ['empty-card-filter']
+        await ingest({ scorecard: scorecardFixture(first, { card_id: 'first-card', adapters }) })
+        await ingest({ scorecard: scorecardFixture(second, { card_id: 'second-card', adapters }) })
 
-        expect(await runIdsOf(`${RUNS_PATH}?card_id=&limit=500`)).toEqual(expect.arrayContaining([first, second]))
+        expect(new Set(await runIdsOf(`${RUNS_PATH}?card_id=&adapter=empty-card-filter`))).toEqual(
+            new Set([first, second])
+        )
     })
 
     it('lists the runs of one adapter, and keeps no adapter for a run that names none', async () => {
@@ -288,6 +291,9 @@ describe('run store', () => {
         await ingest({ scorecard: scorecardFixture(none, { card_id, adapters: undefined }) })
 
         expect(await runIdsOf(`${RUNS_PATH}?card_id=${card_id}&adapter=other`)).toEqual([shared])
+        expect(new Set(await runIdsOf(`${RUNS_PATH}?card_id=${card_id}&adapter=example`))).toEqual(
+            new Set([single, shared])
+        )
         expect((await read(`${RUNS_PATH}/${none}`)).body).toMatchObject({ adapters: [] })
     })
 

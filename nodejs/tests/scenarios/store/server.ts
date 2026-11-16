@@ -145,6 +145,15 @@ async function readRun(store: RunStore, id: string, request: IncomingMessage, re
     send(response, 200, run)
 }
 
+function runIdOf(path: string): string | undefined {
+    const prefix = `${RUNS_PATH}/`
+    if (!path.startsWith(prefix)) {
+        return undefined
+    }
+    const runId = path.slice(prefix.length)
+    return runId.includes('/') ? undefined : runId
+}
+
 async function handle(store: RunStore, token: Buffer, request: IncomingMessage, response: ServerResponse) {
     const [path, query = ''] = (request.url ?? '/').split('?', 2)
     if (path === INGEST_PATH) {
@@ -153,8 +162,8 @@ async function handle(store: RunStore, token: Buffer, request: IncomingMessage, 
     if (path === RUNS_PATH) {
         return await listRuns(store, new URLSearchParams(query), request, response)
     }
-    const runId = path.startsWith(`${RUNS_PATH}/`) ? path.slice(RUNS_PATH.length + 1) : '/'
-    if (!runId.includes('/')) {
+    const runId = runIdOf(path)
+    if (runId !== undefined) {
         return await readRun(store, runId, request, response)
     }
     throw new HttpError(404, 'not found')

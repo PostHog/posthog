@@ -881,7 +881,7 @@ The store names no product: a run lists the adapters it drove, and each series n
 | `GET /api/runs`         | Whoever reaches the host                                      | Lists runs newest first, without `series` and `topology`. `?card_id=` and `?adapter=` filter, `?limit=` takes 1 to 500, default 100                            |
 | `GET /api/runs/<id>`    | Whoever reaches the host                                      | One run with its `series` and `topology`, by its id in any letter case                                                                                         |
 
-A report for a run the store already has replaces its scorecard and keeps the `series`, `topology` and `host` the new report leaves out or sends as `null`, so re-sending a scorecard never drops a series a backfill added.
+A report for a run the store already has replaces its scorecard and the columns copied from it, `adapters` included, and keeps the `series`, `topology` and `host` the new report leaves out or sends as `null`, so re-sending a scorecard never drops a series a backfill added.
 The ingest route takes scorecards of schema version 1 only.
 It accepts a gzipped body with `Content-Encoding: gzip`, and answers `413` to a body over 32 MiB, zipped or unzipped.
 
